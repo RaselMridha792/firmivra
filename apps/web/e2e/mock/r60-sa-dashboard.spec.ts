@@ -117,3 +117,9 @@ test('SA-DSH-F12: Recent Applications shows the last 30 days, and View All keeps
   await viewAll.click();
   await expect(page.getByRole('combobox', { name: 'Filter by date range' })).toHaveValue('7');
 });
+
+test('SA-DSH-F13: Platform Settings opens System Settings', async ({ page }) => {
+  await dashboard(page);
+  await page.getByRole('link', { name: 'Platform Settings' }).click();
+  await expect(page).toHaveURL(admin('/system-settings'));
+});

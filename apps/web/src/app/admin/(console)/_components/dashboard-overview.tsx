@@ -468,15 +468,15 @@ export function DashboardOverview() {
                 <span className="flex-1">View Firms</span>
                 <ChevronRight aria-hidden className="size-4" />
               </Link>
-              <button
-                type="button"
-                disabled
-                className="flex cursor-not-allowed items-center gap-3 rounded-control bg-purple-soft px-3 py-3 text-left text-sm font-medium text-purple"
+              {/* SA-DSH-F13: System Settings. */}
+              <Link
+                href="/system-settings"
+                className="flex items-center gap-3 rounded-control bg-purple-soft px-3 py-3 text-sm font-medium text-purple hover:bg-purple-soft/80"
               >
                 <Settings aria-hidden className="size-5" />
                 <span className="flex-1">Platform Settings</span>
                 <ChevronRight aria-hidden className="size-4" />
-              </button>
+              </Link>
             </div>
           </Card>
 
