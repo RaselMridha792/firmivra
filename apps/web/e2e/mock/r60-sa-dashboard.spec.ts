@@ -90,3 +90,15 @@ test('SA-DSH-F10: New users this week opens Reports Users from Monday to today',
   await page.getByRole('link', { name: 'Open New users this week' }).click();
   await expect(page).toHaveURL(admin(`/reports/users?${week}`));
 });
+
+test('SA-DSH-F11: Renewals this week opens Subscriptions filtered, with the same count', async ({
+  page,
+}) => {
+  await dashboard(page);
+  await expect(page.getByRole('link', { name: 'Open Renewals this week' })).toBeVisible();
+  const count = await rowCount(page, 'Renewals this week');
+  await page.getByRole('link', { name: 'Open Renewals this week' }).click();
+  await expect(page).toHaveURL(admin('/subscriptions?status=RENEWING_THIS_WEEK'));
+  await expect(page.getByLabel('Status', { exact: true })).toHaveValue('RENEWING_THIS_WEEK');
+  await expect(page.getByTestId('open-subscription')).toHaveCount(Math.min(count, 8));
+});

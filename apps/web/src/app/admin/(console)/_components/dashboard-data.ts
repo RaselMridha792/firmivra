@@ -14,7 +14,7 @@ import type { AdminDashboard } from '@firmivra/types';
 
 type DashboardMetric = keyof Pick<
   AdminDashboard,
-  'pendingApplications' | 'newUsersThisWeek' | 'openTickets'
+  'pendingApplications' | 'newUsersThisWeek' | 'openTickets' | 'renewalsThisWeek'
 >;
 
 /** Labels and presentation only; all displayed figures come from api.firmApplications. */
@@ -86,7 +86,13 @@ export const attentionItems: {
   },
   // SA-DSH-F10: Reports' Users view, this week.
   { label: 'New users this week', key: 'newUsersThisWeek', icon: Users, href: 'week' },
-  { label: 'Renewals this week', icon: ChartColumn },
+  // SA-DSH-F11: Subscriptions filtered to Renewing this week.
+  {
+    label: 'Renewals this week',
+    key: 'renewalsThisWeek',
+    icon: ChartColumn,
+    href: '/subscriptions?status=RENEWING_THIS_WEEK',
+  },
 ];
 
 /** SA-DSH-F10: Reports' Users view from this week's Monday to today (UTC days, as Reports). */

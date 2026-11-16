@@ -247,7 +247,8 @@ export const SUSPENDABLE: readonly SubscriptionStatus[] = [
 export const REACTIVATABLE: readonly SubscriptionStatus[] = ['SUSPENDED', 'CANCELLED', 'EXPIRED'];
 
 /** Table filters beyond the statuses, for the KPI cards. */
-export type StatusFilter = SubscriptionStatus | 'PAYING' | 'RENEWING_SOON' | 'ENDED';
+export type StatusFilter =
+  SubscriptionStatus | 'PAYING' | 'RENEWING_SOON' | 'RENEWING_THIS_WEEK' | 'ENDED';
 
 export type SuspensionKind = 'PAUSE' | 'ADMIN' | 'NONPAYMENT';
 export const SUSPENSION_LABELS: Record<SuspensionKind, string> = {
@@ -1438,6 +1439,17 @@ const renewsSoon = (row: Row, today: string) =>
   !!row.nextBillingOn &&
   row.nextBillingOn >= today &&
   row.nextBillingOn <= addDays(today, 30);
+/** SA-DSH-F11: as the API, next billing from this week's Monday to Sunday (UTC days). */
+const renewsThisWeek = (row: Row, today: string) => {
+  const monday = addDays(today, -((new Date(parseDay(today)).getUTCDay() + 6) % 7));
+  return (
+    row.autoRenew &&
+    (row.status === 'ACTIVE' || row.status === 'PAST_DUE') &&
+    !!row.nextBillingOn &&
+    row.nextBillingOn >= monday &&
+    row.nextBillingOn <= addDays(monday, 6)
+  );
+};
 const amountDue = (row: Row) =>
   row.invoices
     .filter((invoice) => invoice.status !== 'PAID')
@@ -1824,9 +1836,11 @@ export const adminSubscriptions = {
               ? PAYING.includes(row.status)
               : status === 'RENEWING_SOON'
                 ? renewsSoon(row, today)
-                : status === 'ENDED'
-                  ? row.status === 'CANCELLED' || row.status === 'CLOSED'
-                  : row.status === status)) &&
+                : status === 'RENEWING_THIS_WEEK'
+                  ? renewsThisWeek(row, today)
+                  : status === 'ENDED'
+                    ? row.status === 'CANCELLED' || row.status === 'CLOSED'
+                    : row.status === status)) &&
           row.startedOn <= period.to &&
           (!row.endedOn || row.endedOn >= period.from),
       )

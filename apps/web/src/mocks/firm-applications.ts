@@ -27,6 +27,7 @@ import {
   websiteHost,
 } from '@firmivra/types';
 import { mockDelay, mockedEmpty } from '../lib/mock';
+import { adminSubscriptions } from './admin-subscriptions';
 import { adminSupport } from './admin-support';
 import { mockBusiness } from './me';
 
@@ -971,6 +972,8 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         newUsersThisWeek: null,
         // SA-DSH-F09, F11: what the Support and Subscriptions mocks list for the same filters.
         openTickets: (await adminSupport.tickets({ statuses: ['OPEN'], pageSize: 1 })).total,
+        renewalsThisWeek: (await adminSubscriptions.subscriptions({ status: 'RENEWING_THIS_WEEK' }))
+          .total,
         monthlyRevenueCents: null,
       };
     },
