@@ -174,6 +174,21 @@ export const renewsSoon = (row: Pick<SubscriptionRow, 'nextBillingOn'>, today: s
   row.nextBillingOn >= today &&
   row.nextBillingOn <= subscriptionAddDays(today, 30);
 
+/** SA-DSH-F11: this week's Monday (a UTC day), the week of `today`. */
+export const weekStartOf = (today: string) => {
+  const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
+  return subscriptionAddDays(today, -((weekday + 6) % 7));
+};
+/** SA-DSH-F11: next billing from this week's Monday to Sunday. */
+export const renewsThisWeek = (row: Pick<SubscriptionRow, 'nextBillingOn'>, today: string) => {
+  const monday = weekStartOf(today);
+  return (
+    row.nextBillingOn !== null &&
+    row.nextBillingOn >= monday &&
+    row.nextBillingOn <= subscriptionAddDays(monday, 6)
+  );
+};
+
 export function matchesStatus(
   row: Pick<SubscriptionRow, 'status' | 'nextBillingOn'>,
   filter: SubscriptionStatusFilter | undefined,
@@ -182,6 +197,7 @@ export function matchesStatus(
   if (!filter) return true;
   if (filter === 'PAYING') return isPaying(row.status);
   if (filter === 'RENEWING_SOON') return renewsSoon(row, today);
+  if (filter === 'RENEWING_THIS_WEEK') return renewsThisWeek(row, today);
   return row.status === filter;
 }
 

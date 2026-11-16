@@ -965,7 +965,7 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         pendingApplications: rows.filter((r) => ['PENDING_REVIEW', 'IN_REVIEW'].includes(r.status))
           .length,
         activeFirms: firms.filter((f) => f.firm.status === 'ACTIVE').length,
-        // Null like the API's until R0's platform count exists.
+        // The mock has no logins to count: a dash, as an older API build.
         totalUsers: null,
         newUsersThisWeek: null,
         monthlyRevenueCents: null,

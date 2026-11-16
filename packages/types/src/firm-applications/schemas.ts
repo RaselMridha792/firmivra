@@ -777,12 +777,23 @@ export const AdminDashboard = z.object({
   pendingApplications: z.number().int().min(0),
   activeFirms: z.number().int().min(0),
   /**
-   * Staff and client logins (the staff and clients identity pools; Super Admins not counted).
-   * Nullable only for older API builds; the API always sends a number.
+   * SA-DSH-F04: active staff (ACTIVE memberships of active firms) and active client logins (ACTIVE
+   * client accounts of active firms); Super Admins never counted. Nullable only for older API
+   * builds; the API always sends a number.
    */
   totalUsers: z.number().int().min(0).nullable(),
-  /** Of those, created in the last 7 days; nullable like `totalUsers`. */
+  /**
+   * SA-DSH-F10: staff and client logins created this week, from Monday 00:00 UTC (the Reports
+   * Users view the row opens counts the same days); nullable like `totalUsers`.
+   */
   newUsersThisWeek: z.number().int().min(0).nullable(),
+  /** SA-DSH-F09: support tickets with status Open (Support, filtered to Open). */
+  openTickets: z.number().int().min(0).nullable().optional(),
+  /**
+   * SA-DSH-F11: subscriptions renewing this week, Monday to Sunday (UTC): Active or Past Due,
+   * Auto-Renew on, next billing in the week (Subscriptions' "Renewing this week").
+   */
+  renewalsThisWeek: z.number().int().min(0).nullable().optional(),
   /** In cents. 0 while Firmivra does not bill firms (Subscriptions and Billing come later). */
   monthlyRevenueCents: z.number().int().nullable(),
 });
