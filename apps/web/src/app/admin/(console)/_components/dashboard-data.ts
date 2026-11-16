@@ -28,7 +28,8 @@ export const dashboardStats = [
   {
     key: 'activeFirms',
     label: 'Active Firms',
-    href: '/firms',
+    // SA-DSH-F02: the Firms list on its Active tab.
+    href: '/firms?status=ACTIVE',
     linkLabel: 'View Firms',
     icon: Building2,
     tone: 'green',
