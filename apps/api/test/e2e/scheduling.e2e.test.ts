@@ -683,6 +683,8 @@ describe('options', () => {
     expect(o.types.find((t) => t.id === ids.typeA2)?.methods).toEqual(['VIDEO']);
     expect(o.types.map((t) => t.id)).not.toContain(ids.typeB);
     expect(o.services.map((s) => s.id)).toEqual([ids.serviceA]);
+    // Advisory A-04/A-10: each service with its kind.
+    expect(o.services[0]?.kind).toBe('ANNUAL_TAX');
     expect(o.staff.map((s) => s.userId).sort()).toEqual(
       [people.ownerA.id, people.adminA.id, people.staffA.id, people.staffA2.id].sort(),
     );

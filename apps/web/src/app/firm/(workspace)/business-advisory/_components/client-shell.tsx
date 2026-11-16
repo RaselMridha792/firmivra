@@ -34,6 +34,7 @@ import {
   errorText,
   outlined,
   quiet,
+  meetingsTab,
   scheduleMeetingHref,
 } from './ba-shared';
 
@@ -127,9 +128,11 @@ export function ClientShell({
           >
             Edit Client
           </button>
+          {/* A-10: it waits for the client, so the form always opens on them. */}
           <Link
-            href={scheduleMeetingHref(c, path)}
-            className={outlined}
+            href={scheduleMeetingHref(c, meetingsTab(advisoryClientId))}
+            aria-disabled={!c}
+            className={`${outlined} ${c ? '' : 'pointer-events-none opacity-50'}`}
             data-testid="schedule-meeting"
           >
             <CalendarDots aria-hidden weight="fill" className="size-5 text-action" /> Schedule

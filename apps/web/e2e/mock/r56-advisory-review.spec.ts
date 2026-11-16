@@ -16,7 +16,8 @@ test('B4: Schedule Meeting carries the client, the advisory engagement and the w
   await expect(link).toHaveAttribute(
     'href',
     new RegExp(
-      `^/calendar/new\\?clientId=[0-9a-f-]{36}&engagementId=[0-9a-f-]{36}&from=%2Fbusiness-advisory%2Fclients%2F${MARCUS}$`,
+      // Advisory Review 2 A-10/A-11 (R1): the advisory type's kind, and back to the Meetings tab.
+      `^/calendar/new\\?clientId=[0-9a-f-]{36}&engagementId=[0-9a-f-]{36}&serviceKind=BUSINESS_DEVELOPMENT&from=%2Fbusiness-advisory%2Fclients%2F${MARCUS}%2Fmeetings$`,
     ),
   );
 });

@@ -442,7 +442,11 @@ export const SchedulingOptions = z.object({
       methods: z.array(MeetingMethod),
     }),
   ),
-  services: z.array(NamedItem),
+  /**
+   * Advisory Review 2 A-04/A-10: each service's kind, so a workspace's Schedule Meeting can pick
+   * the type for its kind of service (Business Advisory: BUSINESS_DEVELOPMENT).
+   */
+  services: z.array(NamedItem.extend({ kind: ServiceKind })),
   staff: z.array(MemberRef),
   /** Optional until firm locations exist (Settings > Company Profile, to build). */
   offices: z.array(NamedItem).optional(),

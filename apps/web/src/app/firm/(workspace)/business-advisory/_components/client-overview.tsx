@@ -24,7 +24,6 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
@@ -44,6 +43,7 @@ import {
   outlined,
   primary,
   quiet,
+  meetingsTab,
   scheduleMeetingHref,
 } from './ba-shared';
 import { ClientShell, EditClientDialog, useAdvisoryClient } from './client-shell';
@@ -185,7 +185,6 @@ export function HealthDialog({
 /** /business-advisory/clients/[clientId]: the client's command center (design 3, Overview tab). */
 export function ClientOverview({ advisoryClientId }: { advisoryClientId: string }) {
   const q = useAdvisoryClient(advisoryClientId);
-  const path = usePathname();
   const c = q.data;
   const failed = q.isError;
   const [dialog, setDialog] = useState<'health' | 'edit'>();
@@ -561,9 +560,9 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
                 : meeting.isPending
                   ? 'Loading…'
                   : 'No upcoming meeting.'}{' '}
-              {!meeting.isError && !meeting.isPending ? (
+              {!meeting.isError && !meeting.isPending && q.data ? (
                 <Link
-                  href={scheduleMeetingHref(q.data, path)}
+                  href={scheduleMeetingHref(q.data, meetingsTab(advisoryClientId))}
                   className="font-medium text-link hover:underline"
                 >
                   Schedule one
