@@ -22,6 +22,8 @@ const people = {
   ownerA: person('owner-a'),
   staffA: person('staff-a'),
   staff2A: person('staff2-a'),
+  // R2 17b: a member who becomes unavailable after the rules are saved.
+  awayA: person('away-a'),
   ownerB: person('owner-b'),
 };
 const ids = { firmA: '', firmB: '', tax: '', books: '', serviceB: '' };
@@ -94,6 +96,7 @@ beforeAll(async () => {
       [people.ownerA, 'OWNER'],
       [people.staffA, 'STAFF'],
       [people.staff2A, 'STAFF'],
+      [people.awayA, 'STAFF'],
     ] as const) {
       await tx.membership.create({
         data: { businessId: ids.firmA, userId: p.id, role, status: 'ACTIVE' },
@@ -238,6 +241,92 @@ describe('Leads R2 17: routing', () => {
     );
     await owner.$disconnect();
     expect(audit).toHaveLength(3);
+  });
+
+  it('R2 17a: a rule\'s assignment shows in the lead\'s activity as "Assigned by rule: <name>"; a lead no rule matches has none', async () => {
+    const saved = routing(
+      await call('put', '/lead-routing', people.ownerA, {
+        enabled: true,
+        fallbackUserId: people.staff2A.id,
+        rules: [{ name: 'Referral desk', sources: ['REFERRAL'], assigneeUserId: people.staffA.id }],
+      }),
+    );
+    const rule = saved.rules[0]!;
+    const activityOf = async (id: string) => {
+      const res = await call('get', `/leads/${id}/activity`, people.ownerA);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      return (res.body as { items: { kind: string; label: string; by: unknown }[] }).items;
+    };
+    const routed = await newLead();
+    expect(routed.assignedByRule?.name).toBe('Referral desk');
+    const items = await activityOf(routed.id);
+    const assigned = items.filter((a) => a.kind === 'ASSIGNED');
+    // One line for the change, by its rule, from the system (the trigger's plain row is replaced).
+    expect(assigned).toEqual([
+      expect.objectContaining({ label: 'Assigned by rule: Referral desk', by: null }),
+    ]);
+    expect(routed.recentActivity.map((a) => a.label)).toContain('Assigned by rule: Referral desk');
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const rows = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+      tx.leadActivity.findMany({
+        where: { businessId: ids.firmA, leadId: routed.id, kind: 'ASSIGNED' },
+      }),
+    );
+    await owner.$disconnect();
+    // The trigger's row and the rule's row, written at the same moment by the same change.
+    expect(rows).toHaveLength(2);
+    const byRule = rows.find((r) => (r.metadata as { ruleId?: string }).ruleId);
+    const trigger = rows.find((r) => r !== byRule);
+    expect(byRule?.metadata).toEqual({
+      assigned: true,
+      ruleId: rule.id,
+      ruleName: 'Referral desk',
+      replaces: trigger?.id,
+    });
+    expect(trigger?.metadata).toEqual({ assigned: true });
+    expect(byRule?.occurredAt).toEqual(trigger?.occurredAt);
+
+    // No rule matches: the fallback takes it, and no activity names a rule.
+    const unmatched = await newLead({ source: 'OTHER' });
+    expect(unmatched.assignedTo?.userId).toBe(people.staff2A.id);
+    expect(unmatched.assignedByRule ?? null).toBeNull();
+    const plain = await activityOf(unmatched.id);
+    expect(plain.filter((a) => a.label.startsWith('Assigned by rule'))).toEqual([]);
+    expect(plain.filter((a) => a.kind === 'ASSIGNED').map((a) => a.label)).toEqual([
+      'Lead assigned',
+    ]);
+  });
+
+  it('R2 17b: an unavailable assignee is skipped for the next matching rule, and an unavailable fallback leaves the lead unassigned', async () => {
+    const saved = routing(
+      await call('put', '/lead-routing', people.ownerA, {
+        enabled: true,
+        fallbackUserId: people.awayA.id,
+        rules: [
+          { name: 'Walk-in desk', sources: ['WALK_IN'], assigneeUserId: people.awayA.id },
+          { name: 'Walk-in backup', sources: ['WALK_IN'], assigneeUserId: people.staffA.id },
+        ],
+      }),
+    );
+    expect(saved.fallback?.userId).toBe(people.awayA.id);
+    // While available, the first rule and the fallback take their leads.
+    expect((await newLead({ source: 'WALK_IN' })).assignedByRule?.name).toBe('Walk-in desk');
+    expect((await newLead({ source: 'EVENT' })).assignedTo?.userId).toBe(people.awayA.id);
+    // The member leaves the firm (deactivated); the rules stay as saved.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+      tx.membership.updateMany({
+        where: { businessId: ids.firmA, userId: people.awayA.id },
+        data: { status: 'DEACTIVATED' },
+      }),
+    );
+    await owner.$disconnect();
+    const walkIn = await newLead({ source: 'WALK_IN' });
+    expect(walkIn.assignedTo?.userId).toBe(people.staffA.id);
+    expect(walkIn.assignedByRule?.name).toBe('Walk-in backup');
+    const unmatched = await newLead({ source: 'EVENT' });
+    expect(unmatched.assignedTo).toBeNull();
+    expect(unmatched.assignedByRule ?? null).toBeNull();
   });
 
   it("firm B's owner sees and changes none of firm A's routing", async () => {

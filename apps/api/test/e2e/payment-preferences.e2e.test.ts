@@ -75,9 +75,10 @@ describe('payment preferences (IP-F13)', () => {
       },
       reminders: {
         sendReminders: false,
-        reminderDaysBefore: 3,
+        reminderDaysBeforeList: [3],
         notifyOverdue: false,
         overdueReminderDays: 7,
+        overdueReminderMax: 3,
         autoReceipts: false,
         autoApplyPayments: false,
         retryAttempts: 0,
@@ -154,6 +155,44 @@ describe('payment preferences (IP-F13)', () => {
     );
     expect(reset.reminders.autoReceipts).toBe(false);
     expect(reset.invoiceDefaults.invoicePrefix).toBe('INV-');
+  });
+
+  it('I-N04: reminds on several days before the due date and stops overdue notices at a cap', async () => {
+    const start = prefs(await call('get', '', fx.users.ownerA));
+    const send = (reminders: object, updatedAt = start.updatedAt) =>
+      call('patch', '', fx.users.ownerA, {
+        ...start,
+        reminders: { ...start.reminders, ...reminders },
+        updatedAt,
+      });
+    for (const bad of [
+      { reminderDaysBeforeList: [] },
+      { reminderDaysBeforeList: [7, 7] },
+      { reminderDaysBeforeList: [1, 2, 3, 4, 5, 6] },
+      { reminderDaysBeforeList: [61] },
+      { overdueReminderMax: 0 },
+      { overdueReminderMax: 13 },
+      { reminderDaysBefore: 3 },
+    ]) {
+      expect(code(await send(bad)), JSON.stringify(bad)).toBe('VALIDATION_FAILED');
+    }
+    const saved = prefs(
+      await send({ reminderDaysBeforeList: [1, 7, 0], overdueReminderMax: 4, sendReminders: true }),
+    );
+    expect(saved.reminders).toMatchObject({
+      reminderDaysBeforeList: [7, 1, 0],
+      overdueReminderMax: 4,
+    });
+    // The older single column keeps the earliest day.
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const row = await runInScope(db, { kind: 'business', businessId: fx.firmA.id }, (tx) =>
+      tx.paymentSettings.findUniqueOrThrow({
+        where: { businessId: fx.firmA.id },
+        select: { reminderDaysBefore: true },
+      }),
+    );
+    await db.$disconnect();
+    expect(row.reminderDaysBefore).toBe(7);
   });
 
   it("keeps the firm's own terms beside the standard ones, offered as the default", async () => {

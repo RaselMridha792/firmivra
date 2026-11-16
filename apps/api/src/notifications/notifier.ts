@@ -7,6 +7,7 @@ import {
   notificationLink,
 } from '@firmivra/types';
 import { firmTimeZone } from '../appointments/calendar-data.js';
+import { minutesOf, timeOfDayFromDb, zonedInstant } from '../appointments/calendar.js';
 import { noticeWords } from '../appointments/notice-words.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -93,6 +94,8 @@ export const CHOSEN_RECIPIENT_EVENTS: ReadonlySet<NotificationEvent> = new Set<N
   'automation.notice',
   // Tax Planning Review 2: a project deadline's owner and the coworkers it is shared with.
   'project-deadline.reminder',
+  // Tasks T-D12: a task's assignees.
+  'task.reminder',
 ]);
 
 /**
@@ -101,6 +104,7 @@ export const CHOSEN_RECIPIENT_EVENTS: ReadonlySet<NotificationEvent> = new Set<N
  */
 export const STAFF_EMAIL_EVENTS: ReadonlySet<NotificationEvent> = new Set<NotificationEvent>([
   'project-deadline.reminder',
+  'task.reminder',
 ]);
 
 /** A programming error in the call (unknown event, bad id, a side the event never reaches). */
@@ -241,9 +245,9 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
   invoice: async (tx, businessId, id) => {
     const r = await tx.invoice.findFirst({
       where: { businessId, id },
-      select: { clientId: true, number: true },
+      select: { clientId: true, number: true, dueOn: true },
     });
-    return r && { clientId: r.clientId, values: { number: short(r.number) } };
+    return r && { clientId: r.clientId, values: { number: short(r.number), dueOn: day(r.dueOn) } };
   },
   // A sign-up waiting: the firm's sign-ups page, no client record yet.
   client_account: async (tx, businessId, id) => {
@@ -287,6 +291,33 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
       }
     );
   },
+  // Tasks T-D12: a task still to do (OPEN, not archived). Who it reaches is the caller's choice
+  // (its assignees), and the text names the task, never the client.
+  task: async (tx, businessId, id) => {
+    const t = await tx.task.findFirst({
+      where: { businessId, id, status: 'OPEN', archivedAt: null },
+      select: { title: true, dueOn: true, dueTime: true, allDay: true },
+    });
+    if (!t) return null;
+    const timeZone = await firmTimeZone(tx, businessId);
+    const dueOn = day(t.dueOn);
+    const timed = dueOn && t.dueTime && !t.allDay;
+    return {
+      clientId: null,
+      values: {
+        title: short(t.title),
+        dueOn,
+        ...(timed
+          ? {
+              dueAt: new Date(
+                zonedInstant(timeZone, dueOn, minutesOf(timeOfDayFromDb(t.dueTime!))),
+              ).toISOString(),
+            }
+          : {}),
+        timeZone,
+      },
+    };
+  },
   // The person's own account: reaches only them, and only if they have a place in this firm.
   user: (_tx, _businessId, id) =>
     Promise.resolve({ clientId: null, values: {}, personUserId: id.toLowerCase() }),
@@ -315,8 +346,12 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   // Appointments A3 (R55).
   'appointment.waitlist-offer',
   'project-deadline.reminder',
+  'task.reminder',
   'invoice.sent',
   'payment.received',
+  // Invoices Review 2 (I-C02, I-N04): the reminders before the due date and the overdue notices.
+  'invoice.reminder',
+  'invoice.overdue',
   // Intake Forms Review Two 19b: a form sent by Email (the sender passes `email: false` otherwise).
   'intake.sent',
   // Its first and final reminders, the same way.
@@ -381,6 +416,18 @@ async function stillLive(
       (typeof payload.startsAt !== 'string' || a.startsAt.toISOString() === payload.startsAt)
     );
   }
+  // I-C02, I-N04: still open (not paid or canceled) and still due when the copy says.
+  if (event === 'invoice.reminder' || event === 'invoice.overdue') {
+    const i = await db.invoice.findFirst({
+      where: { businessId, id },
+      select: { status: true, dueOn: true },
+    });
+    return (
+      !!i &&
+      i.status === 'OPEN' &&
+      (typeof payload.dueOn !== 'string' || day(i.dueOn) === payload.dueOn)
+    );
+  }
   if (event === 'invoice.sent' || event === 'payment.received') {
     const i = await db.invoice.findFirst({ where: { businessId, id }, select: { status: true } });
     return !!i && (event === 'payment.received' || i.status !== 'CANCELED');
@@ -396,6 +443,17 @@ async function stillLive(
       !!d &&
       d.dueAt.getTime() > Date.now() - 60 * 60_000 &&
       (typeof payload.dueAt !== 'string' || d.dueAt.toISOString() === payload.dueAt)
+    );
+  }
+  // Tasks T-D12: a task still to do, still due when the copy says.
+  if (event === 'task.reminder') {
+    const t = await db.task.findFirst({
+      where: { businessId, id, status: 'OPEN', archivedAt: null },
+      select: { dueOn: true },
+    });
+    return (
+      !!t &&
+      (typeof payload.dueOn !== 'string' || t.dueOn?.toISOString().slice(0, 10) === payload.dueOn)
     );
   }
   if (event === 'intake.sent' || event === 'intake.reminder') {
@@ -977,79 +1035,99 @@ export class Notifier {
       const v = target.values;
       const str = (key: string) => (typeof v[key] === 'string' ? v[key] : '');
       const data =
-        template === 'project-deadline.reminder'
+        template === 'task.reminder'
           ? {
               name: recipient.name,
               title: str('title'),
-              dueAt: new Date(str('dueAt')),
+              dueOn: str('dueOn'),
+              ...(str('dueAt') ? { dueAt: new Date(str('dueAt')) } : {}),
               timeZone: str('timeZone'),
               link,
             }
-          : template === 'appointment.waitlist-offer'
+          : template === 'project-deadline.reminder'
             ? {
                 name: recipient.name,
+                title: str('title'),
+                dueAt: new Date(str('dueAt')),
+                timeZone: str('timeZone'),
                 link,
-                // The open offer, read when the email is sent: its times only.
-                ...(await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-                  const e = await tx.appointmentWaitlistEntry.findFirst({
-                    where: { businessId, appointmentId: target.id, status: 'OFFERED' },
-                    select: {
-                      offeredStartsAt: true,
-                      offerExpiresAt: true,
-                      appointment: { select: { startsAt: true } },
-                    },
-                  });
-                  if (!e?.offeredStartsAt || !e.offerExpiresAt) throw new Error('offer ended');
-                  return {
-                    offeredStartsAt: e.offeredStartsAt,
-                    startsAt: e.appointment.startsAt,
-                    expiresAt: e.offerExpiresAt,
-                    timeZone: await firmTimeZone(tx, businessId),
-                  };
-                })),
               }
-            : template === 'appointment.cancelled'
+            : template === 'appointment.waitlist-offer'
               ? {
                   name: recipient.name,
-                  title: str('title'),
-                  startsAt: new Date(str('startsAt')),
-                  timeZone: str('timeZone'),
                   link,
-                  // Read when the email is sent, never kept in the outbox.
-                  reason: await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                    tx.appointment
-                      .findFirst({
-                        where: { businessId, id: target.id },
-                        select: { cancelReason: true },
-                      })
-                      .then((a) => a?.cancelReason ?? null),
-                  ),
-                }
-              : template === 'document.requested'
-                ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
-                : template === 'intake.sent' || template === 'intake.reminder'
-                  ? {
-                      name: recipient.name,
-                      link,
-                      ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                        intakeWords(tx, businessId, target.id),
-                      )),
-                    }
-                  : template === 'invoice.sent' || template === 'payment.received'
-                    ? { name: recipient.name, invoiceNumber: str('number'), link }
-                    : {
-                        name: recipient.name,
-                        title: str('title'),
-                        startsAt: new Date(str('startsAt')),
-                        timeZone: str('timeZone'),
-                        link,
-                        // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
-                        ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                          noticeWords(tx, businessId, target.id, template),
-                        )),
-                        // A1: only the appointment's own client confirms it.
-                        ...(recipient.attendee ? { confirmAsk: false } : {}),
+                  // The open offer, read when the email is sent: its times only.
+                  ...(await this.database.withScope(
+                    { kind: 'business', businessId },
+                    async (tx) => {
+                      const e = await tx.appointmentWaitlistEntry.findFirst({
+                        where: { businessId, appointmentId: target.id, status: 'OFFERED' },
+                        select: {
+                          offeredStartsAt: true,
+                          offerExpiresAt: true,
+                          appointment: { select: { startsAt: true } },
+                        },
+                      });
+                      if (!e?.offeredStartsAt || !e.offerExpiresAt) throw new Error('offer ended');
+                      return {
+                        offeredStartsAt: e.offeredStartsAt,
+                        startsAt: e.appointment.startsAt,
+                        expiresAt: e.offerExpiresAt,
+                        timeZone: await firmTimeZone(tx, businessId),
                       };
+                    },
+                  )),
+                }
+              : template === 'appointment.cancelled'
+                ? {
+                    name: recipient.name,
+                    title: str('title'),
+                    startsAt: new Date(str('startsAt')),
+                    timeZone: str('timeZone'),
+                    link,
+                    // Read when the email is sent, never kept in the outbox.
+                    reason: await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+                      tx.appointment
+                        .findFirst({
+                          where: { businessId, id: target.id },
+                          select: { cancelReason: true },
+                        })
+                        .then((a) => a?.cancelReason ?? null),
+                    ),
+                  }
+                : template === 'document.requested'
+                  ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
+                  : template === 'intake.sent' || template === 'intake.reminder'
+                    ? {
+                        name: recipient.name,
+                        link,
+                        ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+                          intakeWords(tx, businessId, target.id),
+                        )),
+                      }
+                    : template === 'invoice.sent' || template === 'payment.received'
+                      ? { name: recipient.name, invoiceNumber: str('number'), link }
+                      : template === 'invoice.reminder' || template === 'invoice.overdue'
+                        ? {
+                            name: recipient.name,
+                            invoiceNumber: str('number'),
+                            dueOn: str('dueOn'),
+                            link,
+                          }
+                        : {
+                            name: recipient.name,
+                            title: str('title'),
+                            startsAt: new Date(str('startsAt')),
+                            timeZone: str('timeZone'),
+                            link,
+                            // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
+                            ...(await this.database.withScope(
+                              { kind: 'business', businessId },
+                              (tx) => noticeWords(tx, businessId, target.id, template),
+                            )),
+                            // A1: only the appointment's own client confirms it.
+                            ...(recipient.attendee ? { confirmAsk: false } : {}),
+                          };
       await this.sender.send({
         template,
         to: recipient.email!,

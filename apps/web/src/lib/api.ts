@@ -367,7 +367,10 @@ export const api = {
   /** Begin Online leads (R11): the firm's inbox, convert and decline. */
   leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
   /** Leads page and Lead Profile (R43 contract): pipeline, follow-ups, activity, convert to client. */
-  leadPipeline: leadPipelineMock ?? createLeadPipelineClient(request),
+  // Leads R2 7: in mock mode, `fv-mock-fail` can fail its calls (lib/mock.ts `failable`).
+  leadPipeline: leadPipelineMock
+    ? failable('leadPipeline', leadPipelineMock)
+    : createLeadPipelineClient(request),
   /** Lead follow-up sequences (R55, Leads R2 19): templates, and applying one to a lead. */
   leadSequences:
     dev && mocked('leadSequences') && leadPipelineMock

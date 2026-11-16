@@ -2,6 +2,7 @@
 
 import { DUE_SOON_DAYS, type InvoiceListItem } from '@firmivra/types';
 import { Badge } from '@firmivra/ui';
+import { Clock, type Icon, PaperPlaneTilt, Prohibit } from '@phosphor-icons/react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 
@@ -77,19 +78,31 @@ export const VIEW_ORDER: InvoiceView[] = [
   'OVERDUE',
   'CANCELED',
 ];
-const VIEW_TONE: Record<InvoiceView, 'success' | 'info' | 'warning' | 'danger' | 'neutral'> = {
+/**
+ * Invoices Review 2 I-N07: each pair she found alike reads apart, by colour or icon: Overdue
+ * (red) and Canceled (grey, crossed out); Due Today (amber) and Partially Paid (purple);
+ * Scheduled (clock) and Sent (paper plane). Draft and Not Sent may share, as she accepted.
+ */
+const VIEW_TONE: Record<
+  InvoiceView,
+  'success' | 'info' | 'warning' | 'danger' | 'neutral' | 'purple'
+> = {
   DRAFT: 'neutral',
   SCHEDULED: 'info',
   OPEN: 'neutral',
   SENT: 'info',
-  PARTIALLY_PAID: 'warning',
+  PARTIALLY_PAID: 'purple',
   DUE_SOON: 'warning',
   DUE_TOMORROW: 'warning',
   DUE_TODAY: 'warning',
   OVERDUE: 'danger',
   PAID: 'success',
-  // IP-F08: Canceled reads apart from Draft (red, with its own word).
-  CANCELED: 'danger',
+  CANCELED: 'neutral',
+};
+const VIEW_ICON: Partial<Record<InvoiceView, Icon>> = {
+  SCHEDULED: Clock,
+  SENT: PaperPlaneTilt,
+  CANCELED: Prohibit,
 };
 /** The donut's colour for each view (the design: green paid, red overdue, amber due soon). */
 export const VIEW_CHART: Record<
@@ -152,8 +165,14 @@ export function ViewPill({ invoice }: { invoice: InvoiceListItem }) {
   const sentToo = invoice.sentAt !== null && v !== 'SENT' && v !== 'PAID';
   return (
     <span className="inline-flex flex-wrap items-center gap-1 whitespace-nowrap">
-      <Badge tone={VIEW_TONE[v]}>{VIEW_LABEL[v]}</Badge>
-      {sentToo ? <Badge tone="info">Sent</Badge> : null}
+      <Badge tone={VIEW_TONE[v]} {...(VIEW_ICON[v] ? { icon: VIEW_ICON[v] } : {})}>
+        {VIEW_LABEL[v]}
+      </Badge>
+      {sentToo ? (
+        <Badge tone="info" icon={PaperPlaneTilt}>
+          Sent
+        </Badge>
+      ) : null}
     </span>
   );
 }

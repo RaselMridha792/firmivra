@@ -178,6 +178,19 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'New invoice',
     body: text(p, 'number') ? `Invoice ${text(p, 'number')}` : 'You have a new invoice.',
   }),
+  // I-C02, I-N04: the invoice's number and its due date, never an amount.
+  'invoice.reminder': (p) => ({
+    title: 'Invoice reminder',
+    body: withDue(p, text(p, 'number') ? `Invoice ${text(p, 'number')}` : 'An invoice'),
+  }),
+  'invoice.overdue': (p) => {
+    const invoice = text(p, 'number') ? `Invoice ${text(p, 'number')}` : 'An invoice';
+    const due = calendarDay(text(p, 'dueOn'));
+    return {
+      title: 'Invoice overdue',
+      body: due ? `${invoice} was due ${due}.` : `${invoice} is overdue.`,
+    };
+  },
   'payment.received': (p, side) => {
     const invoice = text(p, 'number') ? `invoice ${text(p, 'number')}` : 'an invoice';
     return {
@@ -201,6 +214,12 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'Automation notice',
     body: forClient(p, text(p, 'title') ?? 'A rule ran.'),
   }),
+  // Tasks T-D12: the task's title and when it is due (its time, when it has one).
+  'task.reminder': (p) => {
+    const at = dateTime(text(p, 'dueAt'), text(p, 'timeZone'));
+    const title = text(p, 'title') ?? 'A task';
+    return { title: 'Task reminder', body: at ? `${title}, due ${at}` : withDue(p, 'A task') };
+  },
   // Tax Planning Review 2 (Project Deadlines): the deadline's name and when it is due.
   'project-deadline.reminder': (p) => {
     const title = text(p, 'title') ?? 'A project deadline';

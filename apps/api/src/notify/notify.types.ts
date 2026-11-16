@@ -210,6 +210,22 @@ export interface NotifyTemplates {
     link: string;
   };
 
+  // ----- Tasks (R60, Tasks T-D12) -----
+  /** To a member: a task assigned to them is coming due. */
+  'task.reminder': IgnoredFirmName & {
+    name: string;
+    /** The task's title: the firm's own words. */
+    title: string;
+    /** The due date (YYYY-MM-DD). */
+    dueOn: string;
+    /** The due date and time, when the task has a time. */
+    dueAt?: Date;
+    /** The firm's time zone (IANA). */
+    timeZone: string;
+    /** The task on the firm's app site. */
+    link: string;
+  };
+
   // ----- Tax Planning (R56, Tax Planning Review 2: Project Deadlines) -----
   /** To a member: a project deadline (their own or shared with them) is coming up. */
   'project-deadline.reminder': IgnoredFirmName & {
@@ -225,6 +241,22 @@ export interface NotifyTemplates {
 
   // ----- Invoices (R7; no amounts in messages) -----
   'invoice.sent': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
+  /** I-C02, I-N04: an open invoice is coming due; the portal link to see and pay it. */
+  'invoice.reminder': IgnoredFirmName & {
+    name: string;
+    invoiceNumber: string;
+    /** YYYY-MM-DD. */
+    dueOn: string;
+    link: string;
+  };
+  /** I-C02, I-N04: an unpaid invoice is overdue; the portal link to see and pay it. */
+  'invoice.overdue': IgnoredFirmName & {
+    name: string;
+    invoiceNumber: string;
+    /** YYYY-MM-DD. */
+    dueOn: string;
+    link: string;
+  };
   'payment.received': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
 
   // ----- Firm Sign (R13): titles, names, dates, links and the sender's own note on a request;
@@ -333,7 +365,10 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.cancelled': 'email',
   'appointment.waitlist-offer': 'email',
   'project-deadline.reminder': 'email',
+  'task.reminder': 'email',
   'invoice.sent': 'email',
+  'invoice.reminder': 'email',
+  'invoice.overdue': 'email',
   'payment.received': 'email',
   'esign.request': 'email',
   'esign.code': 'email',
@@ -389,7 +424,10 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.cancelled': 'firm',
   'appointment.waitlist-offer': 'firm',
   'project-deadline.reminder': 'firm',
+  'task.reminder': 'firm',
   'invoice.sent': 'firm',
+  'invoice.reminder': 'firm',
+  'invoice.overdue': 'firm',
   'payment.received': 'firm',
   'esign.request': 'firm',
   'esign.code': 'firm',
@@ -481,7 +519,10 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.cancelled': 'APPOINTMENTS',
   'appointment.waitlist-offer': 'APPOINTMENTS',
   'project-deadline.reminder': 'SERVICES',
+  'task.reminder': 'SERVICES',
   'invoice.sent': 'BILLING',
+  'invoice.reminder': 'BILLING',
+  'invoice.overdue': 'BILLING',
   'payment.received': 'BILLING',
   // No e-sign category yet: Firm Sign notices are document notices, except the always-sent ones.
   'esign.request': 'ACCOUNT',

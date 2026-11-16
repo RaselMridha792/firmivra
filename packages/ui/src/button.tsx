@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes } from 'react';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'outline' | 'dark';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'outline' | 'danger' | 'dark';
 
 const variants: Record<ButtonVariant, string> = {
   primary:
@@ -11,6 +11,9 @@ const variants: Record<ButtonVariant, string> = {
   /** "Create an Account" on the portal landing page. */
   outline:
     'border border-action bg-surface text-action hover:bg-accent-soft disabled:border-border disabled:text-muted disabled:hover:bg-surface',
+  /** A destructive action that is not the main one (Discard Draft). */
+  danger:
+    'border border-danger bg-surface text-danger hover:bg-danger-soft disabled:border-border disabled:text-muted disabled:hover:bg-surface',
   /** The navy buttons in Begin Online. */
   dark: 'bg-navigation text-on-action hover:bg-navigation-hover disabled:bg-disabled disabled:text-disabled-text disabled:hover:bg-disabled',
 };

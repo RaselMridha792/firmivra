@@ -486,6 +486,29 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ),
 
   // Tax Planning Review 2 (Project Deadlines): a member's reminder, never the description.
+  // Tasks T-D12: a task assigned to the member is coming due (its title and due date only).
+  'task.reminder': (d, b, o) => ({
+    channel: 'email',
+    subject: `Reminder: ${required(d, 'title')} is due soon`,
+    blocks: [
+      hello(d),
+      text(`This is a reminder of a task at ${b.name}.`),
+      {
+        kind: 'facts',
+        rows: [
+          ['Task', required(d, 'title')],
+          [
+            'Due',
+            d.dueAt
+              ? dateTime(d, 'dueAt', required(d, 'timeZone'))
+              : calendarDate(required(d, 'dueOn')),
+          ],
+        ],
+      },
+      button('Open the task', link(d, 'link', o)),
+    ],
+  }),
+
   'project-deadline.reminder': (d, b, o) => ({
     channel: 'email',
     subject: `Reminder: ${required(d, 'title')} is due soon`,
@@ -566,6 +589,36 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
           `${firm} sent you invoice ${required(d, 'invoiceNumber')}. Sign in to the client portal to see and pay it.`,
         ),
         button('View invoice', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  // I-C02, I-N04: the invoice's number and due date, never an amount; the portal to pay it.
+  'invoice.reminder': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `Reminder: invoice ${required(d, 'invoiceNumber')} is due ${calendarDate(required(d, 'dueOn'))}`,
+      blocks: [
+        hello(d),
+        text(
+          `This is a reminder that invoice ${required(d, 'invoiceNumber')} from ${firm} is due on ${calendarDate(required(d, 'dueOn'))}. Sign in to the client portal to see and pay it.`,
+        ),
+        button('View and pay', link(d, 'link', o)),
+      ],
+    };
+  },
+  'invoice.overdue': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `Invoice ${required(d, 'invoiceNumber')} is overdue`,
+      blocks: [
+        hello(d),
+        text(
+          `Invoice ${required(d, 'invoiceNumber')} from ${firm} was due on ${calendarDate(required(d, 'dueOn'))} and is still open. Sign in to the client portal to see and pay it.`,
+        ),
+        button('View and pay', link(d, 'link', o)),
       ],
     };
   },

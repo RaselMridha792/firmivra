@@ -35,9 +35,10 @@ describe('the firm’s own terms in Settings > Payments', () => {
     invoiceDefaults: { invoicePrefix: 'INV-', defaultTerms, defaultMemo: null, customTermDays },
     reminders: {
       sendReminders: false,
-      reminderDaysBefore: 3,
+      reminderDaysBeforeList: [3],
       notifyOverdue: false,
       overdueReminderDays: 7,
+      overdueReminderMax: 3,
       autoReceipts: false,
       autoApplyPayments: false,
       retryAttempts: 0,

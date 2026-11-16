@@ -83,6 +83,14 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     timeZone: 'America/Chicago',
     link,
   },
+  'task.reminder': {
+    name: 'Fake Member',
+    title: 'Fake task',
+    dueOn: '2026-12-01',
+    dueAt: new Date('2026-12-01T19:30:00Z'),
+    timeZone: 'America/New_York',
+    link: 'https://app.example.test/tasks/00000000-0000-4000-8000-000000000000',
+  },
   'project-deadline.reminder': {
     name: 'Sam Staff',
     title: 'Finish the 2027 planning projections',
@@ -91,6 +99,18 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     link: 'https://app.example.test/tax-planning/deadlines',
   },
   'invoice.sent': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
+  'invoice.reminder': {
+    name: 'Robin Example',
+    invoiceNumber: 'INV-1042',
+    dueOn: '2026-12-01',
+    link,
+  },
+  'invoice.overdue': {
+    name: 'Robin Example',
+    invoiceNumber: 'INV-1042',
+    dueOn: '2026-12-01',
+    link,
+  },
   'payment.received': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
   'esign.request': {
     name: 'Robin Example',

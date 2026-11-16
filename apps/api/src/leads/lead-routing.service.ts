@@ -57,6 +57,31 @@ export async function routeNewLead(
     where: { id: leadId },
     data: { assignedUserId: to.userId, assignedByRuleId: to.ruleId },
   });
+  if (route && 'rule' in route) {
+    // R2 17a: the lead's activity says which rule gave it its owner. The leads_activity trigger
+    // has just written a plain ASSIGNED row ("Lead assigned") for this change; this row names the
+    // rule (a copy of its name, as it was then) and `replaces` that one, which the timeline then
+    // leaves out (`replacedActivityIds`), at the same moment. No actor: the system assigned it.
+    const plain = await tx.leadActivity.findFirst({
+      where: { businessId, leadId, kind: 'ASSIGNED' },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, occurredAt: true },
+    });
+    await tx.leadActivity.create({
+      data: {
+        businessId,
+        leadId,
+        kind: 'ASSIGNED',
+        ...(plain ? { occurredAt: plain.occurredAt } : {}),
+        metadata: {
+          assigned: true,
+          ruleId: route.rule.id,
+          ruleName: route.rule.name,
+          ...(plain ? { replaces: plain.id } : {}),
+        },
+      },
+    });
+  }
   await audit.logIn(
     tx,
     'lead.routed',

@@ -1,18 +1,36 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 // R56: the Tasks module in mock mode (playwright.mock.config.ts runs every module on mock data,
 // as an Owner). Task 1 ("Prepare business plan draft") has a checklist with one required item.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/tasks`;
+
+/** T-C04: the Task Type dropdown: open it and choose a type (the first by default). */
+async function chooseType(page: Page, name?: string) {
+  await page.getByLabel('Task type').click();
+  const list = page.getByRole('listbox', { name: 'Task types' });
+  await (
+    name ? list.getByRole('option', { name, exact: true }) : list.getByRole('option').nth(1)
+  ).click();
+}
+
+/** T-C09: the Client combobox: type, then choose from the list under it (the first by default). */
+async function chooseClient(page: Page, name?: string) {
+  const box = page.getByRole('combobox', { name: 'Client' });
+  await box.click();
+  await box.fill(name ? name.split(' ')[0]!.toLowerCase() : '');
+  const list = page.getByRole('listbox', { name: 'Clients' });
+  await (name ? list.getByRole('option', { name }) : list.getByRole('option').first()).click();
+}
 const FIRST = '0199c0f0-0a10-7000-8000-000000000001';
 
-test('Overview: five cards, eight views (Drafts last), the table and the side widgets', async ({
+test('Overview: five cards, nine views (Drafts, then Archived, last), the table and the side widgets', async ({
   page,
 }) => {
   await page.goto(base);
   await expect(page.getByRole('heading', { name: 'Tasks', level: 1 })).toBeVisible();
   await expect(page.getByTestId('tasks-kpis').getByRole('button')).toHaveCount(5);
-  await expect(page.getByRole('tablist', { name: 'Task views' }).getByRole('tab')).toHaveCount(8);
+  await expect(page.getByRole('tablist', { name: 'Task views' }).getByRole('tab')).toHaveCount(9);
   await expect(page.getByTestId('task-table').getByTestId('task-link').first()).toBeVisible();
   for (const id of [
     'rail-summary',
@@ -57,8 +75,8 @@ test('Create Task: checks the fields, saves, and opens the new task', async ({ p
   await page.getByTestId('task-save').click();
   await expect(page.getByText('Enter the task name')).toBeVisible();
   await page.getByLabel('Task Name *').fill('Draft the Q4 estimate');
-  await page.getByLabel('Task type').selectOption({ label: 'Tax Preparation' });
-  await page.getByLabel('Client', { exact: true }).selectOption({ index: 1 });
+  await chooseType(page, 'Tax Preparation');
+  await chooseClient(page);
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
   await page.getByRole('button', { name: 'Add Checklist Item' }).click();
@@ -73,8 +91,9 @@ test('Create Task: checks the fields, saves, and opens the new task', async ({ p
 test('Detail: a required checklist item blocks Complete until it is done', async ({ page }) => {
   await page.goto(`${base}/${FIRST}`);
   await expect(page.getByTestId('checklist-progress')).toContainText('1 of 3 done');
-  await page.getByRole('button', { name: 'Complete', exact: true }).click();
-  await expect(page.getByText('Finish the required checklist items first.')).toBeVisible();
+  // Tasks Review Two T-C12: Complete is off up front, and says why.
+  await expect(page.getByRole('button', { name: 'Complete', exact: true })).toBeDisabled();
+  await expect(page.getByRole('note')).toHaveText('1 required checklist item is open');
   await page.getByLabel('Write executive summary').click();
   await expect(page.getByTestId('checklist-progress')).toContainText('2 of 3 done');
   await page.getByRole('button', { name: 'Complete', exact: true }).click();
@@ -117,7 +136,7 @@ test('Recurring: previews the next five dates, saves, then skips one', async ({ 
   await page.getByTestId('series-save').click();
   await expect(page.getByText('Enter the task name')).toBeVisible();
   await page.getByLabel('Task Name *').fill('Monthly books close');
-  await page.getByLabel('Task Type *').selectOption({ label: 'Bookkeeping' });
+  await chooseType(page, 'Bookkeeping');
   await page.getByLabel('Client *').selectOption({ index: 1 });
   await page.getByLabel('Assign To *').selectOption({ index: 1 });
   await page.getByTestId('series-save').click();

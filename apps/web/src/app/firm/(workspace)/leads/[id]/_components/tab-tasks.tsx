@@ -176,7 +176,19 @@ function FollowUpSteps({
  * passed, and every step. Save Follow-Up changes the next step (or sets the first); + Add Follow-Up
  * adds another; a step's Edit puts it into the form to change it.
  */
-export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
+export function FollowUpCard({
+  lead,
+  message: heldMessage,
+  onMessage,
+}: {
+  lead: LeadProfile | undefined;
+  /**
+   * The card's notice ("Follow-up saved."), held by a parent that remounts the card when the lead
+   * changes (the Overview keys it by the lead's version), so the notice outlives the remount.
+   */
+  message?: string | undefined;
+  onMessage?: (message: string | undefined) => void;
+}) {
   const next = lead?.nextAction ?? null;
   // R2 5: the form opens on the saved step, its date and time as the summary shows them, so a
   // save that changes nothing keeps them.
@@ -185,7 +197,9 @@ export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
   const [time, setTime] = useState(() => (next ? localTime(next.dueAt) : NEW_TIME));
   const [notes, setNotes] = useState(next?.notes ?? '');
   const [outcome, setOutcome] = useState('');
-  const [message, setMessage] = useState<string>();
+  const [ownMessage, setOwnMessage] = useState<string>();
+  const message = onMessage ? heldMessage : ownMessage;
+  const setMessage = onMessage ?? setOwnMessage;
   const [editing, setEditing] = useState<string | null>(null);
   const options = { invalidate: LEAD_PIPELINE_KEY };
   const form = () => ({

@@ -370,6 +370,7 @@ describe('api.invoices (firm)', () => {
       archivedAt: null,
       createdAt: at,
       updatedAt: at,
+      paymentMethods: ['CARD'],
       lines: [
         {
           id,

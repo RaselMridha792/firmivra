@@ -36,6 +36,7 @@ import {
   toReminders,
   ReminderList,
   Section,
+  ClientCombobox,
   Selectbox,
   field,
 } from './task-form-parts';
@@ -70,6 +71,8 @@ export interface TaskPrefill {
   engagementId?: string;
   /** "October 2026": the details start with it. */
   period?: string;
+  /** I-P01: "INV-2026-0106": a task opened from an invoice is named and described by it. */
+  invoice?: string;
 }
 
 export function TaskFormScreen({
@@ -84,6 +87,10 @@ export function TaskFormScreen({
   /** A2: the draft to reopen; Save Task publishes it, Save as Draft keeps it a draft. */
   draftId?: string;
 }) {
+  // T-C05: Save & Create Another remounts a clean form (as the recurring form): each round is a
+  // new Form with a new idempotency key; the first keeps what the page opened it with.
+  const [round, setRound] = useState(0);
+  const [saved, setSaved] = useState<string>();
   const prefillClient = useApiQuery(
     [...TASKS_KEY, 'prefill-client', prefill?.clientId ?? 'none'],
     async () => (prefill?.clientId ? api.clients.get(prefill.clientId) : null),
@@ -110,12 +117,17 @@ export function TaskFormScreen({
     );
   return (
     <Form
-      key={task.data?.id ?? draft.data?.id ?? template.data?.id ?? 'blank'}
+      key={`${task.data?.id ?? draft.data?.id ?? template.data?.id ?? 'blank'}-${round}`}
+      savedTitle={saved}
+      onAnother={(title) => {
+        setSaved(title);
+        setRound((r) => r + 1);
+      }}
       task={task.data ?? undefined}
       draft={draft.data ?? undefined}
       template={template.data ?? undefined}
       prefill={
-        id === undefined && prefillClient.data
+        id === undefined && round === 0 && prefillClient.data
           ? {
               ...prefill,
               clientId: prefillClient.data.id,
@@ -151,7 +163,12 @@ function Form({
   template,
   prefill,
   loadNote,
+  savedTitle,
+  onAnother,
 }: {
+  /** The task Save & Create Another just saved: this clean form says so (T-C05). */
+  savedTitle?: string | undefined;
+  onAnother: (title: string) => void;
   task: TaskDetail | undefined;
   draft?: TaskDraft | undefined;
   template: TaskTemplate | undefined;
@@ -163,10 +180,18 @@ function Form({
   const seed: Seed | undefined =
     task ?? (draft ? { ...draft, engagementId: draft.engagement?.id ?? null } : undefined);
   const { members } = useMembers();
-  const [title, setTitle] = useState(seed?.title ?? '');
+  const [title, setTitle] = useState(
+    seed?.title ?? (prefill?.invoice && !template ? `Follow up on ${prefill.invoice}` : ''),
+  );
   const [typeId, setTypeId] = useState(seed?.type?.id ?? template?.type?.id ?? '');
   const [details, setDetails] = useState(
-    seed?.details ?? template?.description ?? (prefill?.period ? `For ${prefill.period}.` : ''),
+    seed?.details ??
+      template?.description ??
+      (prefill?.period
+        ? `For ${prefill.period}.`
+        : prefill?.invoice
+          ? `About invoice ${prefill.invoice}.`
+          : ''),
   );
   const [clientId, setClientId] = useState(seed?.client?.id ?? prefill?.clientId ?? '');
   // Octavia's C4: clients are found by name on the server: the firm's own, and for Staff only
@@ -246,7 +271,9 @@ function Form({
         })),
   );
   const [nextKey, setNextKey] = useState(0);
-  const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
+  const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' } | undefined>(
+    savedTitle ? { text: `Task saved: ${savedTitle}. Add another.`, tone: 'success' } : undefined,
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [tpl, setTpl] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -407,7 +434,7 @@ function Form({
   const options = { invalidate: [...TASKS_KEY] };
   // #1084: one key per new task (or draft), reused only to retry it: a retried save returns the
   // first one instead of making a second.
-  const [createKey, setCreateKey] = useState(() => crypto.randomUUID());
+  const [createKey] = useState(() => crypto.randomUUID());
   const [draftKey] = useState(() => crypto.randomUUID());
   const uploadNew = async () =>
     files.sendable.length && fileService && clientId
@@ -546,12 +573,9 @@ function Form({
       },
       onSuccess: ({ saved, another: again }) => {
         if (again) {
-          setCreateKey(crypto.randomUUID());
-          setMessage({ text: 'Task saved. Add another.', tone: 'success' });
+          guard.allow();
           router.replace('/tasks/new');
-          setTitle('');
-          files.setQueue([]);
-          guard.rebase();
+          onAnother(saved.title);
         } else {
           guard.allow();
           // Opened from a service workspace (SH1): the new task's page keeps Back to it.
@@ -731,43 +755,27 @@ function Form({
           >
             <div className="grid gap-4 md:grid-cols-3">
               <Label text="Client" required htmlFor="tf-client">
-                {editing ? null : (
-                  <input
-                    type="search"
-                    aria-label="Search clients by name"
-                    placeholder="Search clients by name…"
-                    className={field}
-                    maxLength={100}
-                    value={clientSearch}
-                    onChange={(e) => setClientSearch(e.target.value)}
-                    data-testid="client-search"
-                  />
-                )}
-                <Selectbox
+                {/* T-C09: one combobox: type, see the matches below, choose. */}
+                <ClientCombobox
                   id="tf-client"
-                  label="Client"
-                  value={clientId}
+                  chosen={clientId ? (clientName ?? '') : ''}
+                  text={clientSearch}
+                  onText={setClientSearch}
+                  results={editing ? [] : listed}
+                  loading={clientList.isPending || clientSearch.trim() !== clientTerm}
+                  failed={clientList.isError}
                   disabled={editing}
-                  onChange={(v) => {
-                    const c = listed.find((x) => x.id === v);
-                    if (c) setClientNames((n) => ({ ...n, [c.id]: c.displayName }));
-                    setClientId(v);
+                  onChoose={(c) => {
+                    setClientNames((n) => ({ ...n, [c.id]: c.displayName }));
+                    setClientId(c.id);
                     setEngagementId('');
+                    setClientSearch('');
                   }}
-                  options={[
-                    {
-                      value: '',
-                      label: clientList.isError
-                        ? 'Clients are not available'
-                        : clientTerm && listed.length === 0
-                          ? 'No clients match'
-                          : 'Select client',
-                    },
-                    ...(clientId && !listed.some((c) => c.id === clientId) && clientName
-                      ? [{ value: clientId, label: clientName }]
-                      : []),
-                    ...(editing ? [] : listed).map((c) => ({ value: c.id, label: c.displayName })),
-                  ]}
+                  onClear={() => {
+                    setClientId('');
+                    setEngagementId('');
+                    setClientSearch('');
+                  }}
                 />
                 {err('client')}
               </Label>
@@ -1116,12 +1124,12 @@ function Form({
           >
             Cancel
           </Button>
-          <Button variant="secondary" onClick={() => setTpl(true)}>
+          <Button variant="outline" onClick={() => setTpl(true)}>
             <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save as Template
           </Button>
           {editing ? null : (
             <Button
-              variant="secondary"
+              variant="outline"
               disabled={saveDraft.isPending || save.isPending || !!loadNote}
               onClick={keepDraft}
               data-testid="task-save-draft"
@@ -1131,7 +1139,7 @@ function Form({
           )}
           {draft ? (
             <Button
-              variant="secondary"
+              variant="danger"
               onClick={() => setDiscarding(true)}
               data-testid="task-discard-draft"
             >
@@ -1141,7 +1149,6 @@ function Form({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Button
-            variant="secondary"
             disabled={save.isPending || !!loadNote}
             onClick={() => submit(false)}
             data-testid="task-save"
@@ -1150,6 +1157,7 @@ function Form({
           </Button>
           {editing || draft ? null : (
             <Button
+              variant="outline"
               disabled={save.isPending}
               onClick={() => submit(true)}
               data-testid="task-save-another"

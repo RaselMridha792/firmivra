@@ -60,3 +60,34 @@ test('the billing sections save, validate, cancel and reset with a confirmation'
   await expect(page.getByRole('switch', { name: 'Automatic receipts' })).not.toBeChecked();
   await expect(page.getByLabel('Invoice number prefix')).toHaveValue('INV-');
 });
+
+test('I-N04: reminders on several days before the due date, and a cap on overdue notices', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/payments`);
+  await page.getByRole('switch', { name: 'Payment reminders' }).click({ timeout: 60_000 });
+  const days = page.getByTestId('reminder-days');
+  await expect(days.getByRole('listitem')).toHaveText(['3 days before']);
+  const add = async (n: string) => {
+    await days.getByLabel('Days before', { exact: true }).fill(n);
+    await days.getByRole('button', { name: 'Add day' }).click();
+  };
+  await add('7');
+  await add('0');
+  await expect(days.getByRole('listitem')).toHaveText([
+    '7 days before',
+    '3 days before',
+    'On the due date',
+  ]);
+  await days.getByLabel('Days before', { exact: true }).fill('7');
+  await expect(days.getByRole('alert')).toHaveText('7 is in the list already.');
+  await days.getByRole('button', { name: 'Remove 3 days before' }).click();
+  await page.getByRole('switch', { name: 'Overdue notices' }).click();
+  await page.getByLabel('Stop after (notices)').fill('4');
+  const save = page.getByTestId('billing-actions').getByRole('button', { name: 'Save Changes' });
+  await save.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Changes saved.' })).toBeVisible();
+  await expect(days.getByRole('listitem')).toHaveText(['7 days before', 'On the due date']);
+  await expect(page.getByLabel('Stop after (notices)')).toHaveValue('4');
+});

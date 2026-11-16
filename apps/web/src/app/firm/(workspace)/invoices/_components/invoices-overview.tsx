@@ -74,6 +74,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { InvoiceCancelForm } from './invoice-cancel-form';
 import { InvoiceCorrectForm } from './invoice-correct-form';
+import { InvoicePreviewDialog } from './invoice-preview';
 import { InvoiceHistoryForm } from './invoice-history';
 import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
 import { NewMessageDialog } from '../../messages/_components/messages-screen';
@@ -684,6 +685,10 @@ function InvoiceTable({
   const [clientId, setClientId] = useState(() => said('client'));
   const [service, setService] = useState(() => said('service'));
   const [status, setStatus] = useState(() => said('status') || initialStatus);
+  // I-N10: how money came in.
+  const [method, setMethod] = useState(() =>
+    (METHOD_OPTIONS as readonly string[]).includes(said('method')) ? said('method') : '',
+  );
   const [from, setFrom] = useState(() => (DAY_RE.test(said('from')) ? said('from') : ''));
   const [to, setTo] = useState(() => (DAY_RE.test(said('to')) ? said('to') : ''));
   const [search, setSearch] = useState(() => said('q'));
@@ -697,6 +702,7 @@ function InvoiceTable({
     put('tab', tab === 'ALL' ? '' : tab);
     put('client', clientId);
     put('service', service);
+    put('method', method);
     put('status', status);
     put('from', from);
     put('to', to);
@@ -708,7 +714,7 @@ function InvoiceTable({
     if (url !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(window.history.state, '', url);
     }
-  }, [tab, clientId, service, status, from, to, search, page, size]);
+  }, [tab, clientId, service, method, status, from, to, search, page, size]);
   const [selected, setSelected] = useState<string[]>([]);
   const [canceling, setCanceling] = useState<InvoiceListItem>();
   // IP-F10: Archive, Delete (a draft never sent: archived) and Restore, each confirmed.
@@ -717,21 +723,21 @@ function InvoiceTable({
     how: 'archive' | 'delete' | 'restore';
   }>();
   const [correcting, setCorrecting] = useState<InvoiceListItem>();
+  // I-N08: Preview opens on screen, not as a file.
+  const [previewing, setPreviewing] = useState<string>();
   // IP-F09: the row menu's dialogs.
   const [historyFor, setHistoryFor] = useState<{ i: InvoiceListItem; kind: InvoiceHistoryKind }>();
   const [messageFor, setMessageFor] = useState<{ i: InvoiceListItem; reminder: boolean }>();
   const toOrigin = useOriginNavigate();
-  const pdf = async (i: InvoiceListItem, view: boolean) => {
+  // Download PDF (I-N08: Preview is on screen, InvoicePreviewDialog).
+  const pdf = async (i: InvoiceListItem) => {
     try {
       const link = await api.invoices.pdf(i.id);
-      if (view) window.open(link.url, '_blank', 'noopener');
-      else {
-        const save = document.createElement('a');
-        save.href = link.url;
-        save.download = `${i.number}.pdf`;
-        save.rel = 'noopener';
-        save.click();
-      }
+      const save = document.createElement('a');
+      save.href = link.url;
+      save.download = `${i.number}.pdf`;
+      save.rel = 'noopener';
+      save.click();
     } catch (e) {
       onNotice(errorMessage(e, INVOICE_ERRORS), 'error');
     }
@@ -760,6 +766,7 @@ function InvoiceTable({
         (status === 'OUTSTANDING'
           ? OUTSTANDING_VIEWS.includes(viewOf(i))
           : inView(i, status as InvoiceView))) &&
+      (!method || i.paymentMethods.includes(method as InvoiceListItem['paymentMethods'][number])) &&
       (!from || day >= from) &&
       (!to || day <= to) &&
       (!term || `${i.number} ${i.client.displayName} ${i.title}`.toLowerCase().includes(term))
@@ -789,6 +796,7 @@ function InvoiceTable({
     setClientId('');
     setService('');
     setStatus('');
+    setMethod('');
     setFrom('');
     setTo('');
     setSearch('');
@@ -878,9 +886,9 @@ function InvoiceTable({
           {
             label: 'Preview Invoice',
             icon: FileMagnifyingGlass,
-            onSelect: () => void pdf(i, true),
+            onSelect: () => setPreviewing(i.id),
           },
-          { label: 'Download PDF', icon: FilePdf, onSelect: () => void pdf(i, false) },
+          { label: 'Download PDF', icon: FilePdf, onSelect: () => void pdf(i) },
           // I-N06: a scheduled one, or a sent one with nothing paid, too.
           ...(canChange && canEditInvoice(i)
             ? [
@@ -995,7 +1003,14 @@ function InvoiceTable({
             label: 'Create Task',
             icon: CheckSquare,
             onSelect: () =>
-              toOrigin(newTaskHref({ clientId: i.client.id, engagementId: i.service?.id })),
+              toOrigin(
+                newTaskHref({
+                  clientId: i.client.id,
+                  engagementId: i.service?.id,
+                  // I-P01: the task is about this invoice.
+                  invoice: i.number,
+                }),
+              ),
           },
           {
             label: 'Schedule Follow-Up',
@@ -1131,6 +1146,18 @@ function InvoiceTable({
             { value: '', label: 'All Statuses' },
             { value: 'OUTSTANDING', label: 'Outstanding (unpaid)' },
             ...VIEW_ORDER.map((v) => ({ value: v, label: VIEW_LABEL[v] })),
+          ]}
+        />
+        <Select
+          label="Payment Method"
+          value={method}
+          onChange={(e) => {
+            setMethod(e.target.value);
+            setPage(1);
+          }}
+          options={[
+            { value: '', label: 'All Methods' },
+            ...METHOD_OPTIONS.map((m) => ({ value: m, label: METHOD_LABEL[m] })),
           ]}
         />
         <div className="grid grid-cols-2 gap-2">
@@ -1369,6 +1396,9 @@ function InvoiceTable({
           }}
         />
       ) : null}
+      {previewing ? (
+        <InvoicePreviewDialog invoiceId={previewing} onClose={() => setPreviewing(undefined)} />
+      ) : null}
       {correcting ? (
         <InvoiceCorrectForm
           invoice={correcting}
@@ -1381,11 +1411,26 @@ function InvoiceTable({
   );
 }
 
+/** Invoices Review 2 I-N10: the list's Payment Method filter (money in by card, cash, ACH, check). */
+const METHOD_OPTIONS = ['CARD', 'CASH', 'ACH', 'CHECK'] as const;
+const METHOD_LABEL: Record<(typeof METHOD_OPTIONS)[number], string> = {
+  CARD: 'Card',
+  CASH: 'Cash',
+  ACH: 'ACH',
+  CHECK: 'Check',
+};
+
 function Side({ paymentsEnabled, loaded }: { paymentsEnabled?: boolean; loaded: boolean }) {
   const links = [
     { href: '/invoices/new', label: 'Create Invoice', icon: FileText, change: true },
     { href: '/invoices/record-payment', label: 'Record Payment', icon: Receipt, change: true },
-    { href: '/templates', label: 'Invoice Templates', icon: Copy, change: false },
+    // I-N09: the invoice templates (Settings > Payments), with Back to this list.
+    {
+      href: '/settings/payments#invoice-templates',
+      label: 'Invoice Templates',
+      icon: Copy,
+      change: false,
+    },
     { href: '/services-pricing', label: 'Services & Pricing', icon: ListBullets, change: false },
     { href: '/reports', label: 'Payment Reports', icon: ChartBar, change: false },
     // IP-F17: the routes the review found missing.

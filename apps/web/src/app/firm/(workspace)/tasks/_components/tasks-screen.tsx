@@ -49,6 +49,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'completed', label: 'Completed Tasks' },
   // Octavia's A2: exactly Drafts, beside Completed Tasks.
   { id: 'drafts', label: 'Drafts' },
+  // T-C13: archived tasks, with Restore.
+  { id: 'archived', label: 'Archived' },
 ];
 type KpiFilter = 'pending' | 'progress' | 'overdue' | 'completed' | undefined;
 
@@ -179,7 +181,14 @@ export function TasksScreen({
   const s = summary.data;
 
   const query: TaskOverviewQuery = {
-    view: tab === 'mine' ? 'mine' : tab === 'completed' ? 'completed' : 'all',
+    view:
+      tab === 'mine'
+        ? 'mine'
+        : tab === 'completed'
+          ? 'completed'
+          : tab === 'archived'
+            ? 'archived'
+            : 'all',
     ...(tab === 'mine' || tab === 'all' ? { status: 'OPEN' as const } : {}),
     ...(term ? { search: term } : {}),
     ...(applied.progress ? { progress: applied.progress as TaskOverviewQuery['progress'] } : {}),
@@ -249,7 +258,7 @@ export function TasksScreen({
       options={options}
     />
   );
-  const showTable = tab === 'mine' || tab === 'all' || tab === 'completed';
+  const showTable = tab === 'mine' || tab === 'all' || tab === 'completed' || tab === 'archived';
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="tasks-page">

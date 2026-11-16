@@ -60,15 +60,15 @@ export function RecordPayment() {
   const [busy, setBusy] = useState(false);
   // One key per page visit, sent again on a retry: the API records the payment once.
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
-  // IP-F12: Deposit To (the firm's default to start) and Send Receipt (Automatic Receipts to start).
+  // IP-F12: Deposit To (the firm's default to start). I-P03: Send Receipt starts ticked whatever the
+  // firm's Automatic Receipts setting; the member can untick it for this payment.
   const accounts = useApiQuery(['deposit-accounts'], () =>
     api.paymentPreferences.depositAccounts(),
   );
-  const prefs = useApiQuery(['payment-preferences'], () => api.paymentPreferences.get());
   const [depositTo, setDepositTo] = useState<string | null>(null);
   const deposit = depositTo ?? accounts.data?.items.find((a) => a.isDefault)?.id ?? '';
   const [sendReceipt, setSendReceipt] = useState<boolean | null>(null);
-  const receipt = sendReceipt ?? prefs.data?.reminders.autoReceipts ?? false;
+  const receipt = sendReceipt ?? true;
 
   const due = inv?.balanceDueCents ?? 0;
   const cents = amount ? toCents(amount) : 0;
