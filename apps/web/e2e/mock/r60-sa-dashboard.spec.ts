@@ -102,3 +102,18 @@ test('SA-DSH-F11: Renewals this week opens Subscriptions filtered, with the same
   await expect(page.getByLabel('Status', { exact: true })).toHaveValue('RENEWING_THIS_WEEK');
   await expect(page.getByTestId('open-subscription')).toHaveCount(Math.min(count, 8));
 });
+
+test('SA-DSH-F12: Recent Applications shows the last 30 days, and View All keeps the period', async ({
+  page,
+}) => {
+  await dashboard(page);
+  const period = page.getByTestId('recent-period');
+  await expect(period).toHaveValue('30');
+  await expect(page.getByTestId('recent-application')).toHaveCount(5);
+  const viewAll = page.getByRole('link', { name: 'View All' });
+  await expect(viewAll).toHaveAttribute('href', '/applications?range=30');
+  await period.selectOption('7');
+  await expect(viewAll).toHaveAttribute('href', '/applications?range=7');
+  await viewAll.click();
+  await expect(page.getByRole('combobox', { name: 'Filter by date range' })).toHaveValue('7');
+});
