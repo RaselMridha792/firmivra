@@ -476,21 +476,19 @@ describe('POST /business/clients/bulk', () => {
   // with nobody and audited on its own, an archived one is skipped and keeps its assignee, and the
   // Staff member who had a client no longer reaches it.
   it('unassigns several clients at once (Nobody); Staff may not; the old assignee loses reach', async () => {
-    const [u1, u2, u3] = await inFirm('a', (tx) =>
-      Promise.all(
-        [
-          { assignedUserId: people.staffA.id },
-          { assignedUserId: people.adminA.id },
-          { assignedUserId: people.staffA.id, archivedAt: new Date() },
-        ].map((extra, i) =>
-          tx.client
-            .create({
-              data: { businessId: firms.a.id, displayName: `Unassign ${i} (fake)`, ...extra },
-            })
-            .then((c) => c.id),
-        ),
-      ),
-    );
+    const [u1, u2, u3] = await inFirm('a', (tx) => {
+      const make = (i: number, extra: { assignedUserId: string; archivedAt?: Date }) =>
+        tx.client
+          .create({
+            data: { businessId: firms.a.id, displayName: `Unassign ${i} (fake)`, ...extra },
+          })
+          .then((c) => c.id);
+      return Promise.all([
+        make(1, { assignedUserId: people.staffA.id }),
+        make(2, { assignedUserId: people.adminA.id }),
+        make(3, { assignedUserId: people.staffA.id, archivedAt: new Date() }),
+      ]);
+    });
     const body = { action: 'ASSIGN', clientIds: [u1, u2, u3], assignedUserId: null };
     expect((await bulk(people.staffA, body)).status).toBe(403);
     expect((await call('get', `/${u1}`, people.staffA)).status).toBe(200);
