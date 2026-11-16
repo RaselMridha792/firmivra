@@ -56,6 +56,9 @@ export const dashboardStats = [
   },
 ] as const;
 
+/**
+ * Each row opens the list it counts, filtered the same way, at any count.
+ */
 export const attentionItems: {
   label: string;
   icon: LucideIcon;
@@ -66,7 +69,8 @@ export const attentionItems: {
     label: 'Firm application pending review',
     key: 'pendingApplications',
     icon: FileText,
-    href: '/applications',
+    // SA-DSH-F07: Applications on its Pending tab.
+    href: '/applications?tab=PENDING_REVIEW',
   },
   { label: 'Payment issues', icon: TriangleAlert },
   { label: 'Open support tickets', icon: Headset },

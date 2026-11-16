@@ -364,7 +364,7 @@ export function DashboardOverview() {
                   // Payments, support and renewals have nothing to count yet, and an unknown count shows 0.
                   // Unknown when the figures could not be read: a dash, never a zero.
                   const count = dashboard.data ? (key ? (dashboard.data[key] ?? 0) : 0) : null;
-                  const canOpen = href && count !== null && count > 0;
+                  // SA-DSH-F07 to F11: a row with a list opens it at any count.
                   return (
                     <li
                       key={label}
@@ -385,7 +385,7 @@ export function DashboardOverview() {
                         <Icon aria-hidden className="size-5" />
                       </span>
                       <span className="font-semibold text-text">{count ?? '—'}</span>
-                      {canOpen ? (
+                      {href ? (
                         <Link
                           href={href}
                           aria-label={`Open ${label}`}

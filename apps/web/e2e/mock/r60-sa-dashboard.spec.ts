@@ -46,3 +46,13 @@ test('SA-DSH-F03: Total Users opens Reports Users', async ({ page }) => {
   await page.getByTestId('stat-total-users').getByRole('link', { name: 'View Users' }).click();
   await expect(page).toHaveURL(admin('/reports/users'));
 });
+
+test('SA-DSH-F07: the pending row opens Applications on its Pending tab', async ({ page }) => {
+  await dashboard(page);
+  await page.getByRole('link', { name: 'Open Firm application pending review' }).click();
+  await expect(page).toHaveURL(admin('/applications?tab=PENDING_REVIEW'));
+  await expect(page.getByRole('tab', { name: /^Pending/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
