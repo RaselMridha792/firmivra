@@ -146,6 +146,8 @@ export type ServiceAddOn = z.infer<typeof ServiceAddOn>;
 
 /** GET /business/catalog/services/{id}. */
 export const CatalogService = CatalogServiceRow.extend({
+  /** Invoices Review 2 I-N01: the plans offered, by name (e.g. Starter, Growth, Premium). */
+  packageNames: z.array(z.string()),
   fullDescription: z.string().nullable(),
   basePriceCents: z.number().int().nullable(),
   billingFrequency: BillingFrequency.nullable(),

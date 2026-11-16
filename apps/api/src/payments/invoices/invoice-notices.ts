@@ -3,7 +3,12 @@ import type { Database } from '@firmivra/db';
 import { DATABASE } from '../../database/database.module.js';
 import { Notifier } from '../../notifications/notifier.js';
 
-export type InvoiceNotice = 'invoice.sent' | 'payment.received';
+export type InvoiceNotice =
+  | 'invoice.sent'
+  | 'payment.received'
+  // Invoices Review 2 (I-C02, I-N04): before the due date, and overdue.
+  | 'invoice.reminder'
+  | 'invoice.overdue';
 
 /**
  * Invoice events through R6's Notifier (one helper for every feature): `invoice.sent` to the
@@ -31,21 +36,49 @@ export class InvoiceNotices {
     /** IP-F12: one side only (the client's receipt, the firm's notice); left out: both. */
     audience?: 'client' | 'staff',
   ): Promise<void> {
+    await this.notice(event, businessId, invoiceId, actorUserId, audience);
+  }
+
+  /**
+   * I-C02, I-N04: a reminder before the due date or an overdue notice, to the client, once per
+   * `eventKey` (the invoice, its step and its due date). True when the Notifier has it.
+   */
+  remind(
+    event: 'invoice.reminder' | 'invoice.overdue',
+    businessId: string,
+    invoiceId: string,
+    eventKey: string,
+  ): Promise<boolean> {
+    return this.notice(event, businessId, invoiceId, null, 'client', eventKey);
+  }
+
+  private async notice(
+    event: InvoiceNotice,
+    businessId: string,
+    invoiceId: string,
+    actorUserId: string | null,
+    audience?: 'client' | 'staff',
+    eventKey?: string,
+  ): Promise<boolean> {
     try {
+      // The invoice's "Send email notification to client" decides its reminders' emails too.
       const email =
-        event === 'invoice.sent' ? await this.emailsClient(businessId, invoiceId) : true;
+        event === 'payment.received' ? true : await this.emailsClient(businessId, invoiceId);
       const result = await this.notifier.notify({
         businessId,
         event,
         recordId: invoiceId,
         actorUserId,
         ...(audience ? { audience } : {}),
+        ...(eventKey ? { eventKey } : {}),
         ...(email ? {} : { channels: { inApp: true, email: false, sms: false } }),
       });
       if (result.failed) this.logger.warn(`${event} for invoice ${invoiceId} was not written`);
+      return !result.failed;
     } catch (error) {
       const name = error instanceof Error ? error.name : 'Error';
       this.logger.warn(`${event} for invoice ${invoiceId} failed (${name})`);
+      return false;
     }
   }
 

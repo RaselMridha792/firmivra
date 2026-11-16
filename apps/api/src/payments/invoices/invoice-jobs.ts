@@ -11,9 +11,15 @@ import { DATABASE } from '../../database/database.module.js';
 import { InvoiceNotices } from './invoice-notices.js';
 import { InvoicesService } from './invoices.service.js';
 import { firmToday, toDate } from './invoice-view.js';
+import { addDays, zonedInstant } from '../../appointments/calendar.js';
 
 /** The job's advisory lock key: fixed, in a range no other module uses ("R7" = 0x5237). */
 export const OPEN_SCHEDULED_LOCK_KEY = 0x5237_0001;
+/**
+ * Invoices Review 2 (I-C02, I-N04): a reminder or an overdue notice goes out on its day from this
+ * time (the firm's time zone), not at midnight.
+ */
+export const INVOICE_REMINDER_FROM_MINUTES = 9 * 60;
 /** How often the job looks for scheduled invoices whose day has come in their firm. */
 export const INVOICE_JOB_INTERVAL_MS = 15 * 60_000;
 /** Per firm and run; the rest waits for the next run. */
@@ -38,7 +44,56 @@ export interface InvoiceJobOptions {
   businessIds?: string[];
 }
 
-export type InvoiceJobResult = { skipped: true } | { skipped: false; opened: number };
+export type InvoiceJobResult =
+  { skipped: true } | { skipped: false; opened: number; reminded: number };
+
+/** One reminder or overdue notice due today: its event and its step ("before-7", "overdue-2"). */
+interface DueReminder {
+  businessId: string;
+  id: string;
+  clientId: string;
+  event: 'invoice.reminder' | 'invoice.overdue';
+  step: string;
+  dueOn: string;
+}
+
+/**
+ * I-C02, I-N04: the step an open invoice is at today, or null. Before the due date: on each day
+ * of the firm's list (0: the due date). After it: the day after the due date, then every
+ * `repeatDays` days (0: once), up to `max` notices. Only on the step's own day.
+ */
+export function reminderStep(
+  today: string,
+  dueOn: string,
+  s: {
+    sendReminders: boolean;
+    reminderDaysBeforeList: number[];
+    notifyOverdue: boolean;
+    overdueReminderDays: number;
+    overdueReminderMax: number;
+  },
+): { event: 'invoice.reminder' | 'invoice.overdue'; step: string } | null {
+  if (s.sendReminders) {
+    for (const d of [...new Set(s.reminderDaysBeforeList)]) {
+      if (addDays(dueOn, -d) === today) return { event: 'invoice.reminder', step: `before-${d}` };
+    }
+  }
+  if (!s.notifyOverdue || today <= dueOn) return null;
+  const late = Math.round(
+    (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${dueOn}T00:00:00Z`)) / 86_400_000,
+  );
+  const n =
+    s.overdueReminderDays === 0
+      ? late === 1
+        ? 1
+        : 0
+      : (late - 1) % s.overdueReminderDays === 0
+        ? (late - 1) / s.overdueReminderDays + 1
+        : 0;
+  return n >= 1 && n <= s.overdueReminderMax
+    ? { event: 'invoice.overdue', step: `overdue-${n}` }
+    : null;
+}
 
 /**
  * R7 step 10: opens SCHEDULED invoices whose day has come in their firm's time zone, in-process
@@ -101,6 +156,7 @@ export class InvoiceJobs implements OnApplicationBootstrap, OnModuleDestroy {
   /** One run under the lock; `{ skipped: true }` when another task holds it. */
   async run(options: InvoiceJobOptions = {}): Promise<InvoiceJobResult> {
     const opened: { businessId: string; id: string }[] = [];
+    const reminders: DueReminder[] = [];
     let result: InvoiceJobResult;
     try {
       result = await this.database.withScope(
@@ -110,20 +166,122 @@ export class InvoiceJobs implements OnApplicationBootstrap, OnModuleDestroy {
             SELECT pg_try_advisory_xact_lock(${OPEN_SCHEDULED_LOCK_KEY}::bigint) AS locked`;
           if (!row?.locked) return { skipped: true } as const;
           await this.openDue(options, opened);
-          return { skipped: false, opened: opened.length } as const;
+          await this.dueReminders(options, reminders);
+          return { skipped: false, opened: opened.length, reminded: 0 } as const;
         },
         { timeout: 30_000 },
       );
     } catch (error) {
       this.logger.warn(`run failed (${error instanceof Error ? error.name : 'Error'})`);
-      result = { skipped: false, opened: opened.length };
+      result = { skipped: false, opened: opened.length, reminded: 0 };
     }
     if (opened.length > 0) this.logger.log(`${opened.length} scheduled invoices opened`);
     // After every firm's change has committed; a failed notice only logs ids (InvoiceNotices).
     for (const { businessId, id } of opened) {
       await this.notices.send('invoice.sent', businessId, id);
     }
-    return result;
+    // I-C02, I-N04: once per invoice, step and due date (the key); paid or canceled meanwhile, the
+    // Notifier's own check stops it.
+    let reminded = 0;
+    for (const r of reminders) {
+      const sent = await this.notices.remind(
+        r.event,
+        r.businessId,
+        r.id,
+        `${r.event}:${r.id}:${r.step}:${r.dueOn}`,
+      );
+      if (!sent) continue;
+      reminded++;
+      // A job has no request: the firm is named, as invoice.opened is.
+      await this.database
+        .withScope({ kind: 'business', businessId: r.businessId }, (tx) =>
+          this.audit.logIn(
+            tx,
+            'invoice.reminder_sent',
+            { type: 'invoice', id: r.id },
+            { actor: 'job', clientId: r.clientId, step: r.step, dueOn: r.dueOn },
+            { businessId: r.businessId },
+          ),
+        )
+        .catch(() => this.logger.warn(`invoice ${r.id} reminder audit failed`));
+    }
+    return result.skipped ? result : { ...result, reminded };
+  }
+
+  /**
+   * I-C02, I-N04: each firm's open invoices at a reminder or overdue step today, from
+   * INVOICE_REMINDER_FROM_MINUTES on, one notice per invoice and step. A firm that never saved its
+   * payment settings sends none (every option starts off). A step already sent (its bell item is
+   * there) is left out; the Notifier's key keeps it once anyway.
+   */
+  private async dueReminders(options: InvoiceJobOptions, out: DueReminder[]): Promise<void> {
+    const now = options.now ?? new Date();
+    const deadline = Date.now() + BUDGET_MS;
+    const firms = await this.database.forPlatform().business.findMany({
+      where: {
+        status: 'ACTIVE',
+        ...(options.businessIds ? { id: { in: options.businessIds } } : {}),
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
+    for (const { id: businessId } of firms) {
+      if (Date.now() > deadline) break;
+      const found = await this.database
+        .withScope({ kind: 'business', businessId }, async (tx) => {
+          const s = await tx.paymentSettings.findUnique({
+            where: { businessId },
+            select: {
+              sendReminders: true,
+              reminderDaysBeforeList: true,
+              notifyOverdue: true,
+              overdueReminderDays: true,
+              overdueReminderMax: true,
+            },
+          });
+          if (!s || (!s.sendReminders && !s.notifyOverdue)) return [];
+          const { timeZone, today } = await firmToday(tx, businessId, now);
+          if (now.getTime() < zonedInstant(timeZone, today, INVOICE_REMINDER_FROM_MINUTES))
+            return [];
+          const ahead = Math.max(0, ...s.reminderDaysBeforeList);
+          const behind = 1 + s.overdueReminderDays * Math.max(0, s.overdueReminderMax - 1);
+          const invoices = await tx.invoice.findMany({
+            where: {
+              businessId,
+              status: 'OPEN',
+              dueOn: { gte: toDate(addDays(today, -behind)), lte: toDate(addDays(today, ahead)) },
+            },
+            select: { id: true, clientId: true, dueOn: true },
+            orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
+            take: BATCH * 10,
+          });
+          const due: DueReminder[] = [];
+          for (const i of invoices) {
+            const dueOn = i.dueOn!.toISOString().slice(0, 10);
+            const step = reminderStep(today, dueOn, {
+              ...s,
+              reminderDaysBeforeList: s.reminderDaysBeforeList ?? [],
+            });
+            if (!step) continue;
+            const key = `${step.event}:${i.id}:${step.step}:${dueOn}`;
+            const sent = await tx.notification.findFirst({
+              where: { businessId, eventKey: key },
+              select: { id: true },
+            });
+            if (sent) continue;
+            due.push({ businessId, id: i.id, clientId: i.clientId, ...step, dueOn });
+            if (due.length >= BATCH) break;
+          }
+          return due;
+        })
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `firm ${businessId} reminders failed (${error instanceof Error ? error.name : 'Error'})`,
+          );
+          return [] as DueReminder[];
+        });
+      out.push(...found);
+    }
   }
 
   /** Adds each opened invoice to `opened` as its firm's change commits. */

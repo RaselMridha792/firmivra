@@ -81,13 +81,30 @@ const InvoiceDefaults = z.object({
     )
     .max(CUSTOM_TERM_LIMITS.maxTerms, 'Keep at most 12 of your own terms'),
 });
+/** I-N04: one to five reminder days before the due date, each 0 (the due date) to 60. */
+export const REMINDER_DAYS_LIMITS = { minDays: 0, maxDays: 60, maxEntries: 5 } as const;
+/** I-N04: the most overdue notices one invoice gets, 1 to 12. */
+export const OVERDUE_REMINDER_MAX_LIMIT = 12;
+
 const Reminders = z.object({
   sendReminders: z.boolean(),
-  /** Days before the due date (0: on the day). */
-  reminderDaysBefore: z.number().int().min(0).max(60),
+  /** I-N04: the days before the due date a reminder goes (0: on the day), one to five. */
+  reminderDaysBeforeList: z
+    .array(
+      z
+        .number()
+        .int()
+        .min(REMINDER_DAYS_LIMITS.minDays, 'Use 0 to 60 days')
+        .max(REMINDER_DAYS_LIMITS.maxDays, 'Use 0 to 60 days'),
+    )
+    .min(1, 'Keep at least one day')
+    .max(REMINDER_DAYS_LIMITS.maxEntries, 'Keep at most 5 days')
+    .refine((a) => new Set(a).size === a.length, 'List each day once'),
   notifyOverdue: z.boolean(),
   /** Repeat the overdue reminder every this many days (0: once). */
   overdueReminderDays: z.number().int().min(0).max(90),
+  /** I-N04: at most this many overdue notices per invoice, 1 to 12. */
+  overdueReminderMax: z.number().int().min(1).max(OVERDUE_REMINDER_MAX_LIMIT),
   /** A receipt goes out by itself after each successful payment (IP-F12). */
   autoReceipts: z.boolean(),
   /** A client's payment pays their oldest open invoice first when it names none. */
