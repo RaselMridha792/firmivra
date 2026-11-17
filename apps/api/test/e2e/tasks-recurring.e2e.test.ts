@@ -932,6 +932,7 @@ describe('a failed occurrence (Tasks Review Two T-D15)', () => {
     const bells = () =>
       inFirm('a', (tx) =>
         tx.notification.findMany({
+          // Stored as the bell keeps every event: a hyphen as an underscore (storedType).
           where: { businessId: firms.a, type: 'task.series_failed', entityId: s.id },
           select: { recipientUserId: true, entityType: true },
         }),

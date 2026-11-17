@@ -423,13 +423,13 @@ export class TaskSeriesJob implements OnApplicationBootstrap, OnModuleDestroy {
       try {
         await this.notifier.notify({
           businessId,
-          event: 'task.series_failed',
+          event: 'task.series-failed',
           recordId: failedSeries,
-          eventKey: `task.series_failed:${occurrenceId}`,
+          eventKey: `task.series-failed:${occurrenceId}`,
         });
       } catch (e) {
         this.logger.warn(
-          `task.series_failed for occurrence ${occurrenceId} not written (${errorName(e)})`,
+          `task.series-failed for occurrence ${occurrenceId} not written (${errorName(e)})`,
         );
       }
     }

@@ -221,7 +221,7 @@ const TEXT: Record<NotificationEvent, Writer> = {
     return { title: 'Task reminder', body: at ? `${title}, due ${at}` : withDue(p, 'A task') };
   },
   // Tasks T-D15: the series' title; the series page says which occurrence and why.
-  'task.series_failed': (p) => ({
+  'task.series-failed': (p) => ({
     title: 'Recurring task not created',
     body: `${text(p, 'title') ?? 'A recurring task'}: a task could not be created after several tries. Open the series to see why.`,
   }),

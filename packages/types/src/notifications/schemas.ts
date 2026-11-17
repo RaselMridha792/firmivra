@@ -177,7 +177,7 @@ export const NOTIFICATION_EVENTS = {
    * retries (FAILED). Owners and Admins only (the series is the record, not the client's). It
    * opens the series, where the occurrence shows why and can be skipped.
    */
-  'task.series_failed': { category: 'SERVICES', kind: 'task_series', to: 'staff' },
+  'task.series-failed': { category: 'SERVICES', kind: 'task_series', to: 'staff' },
 } as const satisfies Record<
   string,
   {
