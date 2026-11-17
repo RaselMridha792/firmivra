@@ -354,3 +354,60 @@ test('T-D16: Edit Series changes this and future occurrences; a task from a seri
     /\/tasks\/recurring\/[0-9a-f-]{36}\/edit$/,
   );
 });
+
+test('T-C10: Related To lists the client’s records by type, or a custom note with its own Save; Edit changes it', async ({
+  page,
+}) => {
+  await openCreate(page);
+  await page.getByLabel('Task Name *').fill('Prepare the estimate (sample)');
+  await chooseType(page, 'Tax Preparation');
+  await chooseClient(page, 'Jamie Sample');
+  await page.getByLabel('Assigned to').selectOption({ index: 1 });
+  await page.locator('#tf-due').fill('2027-03-02');
+  const related = page.getByLabel('Related to');
+  await expect(related).toBeEnabled();
+  // Grouped by type, with the custom note last; never the Service list again.
+  const deadline = related.locator('optgroup[label="Deadline"] option').first();
+  await expect(related.locator('optgroup[label="Engagement"] option').first()).toBeAttached();
+  await expect(related.locator('option').last()).toHaveText('Custom note (not a record)');
+  const deadlineName = (await deadline.innerText()).replace(/ \(due .*\)$/, '');
+  await related.selectOption((await deadline.getAttribute('value'))!);
+  await page.getByTestId('task-save').click();
+
+  // The task page opens the deadline; a custom note is labelled and never a link.
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  const relatedTo = page.getByTestId('related-to');
+  await expect(relatedTo.getByRole('link', { name: `Deadline: ${deadlineName}` })).toHaveAttribute(
+    'href',
+    /\/compliance\/[0-9a-f-]{36}/,
+  );
+
+  // Edit changes it: the note's own Save keeps it on the task at once.
+  await page
+    .getByRole('group', { name: 'Task actions' })
+    .getByRole('link', { name: 'Edit', exact: true })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Edit Task' })).toBeVisible();
+  await expect(related).toBeEnabled();
+  await related.selectOption({ label: 'Custom note (not a record)' });
+  const note = page.getByTestId('related-note');
+  await note.getByTestId('related-note-save').click();
+  await expect(note.getByRole('alert')).toHaveText('Type the custom note, or choose a record');
+  await note.getByLabel('Custom note (not a record)').fill('Year-end catch-up');
+  await note.getByTestId('related-note-save').click();
+  await expect(page.getByText('Custom note saved.')).toBeVisible();
+  await expect(note.getByTestId('related-note-text')).toHaveText('Custom: Year-end catch-up');
+
+  // Nothing is left unsaved: Back to Tasks leaves at once, and the table shows the note.
+  await page.getByRole('link', { name: 'Back to Tasks' }).click();
+  await expect(page).toHaveURL(/\/tasks$/);
+  // Related To is searched: the custom note finds the task.
+  await page.getByRole('tab', { name: 'All Tasks' }).click();
+  await page.getByPlaceholder('Search tasks...').fill('year-end catch');
+  const row = page
+    .getByTestId('task-table')
+    .getByRole('row')
+    .filter({ hasText: 'Prepare the estimate (sample)' });
+  await expect(row).toContainText('Custom: Year-end catch-up');
+  await expect(row).not.toContainText(deadlineName);
+});

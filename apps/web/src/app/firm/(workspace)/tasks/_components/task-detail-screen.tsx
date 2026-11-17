@@ -31,7 +31,7 @@ import {
   timeText,
 } from './task-shared';
 import { beforeText } from './task-form-parts';
-import { workspacePath } from './new-task-href';
+import { relatedLinks } from './new-task-href';
 import { useFirm } from '../../../../../components/firm-context';
 import { OriginLink } from '../../../../../components/origin-link';
 
@@ -312,16 +312,21 @@ export function TaskDetailScreen({
                   ],
                   [
                     'Related To',
-                    t.engagement && workspacePath(t.engagement.workspace) ? (
-                      <OriginLink
-                        key="related"
-                        href={workspacePath(t.engagement.workspace)!}
-                        className={linkText}
-                      >
-                        {t.engagement.title}
-                      </OriginLink>
+                    // T-C10: each record opens its page; a custom note is labelled, never a link.
+                    relatedLinks(t).length ? (
+                      <span key="related" className="flex flex-col gap-1" data-testid="related-to">
+                        {relatedLinks(t).map((l) =>
+                          l.href ? (
+                            <OriginLink key={l.key} href={l.href} className={linkText}>
+                              {l.label}
+                            </OriginLink>
+                          ) : (
+                            <span key={l.key}>{l.label}</span>
+                          ),
+                        )}
+                      </span>
                     ) : (
-                      (t.engagement?.title ?? '—')
+                      '—'
                     ),
                   ],
                   ['Service', t.service?.name ?? '—'],

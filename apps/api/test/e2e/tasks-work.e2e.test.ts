@@ -1867,3 +1867,168 @@ describe("a planning plan's implementation task (Tax Planning Review 2 C15)", ()
     }
   });
 });
+
+describe('Related To by record type and a custom note (Tasks Review Two T-C10)', () => {
+  const records = async () =>
+    inFirm('a', async (tx) => {
+      const plan = (clientId: string) =>
+        tx.taxPlan
+          .create({
+            data: {
+              businessId: firms.a,
+              clientId,
+              name: mark('Related plan'),
+              planYear: 2027,
+              status: 'IN_PROGRESS',
+            },
+            select: { id: true },
+          })
+          .then((r) => r.id);
+      const deadline = (clientId: string, archived = false) =>
+        tx.complianceDeadline.create({
+          data: {
+            businessId: firms.a,
+            clientId,
+            name: mark('Related deadline'),
+            type: 'TAX_FILING',
+            dueOn: new Date('2027-04-15T00:00:00.000Z'),
+            ...(archived ? { archivedAt: new Date() } : {}),
+          },
+          select: { id: true, name: true },
+        });
+      return {
+        plan1: await plan(clients.c1),
+        plan2: await plan(clients.c2),
+        deadline1: await deadline(clients.c1),
+        deadline2: await deadline(clients.c2),
+        archived1: await deadline(clients.c1, true),
+      };
+    });
+  const search = async (term: string) =>
+    (
+      ok(
+        await call(
+          'get',
+          `/tasks/overview?view=all&pageSize=100&search=${encodeURIComponent(term)}`,
+          people.ownerA,
+        ),
+      ) as { items: { id: string }[] }
+    ).items.map((t) => t.id);
+
+  it("a task relates to the client's engagement, plan or deadline, or a custom note, and Edit changes it", async () => {
+    const r = await records();
+    const onDeadline = await create({
+      clientId: clients.c1,
+      deadlineId: r.deadline1.id,
+      title: mark('Prepare the extension'),
+    });
+    expect(onDeadline.deadline).toEqual({ id: r.deadline1.id, name: r.deadline1.name });
+    expect([onDeadline.engagement, onDeadline.taxPlan, onDeadline.relatedText]).toEqual([
+      null,
+      null,
+      null,
+    ]);
+    const note = mark('Year-end catch-up');
+    const custom = await create({
+      clientId: clients.c1,
+      relatedText: `  ${note} `,
+      title: mark('Catch up'),
+    });
+    expect([custom.relatedText, custom.engagement]).toEqual([note, null]);
+    // Related To is searched: the custom note and the deadline's name.
+    expect(await search(note)).toEqual([custom.id]);
+    expect(await search(r.deadline1.name)).toEqual([onDeadline.id]);
+    // A record or a note, never an engagement and a note together.
+    const both = await call('post', '/tasks', people.ownerA, {
+      clientId: clients.c1,
+      engagementId: engagements.e1,
+      relatedText: 'Fake note',
+      title: mark('Refused'),
+    });
+    expectError(both, 400, 'VALIDATION_FAILED');
+    expect(JSON.stringify(both.body)).toContain('relatedText');
+    // Edit changes it: to a plan with a note, then to an engagement once the note is cleared.
+    const edited = await patch(onDeadline.id, {
+      deadlineId: null,
+      taxPlanId: r.plan1,
+      relatedText: 'Fake planning note',
+    });
+    expect([edited.deadline, edited.taxPlan?.id, edited.relatedText]).toEqual([
+      null,
+      r.plan1,
+      'Fake planning note',
+    ]);
+    expectError(
+      await call('patch', `/tasks/${onDeadline.id}`, people.ownerA, {
+        engagementId: engagements.e1,
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const toEngagement = await patch(onDeadline.id, {
+      engagementId: engagements.e1,
+      relatedText: null,
+    });
+    expect([toEngagement.engagement?.id, toEngagement.relatedText]).toEqual([engagements.e1, null]);
+    // Another client's records, an archived deadline and an unknown id are refused.
+    for (const [body, status, code] of [
+      [{ deadlineId: r.deadline2.id }, 404, 'NOT_FOUND'],
+      [{ deadlineId: r.archived1.id }, 404, 'NOT_FOUND'],
+      [{ deadlineId: randomUUID() }, 404, 'NOT_FOUND'],
+      [{ taxPlanId: r.plan2 }, 404, 'NOT_FOUND'],
+      [{ engagementId: engagements.e2 }, 409, 'ENGAGEMENT_MISMATCH'],
+    ] as const) {
+      expectError(
+        await call('patch', `/tasks/${onDeadline.id}`, people.ownerA, body),
+        status,
+        code,
+      );
+      expectError(
+        await call('post', '/tasks', people.ownerA, {
+          clientId: clients.c1,
+          title: mark('Refused'),
+          ...body,
+        }),
+        status,
+        code,
+      );
+    }
+    expect((await get(onDeadline.id)).engagement?.id).toBe(engagements.e1);
+  });
+
+  it('a draft keeps its Related To through save, edit and publish; a new client drops the old records', async () => {
+    const r = await records();
+    const saved = ok(
+      await call('post', '/tasks/drafts', people.ownerA, {
+        clientId: clients.c1,
+        deadlineId: r.deadline1.id,
+        relatedText: 'Fake draft note',
+        title: mark('Draft with Related To'),
+      }),
+      201,
+    ) as { id: string; deadline: { id: string } | null; relatedText: string | null };
+    expect([saved.deadline?.id, saved.relatedText]).toEqual([r.deadline1.id, 'Fake draft note']);
+    // Another client: the first client's deadline goes, the note stays; its records are refused.
+    const moved = ok(
+      await call('patch', `/tasks/drafts/${saved.id}`, people.ownerA, { clientId: clients.c2 }),
+    ) as { deadline: unknown; relatedText: string | null };
+    expect([moved.deadline, moved.relatedText]).toEqual([null, 'Fake draft note']);
+    expectError(
+      await call('patch', `/tasks/drafts/${saved.id}`, people.ownerA, {
+        deadlineId: r.deadline1.id,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    const published = detail(
+      await call('post', `/tasks/drafts/${saved.id}/publish`, people.ownerA, {
+        taxPlanId: r.plan2,
+      }),
+    );
+    expect([published.client.id, published.taxPlan?.id, published.relatedText]).toEqual([
+      clients.c2,
+      r.plan2,
+      'Fake draft note',
+    ]);
+  });
+});

@@ -23,11 +23,23 @@ export function Selectbox({
 }: {
   value: string;
   onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  /** Options next to each other with the same `group` are shown under that heading. */
+  options: { value: string; label: string; group?: string }[];
   id?: string;
   label: string;
   disabled?: boolean;
 }) {
+  const runs: { group: string | undefined; items: typeof options }[] = [];
+  for (const o of options) {
+    const last = runs.at(-1);
+    if (last && last.group === o.group) last.items.push(o);
+    else runs.push({ group: o.group, items: [o] });
+  }
+  const option = (o: (typeof options)[number]) => (
+    <option key={o.value} value={o.value}>
+      {o.label}
+    </option>
+  );
   return (
     <select
       id={id}
@@ -37,11 +49,15 @@ export function Selectbox({
       onChange={(e) => onChange(e.target.value)}
       className={field}
     >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
+      {runs.map((r) =>
+        r.group ? (
+          <optgroup key={`group-${r.group}`} label={r.group}>
+            {r.items.map(option)}
+          </optgroup>
+        ) : (
+          r.items.map(option)
+        ),
+      )}
     </select>
   );
 }

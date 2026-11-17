@@ -230,6 +230,13 @@ export const TaskRow = z.object({
   service: TaskLink.nullable(),
   /** The compliance deadline it works on. */
   deadline: TaskLink.nullable(),
+  /** T-C10: the client's tax plan it implements (C15). */
+  taxPlan: TaskLink.nullable().default(null),
+  /**
+   * T-C10 (Tasks A1): Related To typed by the firm when no record fits, shown as a custom note and
+   * never as a record link. Never set together with `engagement`.
+   */
+  relatedText: z.string().nullable().default(null),
   priority: TaskPriority,
   /** OPEN, DONE or CANCELLED. */
   status: TaskStatus,
@@ -430,6 +437,17 @@ const taskFields = {
 export const CreateTaskDetailRequest = z.strictObject({
   clientId: z.uuid(),
   engagementId: z.uuid().optional(),
+  /**
+   * T-C10: Related To can also be one of the client's compliance deadlines that is not archived
+   * (404 otherwise), or a tax plan (`taxPlanId`). With the template's own deadline task already
+   * made, 400 VALIDATION_FAILED naming `deadlineId`.
+   */
+  deadlineId: z.uuid().optional(),
+  /**
+   * T-C10 (Tasks A1): Related To typed when no record fits, 1 to 200 characters, kept as a custom
+   * note. Not with `engagementId`: 400 VALIDATION_FAILED naming `relatedText`.
+   */
+  relatedText: text(200).optional(),
   title: text(200),
   details: clearable(text(2_000, 'many')),
   dueOn: CalendarDate.optional(),
@@ -461,6 +479,16 @@ export const UpdateTaskDetailRequest = z
     dueOn: CalendarDate.nullable().optional(),
     assignedUserId: z.uuid().nullable().optional(),
     status: TaskStatus.optional(),
+    /**
+     * T-C10: Related To, changeable in Edit with the rules of a new task: the client's engagement
+     * (409 ENGAGEMENT_MISMATCH), plan or deadline (404), or a custom note; `null` clears. An
+     * engagement and a custom note never together (400). Moving a tax return's task to another
+     * engagement needs the authority that reassigns it (TX-F18).
+     */
+    engagementId: z.uuid().nullable().optional(),
+    taxPlanId: z.uuid().nullable().optional(),
+    deadlineId: z.uuid().nullable().optional(),
+    relatedText: clearable(text(200)),
     ...taskFields,
     checklist: z.array(ChecklistItemInput).max(50).optional(),
     version: z.string().min(1).max(100).optional(),

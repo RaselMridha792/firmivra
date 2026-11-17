@@ -214,6 +214,9 @@ export class TaskReadService {
             { type: { name: has } },
             { service: { name: has } },
             { engagement: { title: has } },
+            // T-C10: Related To's plan and deadline too.
+            { taxPlan: { name: has } },
+            { deadline: { name: has } },
             { relatedText: has },
           ],
         });

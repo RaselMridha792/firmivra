@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
-import { SearchText } from '../clients/text.js';
+import { clearable, SearchText, text } from '../clients/text.js';
 import { TaskPriority, TaskProgress } from '../db-enums.js';
 import { TaskStatus } from './schemas.js';
 import {
@@ -61,6 +61,10 @@ export const TaskDraft = TaskDraftRow.extend({
   status: z.literal('DRAFT'),
   details: z.string().nullable(),
   engagement: z.object({ id: z.uuid(), title: z.string() }).nullable(),
+  /** T-C10: Related To's other records and its custom note, as on a task. */
+  taxPlan: TaskLink.nullable().default(null),
+  deadline: TaskLink.nullable().default(null),
+  relatedText: z.string().nullable().default(null),
   progress: TaskProgress,
   startOn: CalendarDate.nullable(),
   dueTime: TaskTimeOfDay.nullable(),
@@ -110,12 +114,22 @@ export const TaskDraftPage = z.object({
 });
 export type TaskDraftPage = z.infer<typeof TaskDraftPage>;
 
-/** Without a client a draft takes no engagement and no attachment (they are the client's). */
+/**
+ * Without a client a draft takes no engagement, plan, deadline or attachment (they are the
+ * client's); a custom Related To note needs none.
+ */
 const clientFirst = (o: {
   clientId?: string | null;
   engagementId?: string | null;
+  taxPlanId?: string | null;
+  deadlineId?: string | null;
   attachments?: unknown[];
-}) => o.clientId != null || (o.engagementId == null && !o.attachments?.length);
+}) =>
+  o.clientId != null ||
+  (o.engagementId == null && o.taxPlanId == null && o.deadlineId == null && !o.attachments?.length);
+/** On a draft's change, `clientId: null` (clearing it) is the case without a client. */
+const clientKept = (o: Parameters<typeof clientFirst>[0]) =>
+  o.clientId !== null || clientFirst({ ...o, clientId: null });
 const clientFirstError = {
   message: 'Choose the client first',
   path: ['clientId'],
@@ -135,26 +149,27 @@ const clientFirstError = {
  * while it is still a draft: once it is published, or for any other use of the key, 409
  * IDEMPOTENCY_KEY_REUSED.
  */
-// A draft never carries a plan link (C15): only a real task is a plan's implementation task.
-export const SaveTaskDraftRequest = CreateTaskDetailRequest.omit({ taxPlanId: true })
-  .extend({
-    clientId: z.uuid().optional(),
-  })
-  .refine(clientFirst, clientFirstError);
+// T-C10: a draft keeps its Related To (a plan, a deadline or a note); the plan and the deadline
+// list only live tasks, so a draft shows on neither until it is published.
+export const SaveTaskDraftRequest = CreateTaskDetailRequest.extend({
+  clientId: z.uuid().optional(),
+}).refine(clientFirst, clientFirstError);
 export type SaveTaskDraftRequest = z.input<typeof SaveTaskDraftRequest>;
 
 /** A draft's changes; never a key (an edit or a publish changes the same row). */
 const draftChanges = CreateTaskDetailRequest.omit({
   templateId: true,
   idempotencyKey: true,
-  taxPlanId: true,
 })
   .partial()
   .extend({
-    /** Setting, changing or clearing the client also clears the engagement and attachments
-     * unless the request sends new ones of the new client. */
+    /** Setting, changing or clearing the client also clears the engagement, plan, deadline and
+     * attachments unless the request sends new ones of the new client. */
     clientId: z.uuid().nullable().optional(),
     engagementId: z.uuid().nullable().optional(),
+    taxPlanId: z.uuid().nullable().optional(),
+    deadlineId: z.uuid().nullable().optional(),
+    relatedText: clearable(text(200)),
     dueOn: CalendarDate.nullable().optional(),
     assignedUserId: z.uuid().nullable().optional(),
     /** Replaces the attachments. */
@@ -172,10 +187,7 @@ export const UpdateTaskDraftRequest = draftChanges
     (o) => Object.keys(o).filter((k) => k !== 'version').length > 0,
     'Change at least one field',
   )
-  .refine(
-    (o) => o.clientId !== null || (o.engagementId == null && !o.attachments?.length),
-    clientFirstError,
-  );
+  .refine(clientKept, clientFirstError);
 export type UpdateTaskDraftRequest = z.input<typeof UpdateTaskDraftRequest>;
 
 /**
@@ -191,10 +203,7 @@ export type UpdateTaskDraftRequest = z.input<typeof UpdateTaskDraftRequest>;
  * other values, from another tab say, which then gets the task as the first publish left it. So
  * after Save Task, show the task the answer returns, never the form's values.
  */
-export const PublishTaskDraftRequest = draftChanges.refine(
-  (o) => o.clientId !== null || (o.engagementId == null && !o.attachments?.length),
-  clientFirstError,
-);
+export const PublishTaskDraftRequest = draftChanges.refine(clientKept, clientFirstError);
 export type PublishTaskDraftRequest = z.input<typeof PublishTaskDraftRequest>;
 
 /** DELETE /business/tasks/drafts/{id} discards the draft (with its checklist and reminders). */
