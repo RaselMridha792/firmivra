@@ -247,6 +247,25 @@ describe('firm: the profile with SSN, EIN and date of birth', () => {
     expect(Profile.parse(record.profile)).toMatchObject({ dateOfBirth: DOB, ssnLast4: '3456' });
   });
 
+  it('A-X01: the EIN status stays apart from the number: a number is Has EIN, Not Applicable clears it, never both', async () => {
+    const put = (body: object) => firm('put', `/${ids.two}/profile`, people.ownerA, body);
+    const has = Profile.parse(ok(await put({ ein: EIN })).body);
+    expect([has.einLast4, has.einStatus]).toEqual(['4321', 'HAS_EIN']);
+    const none = Profile.parse(ok(await put({ einStatus: 'NOT_APPLICABLE' })).body);
+    expect([none.einLast4, none.einStatus]).toEqual([null, 'NOT_APPLICABLE']);
+    const row = await inFirm(ids.firmA, (tx) =>
+      tx.clientProfile.findUniqueOrThrow({
+        where: { clientId: ids.two },
+        select: { einEnc: true, einStatus: true },
+      }),
+    );
+    expect(row).toEqual({ einEnc: null, einStatus: 'NOT_APPLICABLE' });
+    const both = await put({ ein: EIN, einStatus: 'TO_BE_APPLIED_FOR' });
+    expect([both.status, codeOf(both)]).toEqual([400, 'VALIDATION_FAILED']);
+    const later = Profile.parse(ok(await put({ einStatus: 'TO_BE_APPLIED_FOR' })).body);
+    expect([later.einLast4, later.einStatus]).toEqual([null, 'TO_BE_APPLIED_FOR']);
+  });
+
   it('a value left out is kept, "" clears it with its last 4', async () => {
     ok(await firm('put', `/${ids.two}/profile`, people.ownerA, { ssn: SSN, dateOfBirth: DOB }));
     const kept = Profile.parse(

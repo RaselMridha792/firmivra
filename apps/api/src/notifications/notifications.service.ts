@@ -115,10 +115,12 @@ const CLIENT_OF: Partial<Record<NotificationTargetKind, ClientIds>> = {
     ),
   appointment: async (tx, businessId, ids) =>
     byId(
-      await tx.appointment.findMany({
-        where: { businessId, id: { in: ids } },
-        select: { id: true, clientId: true },
-      }),
+      (
+        await tx.appointment.findMany({
+          where: { businessId, id: { in: ids } },
+          select: { id: true, clientId: true },
+        })
+      ).flatMap((a) => (a.clientId ? [{ id: a.id, clientId: a.clientId }] : [])),
     ),
   invoice: async (tx, businessId, ids) =>
     byId(

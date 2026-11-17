@@ -1338,6 +1338,18 @@ async function main() {
         answers: { firstName: 'Chris', lastName: 'Client' },
       },
     });
+    // Intake Review 2 24b-i: a staff note on that form (staff only; synthetic text).
+    await tx.intakeFormNote.upsert({
+      where: { id: SEED_INTAKE_IDS.taxNote },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.taxNote,
+        intakeId: SEED_INTAKE_IDS.taxIntake,
+        authorUserId: SEED_USERS.lvpStaff.id,
+        body: 'Called about the missing W-2; the client will upload it this week (sample).',
+      },
+    });
 
     await tx.lead.upsert({
       where: { id: SEED_INTAKE_IDS.lead },

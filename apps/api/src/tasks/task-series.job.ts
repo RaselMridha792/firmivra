@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import { AuditService } from '../audit/audit.service.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { DATABASE } from '../database/database.module.js';
 import { timeOfDayFromDb } from '../appointments/calendar.js';
 import { addDays, generationCutoff, schedule } from './recurrence.js';
@@ -73,6 +74,7 @@ export class TaskSeriesJob implements OnApplicationBootstrap, OnModuleDestroy {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly series: TaskSeriesService,
+    private readonly notifier: Notifier,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -391,6 +393,7 @@ export class TaskSeriesJob implements OnApplicationBootstrap, OnModuleDestroy {
       .replace(/[^A-Za-z0-9_]/g, '')
       .slice(0, 50);
     this.logger.warn(`occurrence ${occurrenceId} failed (${code})`);
+    let failedSeries: string | null = null;
     try {
       await this.inFirm(businessId, async (tx) => {
         const occ = await tx.taskOccurrence.findFirst({ where: { businessId, id: occurrenceId } });
@@ -409,10 +412,26 @@ export class TaskSeriesJob implements OnApplicationBootstrap, OnModuleDestroy {
             { occurrenceKey: occ.scheduledOn.toISOString().slice(0, 10), attempts, code },
             { businessId },
           );
+          failedSeries = occ.seriesId;
         }
       });
     } catch {
       // The next run tries again.
+    }
+    // T-D15: Owners and Admins are told once, after the FAILED state is saved.
+    if (failedSeries) {
+      try {
+        await this.notifier.notify({
+          businessId,
+          event: 'task.series-failed',
+          recordId: failedSeries,
+          eventKey: `task.series-failed:${occurrenceId}`,
+        });
+      } catch (e) {
+        this.logger.warn(
+          `task.series-failed for occurrence ${occurrenceId} not written (${errorName(e)})`,
+        );
+      }
     }
   }
 }

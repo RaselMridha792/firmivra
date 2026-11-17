@@ -1,0 +1,89 @@
+# Keeps prod's database stopped while prod is on hold (Rasel, Nov 17; deploy-prod.yml, "hold").
+# AWS starts a stopped RDS instance again after 7 days. Once a day this stops it again, but only
+# while the app stack's ImageTag is "none" (the hold: api and web at 0 tasks) and no Deploy prod
+# run is queued or running (a resume starts the database minutes before it sets ImageTag).
+# The hold's state is the stack itself, so the resume (any Deploy prod run with action deploy)
+# ends it without a repository variable to flip back.
+# AWS access only through the GitHub environment `prod` and firmivra-prod-github-deploy, which may
+# describe, start and stop only firmivra-prod-postgres (infra/src/stacks/ci-stack.ts).
+# Actions are pinned to commit SHAs (public repo); the comment after each one is its release.
+name: Prod hold keeper
+
+on:
+  schedule:
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-hold-keeper
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_ARN: arn:aws:iam::778127141557:role/firmivra-prod-github-deploy
+  APP_STACK: firmivra-prod-app
+  DB_INSTANCE: firmivra-prod-postgres
+
+jobs:
+  # No AWS access here: is a Deploy prod run queued or running?
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      deploying: ${{ steps.runs.outputs.deploying }}
+    steps:
+      - name: Look for a Deploy prod run
+        id: runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=0
+          for status in queued in_progress waiting pending requested; do
+            c=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-prod.yml/runs?status=$status&per_page=1" \
+              --jq '.total_count')
+            n=$((n + c))
+          done
+          echo "Deploy prod runs queued or running: $n"
+          echo "deploying=$([ "$n" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  keep:
+    needs: check
+    if: needs.check.outputs.deploying == 'false'
+    runs-on: ubuntu-24.04
+    environment: prod
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: prod-hold-keeper-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Stop the database if prod is on hold
+        run: |
+          tag=$(aws cloudformation describe-stacks --stack-name "$APP_STACK" \
+            --query "Stacks[0].Parameters[?ParameterKey=='ImageTag'].ParameterValue | [0]" --output text)
+          status=$(aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE" \
+            --query 'DBInstances[0].DBInstanceStatus' --output text)
+          echo "ImageTag: $tag; database: $status"
+          if [ "$tag" != none ]; then
+            echo "Prod is running (not on hold): nothing to do."
+          elif [ "$status" = available ]; then
+            aws rds stop-db-instance --db-instance-identifier "$DB_INSTANCE" \
+              --query 'DBInstance.DBInstanceStatus' --output text
+            echo "Prod is on hold and AWS had started the database: stopping it again." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Prod is on hold; the database is $status."
+          fi

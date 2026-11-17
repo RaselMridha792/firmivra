@@ -45,6 +45,7 @@ import { useFirmDocumentMaxBytes } from '../../../../../lib/document-limit';
 import { uploadFile } from '../../../../../lib/upload';
 import { ErrorLine } from './ba-dialogs';
 import { FilterSelect, SearchBox, useAct } from './ba-list-kit';
+import { FileHistoryDialog } from './file-history';
 import {
   ActionStatusPill,
   BASE,
@@ -138,7 +139,7 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
   const services = engagements.all;
   const open = engagements.open;
   const advisory = engagements.ids;
-  const { act, toast, say } = useAct();
+  const { act, ask, toast, say } = useAct();
   const [serviceId, setServiceId] = useState('');
   const [search, setSearch] = useState('');
   const [cursors, setCursors] = useState<string[]>([]);
@@ -165,6 +166,16 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
       : Promise.resolve(null),
   );
   const rows = (docs.data?.items ?? []).filter((d) => advisory.has(d.service.id));
+  // Advisory Review 2 A-X12 (B33): what the client uploaded, apart from the firm's own files.
+  const inbound = useApiQuery([...BA_KEY, 'client-documents-inbound', firmClientId], () =>
+    firmClientId
+      ? api.documents
+          .list(firmClientId, { direction: 'CLIENT_TO_FIRM', limit: 50 })
+          .catch(noneWhenMissing(NO_DOCS))
+      : Promise.resolve(null),
+  );
+  const fromClient = (inbound.data?.items ?? []).filter((d) => advisory.has(d.service.id));
+  const [history, setHistory] = useState<FirmDocument>();
   const openRequests = (requests.data ?? []).filter((r) => advisory.has(r.service.id));
   const failed = client.isError || docs.isError;
   const reset = (set: (v: string) => void) => (v: string) => {
@@ -172,6 +183,39 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
     setCursors([]);
   };
 
+  /** A-X12: the client's own uploads: uploader, date, type, the request it answers, its state. */
+  const inboundCols: Column<FirmDocument>[] = [
+    {
+      id: 'name',
+      label: 'File',
+      cell: (d) => <span className="font-medium wrap-anywhere text-heading">{d.fileName}</span>,
+    },
+    {
+      id: 'by',
+      label: 'Uploaded By',
+      cell: (d) => (d.uploadedBy ? `${d.uploadedBy.name} (client)` : '—'),
+    },
+    {
+      id: 'date',
+      label: 'Date',
+      className: 'whitespace-nowrap',
+      cell: (d) => dayText(d.createdAt),
+    },
+    { id: 'type', label: 'Type', cell: (d) => d.category?.name ?? d.contentType },
+    { id: 'request', label: 'For a Request', cell: (d) => (d.requestId ? 'Yes' : 'No') },
+    {
+      id: 'direction',
+      label: 'Direction',
+      className: 'whitespace-nowrap',
+      cell: (d) => <Badge tone={DIRECTION[d.direction][1]}>{DIRECTION[d.direction][0]}</Badge>,
+    },
+    {
+      id: 'scan',
+      label: 'Status',
+      className: 'whitespace-nowrap',
+      cell: (d) => <Badge tone={SCAN[d.scanStatus][1]}>{SCAN[d.scanStatus][0]}</Badge>,
+    },
+  ];
   const cols: Column<FirmDocument>[] = [
     {
       id: 'name',
@@ -329,6 +373,35 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
           </Link>
         ) : null}
       </section>
+      <section className={card} aria-label="Files Shared by Client" data-testid="files-from-client">
+        <SectionHead
+          icon={FileArrowUp}
+          title="Files Shared by Client"
+          subtitle="What the client uploaded to their advisory services, kept in their documents: who, when, the request it answers and each file's history."
+        />
+        <Table
+          rows={fromClient}
+          columns={inboundCols}
+          rowKey={(d) => d.id}
+          caption="Files shared by the client"
+          dense
+          noun="files"
+          pageSize={10}
+          loading={Boolean(firmClientId) && inbound.isPending}
+          emptyTitle={inbound.isError ? 'Files are not available' : 'No files from the client yet'}
+          emptyText={
+            inbound.isError
+              ? 'We could not load them. Try again in a moment.'
+              : 'Files the client uploads, or sends for a request, show here.'
+          }
+          rowActions={(d) => (
+            <Button variant="secondary" onClick={() => setHistory(d)}>
+              History
+            </Button>
+          )}
+        />
+      </section>
+      {history ? <FileHistoryDialog doc={history} onClose={() => setHistory(undefined)} /> : null}
       <section className={card} aria-label="Document requests" data-testid="tab-doc-requests">
         <SectionHead
           icon={ListChecks}
@@ -359,8 +432,18 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
             r.status === 'REQUESTED' ? (
               <Button
                 variant="secondary"
+                // A-X05: a cancel is confirmed first.
                 onClick={() =>
-                  void act(() => api.documents.cancelRequest(r.id), `Request cancelled: ${r.title}`)
+                  ask(
+                    {
+                      title: 'Cancel this request?',
+                      message: `The request for ${r.title} is cancelled; the client can no longer upload to it.`,
+                      confirm: 'Cancel Request',
+                      danger: true,
+                    },
+                    () => api.documents.cancelRequest(r.id),
+                    `Request cancelled: ${r.title}`,
+                  )
                 }
               >
                 Cancel
@@ -630,7 +713,7 @@ export function ClientPortalTab({ advisoryClientId }: { advisoryClientId: string
   const c = client.data;
   const firmClientId = c?.client.id;
   const advisory = useAdvisoryEngagements(firmClientId, c?.workstreams ?? []).ids;
-  const { act, toast, say } = useAct();
+  const { ask, toast, say } = useAct();
   const plans = useApiQuery([...BA_KEY, 'client-plans', advisoryClientId], () =>
     api.advisory.plans({ advisoryClientId, includeArchived: true, pageSize: 50 }),
   );
@@ -664,7 +747,18 @@ export function ClientPortalTab({ advisoryClientId }: { advisoryClientId: string
     <Button
       variant="secondary"
       aria-label={`Hide ${label} from the client`}
-      onClick={() => void act(work, `${label} hidden from the client.`)}
+      // A-X05: a change of what the client sees is confirmed first.
+      onClick={() =>
+        ask(
+          {
+            title: 'Hide from the client?',
+            message: `${label} will no longer show on the client portal.`,
+            confirm: 'Hide from Client',
+          },
+          work,
+          `${label} hidden from the client.`,
+        )
+      }
     >
       <EyeSlash aria-hidden weight="fill" className="size-4" />
     </Button>

@@ -1581,3 +1581,45 @@ describe('Tax Returns Review 2 (TR-2): a request made from a tax return', () => 
     expect(await requestRow(plain.id)).toMatchObject({ taxReturnId: null, taxYear: null });
   });
 });
+
+describe('a portal upload to a Bookkeeping service (Bookkeeping Review 2, A01)', () => {
+  it("shows in that client's Bookkeeping Activity as the client's, with no staff author", async () => {
+    const businessId = firms.a.id;
+    // A Bookkeeping service of its own, so the other tests' lists stay as they are.
+    const books = await asOwner(businessId, async (tx) => {
+      const { serviceId } = await tx.engagement.findUniqueOrThrow({ where: { id: ids.e1b } });
+      const data = { businessId, clientId: ids.c1, serviceId, title: 'R60 books (fake)' };
+      const e = await tx.engagement.create({ data: { ...data, status: 'ACTIVE' } });
+      await tx.bookkeepingProfile.create({ data: { businessId, engagementId: e.id } });
+      return e.id;
+    });
+    const doc = await mine(people.primary, {
+      serviceId: books,
+      fileName: 'Fake client bank statement.pdf',
+    });
+    const feed = await asOwner(businessId, (tx) =>
+      tx.bookkeepingActivity.findMany({
+        where: { businessId, engagementId: books },
+        select: { kind: true, summary: true, actorUserId: true, details: true },
+      }),
+    );
+    try {
+      expect(feed).toEqual([
+        {
+          kind: 'OTHER',
+          summary: 'The client uploaded Fake client bank statement.pdf',
+          actorUserId: null,
+          details: { documentId: doc.id },
+        },
+      ]);
+    } finally {
+      // Closed again, so no other test lists it among the client's open services.
+      await asOwner(businessId, (tx) =>
+        tx.engagement.update({
+          where: { id: books },
+          data: { status: 'COMPLETED', completedAt: new Date() },
+        }),
+      );
+    }
+  });
+});

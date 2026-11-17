@@ -10,6 +10,7 @@ import {
 } from './calendar.js';
 import { errors } from './errors.js';
 import { legacyKind } from './scheduling-map.js';
+import { withClient } from './appointment-party.js';
 
 // Database reads shared by the appointment services (locks are in calendar-locks.ts). Every
 // function takes the transaction of the firm's business scope (row-level security: this firm
@@ -109,7 +110,9 @@ export const appointmentSelect = {
 
 export type AppointmentRow = Prisma.AppointmentGetPayload<{ select: typeof appointmentSelect }>;
 
-export function toAppointment(row: AppointmentRow): Appointment {
+export function toAppointment(appointment: AppointmentRow): Appointment {
+  // P4-1: the contract names a client; a lead's own appointment is refused here until it has one.
+  const row = withClient(appointment);
   return {
     id: row.id,
     client: { id: row.clientId, displayName: row.client.displayName },
@@ -149,7 +152,8 @@ export function seesInFull(actor: FirmActor, row: AppointmentRow): boolean {
   return (
     actor.role !== 'STAFF' ||
     row.staffUserId === actor.userId ||
-    row.client.assignedUserId === actor.userId
+    // P4-1: a lead's own appointment has no client to be assigned (only its staff member sees it).
+    (row.client !== null && row.client.assignedUserId === actor.userId)
   );
 }
 
@@ -191,7 +195,8 @@ export interface BusyTimes {
   appointments: {
     id: string;
     staffUserId: string;
-    clientId: string;
+    /** Null for a lead's own appointment (P4-1). */
+    clientId: string | null;
     clientIds: string[];
     start: number;
     end: number;
@@ -227,7 +232,9 @@ export async function busyTimes(
       id: a.id,
       staffUserId: a.staffUserId,
       clientId: a.clientId,
-      clientIds: [a.clientId, ...a.attendees.map((x) => x.clientId)].map((id) => id.toLowerCase()),
+      clientIds: [a.clientId, ...a.attendees.map((x) => x.clientId)]
+        .filter((id): id is string => id !== null)
+        .map((id) => id.toLowerCase()),
       start: a.startsAt.getTime(),
       end: a.endsAt.getTime(),
     })),
@@ -265,12 +272,13 @@ export function clientBusy(busy: BusyTimes, clientId: string, exceptId?: string)
 export async function clientsBusy(
   tx: TxClient,
   businessId: string,
-  clientIds: readonly string[],
+  /** A lead's own appointment (P4-1) passes a null client: it is left out. */
+  clientIds: readonly (string | null)[],
   span: Interval,
   exceptId?: string,
 ): Promise<boolean> {
-  if (clientIds.length === 0) return false;
-  const ids = [...clientIds];
+  const ids = clientIds.filter((id): id is string => id !== null);
+  if (ids.length === 0) return false;
   const hit = await tx.appointment.findFirst({
     where: {
       businessId,

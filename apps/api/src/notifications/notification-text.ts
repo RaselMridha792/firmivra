@@ -220,6 +220,11 @@ const TEXT: Record<NotificationEvent, Writer> = {
     const title = text(p, 'title') ?? 'A task';
     return { title: 'Task reminder', body: at ? `${title}, due ${at}` : withDue(p, 'A task') };
   },
+  // Tasks T-D15: the series' title; the series page says which occurrence and why.
+  'task.series-failed': (p) => ({
+    title: 'Recurring task not created',
+    body: `${text(p, 'title') ?? 'A recurring task'}: a task could not be created after several tries. Open the series to see why.`,
+  }),
   // Tax Planning Review 2 (Project Deadlines): the deadline's name and when it is due.
   'project-deadline.reminder': (p) => {
     const title = text(p, 'title') ?? 'A project deadline';

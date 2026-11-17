@@ -1,5 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { type Database, Prisma, type TxClient } from '@firmivra/db';
+import {
+  type Database,
+  Prisma,
+  type TaskStatus as StoredTaskStatus,
+  type TxClient,
+} from '@firmivra/db';
 import type {
   ConvertToRecurringRequest,
   CreateTaskSeriesRequest,
@@ -43,6 +48,7 @@ import {
   keyScope,
   LIVE_TASK,
   liveClient,
+  liveStatus,
   type Reminder,
   reminderFrom,
   reminderFromRow,
@@ -156,6 +162,9 @@ const occurrenceOut = (o: {
   taskId: string | null;
   skipReason: string | null;
   generatedAt: Date | null;
+  failureCode?: string | null;
+  attempts?: number;
+  task?: { id: string; title: string; status: StoredTaskStatus } | null;
 }): TaskOccurrence => ({
   id: o.id,
   scheduledOn: day(o.scheduledOn)!,
@@ -163,6 +172,9 @@ const occurrenceOut = (o: {
   state: o.state,
   taskId: o.taskId,
   skipReason: o.skipReason,
+  task: o.task ? { id: o.task.id, title: o.task.title, status: liveStatus(o.task.status) } : null,
+  failureCode: o.failureCode ?? null,
+  attempts: o.attempts ?? 0,
   generatedAt: o.generatedAt?.toISOString() ?? null,
 });
 
@@ -291,6 +303,8 @@ export class TaskSeriesService {
       const [rows, total] = await Promise.all([
         tx.taskOccurrence.findMany({
           where,
+          // T-C03: the task made, with where it is now.
+          include: { task: { select: { id: true, title: true, status: true } } },
           orderBy: [{ scheduledOn: 'desc' }, { id: 'asc' }],
           skip: (q.page - 1) * q.pageSize,
           take: q.pageSize,
@@ -689,7 +703,11 @@ export class TaskSeriesService {
         extraAssigneeIds: task.assignees.map((a) => a.userId),
         dueTime: task.dueTime,
         clientVisible: task.clientVisible,
-        checklist: task.taskChecklistItems.map((i) => ({ label: i.label, required: i.required })),
+        // T-C11: the same checklist for every occurrence, unless the converter said not to.
+        checklist:
+          body.applyChecklist === false
+            ? []
+            : task.taskChecklistItems.map((i) => ({ label: i.label, required: i.required })),
         // Custom ones too, in the order they fire (the series keeps the task's due time).
         reminders: remindersJson(
           inFiringOrder(

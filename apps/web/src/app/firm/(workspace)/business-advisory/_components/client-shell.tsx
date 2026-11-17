@@ -20,6 +20,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
+import { useOriginNavigate } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { ErrorLine, useMembers } from './ba-dialogs';
@@ -34,6 +35,7 @@ import {
   errorText,
   outlined,
   quiet,
+  meetingsTab,
   scheduleMeetingHref,
 } from './ba-shared';
 
@@ -75,6 +77,7 @@ export function ClientShell({
 }) {
   const path = usePathname();
   const router = useRouter();
+  const navigate = useOriginNavigate();
   const q = useAdvisoryClient(advisoryClientId);
   const c = q.data;
   const [editing, setEditing] = useState(false);
@@ -127,9 +130,11 @@ export function ClientShell({
           >
             Edit Client
           </button>
+          {/* A-10: it waits for the client, so the form always opens on them. */}
           <Link
-            href={scheduleMeetingHref(c, path)}
-            className={outlined}
+            href={scheduleMeetingHref(c, meetingsTab(advisoryClientId))}
+            aria-disabled={!c}
+            className={`${outlined} ${c ? '' : 'pointer-events-none opacity-50'}`}
             data-testid="schedule-meeting"
           >
             <CalendarDots aria-hidden weight="fill" className="size-5 text-action" /> Schedule
@@ -152,12 +157,17 @@ export function ClientShell({
                         },
                       ]
                     : []),
+                  // Advisory A-09: the reports keep this client as their context and way back.
                   {
                     label: 'Advisory Reports',
                     icon: ChartBar,
-                    onSelect: () => router.push(`${BASE}/reports`),
+                    onSelect: () => navigate(`${BASE}/reports?client=${advisoryClientId}`),
                   },
-                  { label: 'Build a Report', icon: Plus, onSelect: () => router.push('/reports') },
+                  {
+                    label: 'Build a Report',
+                    icon: Plus,
+                    onSelect: () => navigate('/reports/builder'),
+                  },
                 ],
               },
             ]}

@@ -6,45 +6,10 @@ import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { toInstant } from '../../calendar/_components/time';
+import { zoneName } from '../[id]/_components/profile-shared';
 import { scheduleErrorText } from './lead-appointment';
 import { LEAD_PIPELINE_KEY } from './lead-shared';
-
-function zonedDateTimeToIso(value: string, timeZone: string) {
-  const [datePart, timePart] = value.split('T');
-  if (!datePart || !timePart) return '';
-  const [yearText, monthText, dayText] = datePart.split('-');
-  const [hourText, minuteText] = timePart.split(':');
-  const year = Number(yearText ?? 0);
-  const month = Number(monthText ?? 0);
-  const day = Number(dayText ?? 0);
-  const hour = Number(hourText ?? 0);
-  const minute = Number(minuteText ?? 0);
-  const wallTime = Date.UTC(year, month - 1, day, hour, minute);
-  let instant = wallTime;
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  });
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const parts = Object.fromEntries(
-      formatter.formatToParts(new Date(instant)).map((part) => [part.type, part.value]),
-    );
-    const represented = Date.UTC(
-      Number(parts.year),
-      Number(parts.month) - 1,
-      Number(parts.day),
-      Number(parts.hour),
-      Number(parts.minute),
-    );
-    instant += wallTime - represented;
-  }
-  return new Date(instant).toISOString();
-}
 
 /** Uses the firm appointment settings and writes the lead as a LEAD contact. */
 export function LeadAppointmentDialog({ lead, onClose }: { lead: LeadRow; onClose: () => void }) {
@@ -89,7 +54,12 @@ export function LeadAppointmentDialog({ lead, onClose }: { lead: LeadRow; onClos
               onSubmit={(event) => {
                 event.preventDefault();
                 if (!submit || !selectedStaff || !startsAt) return;
-                const start = zonedDateTimeToIso(startsAt, data.timezone);
+                // In the firm's time zone (Leads time zone, DECISIONS Nov 16).
+                const start = toInstant(
+                  startsAt.slice(0, 10),
+                  startsAt.slice(11, 16),
+                  data.timezone,
+                );
                 const end = new Date(
                   Date.parse(start) + submit.durationMinutes * 60_000,
                 ).toISOString();
@@ -145,7 +115,7 @@ export function LeadAppointmentDialog({ lead, onClose }: { lead: LeadRow; onClos
                   options={data.staff.map((staff) => ({ value: staff.userId, label: staff.name }))}
                 />
                 <Input
-                  label={`Start (${data.timezone})`}
+                  label={`Start (${zoneName(data.timezone)})`}
                   type="datetime-local"
                   value={startsAt}
                   onChange={(event) => setStartsAt(event.target.value)}

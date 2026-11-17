@@ -52,15 +52,26 @@ export const KIND: Record<LeadActivityKind, { icon: Icon; tone: TileTone; label:
 export const kindOf = (kind: LeadActivity['kind']) =>
   KIND[kind] ?? { icon: Lightning, tone: 'grey' as TileTone, label: 'Activity' };
 
-/** "Sep 18, 2026, 10:24 AM". */
-export const stamp = (iso: string) =>
+/**
+ * "Sep 18, 2026, 10:24 AM EDT". Leads time zone (DECISIONS, Nov 16): a lead's times are shown in
+ * the firm's time zone and labelled with it, as Appointments and Tasks show theirs. Until the
+ * zone has loaded, the device's clock, unlabelled.
+ */
+export const stamp = (iso: string, timeZone?: string) =>
   new Date(iso).toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    ...(timeZone ? { timeZone, timeZoneName: 'short' as const } : {}),
   });
+
+/** The zone's short name at an instant ("EST", "EDT"), for a field's label. */
+export const zoneName = (timeZone: string, at: Date = new Date()) =>
+  new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
+    .formatToParts(at)
+    .find((p) => p.type === 'timeZoneName')?.value ?? timeZone;
 
 export const dayText = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });

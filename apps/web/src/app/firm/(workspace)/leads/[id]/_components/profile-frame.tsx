@@ -43,6 +43,7 @@ import {
   priorityTone,
   stageTone,
 } from '../../_components/lead-shared';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
 import { type LeadTab, TABS, dayText, profileKey, shortName, stamp } from './profile-shared';
 
 export type ProfileDialog = 'email' | 'sms' | 'appointment' | 'edit';
@@ -85,6 +86,8 @@ const outline =
  * the same frame with quiet placeholders.
  */
 export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactNode }) {
+  // Leads time zone (DECISIONS, Nov 16): times in the firm's zone, labelled with it.
+  const timeZone = useFirmTimeZone();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [dialog, setDialog] = useState<ProfileDialog | null>(null);
@@ -172,7 +175,9 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
                   <span>Added: {lead ? dayText(lead.createdAt) : '—'}</span>
                   <span aria-hidden>|</span>
-                  <span>Last Contact: {lead?.lastContact ? stamp(lead.lastContact.at) : '—'}</span>
+                  <span>
+                    Last Contact: {lead?.lastContact ? stamp(lead.lastContact.at, timeZone) : '—'}
+                  </span>
                   <span aria-hidden>|</span>
                   <span className="flex items-center gap-2">
                     Assigned To:

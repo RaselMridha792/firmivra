@@ -50,7 +50,10 @@ test('the tabs and the Status filter keep one status, and the list says which (F
   await page.goto(`${app}/payroll`);
   const status = page.getByLabel('Status', { exact: true });
   await status.selectOption('ON_HOLD');
-  await expect(page.getByRole('table', { name: 'On Hold clients' })).toBeVisible();
+  // The mock has no client On Hold: once loaded, the list says none match (while it loads, the
+  // table is captioned "On Hold clients").
+  await expect(status).toHaveValue('ON_HOLD');
+  await expect(page.getByText('No clients match these filters')).toBeVisible();
   // A status tab replaces the filter's status: no stale On Hold behind Processing.
   await page.getByRole('tab', { name: /^Processing/ }).click();
   await expect(status).toHaveValue('');

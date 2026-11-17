@@ -585,11 +585,14 @@ export function createPayrollMock({
                 sharePercent: grossTotal ? Math.round((v.gross / grossTotal) * 100) : 0,
               })),
           },
+          // Review 2 (F01), as the API: chosen for a client is not authorized. The mock has no
+          // Integrations connection, so a provider counts as authorized once data came from it.
           providers: [...providers].map(([key, v]) => ({
             key,
-            label: key ? (PROVIDERS[key] ?? key) : 'Not Connected',
+            label: key ? (PROVIDERS[key] ?? key) : 'Not connected',
             clientCount: v.clients,
-            connected: key !== null,
+            connected:
+              key !== null && clients.some((c) => c.providerKey === key && !!c.lastSyncedAt),
           })),
           upcomingRuns: upcoming.map(({ c, s }) => ({
             payrollClientId: c.id,

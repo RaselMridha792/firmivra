@@ -11,8 +11,9 @@ const lead = (n: number) =>
 test('R2 5: the follow-up editor opens on the saved time, and an unchanged save keeps it', async ({
   page,
 }) => {
-  // Avery Lawson's call is seeded 30 hours ahead: Nov 17, 2026, 2:15 PM on this device's clock.
-  await page.clock.setFixedTime(new Date(2026, 10, 16, 8, 15));
+  // 8:15 AM in New York, the firm's zone, where a lead's times are shown (Leads time zone,
+  // DECISIONS Nov 16). Avery Lawson's call is seeded 30 hours ahead: Nov 17, 2026, 2:15 PM EST.
+  await page.clock.setFixedTime(new Date('2026-11-16T13:15:00.000Z'));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(lead(1));
   const card = page.getByTestId('card-follow-up');

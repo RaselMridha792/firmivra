@@ -9,10 +9,13 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { LEAD_PIPELINE_KEY } from '../../_components/lead-shared';
 import { CardFrame } from './profile-cards';
 import { useProfile } from './profile-frame';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
 import { stamp, wsKey } from './profile-shared';
 
 /** Notes tab: the lead's internal notes, newest first, and a box to add one. */
 export function NotesTab() {
+  // Leads time zone (DECISIONS, Nov 16): times in the firm's zone, labelled with it.
+  const timeZone = useFirmTimeZone();
   const { id } = useProfile();
   const [text, setText] = useState('');
   const notes = useApiQuery(wsKey(id, 'notes'), () => api.leadPipeline.notes(id));
@@ -64,7 +67,7 @@ export function NotesTab() {
               <div className="flex min-w-0 flex-col gap-1">
                 <p className="text-sm font-semibold text-heading">
                   {note.by?.name ?? 'System'}{' '}
-                  <span className="font-normal text-muted">· {stamp(note.at)}</span>
+                  <span className="font-normal text-muted">· {stamp(note.at, timeZone)}</span>
                 </p>
                 <p className="whitespace-pre-line text-sm text-text">{note.text}</p>
               </div>

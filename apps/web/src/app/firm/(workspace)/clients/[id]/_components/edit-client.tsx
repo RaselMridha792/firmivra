@@ -41,7 +41,8 @@ type Values = Record<
   | (typeof ADDRESS_FIELDS)[number]
   | (typeof PARTY_FIELDS)[number]
   | 'ssn'
-  | 'ein',
+  | 'ein'
+  | 'einStatus',
   string
 >;
 
@@ -77,6 +78,8 @@ function initial(client: ClientRecord): Values {
     postalCode: profile.address.postalCode ?? '',
     ssn: '',
     ein: '',
+    // A-X01: a number on file from before the status is Has EIN.
+    einStatus: profile.einStatus ?? (profile.einLast4 ? 'HAS_EIN' : ''),
     rpName: profile.responsibleParty?.name ?? '',
     rpEmail: profile.responsibleParty?.email ?? '',
     rpPhone: formatPhone(profile.responsibleParty?.phone ?? null) ?? '',
@@ -99,7 +102,10 @@ function bodies(client: ClientRecord, values: Values) {
   const profile = {
     ...changed([...NAME_FIELDS, ...BUSINESS_FIELDS, ...OTHER_FIELDS]),
     ...(values.ssn ? { ssn: values.ssn } : {}),
-    ...(values.ein ? { ein: values.ein } : {}),
+    ...(values.ein && (values.einStatus === '' || values.einStatus === 'HAS_EIN')
+      ? { ein: values.ein }
+      : {}),
+    ...(values.einStatus !== was.einStatus ? { einStatus: values.einStatus || null } : {}),
     ...(Object.keys(address).length ? { address } : {}),
     ...party,
   };
@@ -267,10 +273,22 @@ export function EditClient({
               <>
                 <Input label="Business name *" {...field('businessName')} />
                 <Input label="Entity type" placeholder="LLC, S corp..." {...field('entityType')} />
+                {/* A-X01: the EIN's status apart from the number, which goes only with Has EIN. */}
+                <Select
+                  label="EIN status"
+                  {...field('einStatus')}
+                  options={[
+                    { value: '', label: 'Not set' },
+                    { value: 'HAS_EIN', label: 'Has EIN' },
+                    { value: 'NOT_APPLICABLE', label: 'Not Applicable' },
+                    { value: 'TO_BE_APPLIED_FOR', label: 'To Be Applied For' },
+                  ]}
+                />
                 <Input
                   label={`New EIN${client.profile.einLast4 ? ` (now ends ${client.profile.einLast4})` : ''}`}
                   inputMode="numeric"
                   autoComplete="off"
+                  disabled={!['', 'HAS_EIN'].includes(form.watch('einStatus') ?? '')}
                   {...field('ein')}
                 />
               </>

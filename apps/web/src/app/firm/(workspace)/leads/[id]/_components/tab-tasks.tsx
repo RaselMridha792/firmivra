@@ -7,18 +7,20 @@ import {
   type LeadProfile,
   type LeadTask,
 } from '@firmivra/types';
-import { Badge, Button, Select, Textarea } from '@firmivra/ui';
+import { Badge, Button, Select, Skeleton, Textarea } from '@firmivra/ui';
 import { CheckSquare, Fire, PhoneCall } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { localParts, toInstant } from '../../../calendar/_components/time';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
 import { LEAD_PIPELINE_KEY } from '../../_components/lead-shared';
 import { CardFrame } from './profile-cards';
 import { SequencesCard } from './sequences-card';
 import { useProfile } from './profile-frame';
-import { stamp, wsKey } from './profile-shared';
+import { stamp, wsKey, zoneName } from './profile-shared';
 
 export const ACTIONS: { value: LeadActionType; label: string }[] = [
   { value: 'CALL', label: 'Call' },
@@ -56,17 +58,13 @@ const dueText = (date: string | null) =>
       })
     : 'No due date';
 
-const pad = (n: number) => String(n).padStart(2, '0');
-/** "YYYY-MM-DD" of a time, on this device's calendar (as `stamp` shows it). */
-const localDate = (iso: string) => {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-};
-/** "HH:MM" of a time, on this device's clock, exactly as saved (R2 5: never rounded). */
-const localTime = (iso: string) => {
-  const d = new Date(iso);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
+/**
+ * "YYYY-MM-DD" of a time on the firm's calendar (Leads time zone, DECISIONS Nov 16: a lead's times
+ * are entered and shown in the firm's time zone, as `stamp` shows them).
+ */
+const localDate = (iso: string, timeZone: string) => localParts(iso, timeZone).date;
+/** "HH:MM" of a time on the firm's clock, exactly as saved (R2 5: never rounded). */
+const localTime = (iso: string, timeZone: string) => localParts(iso, timeZone).time;
 /** The half hours, and the saved time when it is between them, in order. */
 const timeOptions = (current: string) =>
   (TIMES.includes(current) ? TIMES : [...TIMES, current].sort()).map((t) => ({
@@ -85,11 +83,13 @@ function FollowUpSteps({
   onEdit,
   editing,
   onMessage,
+  timeZone,
 }: {
   lead: LeadProfile;
   onEdit: (step: LeadFollowUp) => void;
   editing: string | null;
   onMessage: (text: string) => void;
+  timeZone: string;
 }) {
   const options = { invalidate: LEAD_PIPELINE_KEY };
   const remove = useApiMutation(
@@ -111,7 +111,7 @@ function FollowUpSteps({
               <span className={`font-semibold ${f.doneAt ? 'text-muted' : 'text-heading'}`}>
                 {ACTIONS.find((a) => a.value === f.type)?.label ?? f.type}
               </span>{' '}
-              <span className="text-muted">{stamp(f.dueAt)}</span>
+              <span className="text-muted">{stamp(f.dueAt, timeZone)}</span>
               {f.notes ? <span className="block text-muted">{f.notes}</span> : null}
               {/* R2 19: a step a sequence made, its kind and owner (an outreach step is sent by hand). */}
               {f.sequence ? (
@@ -123,7 +123,7 @@ function FollowUpSteps({
               ) : null}
               {f.doneAt ? (
                 <span className="block text-xs text-success">
-                  Done {stamp(f.doneAt)}
+                  Done {stamp(f.doneAt, timeZone)}
                   {f.outcome ? `: ${f.outcome}` : ''}
                 </span>
               ) : null}
@@ -176,11 +176,7 @@ function FollowUpSteps({
  * passed, and every step. Save Follow-Up changes the next step (or sets the first); + Add Follow-Up
  * adds another; a step's Edit puts it into the form to change it.
  */
-export function FollowUpCard({
-  lead,
-  message: heldMessage,
-  onMessage,
-}: {
+type FollowUpCardProps = {
   lead: LeadProfile | undefined;
   /**
    * The card's notice ("Follow-up saved."), held by a parent that remounts the card when the lead
@@ -188,13 +184,32 @@ export function FollowUpCard({
    */
   message?: string | undefined;
   onMessage?: (message: string | undefined) => void;
-}) {
+};
+
+export function FollowUpCard(props: FollowUpCardProps) {
+  // The form opens on the saved time in the firm's time zone, so it waits for the zone.
+  const timeZone = useFirmTimeZone();
+  if (!timeZone)
+    return (
+      <CardFrame icon={PhoneCall} title="Next Action / Follow-Up" testId="card-follow-up">
+        <Skeleton className="h-40 w-full" />
+      </CardFrame>
+    );
+  return <FollowUpForm {...props} timeZone={timeZone} />;
+}
+
+function FollowUpForm({
+  lead,
+  message: heldMessage,
+  onMessage,
+  timeZone,
+}: FollowUpCardProps & { timeZone: string }) {
   const next = lead?.nextAction ?? null;
   // R2 5: the form opens on the saved step, its date and time as the summary shows them, so a
   // save that changes nothing keeps them.
   const [type, setType] = useState<LeadActionType>(next?.type ?? 'CALL');
-  const [date, setDate] = useState(() => (next ? localDate(next.dueAt) : ''));
-  const [time, setTime] = useState(() => (next ? localTime(next.dueAt) : NEW_TIME));
+  const [date, setDate] = useState(() => (next ? localDate(next.dueAt, timeZone) : ''));
+  const [time, setTime] = useState(() => (next ? localTime(next.dueAt, timeZone) : NEW_TIME));
   const [notes, setNotes] = useState(next?.notes ?? '');
   const [outcome, setOutcome] = useState('');
   const [ownMessage, setOwnMessage] = useState<string>();
@@ -204,7 +219,7 @@ export function FollowUpCard({
   const options = { invalidate: LEAD_PIPELINE_KEY };
   const form = () => ({
     type,
-    dueAt: new Date(`${date}T${time}:00`).toISOString(),
+    dueAt: toInstant(date, time, timeZone),
     notes: notes.trim() || null,
   });
   const add = useApiMutation(() => api.leadPipeline.addFollowUp(lead?.id ?? '', form()), options);
@@ -215,8 +230,8 @@ export function FollowUpCard({
   const edit = (step: LeadFollowUp) => {
     setEditing(step.id);
     setType(step.type);
-    setDate(localDate(step.dueAt));
-    setTime(localTime(step.dueAt));
+    setDate(localDate(step.dueAt, timeZone));
+    setTime(localTime(step.dueAt, timeZone));
     setNotes(step.notes ?? '');
     setMessage(undefined);
   };
@@ -224,15 +239,15 @@ export function FollowUpCard({
   const showNext = () => {
     setEditing(null);
     setType(next?.type ?? 'CALL');
-    setDate(next ? localDate(next.dueAt) : '');
-    setTime(next ? localTime(next.dueAt) : NEW_TIME);
+    setDate(next ? localDate(next.dueAt, timeZone) : '');
+    setTime(next ? localTime(next.dueAt, timeZone) : NEW_TIME);
     setNotes(next?.notes ?? '');
   };
   const save = useApiMutation(
     () =>
       api.leadPipeline.setFollowUp(lead?.id ?? '', {
         type,
-        dueAt: new Date(`${date}T${time}:00`).toISOString(),
+        dueAt: toInstant(date, time, timeZone),
         notes,
       }),
     options,
@@ -248,14 +263,20 @@ export function FollowUpCard({
           <span className="font-semibold">
             {ACTIONS.find((a) => a.value === next.type)?.label ?? next.type}
           </span>
-          <span className="text-muted">{stamp(next.dueAt)}</span>
+          <span className="text-muted">{stamp(next.dueAt, timeZone)}</span>
           {next.overdue ? <Badge tone="danger">Overdue</Badge> : null}
         </p>
       ) : (
         <p className="mb-3 text-sm text-muted">No follow-up is scheduled.</p>
       )}
       {lead ? (
-        <FollowUpSteps lead={lead} onEdit={edit} editing={editing} onMessage={setMessage} />
+        <FollowUpSteps
+          lead={lead}
+          onEdit={edit}
+          editing={editing}
+          onMessage={setMessage}
+          timeZone={timeZone}
+        />
       ) : null}
       <div className="flex flex-col gap-3">
         <Select
@@ -280,7 +301,7 @@ export function FollowUpCard({
             />
           </div>
           <Select
-            label="Time"
+            label={`Time (${zoneName(timeZone)})`}
             value={time}
             disabled={!lead}
             onChange={(event) => setTime(event.target.value)}
@@ -307,8 +328,8 @@ export function FollowUpCard({
                       setMessage('Follow-up changed.');
                       const n = profile.nextAction;
                       setType(n?.type ?? 'CALL');
-                      setDate(n ? localDate(n.dueAt) : '');
-                      setTime(n ? localTime(n.dueAt) : NEW_TIME);
+                      setDate(n ? localDate(n.dueAt, timeZone) : '');
+                      setTime(n ? localTime(n.dueAt, timeZone) : NEW_TIME);
                       setNotes(n?.notes ?? '');
                     },
                   })

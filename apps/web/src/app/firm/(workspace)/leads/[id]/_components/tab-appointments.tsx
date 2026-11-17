@@ -8,6 +8,7 @@ import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { CardFrame, EmptyPanel, outlineButton } from './profile-cards';
 import { useProfile } from './profile-frame';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
 import { shortName, stamp, wsKey } from './profile-shared';
 
 const tone = (status: string) =>
@@ -16,6 +17,8 @@ const label = (status: string) =>
   status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, ' ');
 
 function AppointmentRow({ appointment: a }: { appointment: LeadAppointment }) {
+  // Leads time zone (DECISIONS, Nov 16): times in the firm's zone, labelled with it.
+  const timeZone = useFirmTimeZone();
   return (
     <li
       className="flex flex-wrap items-center justify-between gap-3 py-3"
@@ -31,7 +34,7 @@ function AppointmentRow({ appointment: a }: { appointment: LeadAppointment }) {
         <div className="flex flex-col">
           <span className="text-sm font-semibold text-heading">{a.type ?? 'Appointment'}</span>
           <span className="text-sm text-muted">
-            {stamp(a.startsAt)} · {shortName(a.staff.name)}
+            {stamp(a.startsAt, timeZone)} · {shortName(a.staff.name)}
           </span>
         </div>
       </div>

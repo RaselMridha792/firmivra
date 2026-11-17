@@ -46,6 +46,8 @@ import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { mockStaff } from './clients';
 import { taskEngagementRef } from './service-engagements';
+import { mockDeadlineRef } from './compliance';
+import { mockPlanRef } from './tax-planning';
 
 /**
  * Mock data for `api.taskWork` (R55 contract, the Tasks module). Synthetic people and tasks only,
@@ -168,6 +170,8 @@ const rowFields = (t: Partial<TaskDetail> & { id: string; title: string }): Task
     engagement: null,
     service: null,
     deadline: null,
+    taxPlan: null,
+    relatedText: null,
     priority: 'MEDIUM',
     status: 'OPEN',
     progress: 'NOT_STARTED',
@@ -497,6 +501,9 @@ function makeSeries(
     taskId: null,
     skipReason: null,
     generatedAt: null,
+    task: null,
+    failureCode: null,
+    attempts: 0,
   }));
   return { detail, occurrences };
 }
@@ -649,6 +656,9 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     status: 'DRAFT',
     details: t.details,
     engagement: t.engagement,
+    taxPlan: t.taxPlan,
+    deadline: t.deadline,
+    relatedText: t.relatedText,
     progress: t.progress,
     startOn: t.startOn,
     dueTime: t.dueTime,
@@ -689,6 +699,55 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
   };
   const clientRef = (id: string) =>
     CLIENTS.find((c) => c.id === id) ?? { id, displayName: 'Selected client' };
+  /**
+   * T-C10, as the API: Related To's plan is the client's and not closed or archived, its deadline
+   * the client's and not archived (404 otherwise; without a client, 400); one kept as it was is
+   * not checked again. An engagement and a custom note never together (400).
+   */
+  const applyRelated = (
+    t: TaskDetail,
+    clientId: string | null,
+    b: {
+      engagementId?: string | null | undefined;
+      taxPlanId?: string | null | undefined;
+      deadlineId?: string | null | undefined;
+      relatedText?: string | null | undefined;
+    },
+  ) => {
+    const record = <R extends { clientId: string }>(ref: R | null, usable: (r: R) => boolean) => {
+      if (!clientId) throw fail(400, 'VALIDATION_FAILED', 'Choose the client first');
+      if (!ref || ref.clientId !== clientId || !usable(ref))
+        throw fail(404, 'NOT_FOUND', 'Not found');
+      return ref;
+    };
+    if (b.engagementId !== undefined) {
+      t.engagementId = b.engagementId;
+      t.engagement = b.engagementId ? taskEngagementRef(b.engagementId) : null;
+    }
+    if (b.taxPlanId !== undefined && b.taxPlanId !== t.taxPlan?.id) {
+      const p = b.taxPlanId ? record(mockPlanRef(b.taxPlanId), (r) => r.open) : null;
+      t.taxPlan = p ? { id: p.id, name: p.name } : null;
+    }
+    if (b.deadlineId !== undefined && b.deadlineId !== t.deadline?.id) {
+      const d = b.deadlineId ? record(mockDeadlineRef(b.deadlineId), (r) => !r.archived) : null;
+      t.deadline = d ? { id: d.id, name: d.name } : null;
+    }
+    if (b.relatedText !== undefined) t.relatedText = b.relatedText;
+    if (t.engagement && t.relatedText)
+      throw new ApiRequestError(
+        400,
+        'VALIDATION_FAILED',
+        'The request is not valid',
+        undefined,
+        undefined,
+        [
+          {
+            path: 'relatedText',
+            message: 'Choose a related engagement or type a custom note, not both',
+          },
+        ],
+      );
+  };
   /** A draft's fields as sent: nothing that publishing checks is checked here. */
   const applyDraft = (x: StoredDraft, b: Record<string, unknown>) => {
     const has = (k: string) => b[k] !== undefined;
@@ -700,6 +759,9 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
           x.t.engagementId = null;
           x.t.engagement = null;
         }
+        // T-C10: the old client's plan and deadline go too.
+        x.t.taxPlan = null;
+        x.t.deadline = null;
         if (!has('attachments')) x.t.attachments = [];
       }
       if (next) x.t.client = next;
@@ -707,9 +769,8 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     if (has('engagementId')) {
       const id = b['engagementId'] as string | null;
       if (id && !x.client) throw fail(400, 'VALIDATION_FAILED', 'Choose the client first');
-      x.t.engagementId = id;
-      x.t.engagement = id ? taskEngagementRef(id) : null;
     }
+    applyRelated(x.t, x.client?.id ?? null, b);
     const { typeId, reminders, attachments, ...rest } = b;
     applyFields(x.t, rest);
     if (typeId !== undefined) {
@@ -787,6 +848,9 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       taskId: null,
       skipReason: null,
       generatedAt: null,
+      task: null,
+      failureCode: null,
+      attempts: 0,
     }));
     x.occurrences = [...made, ...fresh];
     d.upcoming = fresh.slice(0, 6).map((o) => ({ scheduledOn: o.scheduledOn, dueOn: o.dueOn }));
@@ -844,16 +908,30 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         .filter((t) => q.dueSet !== true || t.dueOn !== null)
         .filter((t) => !q.dueFrom || (t.dueOn !== null && t.dueOn >= q.dueFrom))
         .filter((t) => !q.dueTo || (t.dueOn !== null && t.dueOn <= q.dueTo))
+        // T-D02, as the API: completed on these days (the mock's days are UTC).
+        .filter(
+          (t) =>
+            !q.completedFrom ||
+            (t.completedAt !== null && t.completedAt.slice(0, 10) >= q.completedFrom),
+        )
+        .filter(
+          (t) =>
+            !q.completedTo ||
+            (t.completedAt !== null && t.completedAt.slice(0, 10) <= q.completedTo),
+        )
         .filter(
           (t) =>
             !search ||
-            // T-D03, as the API: Related To (its engagement) is searched too.
+            // T-D03 and T-C10, as the API: Related To (its records and its note) is searched too.
             [
               t.title,
               t.client.displayName,
               t.type?.name ?? '',
               t.service?.name ?? '',
               t.engagement?.title ?? '',
+              t.taxPlan?.name ?? '',
+              t.deadline?.name ?? '',
+              t.relatedText ?? '',
             ].some((x) => x.toLowerCase().includes(search)),
         );
       const dir = q.direction === 'desc' ? -1 : 1;
@@ -931,6 +1009,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         templateId: b.templateId ?? null,
         priority: tpl?.priority ?? 'MEDIUM',
       });
+      applyRelated(t, client.id, b);
       applyFields(t, {
         ...b,
         typeId: b.typeId ?? tpl?.type?.id ?? null,
@@ -958,6 +1037,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       // Checked on a copy, so a refused change leaves the task as it was. The reminders kept count:
       // going all-day with a Custom reminder is refused unless the request replaces them.
       const next = copy(t);
+      applyRelated(next, next.client.id, b);
       applyFields(next, b);
       refuseCustomWithoutTime(next);
       Object.assign(t, next);
@@ -1499,6 +1579,12 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       if (b.details !== undefined) x.detail.details = b.details ?? null;
       if (b.priority) x.detail.priority = b.priority;
       if (b.clientVisible !== undefined) x.detail.clientVisible = b.clientVisible;
+      // T-D16: the checklist new occurrences start with.
+      if (b.checklist)
+        x.detail.checklist = b.checklist.map((c) => ({
+          label: c.label,
+          required: c.required ?? false,
+        }));
       if (b.recurrence)
         x.detail.recurrence = {
           ...x.detail.recurrence,
@@ -1575,6 +1661,10 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         b.recurrence.interval,
         b.recurrence.unit,
       );
+      // T-C11, as the API: the task's checklist for every occurrence unless told not to.
+      made.detail.checklist = b.applyChecklist
+        ? t.checklistItems.map((i) => ({ label: i.label, required: i.required }))
+        : [];
       t.recurring = true;
       t.series = { id: made.detail.id, title: made.detail.title };
       touch(t);

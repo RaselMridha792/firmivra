@@ -64,6 +64,15 @@ const page = <T>(rows: T[], q: { page?: number; pageSize?: number }) => {
   };
 };
 
+/** T-C10: the deadlines of the last mock made, for the tasks mock's Related To. */
+let liveStore: { deadlines: ComplianceDeadline[] } | null = null;
+export function mockDeadlineRef(
+  id: string,
+): { id: string; name: string; clientId: string; archived: boolean } | null {
+  const d = (liveStore?.deadlines ?? seedDeadlines()).find((x) => x.id === id);
+  return d ? { id: d.id, name: d.name, clientId: d.client.id, archived: !!d.archived } : null;
+}
+
 export function createComplianceMock({
   role = 'OWNER',
   empty = false,
@@ -75,6 +84,7 @@ export function createComplianceMock({
     settings: copy(DEFAULT_SETTINGS),
     next: 200,
   };
+  liveStore = store;
   const id = (block: string) => uuid(block, store.next++);
   const log = (
     kind: Store['logs'][number]['kind'],

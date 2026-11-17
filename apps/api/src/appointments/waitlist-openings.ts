@@ -35,7 +35,8 @@ export const OFFER_HOLD_MS = 12 * HOUR;
 export interface Hold {
   entryId: string;
   staffUserId: string;
-  clientId: string;
+  /** Null for a lead's own appointment (P4-1; the waitlist itself is for clients' appointments). */
+  clientId: string | null;
   attendeeClientIds: readonly string[];
   roomId: string | null;
   start: number;

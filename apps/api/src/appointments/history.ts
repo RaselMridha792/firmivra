@@ -31,7 +31,8 @@ export type Placement = z.infer<typeof Placement>;
 /** What an appointment's audit row holds. */
 export const HistoryMetadata = z.object({
   by: z.enum(['STAFF', 'CLIENT']),
-  clientId: z.string(),
+  /** Null for a lead's own appointment (P4-1). */
+  clientId: z.string().nullable(),
   from: Placement.nullable(),
   to: Placement.nullable(),
   /** Cancel only: whether a reason was given (its text stays on the appointment). */

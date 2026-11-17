@@ -31,7 +31,18 @@ import { badTextPaths, storableDay } from '../workspaces/input.js';
 // NUL character or half of a surrogate pair in any string, and a date in the year 0000.
 
 /** The names of the body or query fields that hold a calendar day. */
-const DAY_FIELDS = new Set(['dueOn', 'startOn', 'dueFrom', 'dueTo', 'from', 'to', 'endOn']);
+const DAY_FIELDS = new Set([
+  'dueOn',
+  'startOn',
+  'dueFrom',
+  'dueTo',
+  // T-D02: the Completed (This Month) card's days.
+  'completedFrom',
+  'completedTo',
+  'from',
+  'to',
+  'endOn',
+]);
 
 function days(value: unknown, path: (string | number)[] = []): (string | number)[][] {
   if (Array.isArray(value)) return value.flatMap((v, i) => days(v, [...path, i]));

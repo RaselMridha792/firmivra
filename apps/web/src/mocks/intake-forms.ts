@@ -406,6 +406,16 @@ function storeFor(options: Options): Store {
   return s;
 }
 
+/**
+ * The intake forms sent to one client, as `api.intakeForms` holds them: the Client Portal's form
+ * counts are made from these, as the API counts the client's intakes.
+ */
+export function mockIntakeFormsOfClient(clientId: string): readonly { status: IntakeStatus }[] {
+  return storeFor({}).assigned.filter(
+    (r) => r.recipient.kind === 'CLIENT' && r.recipient.id === clientId,
+  );
+}
+
 // As the API's TAB_STATUSES: "all" is every sent form that is not archived.
 const TAB_STATUS: Record<string, readonly IntakeStatus[]> = {
   all: [
