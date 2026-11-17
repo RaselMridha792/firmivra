@@ -21,18 +21,25 @@ import {
 } from '../../../templates/lead-sequences/_components/lead-sequences-screen';
 import { CardFrame } from './profile-cards';
 import { useProfile } from './profile-frame';
-import { profileKey, stamp } from './profile-shared';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
+import { localParts, todayIn, toInstant } from '../../../calendar/_components/time';
+import { profileKey, stamp, zoneName } from './profile-shared';
 
 type Steps = ApplyLeadSequenceRequest['steps'];
 type Step = Steps[number];
 
-/** "2026-11-20T09:00" (the member's own time) from an ISO time, for a datetime-local field. */
-function localInput(iso: string) {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+/**
+ * "2026-11-20T09:00" in the firm's time zone from an ISO time, for a datetime-local field (Leads
+ * time zone, DECISIONS Nov 16), and back.
+ */
+function localInput(iso: string, timeZone: string) {
+  const { date, time } = localParts(iso, timeZone);
+  return `${date}T${time}`;
 }
-const today = () => localInput(new Date().toISOString()).slice(0, 10);
+const fromLocalInput = (value: string, timeZone: string) => {
+  const [date = '', time = ''] = value.split('T');
+  return toInstant(date, time.slice(0, 5), timeZone);
+};
 
 /**
  * Follow-up Sequences on the lead's Tasks tab (Leads R2 19): the sequences applied to the lead,
@@ -41,6 +48,8 @@ const today = () => localInput(new Date().toISOString()).slice(0, 10);
  * follow-up steps. Nothing is sent: an outreach step reminds its owner to send the message.
  */
 export function SequencesCard() {
+  // Leads time zone (DECISIONS, Nov 16): times in the firm's zone, labelled with it.
+  const timeZone = useFirmTimeZone();
   const { id, profile } = useProfile();
   const queryClient = useQueryClient();
   const [applying, setApplying] = useState(false);
@@ -73,7 +82,7 @@ export function SequencesCard() {
             >
               <span className="min-w-0">
                 <span className="font-semibold text-heading">{run.name}</span>{' '}
-                <span className="text-muted">applied {stamp(run.appliedAt)}</span>
+                <span className="text-muted">applied {stamp(run.appliedAt, timeZone)}</span>
               </span>
               {run.stoppedAt ? (
                 <Badge tone="neutral">Stopped{run.stopReason ? `: ${run.stopReason}` : ''}</Badge>
@@ -102,8 +111,9 @@ export function SequencesCard() {
           {errorMessage(stop.error)}
         </p>
       ) : null}
-      {applying && profile ? (
+      {applying && profile && timeZone ? (
         <ApplyDialog
+          timeZone={timeZone}
           leadId={id}
           ownerId={profile.assignedTo?.userId ?? null}
           onClose={() => setApplying(false)}
@@ -123,7 +133,9 @@ function ApplyDialog({
   ownerId,
   onClose,
   onApplied,
+  timeZone,
 }: {
+  timeZone: string;
   leadId: string;
   ownerId: string | null;
   onClose: () => void;
@@ -132,14 +144,19 @@ function ApplyDialog({
   const { me } = useMe();
   const templates = useApiQuery(SEQUENCES_KEY, () => api.leadSequences.list());
   const [templateId, setTemplateId] = useState('');
-  const [startOn, setStartOn] = useState(today);
+  const [startOn, setStartOn] = useState(() => todayIn(timeZone));
   const [steps, setSteps] = useState<Steps>([]);
   const apply = useApiMutation(() => api.leadSequences.apply(leadId, { templateId, steps }));
   const choose = (template: LeadSequenceTemplate | undefined, start = startOn) => {
     setTemplateId(template?.id ?? '');
     setSteps(
       template
-        ? previewSequence(template, { startOn: start, leadOwnerId: ownerId, applierId: me.user.id })
+        ? previewSequence(template, {
+            startOn: start,
+            leadOwnerId: ownerId,
+            applierId: me.user.id,
+            timeZone,
+          })
         : [],
     );
   };
@@ -210,11 +227,11 @@ function ApplyDialog({
                   </Badge>
                 </span>
                 <Input
-                  label={`Step ${i + 1} date and time`}
+                  label={`Step ${i + 1} date and time (${zoneName(timeZone)})`}
                   type="datetime-local"
-                  value={localInput(s.dueAt)}
+                  value={localInput(s.dueAt, timeZone)}
                   onChange={(e) =>
-                    e.target.value && patch(i, { dueAt: new Date(e.target.value).toISOString() })
+                    e.target.value && patch(i, { dueAt: fromLocalInput(e.target.value, timeZone) })
                   }
                 />
                 <Button
