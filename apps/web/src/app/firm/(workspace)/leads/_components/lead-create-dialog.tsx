@@ -14,6 +14,9 @@ import { useForm, useWatch } from 'react-hook-form';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { todayIn, toInstant } from '../../calendar/_components/time';
+import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
+import { zoneName } from '../[id]/_components/profile-shared';
 import { useMe } from '../../../../../components/signed-in';
 import { SEQUENCES_KEY } from '../../templates/lead-sequences/_components/lead-sequences-screen';
 import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES } from './lead-shared';
@@ -55,6 +58,8 @@ export function LeadCreateDialog({
   const [sequenceId, setSequenceId] = useState('');
   const [sequenceError, setSequenceError] = useState('');
   const sequences = useApiQuery(SEQUENCES_KEY, () => api.leadSequences.list());
+  // Leads time zone (DECISIONS, Nov 16): follow-up times are entered in the firm's time zone.
+  const timeZone = useFirmTimeZone();
   // L8: "+ Add Follow-Up" adds a step; each has its action, date and time, and notes.
   const [steps, setSteps] = useState<
     { key: number; type: NextActionType; date: string; time: string; notes: string }[]
@@ -102,7 +107,9 @@ export function LeadCreateDialog({
               .filter((st) => st.date)
               .map((st) => ({
                 type: st.type,
-                dueAt: new Date(`${st.date}T${st.time || '09:00'}:00`).toISOString(),
+                dueAt: timeZone
+                  ? toInstant(st.date, st.time || '09:00', timeZone)
+                  : new Date(`${st.date}T${st.time || '09:00'}:00`).toISOString(),
                 notes: st.notes.trim() || null,
               })),
           }
@@ -112,7 +119,7 @@ export function LeadCreateDialog({
       onSuccess: async (lead) => {
         const template = sequences.data?.find((t) => t.id === sequenceId);
         if (template) {
-          const startOn = new Date().toLocaleDateString('en-CA');
+          const startOn = timeZone ? todayIn(timeZone) : new Date().toLocaleDateString('en-CA');
           try {
             await api.leadSequences.apply(lead.id, {
               templateId: template.id,
@@ -120,6 +127,7 @@ export function LeadCreateDialog({
                 startOn,
                 leadOwnerId: lead.assignedTo?.userId ?? null,
                 applierId: me.user.id,
+                ...(timeZone ? { timeZone } : {}),
               }),
             });
           } catch (error) {
@@ -323,7 +331,7 @@ export function LeadCreateDialog({
                   onChange={(event) => setStep(st.key, { date: event.target.value })}
                 />
                 <Input
-                  label="Time"
+                  label={timeZone ? `Time (${zoneName(timeZone)})` : 'Time'}
                   type="time"
                   value={st.time}
                   onChange={(event) => setStep(st.key, { time: event.target.value })}

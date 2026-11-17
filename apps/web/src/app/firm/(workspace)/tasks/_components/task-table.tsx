@@ -50,7 +50,7 @@ import {
   shortName,
 } from './task-shared';
 import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
-import { workspacePath } from './new-task-href';
+import { relatedLabel, relatedLinks } from './new-task-href';
 
 type Dialog =
   | { kind: 'reassign' | 'due' | 'priority' | 'progress'; ids: string[] }
@@ -73,9 +73,12 @@ export function requiredOpenText(requiredOpen: number): string | undefined {
 }
 
 /** What a table of tasks offers: sort, page, select, row menu and the bulk bar. */
-/** T-D04: the page of the record a task is about (its engagement's workspace), if it has one. */
+/**
+ * T-D04: the page of the record a task is about (its engagement's workspace, or T-C10 its tax
+ * plan or deadline), if it has one.
+ */
 const relatedHref = (t: TaskRow): string | null =>
-  (t.engagement ? workspacePath(t.engagement.workspace) : null) ?? null;
+  relatedLinks(t).find((l) => l.href)?.href ?? null;
 
 /** T-D04: why a bulk action left a task as it was, in a few words. */
 const SKIP_WORDS: Record<string, string> = {
@@ -236,7 +239,8 @@ export function TaskTable({
     {
       id: 'related',
       label: 'Related To',
-      cell: (t) => t.engagement?.title ?? t.service?.name ?? '—',
+      // T-C10: the record or the custom note, never the Service in its place.
+      cell: (t) => relatedLabel(t),
     },
     {
       id: 'due',

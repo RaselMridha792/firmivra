@@ -1,6 +1,12 @@
 'use client';
 
-import type { CreateTaskSeriesRequest, TaskPriority } from '@firmivra/types';
+import {
+  type CreateTaskSeriesRequest,
+  RecurrencePattern,
+  type TaskPriority,
+  type TaskSeriesDetail,
+  type UpdateTaskSeriesRequest,
+} from '@firmivra/types';
 import { Button, Checkbox, Modal, Textarea, Toast } from '@firmivra/ui';
 import {
   ArrowLeft,
@@ -19,7 +25,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 import { useClients, useMembers } from './task-data';
-import { ChecklistItems, type Item } from './task-form-parts';
+import { ChecklistItems, type Item, takeRecurringHandoff } from './task-form-parts';
 import { TaskTypeSelect, useTypeChoice } from './task-type-field';
 import { UnsavedDialog, useUnsavedGuard } from './unsaved-guard';
 import { PRIORITY_LABEL, TASKS_KEY, TASK_ERRORS, dayText } from './task-shared';
@@ -98,12 +104,15 @@ type Prefill = { clientId?: string | undefined; engagementId?: string | undefine
 
 export function RecurringFormScreen({ prefill = {} }: { prefill?: Prefill }) {
   const [round, setRound] = useState(0);
+  // T-C11: what Create Task's Recurring switch handed over, for the first form only.
+  const [handoff] = useState(() => (typeof window === 'undefined' ? null : takeRecurringHandoff()));
   const [saved, setSaved] = useState<string>();
   return (
     <RecurringForm
       key={round}
       // Save & Create Another starts empty; the first form keeps what it was opened with.
       prefill={round === 0 ? prefill : {}}
+      handoff={round === 0 ? handoff : null}
       saved={saved}
       onAnother={(title) => {
         setSaved(title);
@@ -113,12 +122,44 @@ export function RecurringFormScreen({ prefill = {} }: { prefill?: Prefill }) {
   );
 }
 
+/**
+ * Tasks Review Two T-D16: /tasks/recurring/[id]/edit, Edit Series: the same form, filled from the
+ * series, saved for this and future occurrences (scope FUTURE). Tasks already made keep theirs;
+ * one occurrence is changed by editing its task. Owner and Admin (the API refuses others).
+ */
+export function EditSeriesScreen({ id }: { id: string }) {
+  const series = useApiQuery([...TASKS_KEY, 'series', id], () => api.taskWork.series(id));
+  if (!series.data)
+    return (
+      <p role="status" className="rounded-xl bg-surface p-6 text-sm text-muted shadow-md">
+        {series.isError ? errorMessage(series.error, TASK_ERRORS) : 'Loading…'}
+      </p>
+    );
+  return (
+    <RecurringForm
+      // The series' id, never its version: a save refetches it and must not remount the form
+      // before the save's own success moves to the series page.
+      key={series.data.id}
+      prefill={{}}
+      handoff={null}
+      saved={undefined}
+      onAnother={() => undefined}
+      editing={series.data}
+    />
+  );
+}
+
 function RecurringForm({
   prefill,
+  handoff,
   saved,
   onAnother,
+  editing,
 }: {
   prefill: Prefill;
+  handoff: { title: string; items: Item[] } | null;
+  /** T-D16: the series being edited; its values fill the form. */
+  editing?: TaskSeriesDetail;
   saved: string | undefined;
   onAnother: (title: string) => void;
 }) {
@@ -129,39 +170,63 @@ function RecurringForm({
   // A5 (#1084): one key per form, reused only to retry its save, so a retried Save never makes a
   // second series; Save & Create Another starts a fresh form with a new key.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
-  const [title, setTitle] = useState('');
-  const [typeId, setTypeId] = useState('');
+  // T-D16: the series' repeat pattern, as the form's choices.
+  const editPattern: RecurrencePattern =
+    (editing ? RecurrencePattern.safeParse(editing.recurrence.pattern).data : undefined) ?? {};
+  const [title, setTitle] = useState(editing?.title ?? handoff?.title ?? '');
+  const [typeId, setTypeId] = useState(editing?.type?.id ?? '');
   const typeChoice = useTypeChoice(typeId);
-  const [details, setDetails] = useState('');
+  const [details, setDetails] = useState(editing?.details ?? '');
   // Review 2 (Bookkeeping N05): switching to recurrence keeps the client and engagement, and the
   // engagement's service is the service until another is chosen.
-  const [clientId, setClientId] = useState(prefill.clientId ?? '');
+  const [clientId, setClientId] = useState(editing?.client.id ?? prefill.clientId ?? '');
   const [engagementId, setEngagementId] = useState(
     prefill.clientId ? (prefill.engagementId ?? '') : '',
   );
-  const [serviceChoice, setServiceChoice] = useState<string | null>(null);
-  const [assignee, setAssignee] = useState('');
-  const [extra, setExtra] = useState<string[]>([]);
-  const [interval, setInterval] = useState('1');
-  const [unit, setUnit] = useState<Unit>('MONTH');
-  const [startOn, setStartOn] = useState(today);
-  const [endMode, setEndMode] = useState<'NEVER' | 'AFTER_COUNT' | 'ON_DATE'>('NEVER');
-  const [endAfter, setEndAfter] = useState('8');
-  const [endOn, setEndOn] = useState('');
-  const [repeatOn, setRepeatOn] = useState<'DAY_OF_MONTH' | 'NTH_WEEKDAY'>('DAY_OF_MONTH');
-  const [nth, setNth] = useState(3);
-  const [weekday, setWeekday] = useState(1);
-  const [weekdays, setWeekdays] = useState<number[]>([1]);
-  const [holidays, setHolidays] = useState(true);
-  const [atStart, setAtStart] = useState(false);
-  const [byTeam, setByTeam] = useState(false);
-  const [taxCalendar, setTaxCalendar] = useState(false);
+  const [serviceChoice, setServiceChoice] = useState<string | null>(
+    editing ? (editing.service?.id ?? '') : null,
+  );
+  const [assignee, setAssignee] = useState(editing?.assignedTo?.userId ?? '');
+  const [extra, setExtra] = useState<string[]>(editing?.extraAssignees.map((a) => a.userId) ?? []);
+  const [interval, setInterval] = useState(String(editing?.recurrence.interval ?? 1));
+  const [unit, setUnit] = useState<Unit>(editing?.recurrence.unit ?? 'MONTH');
+  const [startOn, setStartOn] = useState(editing?.recurrence.startOn ?? today);
+  const [endMode, setEndMode] = useState<'NEVER' | 'AFTER_COUNT' | 'ON_DATE'>(
+    editing?.recurrence.endMode ?? 'NEVER',
+  );
+  const [endAfter, setEndAfter] = useState(String(editing?.recurrence.endAfterCount ?? 8));
+  const [endOn, setEndOn] = useState(editing?.recurrence.endOn ?? '');
+  const [repeatOn, setRepeatOn] = useState<'DAY_OF_MONTH' | 'NTH_WEEKDAY'>(
+    editPattern.monthly ?? 'DAY_OF_MONTH',
+  );
+  const [nth, setNth] = useState(editPattern.nth ?? 3);
+  const [weekday, setWeekday] = useState(editPattern.weekday ?? 1);
+  const [weekdays, setWeekdays] = useState<number[]>(editPattern.weekdays ?? [1]);
+  const [holidays, setHolidays] = useState(
+    editing ? editing.recurrence.holidayRule !== 'NONE' : true,
+  );
+  const [atStart, setAtStart] = useState(editing?.createAtPeriodStart ?? false);
+  const [byTeam, setByTeam] = useState(editing?.assignmentRule === 'CLIENT_TEAM');
+  const [taxCalendar, setTaxCalendar] = useState(editing?.linkTaxCalendar ?? false);
   const [setPriority, setSetPriority] = useState(true);
-  const [priority, setPriorityValue] = useState<TaskPriority>('MEDIUM');
-  const [remind, setRemind] = useState(true);
-  const [reminders, setReminders] = useState([1]);
-  const [notifyClient, setNotifyClient] = useState(false);
-  const [items, setItems] = useState<Item[]>([]);
+  const [priority, setPriorityValue] = useState<TaskPriority>(editing?.priority ?? 'MEDIUM');
+  const [remind, setRemind] = useState(editing ? editing.reminders.length > 0 : true);
+  // T-D16: a series' days reminders; its Custom ones stay as they are unless these change.
+  const startReminders = editing
+    ? editing.reminders.filter((r) => !r.unit).map((r) => r.daysBefore)
+    : [1];
+  const [reminders, setReminders] = useState(startReminders);
+  const [notifyClient, setNotifyClient] = useState(editing?.notifyClient ?? false);
+  const [items, setItems] = useState<Item[]>(
+    editing
+      ? editing.checklist.map((c, n) => ({
+          key: `e${n}`,
+          label: c.label,
+          required: c.required,
+          done: false,
+        }))
+      : (handoff?.items ?? []),
+  );
   // Octavia's C8: each task the series makes starts with its own copy of this checklist (the API
   // snapshots it), so ticking a step on one occurrence never ticks it on another.
   const [applyChecklist, setApplyChecklist] = useState(true);
@@ -251,6 +316,41 @@ function RecurringForm({
     items: items.map((i) => [i.label, i.required]),
   });
   const save = useApiMutation(() => {
+    if (editing) {
+      // T-D16: this and future occurrences; tasks already made are never rewritten.
+      const remindersChanged =
+        remind !== editing.reminders.length > 0 ||
+        JSON.stringify(reminders) !== JSON.stringify(startReminders);
+      const update: UpdateTaskSeriesRequest = {
+        scope: 'FUTURE',
+        version: editing.version,
+        title: title.trim(),
+        details,
+        serviceId: serviceId || null,
+        typeId: typeChoice.value || null,
+        priority,
+        assignmentRule: byTeam ? 'CLIENT_TEAM' : 'SPECIFIC_USER',
+        assignedUserId: byTeam ? null : assignee,
+        extraAssigneeIds: extra,
+        createAtPeriodStart: atStart,
+        linkTaxCalendar: taxCalendar,
+        checklist: applyChecklist ? checklist : [],
+        ...(remindersChanged
+          ? { reminders: remind ? reminders.map((d) => ({ daysBefore: d })) : [] }
+          : {}),
+        notifyClient: notifyClient && editing.clientVisible,
+        recurrence: {
+          interval: recurrence.interval,
+          unit: recurrence.unit,
+          pattern: recurrence.pattern,
+          endMode: recurrence.endMode,
+          endAfterCount: recurrence.endAfterCount,
+          endOn: recurrence.endOn,
+          holidayRule: recurrence.holidayRule,
+        },
+      };
+      return api.taskWork.updateSeries(editing.id, update);
+    }
     const body: CreateTaskSeriesRequest = {
       clientId,
       title: title.trim(),
@@ -327,15 +427,25 @@ function RecurringForm({
         <span aria-hidden className="text-muted">
           ›
         </span>
-        <span className="font-semibold text-heading">Set Up Recurring Task</span>
+        <span className="font-semibold text-heading">
+          {editing ? 'Edit Recurring Task' : 'Set Up Recurring Task'}
+        </span>
       </nav>
       <header className="flex items-center gap-4">
         <span className="flex size-16 shrink-0 items-center justify-center rounded-xl bg-navigation text-on-action">
           <Repeat aria-hidden weight="bold" className="size-8" />
         </span>
         <div>
-          <h1 className="font-display text-3xl font-bold text-heading">Set Up Recurring Task</h1>
+          <h1 className="font-display text-3xl font-bold text-heading">
+            {editing ? 'Edit Recurring Task' : 'Set Up Recurring Task'}
+          </h1>
           <p className="text-base text-muted">
+            {editing ? (
+              <span data-testid="edit-series-scope">
+                Changes apply to this and future occurrences: tasks already made keep theirs. To
+                change one occurrence, edit its task.{' '}
+              </span>
+            ) : null}
             Automate repeat tasks and keep your team on track. Perfect for ongoing client work,
             deadlines, and seasonal tasks.
           </p>
@@ -404,6 +514,7 @@ function RecurringForm({
                 <select
                   id="rf-client"
                   className={field}
+                  disabled={!!editing}
                   value={clientId}
                   onChange={(e) => {
                     setClientId(e.target.value);
@@ -411,6 +522,10 @@ function RecurringForm({
                   }}
                 >
                   <option value="">Select client</option>
+                  {/* T-D16: the series' own client, even when the list does not reach it. */}
+                  {editing && !clients.some((c) => c.id === editing.client.id) ? (
+                    <option value={editing.client.id}>{editing.client.displayName}</option>
+                  ) : null}
                   {clients.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.displayName}
@@ -544,6 +659,7 @@ function RecurringForm({
                   id="rf-start"
                   type="date"
                   className={field}
+                  disabled={!!editing}
                   value={startOn}
                   onChange={(e) => setStartOn(e.target.value)}
                 />
@@ -712,6 +828,22 @@ function RecurringForm({
             }
           >
             <ChecklistItems items={items} onChange={setItems} showDone={false} />
+            {/* Tasks Review Two T-C11: the choice sits with the checklist it applies. */}
+            <div className="mt-3" data-testid="rec-apply-checklist">
+              <Checkbox
+                label="Apply the same checklist to all occurrences"
+                checked={applyChecklist && checklist.length > 0}
+                disabled={checklist.length === 0}
+                onChange={(e) => setApplyChecklist(e.target.checked)}
+              />
+              <p className="ml-8 text-xs text-muted" data-testid="rec-checklist-note">
+                {checklist.length === 0
+                  ? 'Add a checklist item to apply it to every occurrence.'
+                  : applyChecklist
+                    ? 'Each occurrence gets its own copy: ticking a step on one task does not tick it on the others.'
+                    : 'Occurrences start without a checklist.'}
+              </p>
+            </div>
           </Section>
           <Section
             title="Attachments (Optional)"
@@ -810,19 +942,6 @@ function RecurringForm({
                   ))}
                 </select>
               ) : null}
-              <Checkbox
-                label="Apply the same checklist to all occurrences"
-                checked={applyChecklist && checklist.length > 0}
-                disabled={checklist.length === 0}
-                onChange={(e) => setApplyChecklist(e.target.checked)}
-              />
-              <p className="ml-8 text-xs text-muted" data-testid="rec-checklist-note">
-                {checklist.length === 0
-                  ? 'Add a checklist item to apply it to every occurrence.'
-                  : applyChecklist
-                    ? 'Each occurrence gets its own copy: ticking a step on one task does not tick it on the others.'
-                    : 'Occurrences start without a checklist.'}
-              </p>
             </div>
           </Section>
           <Section title="Notifications & Reminders" testId="rec-reminders">
@@ -921,16 +1040,18 @@ function RecurringForm({
             <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save as Template
           </Button>
           <Button disabled={save.isPending} onClick={() => submit(false)} data-testid="series-save">
-            Save Recurring Task
+            {editing ? 'Save Changes' : 'Save Recurring Task'}
           </Button>
-          <Button
-            variant="outline"
-            disabled={save.isPending}
-            onClick={() => submit(true)}
-            data-testid="series-save-another"
-          >
-            Save &amp; Create Another
-          </Button>
+          {editing ? null : (
+            <Button
+              variant="outline"
+              disabled={save.isPending}
+              onClick={() => submit(true)}
+              data-testid="series-save-another"
+            >
+              Save &amp; Create Another
+            </Button>
+          )}
         </div>
       </div>
       {picking ? (

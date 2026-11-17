@@ -627,6 +627,8 @@ describe('the list, the overview and the exports with data', () => {
         .filter(Boolean)
         .sort(),
     ).toEqual(['adp', 'gusto', 'paychex']);
+    // Review 2 (F01): chosen for a client is not authorized; none has an Integrations connection.
+    expect(o.providers.filter((p) => p.key).every((p) => !p.connected)).toBe(true);
     // A client with no provider is listed as not connected, with no label of a provider.
     expect(o.providers.find((p) => p.key === null)).toMatchObject({
       label: 'Not connected',
@@ -814,6 +816,10 @@ describe('the workspace and its service actions', () => {
     );
     expect(pc.provider?.connected).toBe(true);
     expect(pc.syncStatus).toBe('NEVER');
+    // Review 2 (F01): the overview's providers panel counts it authorized now, and only it.
+    const overview = exact(PayrollOverview, await call('get', '/overview', people.ownerA));
+    expect(overview.providers.find((p) => p.key === 'gusto')?.connected).toBe(true);
+    expect(overview.providers.find((p) => p.key === 'adp')?.connected).toBe(false);
     const queued = exact(
       PayrollSyncQueued,
       await call('post', `/clients/${pcId}/sync`, people.staffA),

@@ -111,12 +111,14 @@ test('Advisory Clients: search, filter, archive and restore', async ({ page }) =
   await list.getByLabel('Status').selectOption('');
   await list.getByRole('button', { name: 'Actions for Priya Shah' }).click();
   await page.getByRole('menuitem', { name: 'Archive' }).click();
+  await page.getByTestId('confirm-action').click();
   await expect(page.getByText('Priya Shah archived.')).toBeVisible();
   await expect(list.getByTestId('client-link')).toHaveCount(6);
   await list.getByRole('checkbox', { name: 'Show archived' }).click();
   await expect(list.getByTestId('client-link')).toHaveCount(8);
   await list.getByRole('button', { name: 'Actions for Priya Shah' }).click();
   await page.getByRole('menuitem', { name: 'Restore' }).click();
+  await page.getByTestId('confirm-action').click();
   await expect(page.getByText('Priya Shah restored.')).toBeVisible();
 });
 
@@ -127,6 +129,7 @@ test('Business Plans: review, finalize, send, and the version history', async ({
   // A draft without a strategy cannot be finalized.
   await list.getByRole('button', { name: `Actions for ${YEAR} Startup Launch Plan` }).click();
   await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
+  await page.getByTestId('confirm-action').click();
   await expect(page.getByText('The plan is not ready yet.')).toBeVisible();
   await expect(
     page.getByText(/Still needed: .*Add the strategy summary \(stage 3\)/),
@@ -134,6 +137,7 @@ test('Business Plans: review, finalize, send, and the version history', async ({
   // The plan in review finalizes, then goes to the client.
   await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
   await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
+  await page.getByTestId('confirm-action').click();
   await expect(page.getByText('Fleet Expansion Plan finalized.')).toBeVisible();
   await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
   await page.getByRole('menuitem', { name: 'Send to Client' }).click();
@@ -189,6 +193,7 @@ test('Action Plans: move a recommendation, finish a task and add one', async ({ 
   await expect(recs.getByRole('button', { name: /^Actions for / })).toHaveCount(8);
   await recs.getByRole('button', { name: 'Actions for Hire Operations Manager' }).click();
   await page.getByRole('menuitem', { name: 'Accept' }).click();
+  await page.getByTestId('confirm-action').click();
   await expect(page.getByText('Hire Operations Manager: accepted.')).toBeVisible();
   const tasks = page.getByTestId('ba-action-items');
   await tasks.getByRole('checkbox', { name: 'Overdue only' }).click();
@@ -196,6 +201,7 @@ test('Action Plans: move a recommendation, finish a task and add one', async ({ 
   await tasks.getByRole('checkbox', { name: 'Overdue only' }).click();
   await tasks.getByRole('button', { name: 'Actions for Register the business name' }).click();
   await page.getByRole('menuitem', { name: 'Mark Done' }).click();
+  await page.getByTestId('confirm-action').click();
   await expect(page.getByText('Register the business name: done.')).toBeVisible();
   await tasks.getByRole('button', { name: 'Add Action Item' }).click();
   const dialog = page.getByTestId('add-action-item');
@@ -436,6 +442,7 @@ test('Client tabs: documents (filed on the advisory engagements) and the client 
   await recs
     .getByRole('button', { name: 'Hide SBA 7(a) Loan Opportunity from the client' })
     .click();
+  await page.getByTestId('confirm-action').click();
   await expect(page.getByText('SBA 7(a) Loan Opportunity hidden from the client.')).toBeVisible();
   await expect(recs.getByRole('listitem')).toHaveCount(3);
   await expect(page.getByTestId('portal-tasks').getByRole('listitem')).toHaveCount(5);

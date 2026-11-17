@@ -33,6 +33,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { ErrorLine, useMembers } from './ba-dialogs';
 import { FilterSelect, SearchBox, serverPaging, useAct } from './ba-list-kit';
 import { BaShell } from './ba-shell';
+import { PlanSnapshot } from './plan-snapshot';
 import {
   BASE,
   BA_KEY,
@@ -56,7 +57,7 @@ const CHANNEL: Record<string, string> = {
 /** /business-advisory/plans: every business plan, with its lifecycle actions. */
 export function BusinessPlans() {
   const router = useRouter();
-  const { act, toast, say } = useAct();
+  const { ask, toast, say } = useAct();
   const members = useMembers();
   const overview = useApiQuery([...BA_KEY, 'overview'], () => api.advisory.overview());
   const canSend = overview.data?.canSend ?? false;
@@ -89,20 +90,37 @@ export function BusinessPlans() {
   };
 
   /** Status changes and finalizing send the plan's current etag. */
+  // A-X05: every status change, finalizing, archive and restore is confirmed first.
   const move = (
     p: AdvisoryPlanRow,
     to: 'DRAFT' | 'IN_REVIEW' | 'IN_PROGRESS' | 'COMPLETED',
     done: string,
   ) =>
-    void act(async () => {
-      const d = await api.advisory.plan(p.id);
-      return api.advisory.setPlanStatus(p.id, { status: to, etag: d.etag });
-    }, done);
+    ask(
+      {
+        title: 'Change the plan’s status?',
+        message: `${p.name} moves from ${PLAN_STATUS[p.status] ?? p.status} to ${PLAN_STATUS[to] ?? to}.`,
+        confirm: 'Change Status',
+      },
+      async () => {
+        const d = await api.advisory.plan(p.id);
+        return api.advisory.setPlanStatus(p.id, { status: to, etag: d.etag });
+      },
+      done,
+    );
   const finalize = (p: AdvisoryPlanRow) =>
-    void act(async () => {
-      const d = await api.advisory.plan(p.id);
-      return api.advisory.finalizePlan(p.id, { etag: d.etag });
-    }, `${p.name} finalized.`);
+    ask(
+      {
+        title: 'Finalize this plan?',
+        message: `${p.name} is saved as a new version that never changes; later edits make another one.`,
+        confirm: 'Finalize Plan',
+      },
+      async () => {
+        const d = await api.advisory.plan(p.id);
+        return api.advisory.finalizePlan(p.id, { etag: d.etag });
+      },
+      `${p.name} finalized.`,
+    );
 
   const actions = (p: AdvisoryPlanRow): ActionMenuItem[] => {
     const item = (label: string, icon: ActionMenuItem['icon'], onSelect: () => void) => ({
@@ -112,10 +130,16 @@ export function BusinessPlans() {
     });
     if (p.status === 'ARCHIVED')
       return [
-        item(
-          'Restore',
-          ArrowCounterClockwise,
-          () => void act(() => api.advisory.restorePlan(p.id), `${p.name} restored.`),
+        item('Restore', ArrowCounterClockwise, () =>
+          ask(
+            {
+              title: 'Restore this plan?',
+              message: `${p.name} comes back to the plans list, as it was archived.`,
+              confirm: 'Restore',
+            },
+            () => api.advisory.restorePlan(p.id),
+            `${p.name} restored.`,
+          ),
         ),
       ];
     // Octavia's B9: a finalized or sent plan is locked; Modify Plan starts its next draft
@@ -123,15 +147,20 @@ export function BusinessPlans() {
     const locked = p.status === 'FINALIZED' || p.status === 'SENT';
     const list: ActionMenuItem[] = [
       locked
-        ? item(
-            'Modify Plan',
-            PencilSimple,
-            () =>
-              void act(async () => {
+        ? item('Modify Plan', PencilSimple, () =>
+            ask(
+              {
+                title: 'Modify this plan?',
+                message: `${p.name} becomes a new draft revision; version ${p.currentVersion} stays as it was.`,
+                confirm: 'Modify Plan',
+              },
+              async () => {
                 const d = await api.advisory.plan(p.id);
                 await api.advisory.setPlanStatus(p.id, { status: 'DRAFT', etag: d.etag });
                 router.push(`${BASE}/plans/${p.id}/edit`);
-              }, `${p.name} is a new draft revision; version ${p.currentVersion} stays as it was.`),
+              },
+              `${p.name} is a new draft revision; version ${p.currentVersion} stays as it was.`,
+            ),
           )
         : item('Edit Plan', PencilSimple, () => router.push(`${BASE}/plans/${p.id}/edit`)),
     ];
@@ -318,7 +347,16 @@ export function BusinessPlans() {
                             icon: Archive,
                             danger: true,
                             onSelect: () =>
-                              void act(() => api.advisory.archivePlan(r.id), `${r.name} archived.`),
+                              ask(
+                                {
+                                  title: 'Archive this plan?',
+                                  message: `${r.name} leaves the plans list; it is kept and can be restored.`,
+                                  confirm: 'Archive',
+                                  danger: true,
+                                },
+                                () => api.advisory.archivePlan(r.id),
+                                `${r.name} archived.`,
+                              ),
                           },
                         ]),
                   ],
@@ -416,22 +454,13 @@ export function VersionsDialog({ plan, onClose }: { plan: AdvisoryPlanRow; onClo
                 <h3 className="font-semibold text-heading">
                   Version {open}: {snap.data.planName} · {snap.data.targetYear}
                 </h3>
-                {snap.data.strategy.summary ? (
-                  <p className="text-text">{snap.data.strategy.summary}</p>
-                ) : null}
-                <p className="text-text">
-                  <span className="font-medium text-heading">Goals:</span>{' '}
-                  {snap.data.goals.length ? snap.data.goals.map((g) => g.title).join('; ') : 'None'}
-                </p>
-                <p className="text-text">
-                  <span className="font-medium text-heading">Recommendations:</span>{' '}
-                  {snap.data.recommendations.length
-                    ? snap.data.recommendations.map((r) => r.title).join('; ')
-                    : 'None'}
-                </p>
                 <p className="text-xs text-muted">
-                  A snapshot is read only: it is the plan as it was finalized.
+                  This snapshot is read only: the whole plan as it was finalized
+                  {snap.data.createdBy ? ` by ${snap.data.createdBy.name}` : ''} on{' '}
+                  {dayText(snap.data.createdAt)}. A change to the plan makes a new version.
                 </p>
+                {/* Advisory Review 2 A-07: the whole historical plan, not a summary. */}
+                <PlanSnapshot version={snap.data} />
               </>
             ) : (
               <p className="text-muted">This version could not be loaded.</p>

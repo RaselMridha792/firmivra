@@ -8,6 +8,7 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { LEAD_PIPELINE_KEY } from '../../_components/lead-shared';
 import { useProfile } from './profile-frame';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
 import { kindOf, shortName, stamp, wsKey } from './profile-shared';
 
 type LoggableKind = 'CALL' | 'EMAIL_SENT' | 'SMS_SENT' | 'MEETING' | 'FOLLOW_UP';
@@ -99,6 +100,8 @@ export function ActivityTimeline({
   emptyText: string;
   label: string;
 }) {
+  // Leads time zone (DECISIONS, Nov 16): times in the firm's zone, labelled with it.
+  const timeZone = useFirmTimeZone();
   const { id } = useProfile();
   const query = useApiQuery(wsKey(id, 'activity', kind), () =>
     api.leadPipeline.activity(id, { kind, limit: 100 }),
@@ -113,7 +116,7 @@ export function ActivityTimeline({
       icon: meta.icon,
       tone: meta.tone,
       title: a.label,
-      time: stamp(a.at),
+      time: stamp(a.at, timeZone),
       dateTime: a.at,
       actor: a.by ? shortName(a.by.name) : 'System',
     };
