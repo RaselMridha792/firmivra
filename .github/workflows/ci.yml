@@ -1,8 +1,8 @@
 # Checks every pull request into main: format, lint, typecheck, test (six shards), build, in parallel jobs.
 # A PR that changes only files in apps/, infra/ or docs/ checks only the packages it changed and
 # their dependents; any other change (packages/, the lockfile, root config, CI itself) checks all.
-# AWS access only in the test job, to pull postgres from our ECR cache with the pull-only role
-# firmivra-dev-github-ci-pull; no environment. The job named `ci` is the required status check: it
+# AWS access only in the test job, and only when Google's Docker Hub mirror fails: then postgres
+# comes from our ECR cache with the pull-only role firmivra-dev-github-ci-pull; no environment. The job named `ci` is the required status check: it
 # waits for the others and fails unless they all passed.
 # Actions are pinned to commit SHAs (public repo); the comment after each one is its release.
 name: CI
@@ -140,7 +140,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
     timeout-minutes: 20
-    # id-token only here: the pull-only role for postgres from our ECR cache.
+    # id-token only here: the pull-only role for postgres from our ECR cache (the fallback).
     permissions:
       contents: read
       id-token: write
@@ -151,12 +151,19 @@ jobs:
           fetch-depth: 2
 
       # Postgres is started here, not as a service container: a service starts before any step,
-      # so it cannot log in to our ECR. Anonymous pulls from public.ecr.aws hit its download
-      # limit ("toomanyrequests: Data limit exceeded"), so the image comes from our ECR
-      # pull-through cache. A fork PR gets no OIDC token, and AWS can be down: then the login
-      # fails and the same official image comes from Google's Docker Hub mirror instead.
-      - name: AWS login for the image cache
+      # so it cannot fall back to our ECR. The official image comes from Google's Docker Hub mirror
+      # first: every pull from our ECR cache is data transfer out of AWS, about 266 GB and $27 a
+      # month at six shards per run (Rasel, Nov 17). Anonymous pulls from public.ecr.aws hit its
+      # download limit ("toomanyrequests: Data limit exceeded"), so when the mirror fails the image
+      # comes from our ECR pull-through cache, with the login only then.
+      - name: Pull postgres from Google's Docker Hub mirror
+        id: mirror
+        continue-on-error: true
+        run: docker pull -q mirror.gcr.io/library/postgres:16
+
+      - name: AWS login for the image cache (fallback)
         id: aws
+        if: steps.mirror.outcome != 'success'
         continue-on-error: true
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
@@ -167,18 +174,20 @@ jobs:
       # Same image, credentials and host port as docker-compose.yml, so .env.example works unchanged.
       - name: Start postgres
         env:
+          MIRROR_OK: ${{ steps.mirror.outcome == 'success' }}
           AWS_OK: ${{ steps.aws.outcome == 'success' }}
           CACHE: 778127141557.dkr.ecr.us-east-1.amazonaws.com
         run: |
-          image=""
-          if [ "$AWS_OK" = true ] &&
-            aws ecr get-login-password | docker login --username AWS --password-stdin "$CACHE" &&
-            docker pull -q "$CACHE/ecr-public/docker/library/postgres:16"; then
+          image=mirror.gcr.io/library/postgres:16
+          if [ "$MIRROR_OK" != true ]; then
+            echo "::warning::mirror.gcr.io failed; postgres comes from our ECR cache."
+            if [ "$AWS_OK" != true ]; then
+              echo "::error::No postgres image: the mirror failed and there is no AWS login (a fork PR?)."
+              exit 1
+            fi
+            aws ecr get-login-password | docker login --username AWS --password-stdin "$CACHE"
             image="$CACHE/ecr-public/docker/library/postgres:16"
-          else
-            echo "::warning::Our ECR cache is not available here; postgres comes from mirror.gcr.io."
-            docker pull -q mirror.gcr.io/library/postgres:16
-            image=mirror.gcr.io/library/postgres:16
+            docker pull -q "$image"
           fi
           echo "postgres image: $image"
           docker run -d --name postgres -p 5433:5432 \
