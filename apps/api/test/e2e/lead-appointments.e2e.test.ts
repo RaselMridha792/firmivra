@@ -10,8 +10,15 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import type { z } from 'zod';
-import { AgendaPage, AppointmentDetail, AppointmentList, AppointmentRecord } from '@firmivra/types';
+import { z } from 'zod';
+import {
+  AgendaPage,
+  AppointmentDetail,
+  AppointmentList,
+  AppointmentRecord,
+  DashboardSummary,
+  LeadAppointment,
+} from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { addDays, minutesOf, zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -476,5 +483,62 @@ describe('reach: the lead pages’ rule (item 3)', () => {
       );
     expect(await found(people.staffA)).toContain(record.id);
     expect(await found(people.staffB)).not.toContain(record.id);
+  });
+});
+
+// ---- item 4 ----
+const Strict = <S extends z.ZodObject>(schema: S) => z.strictObject(schema.shape);
+
+describe('lists and counts (item 4)', () => {
+  it('the lead’s Appointments tab and its profile list its appointments', async () => {
+    const lead = await newLead('Tabby Listed', { assignedUserId: people.staffA.id });
+    const record = await book({}, people.ownerA, lead);
+    const res = await call('get', `/leads/${lead}/appointments`, people.staffA);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const items = z.object({ items: z.array(Strict(LeadAppointment)) }).parse(res.body).items;
+    expect(items).toEqual([
+      {
+        id: record.id,
+        startsAt: record.startsAt,
+        endsAt: record.endsAt,
+        type: `Consult ${run}`,
+        staff: { userId: people.ownerA.id, name: 'Fake P41 ownerA' },
+        status: 'CONFIRMED',
+        client: null,
+      },
+    ]);
+    const profile = await call('get', `/leads/${lead}/profile`, people.staffA);
+    expect(
+      (profile.body as { upcomingAppointments: { id: string }[] }).upcomingAppointments,
+    ).toEqual([expect.objectContaining({ id: record.id })]);
+  });
+
+  it('the dashboard counts a lead’s appointment today, in the calendar’s reach', async () => {
+    const count = async (who: Who) =>
+      DashboardSummary.parse((await call('get', '/dashboard/summary', who)).body).kpis
+        .appointmentsToday.value;
+    const before = {
+      owner: await count(people.ownerA),
+      staffA: await count(people.staffA),
+      staffB: await count(people.staffB),
+    };
+    // Late today in the firm's time zone, so it counts whenever the test runs.
+    const start = new Date(zonedInstant(TZ, today, minutesOf('23:00')));
+    await asOwner(ids.firmA, (tx) =>
+      tx.appointment.create({
+        data: {
+          businessId: ids.firmA,
+          leadId: ids.lead,
+          staffUserId: people.ownerA.id,
+          typeId: ids.type,
+          startsAt: start,
+          endsAt: new Date(start.getTime() + 30 * 60_000),
+          locationKind: 'PHONE',
+        },
+      }),
+    );
+    expect(await count(people.ownerA)).toBe(before.owner + 1);
+    expect(await count(people.staffA)).toBe(before.staffA + 1);
+    expect(await count(people.staffB)).toBe(before.staffB);
   });
 });
