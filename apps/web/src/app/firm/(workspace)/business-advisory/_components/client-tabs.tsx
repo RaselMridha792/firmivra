@@ -22,6 +22,7 @@ import {
   FileText,
   Lightbulb,
   ListChecks,
+  LockSimple,
   NotePencil,
   PaperPlaneTilt,
   PencilSimple,
@@ -381,6 +382,15 @@ export function ClientNotesTab({ advisoryClientId }: { advisoryClientId: string 
             title="New Note"
             subtitle="Meeting and advisory notes for the firm's staff; the client never sees them."
           />
+          <p
+            className="mb-2 flex items-center gap-2 text-sm text-muted"
+            data-testid="note-audience"
+          >
+            <Badge tone="neutral" icon={LockSimple}>
+              Internal · staff only
+            </Badge>
+            Every note is internal. Sharing a note with the client is not offered.
+          </p>
           <div className="flex flex-col gap-3">
             <ErrorLine text={error} />
             <Textarea
@@ -429,6 +439,10 @@ export function ClientNotesTab({ advisoryClientId }: { advisoryClientId: string 
                       {dayText(n.createdAt)}
                       {n.updatedAt !== n.createdAt ? ' · edited' : ''}
                     </span>
+                    {/* A-X12 (B32): each note says who sees it; notes are the firm's only. */}
+                    <Badge tone="neutral" icon={LockSimple}>
+                      Internal · staff only
+                    </Badge>
                     {n.canEdit && editing?.id !== n.id ? (
                       <span className="ml-auto flex gap-1">
                         <Button

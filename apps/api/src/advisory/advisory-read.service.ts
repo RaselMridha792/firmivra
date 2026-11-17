@@ -58,6 +58,7 @@ export const clientInclude = {
           postalCode: true,
           country: true,
           einLast4: true,
+          einStatus: true,
         },
       },
     },

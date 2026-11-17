@@ -24,20 +24,34 @@ export const BA_KEY = ['business-advisory'] as const;
 export const BASE = '/business-advisory';
 
 /**
- * Octavia's B4: Schedule Meeting opens Schedule Appointment on this client and their advisory
- * engagement (its service picks the advisory appointment type), and Cancel returns to `from`, the
- * client and tab it was opened from.
+ * Octavia's B4 (Advisory Review 2 A-04, A-10, A-11): Schedule Meeting opens Schedule Appointment
+ * on this client and their advisory engagement, with the advisory appointment type (the
+ * engagement's service's type, else any Business Advisory type: `serviceKind`). Booking it, or
+ * Cancel, returns to `from`: the client's Meetings tab, or the list it was opened from. With no
+ * client (the overview's quick action), the client is chosen in the form.
  */
 export function scheduleMeetingHref(
-  c: { client: { id: string }; engagementId: string | null } | undefined,
+  c: { client: { id: string }; engagementId?: string | null } | undefined,
   from: string,
 ): string {
-  if (!c) return '/calendar/new';
-  const q = new URLSearchParams({ clientId: c.client.id });
-  if (c.engagementId) q.set('engagementId', c.engagementId);
+  const q = new URLSearchParams();
+  if (c) q.set('clientId', c.client.id);
+  if (c?.engagementId) q.set('engagementId', c.engagementId);
+  q.set('serviceKind', 'BUSINESS_DEVELOPMENT');
   q.set('from', from);
   return `/calendar/new?${q.toString()}`;
 }
+
+/** Advisory A-11: a client's Meetings tab, where a meeting booked for them comes back to. */
+export const meetingsTab = (advisoryClientId: string) =>
+  `${BASE}/clients/${advisoryClientId}/meetings`;
+
+/** Advisory Review 2 A-X01 (B15): the EIN's status, shown apart from the masked number. */
+export const EIN_STATUS: Record<string, string> = {
+  HAS_EIN: 'Has EIN',
+  NOT_APPLICABLE: 'Not Applicable',
+  TO_BE_APPLIED_FOR: 'To Be Applied For',
+};
 
 /** Octavia's B5: Appointments with only the Business Advisory meetings, the full calendar a click away. */
 export const ADVISORY_MEETINGS_HREF = '/calendar/list?serviceKind=BUSINESS_DEVELOPMENT';

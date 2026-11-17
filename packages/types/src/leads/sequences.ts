@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zonedInstant } from '../reports/schedule-math.js';
 import { type ApiRequest, parseInput } from '../client.js';
 import { clearable, text } from '../clients/text.js';
 import { LeadActionType, LeadStepMode, LeadStepOwner } from '../db-enums.js';
@@ -90,17 +91,25 @@ export const ApplyLeadSequenceRequest = z.strictObject({
 export type ApplyLeadSequenceRequest = z.input<typeof ApplyLeadSequenceRequest>;
 
 /**
- * A template's steps as they would be applied from `startOn` (YYYY-MM-DD, the member's own day):
- * each step's day, at its time (9:00 when it has none) in the member's time zone, and its owner.
+ * A template's steps as they would be applied from `startOn` (YYYY-MM-DD): each step's day, at its
+ * time (9:00 when it has none), and its owner. With `timeZone` (the firm's: Leads time zone,
+ * DECISIONS Nov 16), the day and time are the firm's; without it, this device's.
  */
 export function previewSequence(
   template: Pick<LeadSequenceTemplate, 'steps'>,
-  options: { startOn: string; leadOwnerId: string | null; applierId: string },
+  options: { startOn: string; leadOwnerId: string | null; applierId: string; timeZone?: string },
 ): z.input<typeof ApplyLeadSequenceRequest>['steps'] {
   const [y, m, d] = options.startOn.split('-').map(Number) as [number, number, number];
   return template.steps.map((step) => {
-    const [hh, mm] = (step.atTime ?? '09:00').split(':').map(Number) as [number, number];
-    const due = new Date(y, m - 1, d + step.offsetDays, hh, mm, 0, 0);
+    const at = step.atTime ?? '09:00';
+    const [hh, mm] = at.split(':').map(Number) as [number, number];
+    const due = options.timeZone
+      ? zonedInstant(
+          new Date(Date.UTC(y, m - 1, d + step.offsetDays)).toISOString().slice(0, 10),
+          at,
+          options.timeZone,
+        )
+      : new Date(y, m - 1, d + step.offsetDays, hh, mm, 0, 0);
     return {
       actionType: step.actionType,
       dueAt: due.toISOString(),

@@ -238,6 +238,7 @@ function toRecord(row: RecordRow, dob: DateOfBirthView): ClientRecord {
       ...dob,
       ssnLast4: p?.ssnLast4 ?? null,
       einLast4: p?.einLast4 ?? null,
+      einStatus: p?.einStatus ?? null,
       address: {
         line1: p?.addressLine1 ?? null,
         line2: p?.addressLine2 ?? null,
@@ -284,6 +285,14 @@ function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInpu
     data['responsiblePartyName'] = responsibleParty?.name ?? null;
     data['responsiblePartyEmail'] = responsibleParty?.email ?? null;
     data['responsiblePartyPhone'] = responsibleParty?.phone ?? null;
+  }
+  // A-X01: Not Applicable or To Be Applied For keeps no number (client_profiles_ein_status); a
+  // number sent without a status is Has EIN.
+  if (body.einStatus && body.einStatus !== 'HAS_EIN') {
+    data['einEnc'] = null;
+    data['einLast4'] = null;
+  } else if (body.ein && body.einStatus === undefined) {
+    data['einStatus'] = 'HAS_EIN';
   }
   if (address) {
     data['addressLine1'] = address.line1;

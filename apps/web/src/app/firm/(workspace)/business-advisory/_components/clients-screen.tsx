@@ -15,6 +15,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
+import { useOriginNavigate } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { AddClientDialog, AddGoalDialog, useMembers } from './ba-dialogs';
@@ -29,6 +30,7 @@ import {
   DateTimeCell,
   card,
   primary,
+  scheduleMeetingHref,
 } from './ba-shared';
 
 const SIZE = 10;
@@ -44,7 +46,8 @@ export function HealthPill({ score }: { score: number | null }) {
 /** /business-advisory/clients: every advisory client, searchable and filtered; opens design 3. */
 export function AdvisoryClients() {
   const router = useRouter();
-  const { act, toast, say } = useAct();
+  const navigate = useOriginNavigate();
+  const { ask, toast, say } = useAct();
   const members = useMembers();
   const services = useApiQuery([...BA_KEY, 'services'], () => api.advisory.serviceOptions());
   const [search, setSearch] = useState('');
@@ -254,9 +257,10 @@ export function AdvisoryClients() {
                       onSelect: () => setDialog({ kind: 'goal', clientId: r.id }),
                     },
                     {
+                      // Advisory A-04: on this client, with the advisory type; back here after.
                       label: 'Schedule Meeting',
                       icon: CalendarDots,
-                      onSelect: () => router.push('/calendar/new'),
+                      onSelect: () => navigate(scheduleMeetingHref({ client: r.client }, BASE)),
                     },
                   ],
                 },
@@ -266,8 +270,14 @@ export function AdvisoryClients() {
                       ? {
                           label: 'Restore',
                           icon: ArrowCounterClockwise,
+                          // A-X05: archive and restore are confirmed first.
                           onSelect: () =>
-                            void act(
+                            ask(
+                              {
+                                title: 'Restore this advisory client?',
+                                message: `${r.client.name} comes back to the advisory clients list.`,
+                                confirm: 'Restore',
+                              },
                               () => api.advisory.restoreClient(r.id),
                               `${r.client.name} restored.`,
                             ),
@@ -277,7 +287,13 @@ export function AdvisoryClients() {
                           icon: Archive,
                           danger: true,
                           onSelect: () =>
-                            void act(
+                            ask(
+                              {
+                                title: 'Archive this advisory client?',
+                                message: `${r.client.name} leaves the advisory clients list; their records are kept and can be restored.`,
+                                confirm: 'Archive',
+                                danger: true,
+                              },
                               () => api.advisory.archiveClient(r.id),
                               `${r.client.name} archived.`,
                             ),

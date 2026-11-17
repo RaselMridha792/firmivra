@@ -1,6 +1,6 @@
 'use client';
 
-import { Select, Toast } from '@firmivra/ui';
+import { Button, Modal, Select, Toast } from '@firmivra/ui';
 import { MagnifyingGlass } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -81,9 +81,19 @@ export const serverPaging = (
  * A row action: run it, refresh the module's queries, and say how it went in a toast.
  * Returns the toast to render and `act(work, done)`.
  */
+/** Advisory Review 2 A-X05 (B30): what an in-app confirmation asks before an action runs. */
+export interface Confirm {
+  title: string;
+  message: string;
+  /** The confirming button, e.g. "Mark Implemented", "Show to Client". */
+  confirm: string;
+  danger?: boolean;
+}
+
 export function useAct() {
   const qc = useQueryClient();
   const [msg, setMsg] = useState<{ text: string; tone: 'success' | 'error' }>();
+  const [asking, setAsking] = useState<Confirm & { run: () => void }>();
   const act = async <T,>(work: () => Promise<T>, done: string): Promise<T | undefined> => {
     try {
       const r = await work();
@@ -95,8 +105,46 @@ export function useAct() {
       return undefined;
     }
   };
-  const toast = msg ? (
-    <Toast message={msg.text} tone={msg.tone} onDismiss={() => setMsg(undefined)} />
-  ) : null;
-  return { act, toast, say: (text: string) => setMsg({ text, tone: 'success' }) };
+  /**
+   * A-X05 (Octavia's B30): status changes, cancels, archive and restore, and showing or hiding
+   * on the client portal ask first, in the app (never by email); nothing runs until confirmed.
+   */
+  const ask = <T,>(q: Confirm, work: () => Promise<T>, done: string) =>
+    setAsking({ ...q, run: () => void act(work, done) });
+  // The toast slot also holds the confirmation, so every screen that shows one shows both.
+  const toast = (
+    <>
+      {msg ? (
+        <Toast message={msg.text} tone={msg.tone} onDismiss={() => setMsg(undefined)} />
+      ) : null}
+      {asking ? (
+        <Modal
+          open
+          title={asking.title}
+          onClose={() => setAsking(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setAsking(undefined)}>
+                Cancel
+              </Button>
+              <Button
+                variant={asking.danger ? 'danger' : 'primary'}
+                data-testid="confirm-action"
+                onClick={() => {
+                  const run = asking.run;
+                  setAsking(undefined);
+                  run();
+                }}
+              >
+                {asking.confirm}
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text">{asking.message}</p>
+        </Modal>
+      ) : null}
+    </>
+  );
+  return { act, ask, toast, say: (text: string) => setMsg({ text, tone: 'success' }) };
 }

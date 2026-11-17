@@ -245,6 +245,8 @@ export class AdvisoryClientsService {
           : null,
         website: typeof profile.website === 'string' ? profile.website : null,
         einMasked: p?.einLast4 && (ctx.perms.admin || view) ? `XX-XXX${p.einLast4}` : null,
+        // A-X01: the status is not the number; a number on file from before it is Has EIN.
+        einStatus: p?.einStatus ?? (p?.einLast4 ? 'HAS_EIN' : null),
       },
       currentPlan: currentPlan
         ? {

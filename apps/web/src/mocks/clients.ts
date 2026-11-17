@@ -86,6 +86,7 @@ const fixture = (n: number, data: Fixture): ClientRecord =>
       dateOfBirthUnavailable: false,
       ssnLast4: null,
       einLast4: null,
+      einStatus: null,
       address: emptyAddress,
       preferredContactMethod: null,
       referralSource: null,
@@ -140,7 +141,12 @@ export function clientFixtures(): readonly ClientRecord[] {
       email: 'books@acme.example.test',
       assignedTo: mockStaff,
       portalStatus: 'PENDING_APPROVAL',
-      profile: { businessName: 'Acme Widgets LLC', entityType: 'LLC', einLast4: '0002' },
+      profile: {
+        businessName: 'Acme Widgets LLC',
+        entityType: 'LLC',
+        einLast4: '0002',
+        einStatus: 'HAS_EIN',
+      },
     }),
     // A date of birth on file that can't be read right now (no firm key, KMS down): the screens
     // show it as unavailable. Saving a date of birth clears it.
@@ -566,6 +572,9 @@ export function createClientsMock(
       },
       ...(ssn !== undefined ? { ssnLast4: ssn === null ? null : ssn.slice(-4) } : {}),
       ...(ein !== undefined ? { einLast4: ein === null ? null : ein.slice(-4) } : {}),
+      // A-X01, as the API: a status other than Has EIN keeps no number; a number is Has EIN.
+      ...(data.einStatus && data.einStatus !== 'HAS_EIN' ? { einLast4: null } : {}),
+      ...(ein && data.einStatus === undefined ? { einStatus: 'HAS_EIN' as const } : {}),
       // A new date of birth (or none) replaces the unreadable one.
       ...(data.dateOfBirth !== undefined ? { dateOfBirthUnavailable: false } : {}),
       updatedAt: now(),

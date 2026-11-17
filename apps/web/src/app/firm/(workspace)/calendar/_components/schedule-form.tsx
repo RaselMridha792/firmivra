@@ -10,6 +10,7 @@ import {
   type ReminderUnit,
   ScheduleAppointmentRequest,
   type SchedulingOptions,
+  type ServiceKind,
 } from '@firmivra/types';
 import { Button, Callout, Checkbox, Input, Select, Skeleton, Textarea, Toggle } from '@firmivra/ui';
 import {
@@ -552,7 +553,14 @@ export function ScheduleForm({
    * Schedule a Planning Consultation (C02) sends only its service (`?serviceId=`): the client is
    * then chosen in the form.
    */
-  prefill?: { clientId?: string; engagementId?: string; serviceId?: string; taxReturnId?: string };
+  prefill?: {
+    clientId?: string;
+    engagementId?: string;
+    serviceId?: string;
+    taxReturnId?: string;
+    /** Advisory A-04/A-10: the kind of service whose type to preselect (`?serviceKind=`). */
+    serviceKind?: ServiceKind;
+  };
   /** Where Cancel goes when a workspace opened the form (its `from`). */
   cancelHref?: string;
   /** C12 (Tax Planning Review 2): the planning plan this discussion is for. */
@@ -576,11 +584,17 @@ export function ScheduleForm({
       {!record && !draftId && options.data ? <MyDrafts types={options.data.types} /> : null}
     </>
   );
-  const waiting = draft.isPending || client.isPending || engagement.isPending;
+  // Only the first load waits: a prefill that failed (no data) goes back to pending when a booking
+  // refreshes the scheduling queries, and unmounting the form then would drop the booking's
+  // success step (Advisory A-11: back to `from`).
+  const waiting = !draft.isFetched || !client.isFetched || !engagement.isFetched;
   if (options.data && !waiting) {
     const c = client.data;
     // Review 2 (Save as Draft): a reopened draft brings its client as the form shows it.
     const fromDraftContact = draft.data?.contact;
+    // Advisory A-04/A-10: the kind of service the opener sent (else the engagement's) picks the
+    // type when the engagement's own service has none.
+    const kind = prefill?.serviceKind ?? engagement.data?.service.kind;
     const start: Prefill | undefined = fromDraftContact
       ? { contact: fromDraftContact, serviceId: undefined }
       : c
@@ -595,9 +609,10 @@ export function ScheduleForm({
               clientType: c.accountType,
             },
             serviceId: engagement.data?.service.id ?? prefill?.serviceId,
+            kind,
           }
-        : prefill?.serviceId
-          ? { contact: undefined, serviceId: prefill.serviceId }
+        : prefill?.serviceId || kind
+          ? { contact: undefined, serviceId: prefill?.serviceId, kind }
           : undefined;
     return (
       <FormBody
@@ -749,12 +764,32 @@ export function ScheduleHeader({ editing }: { editing: boolean }) {
 interface Prefill {
   contact: AppointmentContact | undefined;
   serviceId: string | undefined;
+  /** Advisory A-04/A-10: the kind of service, for a type when that service has none. */
+  kind?: ServiceKind | undefined;
 }
 
-/** The blank form on the workspace's client and service; the first type of that service. */
+/** Advisory A-04/A-10: a type named for a kind of service, when none is linked to one. */
+const KIND_NAMES: Partial<Record<ServiceKind, RegExp>> = {
+  BUSINESS_DEVELOPMENT: /advisory|business development/i,
+};
+
+/**
+ * The blank form on the workspace's client and service; the first type of that service. Without
+ * one (Advisory A-04/A-10): the first type of a service of the same kind, else one named for that
+ * kind; with no service chosen, the type's own service (else the first of that kind).
+ */
 function prefilled(o: SchedulingOptions, base: Form, p: Prefill): Form {
-  const serviceId = p.serviceId && o.services.some((x) => x.id === p.serviceId) ? p.serviceId : '';
-  const type = serviceId ? o.types.find((t) => t.serviceId === serviceId) : undefined;
+  const chosen = p.serviceId && o.services.some((x) => x.id === p.serviceId) ? p.serviceId : '';
+  const kindOf = (id: string | null) => o.services.find((x) => x.id === id)?.kind;
+  const named = p.kind ? KIND_NAMES[p.kind] : undefined;
+  const type =
+    (chosen ? o.types.find((t) => t.serviceId === chosen) : undefined) ??
+    (p.kind ? o.types.find((t) => t.serviceId && kindOf(t.serviceId) === p.kind) : undefined) ??
+    (named ? o.types.find((t) => named.test(t.name)) : undefined);
+  const serviceId =
+    chosen ||
+    (type?.serviceId && kindOf(type.serviceId) ? type.serviceId : '') ||
+    (p.kind ? (o.services.find((x) => x.kind === p.kind)?.id ?? '') : '');
   if (!p.contact) return { ...base, serviceId, typeId: type?.id ?? base.typeId };
   return {
     ...base,
@@ -1163,7 +1198,9 @@ function FormBody({
           onSuccess: (r) => {
             forgetKept();
             if (embedded) embedded.onDone(r.id);
-            else router.push(`/calendar/${r.id}`);
+            // Advisory A-11: booked from a workspace (its `from`), back there, as Cancel goes:
+            // Business Advisory's client Meetings tab lists the new meeting.
+            else router.push(cancelHref ?? `/calendar/${r.id}`);
           },
         },
       );
