@@ -6,7 +6,7 @@ import type {
   BusyAgendaItem,
   MemberRef,
 } from '@firmivra/types';
-import { appointmentSelect, type FirmActor, seesInFull } from './calendar-data.js';
+import { appointmentSelect, type FirmActor, inFullWhere, seesInFull } from './calendar-data.js';
 import { errors } from './errors.js';
 import {
   colorHex,
@@ -306,13 +306,8 @@ export async function findSchedulingRow(
   id: string,
 ): Promise<SchedulingRow | null> {
   return tx.appointment.findFirst({
-    where: {
-      businessId,
-      id,
-      ...(actor.role === 'STAFF'
-        ? { OR: [{ staffUserId: actor.userId }, { client: { assignedUserId: actor.userId } }] }
-        : {}),
-    },
+    // P4-1: R12's rule, a lead's own appointment by its lead (calendar-data inFullWhere).
+    where: { AND: [{ businessId, id }, inFullWhere(actor)] },
     select: schedulingSelect,
   });
 }

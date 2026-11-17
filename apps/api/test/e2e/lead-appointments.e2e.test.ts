@@ -432,3 +432,49 @@ describe('booking a lead (item 2)', () => {
     expect(detail.history.map((h) => h.action)).toEqual(['BOOKED', 'RESCHEDULED', 'CANCELLED']);
   });
 });
+
+// ---- item 3 ----
+describe('reach: the lead pages’ rule (item 3)', () => {
+  it('Staff see a lead’s own appointment in full when the lead is theirs, else as Busy', async () => {
+    // The owner is its staff member; staffA has the lead, staffB has neither.
+    const record = await book();
+    const range = `from=${encodeURIComponent(at(nextDay, '00:00'))}&to=${encodeURIComponent(at(nextDay + 1, '00:00'))}`;
+
+    const theirs = exact(
+      AgendaPage,
+      await call('get', `/appointments/agenda?${range}`, people.staffA),
+    );
+    expect(theirs.items.find((i) => i.id === record.id)).toMatchObject({
+      restricted: false,
+      contact: { kind: 'LEAD', id: ids.lead },
+    });
+    exact(AppointmentRecord, await call('get', `/appointments/${record.id}/record`, people.staffA));
+
+    const others = exact(
+      AgendaPage,
+      await call('get', `/appointments/agenda?${range}`, people.staffB),
+    );
+    const busy = others.items.find((i) => i.id === record.id);
+    expect(busy).toMatchObject({ restricted: true });
+    expect(JSON.stringify(busy)).not.toContain('Leadwell');
+    expectError(
+      await call('get', `/appointments/${record.id}/record`, people.staffB),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(await call('get', `/appointments/${record.id}`, people.staffB), 404, 'NOT_FOUND');
+    const calendar = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range}`, people.staffB),
+    );
+    expect(calendar.items.find((i) => i.id === record.id)).toMatchObject({ restricted: true });
+    // Searching by the lead's name finds it only for who sees it in full.
+    const search = `${range}&search=Leadwell`;
+    const found = async (who: Who) =>
+      exact(AgendaPage, await call('get', `/appointments/agenda?${search}`, who)).items.map(
+        (i) => i.id,
+      );
+    expect(await found(people.staffA)).toContain(record.id);
+    expect(await found(people.staffB)).not.toContain(record.id);
+  });
+});

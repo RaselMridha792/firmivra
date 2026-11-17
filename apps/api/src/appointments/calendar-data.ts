@@ -159,21 +159,29 @@ export function toBusy(row: AppointmentRow): BusyAppointment {
 
 /**
  * The calendar rule (#63, R12 Decisions): Owner and Admin see every appointment in full; Staff
- * the ones they are the staff member of, or whose client is assigned to them.
+ * the ones they are the staff member of, or whose client is assigned to them. P4-1: a lead's own
+ * appointment (no client yet) by the lead pages' rule: Staff see it in full when the lead is
+ * assigned to them (leads.assigned_user_id), and as Busy otherwise.
  */
 export function seesInFull(actor: FirmActor, row: AppointmentRow): boolean {
   return (
     actor.role !== 'STAFF' ||
     row.staffUserId === actor.userId ||
-    // P4-1: a lead's own appointment has no client to be assigned (only its staff member sees it).
-    (row.client !== null && row.client.assignedUserId === actor.userId)
+    (row.client !== null && row.client.assignedUserId === actor.userId) ||
+    (row.clientId === null && row.lead !== null && row.lead.assignedUserId === actor.userId)
   );
 }
 
 /** The same rule as a filter, for the routes that read or change one appointment. */
 export function inFullWhere(actor: FirmActor): Prisma.AppointmentWhereInput {
   return actor.role === 'STAFF'
-    ? { OR: [{ staffUserId: actor.userId }, { client: { assignedUserId: actor.userId } }] }
+    ? {
+        OR: [
+          { staffUserId: actor.userId },
+          { client: { assignedUserId: actor.userId } },
+          { clientId: null, lead: { assignedUserId: actor.userId } },
+        ],
+      }
     : {};
 }
 
