@@ -20,3 +20,15 @@ test('17c: a form made from scratch opens blank in the builder', async ({ page }
     page.getByText('No sections yet. Add a section, then add questions from Add Questions.'),
   ).toBeVisible({ timeout: 60_000 });
 });
+
+test('INTAKE-USABILITY-01: More Filters names the sent dates "Date Sent: From" and "To", visibly', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(list);
+  await page.getByRole('button', { name: 'More Filters' }).click({ timeout: 60_000 });
+  await expect(page.getByText('Date Sent: From', { exact: true })).toBeVisible();
+  await expect(page.getByText('To', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Date Sent: From')).toHaveAttribute('type', 'date');
+  await expect(page.getByLabel('To', { exact: true })).toHaveAttribute('type', 'date');
+});
