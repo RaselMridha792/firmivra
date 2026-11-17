@@ -203,6 +203,8 @@ function seed(empty: boolean): Store {
         updatedBy: i % 2 ? 'Team Member' : 'Morgan Avery',
         kind:
           cat === 0 ? 'ANNUAL_TAX' : cat === 2 ? 'PAYROLL' : cat === 3 ? 'BOOKKEEPING' : 'OTHER',
+        // I-N01: the plans offered by name, as the seed's Bookkeeping has.
+        packageNames: cat === 3 ? ['Starter', 'Growth', 'Premium'] : [],
         fullDescription:
           i === 0
             ? 'A complete review of your tax situation to maximize your refund and file accurately. We handle W-2, 1099 and self-employment income.'
@@ -751,6 +753,7 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
         updatedAt: at,
         updatedBy: 'You',
         kind: input.kind ?? 'OTHER',
+        packageNames: [],
         fullDescription: null,
         basePriceCents: null,
         billingFrequency: null,
@@ -1137,6 +1140,12 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
       return copy(p);
     },
   };
+}
+
+/** Invoices Review 2 I-N01 (mock mode): an active catalog service by id, as invoices read it. */
+export function catalogServiceRef(id: string) {
+  const sv = storeFor({}).services.find((x) => x.id === id && x.status === 'ACTIVE');
+  return sv ? { id: sv.id, name: sv.name } : undefined;
 }
 
 /** SH9 (mock mode): an active catalog service of `kind` by id, as the plan endpoints read it. */

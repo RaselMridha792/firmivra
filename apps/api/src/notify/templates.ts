@@ -593,6 +593,36 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  // I-C02, I-N04: the invoice's number and due date, never an amount; the portal to pay it.
+  'invoice.reminder': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `Reminder: invoice ${required(d, 'invoiceNumber')} is due ${calendarDate(required(d, 'dueOn'))}`,
+      blocks: [
+        hello(d),
+        text(
+          `This is a reminder that invoice ${required(d, 'invoiceNumber')} from ${firm} is due on ${calendarDate(required(d, 'dueOn'))}. Sign in to the client portal to see and pay it.`,
+        ),
+        button('View and pay', link(d, 'link', o)),
+      ],
+    };
+  },
+  'invoice.overdue': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `Invoice ${required(d, 'invoiceNumber')} is overdue`,
+      blocks: [
+        hello(d),
+        text(
+          `Invoice ${required(d, 'invoiceNumber')} from ${firm} was due on ${calendarDate(required(d, 'dueOn'))} and is still open. Sign in to the client portal to see and pay it.`,
+        ),
+        button('View and pay', link(d, 'link', o)),
+      ],
+    };
+  },
+
   'payment.received': (d, b, o) => {
     const firm = b.name;
     return {

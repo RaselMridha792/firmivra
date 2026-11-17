@@ -66,13 +66,13 @@ describe('the scheduled invoices job', () => {
     const due = await scheduled(nyDay(0));
     const later = await scheduled(nyDay(2));
     const now = new Date();
-    expect(await runFor(now)).toEqual({ skipped: false, opened: 1 });
+    expect(await runFor(now)).toMatchObject({ skipped: false, opened: 1 });
     expect(await stateOf(due)).toEqual({ status: 'OPEN', scheduledFor: null, issuedAt: now });
     expect((await stateOf(later)).status).toBe('SCHEDULED');
     const audits = await openedAudits(due);
     expect(audits).toHaveLength(1);
     expect(audits[0]?.metadata).toMatchObject({ actor: 'job', clientId: t.ids.one });
-    expect(await runFor(new Date())).toEqual({ skipped: false, opened: 0 });
+    expect(await runFor(new Date())).toMatchObject({ skipped: false, opened: 0 });
     expect(await openedAudits(due)).toHaveLength(1);
   });
 
@@ -126,7 +126,7 @@ describe('the scheduled invoices job', () => {
       await holder;
       await other.$disconnect();
     }
-    expect(await runFor(new Date())).toEqual({ skipped: false, opened: 1 });
+    expect(await runFor(new Date())).toMatchObject({ skipped: false, opened: 1 });
   });
 });
 
@@ -168,7 +168,7 @@ describe('the scheduled invoices job, edges', () => {
       );
     try {
       await setStatus('SUSPENDED');
-      expect(await runFor(new Date(), t.ids.firmB)).toEqual({ skipped: false, opened: 0 });
+      expect(await runFor(new Date(), t.ids.firmB)).toMatchObject({ skipped: false, opened: 0 });
       expect((await stateOf(id, t.ids.firmB)).status).toBe('SCHEDULED');
     } finally {
       await setStatus('ACTIVE');
@@ -209,5 +209,118 @@ describe('invoiceJobsOn', () => {
         'INVOICE_JOBS',
       );
     }
+  });
+});
+
+describe('invoice reminders and overdue notices (Invoices Review 2 I-C02, I-N04)', () => {
+  /** An OPEN (or `status`) invoice of client One due on `dueOn`. */
+  const open = (dueOn: string, status: 'OPEN' | 'CANCELED' = 'OPEN') =>
+    t.inScope(t.ids.firmA, async (tx) => {
+      const invoice = await tx.invoice.create({
+        data: {
+          businessId: t.ids.firmA,
+          clientId: t.ids.one,
+          number: `INV-R-${randomUUID().slice(0, 8)}`,
+          dueOn: new Date(`${dueOn}T00:00:00.000Z`),
+        },
+      });
+      await tx.invoiceLine.create({
+        data: {
+          businessId: t.ids.firmA,
+          invoiceId: invoice.id,
+          description: 'Fake',
+          unitAmountCents: 5_000,
+        },
+      });
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: { status: 'OPEN', issuedAt: new Date() },
+      });
+      if (status === 'CANCELED')
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: { status: 'CANCELED', canceledAt: new Date() },
+        });
+      return invoice.id;
+    });
+  const bellOf = (id: string) =>
+    t.inScope(t.ids.firmA, (tx) =>
+      tx.notification.findMany({
+        where: { businessId: t.ids.firmA, entityId: id, recipientUserId: t.people.primary.id },
+        select: { type: true, eventKey: true },
+      }),
+    );
+  const today = nyDay(0);
+  // 7:00 or 8:00 in New York: before 9:00 nothing goes; 10:00 or 11:00: the day's steps go.
+  const early = new Date(`${today}T12:00:00.000Z`);
+  const later = new Date(`${today}T15:00:00.000Z`);
+  const ids: Record<string, string> = {};
+
+  beforeAll(async () => {
+    await t.inScope(t.ids.firmA, (tx) =>
+      tx.paymentSettings.upsert({
+        where: { businessId: t.ids.firmA },
+        create: {
+          businessId: t.ids.firmA,
+          sendReminders: true,
+          reminderDaysBeforeList: [7, 1],
+          notifyOverdue: true,
+          overdueReminderDays: 3,
+          overdueReminderMax: 2,
+        },
+        update: {
+          sendReminders: true,
+          reminderDaysBeforeList: [7, 1],
+          notifyOverdue: true,
+          overdueReminderDays: 3,
+          overdueReminderMax: 2,
+        },
+      }),
+    );
+    ids.in7 = await open(nyDay(7));
+    ids.in1 = await open(nyDay(1));
+    ids.in3 = await open(nyDay(3));
+    ids.late1 = await open(nyDay(-1));
+    ids.late4 = await open(nyDay(-4));
+    ids.late7 = await open(nyDay(-7));
+    ids.canceled = await open(nyDay(-1), 'CANCELED');
+  });
+
+  it('nothing before 9:00 in the firm; then each step once, with its event, step and due date', async () => {
+    expect(await runFor(early)).toMatchObject({ skipped: false, reminded: 0 });
+    expect(await runFor(later)).toMatchObject({ skipped: false, reminded: 4 });
+    const one = async (id: string) => (await bellOf(id)).map((n) => [n.type, n.eventKey]);
+    expect(await one(ids.in7!)).toEqual([
+      ['invoice.reminder', `invoice.reminder:${ids.in7}:before-7:${nyDay(7)}`],
+    ]);
+    expect(await one(ids.in1!)).toEqual([
+      ['invoice.reminder', `invoice.reminder:${ids.in1}:before-1:${nyDay(1)}`],
+    ]);
+    expect(await one(ids.late1!)).toEqual([
+      ['invoice.overdue', `invoice.overdue:${ids.late1}:overdue-1:${nyDay(-1)}`],
+    ]);
+    // Every 3 days after the first: day 4 is the second notice; day 7 would be the third (cap 2).
+    expect(await one(ids.late4!)).toEqual([
+      ['invoice.overdue', `invoice.overdue:${ids.late4}:overdue-2:${nyDay(-4)}`],
+    ]);
+    // Only open invoices: a canceled one (as a paid one) is never reminded.
+    for (const id of [ids.in3!, ids.late7!, ids.canceled!]) {
+      expect(await bellOf(id)).toEqual([]);
+    }
+    const audits = await t.inScope(t.ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: t.ids.firmA, entityId: ids.late4!, action: 'invoice.reminder_sent' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audits.map((a) => a.metadata)).toEqual([
+      { actor: 'job', clientId: t.ids.one, step: 'overdue-2', dueOn: nyDay(-4) },
+    ]);
+    // Once: the next run sends none of them again.
+    expect(await runFor(new Date(later.getTime() + 15 * 60_000))).toMatchObject({ reminded: 0 });
+  });
+
+  it('a firm that never saved its payment settings sends none', async () => {
+    expect(await runFor(later, t.ids.firmB)).toMatchObject({ skipped: false, reminded: 0 });
   });
 });

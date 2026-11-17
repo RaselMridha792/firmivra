@@ -48,6 +48,7 @@ import {
   canEditInvoice,
 } from './inv-shared';
 import { InvoiceAttachments } from './invoice-attachments';
+import { InvoiceServicePlan } from './invoice-service-plan';
 import { RecurringCard, recurringBody, recurringDraftOf, upcomingDays } from './recurring-card';
 
 interface LineDraft {
@@ -74,6 +75,8 @@ const pct = (bps: number) => `${(bps / 100).toFixed(2).replace(/\.?0+$/, '')}%`;
 const centsText = (cents: number) => (cents / 100).toFixed(2);
 /** I-N02: the Payment Terms choice for a due date picked by hand (sent as no terms). */
 const CUSTOM = 'custom';
+/** I-N01: the header Service's value for a catalog service (an engagement's is its own id). */
+const CATALOG = 'catalog:';
 /** The due date for terms, counted from the day the invoice is sent (Send On, else today). */
 function dueFor(terms: PaymentTerm, sendOn: string): string {
   const from = sendOn && sendOn > localToday() ? sendOn : localToday();
@@ -137,6 +140,9 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   const [sendUpdate, setSendUpdate] = useState(true);
   const [clientId, setClientId] = useState(source?.client.id ?? '');
   const [engagementId, setEngagementId] = useState(editing?.service?.id ?? '');
+  // I-N01: a catalog service the client isn't enrolled in (saving adds it as Requested), and its plan.
+  const [catalogId, setCatalogId] = useState('');
+  const [plan, setPlan] = useState('');
   const [scheduledFor, setScheduledFor] = useState(editing?.scheduledFor ?? '');
   const [dueOn, setDueOn] = useState(editing?.dueOn ?? '');
   const [lines, setLines] = useState<LineDraft[]>(() =>
@@ -230,6 +236,20 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   );
   const [categoryId, setCategoryId] = useState('');
   const assigned = new Set((services.data ?? []).map((s) => s.service.id));
+  // I-N01: the header lists the client's services, then the rest of the catalog: the services
+  // the client has no active or requested engagement of yet.
+  const enrolled = new Set(
+    (services.data ?? [])
+      .filter((s) => s.status === 'ACTIVE' || s.status === 'PENDING')
+      .map((s) => s.service.id),
+  );
+  const requestable = (catalog.data?.items ?? []).filter((o) => !enrolled.has(o.id));
+  const chooseService = (value: string) => {
+    const id = value.startsWith(CATALOG) ? value.slice(CATALOG.length) : '';
+    setCatalogId(id);
+    setEngagementId(id ? '' : value);
+    setPlan('');
+  };
   const offerings = [...(catalog.data?.items ?? [])].sort(
     (a, b) => Number(assigned.has(b.id)) - Number(assigned.has(a.id)),
   );
@@ -305,7 +325,9 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       }
     }
     const body = {
-      engagementId: engagementId || null,
+      ...(catalogId
+        ? { serviceId: catalogId, servicePackage: plan || null }
+        : { engagementId: engagementId || null }),
       lines: parsed,
       discountCents,
       dueOn: shownDue,
@@ -347,6 +369,8 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
         : await api.invoices.create({ clientId, ...body });
       if (andSend && !correcting) await api.invoices.send(saved.id);
       await qc.invalidateQueries({ queryKey: [...INV_KEY] });
+      // I-N01: a catalog service may have added a Requested engagement to the client.
+      if (catalogId) await qc.invalidateQueries({ queryKey: ['engagements'] });
       router.push(`/invoices/${saved.id}`);
     } catch (e) {
       setFailure(errorMessage(e, INVOICE_ERRORS));
@@ -409,6 +433,8 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                   onChange={(e) => {
                     setClientId(e.target.value);
                     setEngagementId('');
+                    setCatalogId('');
+                    setPlan('');
                   }}
                   options={[
                     {
@@ -422,16 +448,30 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                   ]}
                 />
               )}
-              <Select
-                label="Service"
-                value={engagementId}
-                disabled={!clientId}
-                onChange={(e) => setEngagementId(e.target.value)}
-                options={[
-                  { value: '', label: 'No service' },
-                  ...(services.data ?? []).map((s) => ({ value: s.id, label: s.title })),
-                ]}
-              />
+              <div className="flex flex-col gap-1">
+                <Select
+                  label="Service"
+                  value={catalogId ? `${CATALOG}${catalogId}` : engagementId}
+                  disabled={!clientId}
+                  onChange={(e) => chooseService(e.target.value)}
+                  options={[
+                    { value: '', label: 'No service' },
+                    ...(services.data ?? []).map((s) => ({ value: s.id, label: s.title })),
+                    ...requestable.map((o) => ({
+                      value: `${CATALOG}${o.id}`,
+                      label: `${o.name} (new for this client)`,
+                    })),
+                  ]}
+                />
+                {catalogId ? (
+                  <>
+                    <p className="text-xs text-muted" data-testid="service-requested-hint">
+                      Not yet a service for this client: saving adds it as Requested.
+                    </p>
+                    <InvoiceServicePlan serviceId={catalogId} value={plan} onChange={setPlan} />
+                  </>
+                ) : null}
+              </div>
               <Input
                 label="Invoice Number"
                 value={editing ? editing.number : 'Given when saved'}
@@ -880,11 +920,10 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                   onChange={(e) => setAllowTip(e.target.checked)}
                   className="text-sm"
                 />
-                {allowTip ? (
-                  <p className="text-xs text-muted">
-                    Saved with the invoice. Pay Now charges the balance due; tips are not added yet.
-                  </p>
-                ) : null}
+                {/* I-N05: saved with the invoice, but Pay Now does not charge a tip yet. */}
+                <p className="text-xs text-muted" data-testid="tip-not-active">
+                  Not active yet: clients can&apos;t add a tip at Pay Now yet.
+                </p>
               </>
             ) : null}
             {beforeDueOffered ? (

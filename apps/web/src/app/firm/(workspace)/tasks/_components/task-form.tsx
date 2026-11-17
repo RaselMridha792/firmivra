@@ -71,6 +71,8 @@ export interface TaskPrefill {
   engagementId?: string;
   /** "October 2026": the details start with it. */
   period?: string;
+  /** I-P01: "INV-2026-0106": a task opened from an invoice is named and described by it. */
+  invoice?: string;
 }
 
 export function TaskFormScreen({
@@ -178,10 +180,18 @@ function Form({
   const seed: Seed | undefined =
     task ?? (draft ? { ...draft, engagementId: draft.engagement?.id ?? null } : undefined);
   const { members } = useMembers();
-  const [title, setTitle] = useState(seed?.title ?? '');
+  const [title, setTitle] = useState(
+    seed?.title ?? (prefill?.invoice && !template ? `Follow up on ${prefill.invoice}` : ''),
+  );
   const [typeId, setTypeId] = useState(seed?.type?.id ?? template?.type?.id ?? '');
   const [details, setDetails] = useState(
-    seed?.details ?? template?.description ?? (prefill?.period ? `For ${prefill.period}.` : ''),
+    seed?.details ??
+      template?.description ??
+      (prefill?.period
+        ? `For ${prefill.period}.`
+        : prefill?.invoice
+          ? `About invoice ${prefill.invoice}.`
+          : ''),
   );
   const [clientId, setClientId] = useState(seed?.client?.id ?? prefill?.clientId ?? '');
   // Octavia's C4: clients are found by name on the server: the firm's own, and for Staff only

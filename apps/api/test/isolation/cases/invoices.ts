@@ -147,6 +147,8 @@ export const cases: CaseModule['cases'] = {
     bodyIds: {
       clientId: 'client',
       engagementId: 'engagement',
+      // I-N01: a catalog service for the header (the firm's own, active).
+      serviceId: 'catalogService',
       taxRateId: 'invoiceTaxRate',
       assignedUserId: 'staffUser',
       templateId: 'invoiceTemplate',
@@ -159,6 +161,8 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'invoice' },
     bodyIds: {
       engagementId: 'engagement',
+      // I-N01: a catalog service for the header (the firm's own, active).
+      serviceId: 'catalogService',
       taxRateId: 'invoiceTaxRate',
       assignedUserId: 'staffUser',
       templateId: 'invoiceTemplate',

@@ -47,6 +47,7 @@ import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { engagementFixtures } from './engagements';
+import { catalogServiceRef } from './services-pricing';
 import { documentFixtures } from './documents';
 import {
   mockLiveDepositAccount,
@@ -94,6 +95,8 @@ interface Row {
   number: string;
   clientId: string;
   engagementId: string | null;
+  /** I-N01: the Requested engagement an invoice made for a catalog service (as the API's). */
+  requested?: { id: string; title: string } | null;
   status: InvoiceStatus;
   lines: {
     id: string;
@@ -553,7 +556,8 @@ function figures(r: Row) {
 
 const serviceOf = (r: Row) => {
   const e = engagementFixtures().find((x) => x.id === r.engagementId);
-  return e ? { id: e.id, title: e.title } : null;
+  if (e) return { id: e.id, title: e.title };
+  return r.requested && r.requested.id === r.engagementId ? { ...r.requested } : null;
 };
 const titleOf = (r: Row) => serviceOf(r)?.title ?? r.lines[0]?.description ?? '';
 
@@ -587,6 +591,15 @@ function toListItem(r: Row, day: string): InvoiceListItem {
     archivedAt: r.archivedAt ?? null,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    // I-N10 as the API: how money came in (the mock's Stripe payments are cards).
+    paymentMethods: [
+      ...new Set([
+        ...r.payments
+          .filter((p) => p.status === 'SUCCEEDED' || p.status === 'REFUNDED')
+          .map(() => 'CARD' as const),
+        ...r.offline.filter((o) => !o.voidedAt).map((o) => o.method),
+      ]),
+    ],
   };
 }
 
@@ -736,6 +749,33 @@ export function createInvoicesMock(
     const e = engagementFixtures().find((x) => x.id === engagementId && x.clientId === clientId);
     if (!e) throw notFound();
     return e.id;
+  };
+  /**
+   * Invoices Review 2 I-N01, as the API: a catalog service (active, else 404, checked even beside
+   * `engagementId`, which then decides) for the client's ACTIVE engagement of it, else its
+   * Requested one, made once per client and service and kept only when the save goes through.
+   */
+  const requested = new Map<string, { id: string; title: string }>();
+  const linkOf = (
+    clientId: string,
+    b: { engagementId?: string | null; serviceId?: string },
+  ): { engagementId: string | null; requested: Row['requested']; keep: () => void } => {
+    const none = () => undefined;
+    if (!b.serviceId) {
+      return { engagementId: engagementOf(clientId, b.engagementId), requested: null, keep: none };
+    }
+    const sv = catalogServiceRef(b.serviceId);
+    if (!sv) throw notFound();
+    if (b.engagementId) {
+      return { engagementId: engagementOf(clientId, b.engagementId), requested: null, keep: none };
+    }
+    const active = engagementFixtures().find(
+      (x) => x.clientId === clientId && x.service.id === sv.id && x.status === 'ACTIVE',
+    );
+    if (active) return { engagementId: active.id, requested: null, keep: none };
+    const key = `${clientId}:${sv.id}`;
+    const made = requested.get(key) ?? { id: crypto.randomUUID(), title: `${sv.name} (Requested)` };
+    return { engagementId: made.id, requested: made, keep: () => requested.set(key, made) };
   };
   const notDraft = () => fail(409, 'NOT_DRAFT', 'Only a draft can be changed or sent');
   /**
@@ -920,12 +960,14 @@ export function createInvoicesMock(
       manager();
       const b = parseInput(CreateInvoiceRequest, body);
       const client = reachable(b.clientId);
-      const engagementId = engagementOf(client.id, b.engagementId);
+      engagementOf(client.id, b.engagementId);
       if (client.archivedAt) throw archived();
+      const link = linkOf(client.id, b);
       const at = now();
       const r = s.add({
         clientId: client.id,
-        engagementId,
+        engagementId: link.engagementId,
+        requested: link.requested,
         status: 'DRAFT',
         ...s.draft(b),
         ...extras(client.id, null, b),
@@ -940,6 +982,7 @@ export function createInvoicesMock(
         payments: [],
         offline: [],
       });
+      link.keep();
       return toInvoice(r, today());
     },
     update: async (id, body) => {
@@ -948,7 +991,7 @@ export function createInvoicesMock(
       const key = parseInput(InvoiceId, id);
       const b = parseInput(UpdateInvoiceRequest, body);
       const r = find(key);
-      const engagementId = engagementOf(r.clientId, b.engagementId);
+      engagementOf(r.clientId, b.engagementId);
       // Invoices Review 2 I-N06 as the API: a draft, a scheduled invoice (it stays scheduled), or
       // a sent one with nothing paid, on the same number; a scheduled or sent one with a reason.
       if (r.status === 'PAID' || r.status === 'CANCELED')
@@ -981,6 +1024,7 @@ export function createInvoicesMock(
         )
           throw fail(409, 'HAS_PAYMENTS', 'This invoice has a payment on it');
       }
+      const link = linkOf(r.clientId, b);
       const before = figures(r).totalCents;
       const was = { ...r };
       const change: Partial<Row> = {
@@ -991,7 +1035,8 @@ export function createInvoicesMock(
           : {
               recurring: waitingSchedule(r.recurring ?? null, b.recurring, b.scheduledFor ?? null),
             }),
-        engagementId,
+        engagementId: link.engagementId,
+        requested: link.requested ?? r.requested ?? null,
         updatedAt: now(),
       };
       Object.assign(r, change);
@@ -1020,6 +1065,7 @@ export function createInvoicesMock(
         };
         histories.set(key, [item, ...(histories.get(key) ?? [])]);
       }
+      link.keep();
       return toInvoice(r, today());
     },
     resend: async (id) => {
