@@ -1612,3 +1612,130 @@ describe('Clients Review Two N8-23: no active service is needed to send a form',
     expect(requested).toBeGreaterThanOrEqual(1);
   });
 });
+
+// Clients Review Two (N8-25): a form sent to a client who already has an active service for the
+// form's service is linked to that service (the existing engagement), automatically: not to an
+// older completed one, not to another service's, and no new request is made.
+describe("Clients Review Two N8-25: a sent form links the client's existing active service", () => {
+  it("links the sent form to the client's active engagement for the form's service, making no request", async () => {
+    const userId = randomUUID();
+    const email = `active-svc-${run}@client.test`;
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: userId,
+          cognitoSub: userId,
+          pool: 'CLIENT',
+          email,
+          name: 'Fake Active Service',
+        },
+      }),
+    );
+    const f = await inFirm('a', async (tx) => {
+      const c = await tx.client.create({
+        data: {
+          businessId: firms.a,
+          displayName: 'Active Service (fake)',
+          email,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId: firms.a,
+          userId,
+          clientId: c.id,
+          email,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      const service = (kind: 'BOOKKEEPING' | 'PAYROLL', name: string) =>
+        tx.service.create({
+          data: { businessId: firms.a, kind, name: `${name} ${run}`, status: 'ACTIVE' },
+          select: { id: true },
+        });
+      const books = await service('BOOKKEEPING', 'Linked Books');
+      const payroll = await service('PAYROLL', 'Linked Payroll');
+      const engagement = (serviceId: string, status: 'ACTIVE' | 'COMPLETED', title: string) =>
+        tx.engagement.create({
+          data: {
+            businessId: firms.a,
+            clientId: c.id,
+            serviceId,
+            title,
+            status,
+            ...(status === 'COMPLETED' ? { completedAt: new Date() } : {}),
+          },
+          select: { id: true },
+        });
+      const completed = await engagement(books.id, 'COMPLETED', 'Fake books 2024');
+      const active = await engagement(books.id, 'ACTIVE', 'Fake books 2026');
+      // Made last, so the newest of all: still never the one a Bookkeeping form links.
+      const otherService = await engagement(payroll.id, 'ACTIVE', 'Fake payroll 2026');
+      const def = INTAKE_FORMS.BOOKKEEPING;
+      if (!def) throw new Error('the built-in bookkeeping form is missing');
+      const form = await tx.intakeForm.create({
+        data: {
+          businessId: firms.a,
+          serviceId: books.id,
+          version: 1,
+          title: 'Linked Bookkeeping Intake (fake)',
+          definition: def as object,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          createdByUserId: ownerA.id,
+        },
+        select: { templateId: true },
+      });
+      return {
+        clientId: c.id,
+        booksId: books.id,
+        templateId: form.templateId as string,
+        completed: completed.id,
+        active: active.id,
+        otherService: otherService.id,
+      };
+    });
+
+    const sent = SendIntakeFormResult.parse(
+      ok(
+        await call(
+          'post',
+          '/intakes/send',
+          ownerA,
+          sendBody({ recipient: { kind: 'CLIENT', id: f.clientId }, formId: f.templateId }),
+        ),
+      ),
+    );
+    const after = await inFirm('a', async (tx) => ({
+      linked: (
+        await tx.intake.findUniqueOrThrow({
+          where: { id: sent.form.id },
+          select: { engagementId: true },
+        })
+      ).engagementId,
+      engagements: await tx.engagement.findMany({
+        where: { businessId: firms.a, clientId: f.clientId },
+        select: { id: true, status: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      requested: await tx.auditLog.count({
+        where: {
+          businessId: firms.a,
+          action: 'engagement.requested',
+          metadata: { path: ['clientId'], equals: f.clientId },
+        },
+      }),
+    }));
+    expect(after.linked).toBe(f.active);
+    // Nothing new: the same three engagements, none of them a pending request.
+    expect(after.engagements).toEqual([
+      { id: f.completed, status: 'COMPLETED' },
+      { id: f.active, status: 'ACTIVE' },
+      { id: f.otherService, status: 'ACTIVE' },
+    ]);
+    expect(after.requested).toBe(0);
+  });
+});
