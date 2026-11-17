@@ -47,7 +47,7 @@ export function HealthPill({ score }: { score: number | null }) {
 export function AdvisoryClients() {
   const router = useRouter();
   const navigate = useOriginNavigate();
-  const { act, toast, say } = useAct();
+  const { ask, toast, say } = useAct();
   const members = useMembers();
   const services = useApiQuery([...BA_KEY, 'services'], () => api.advisory.serviceOptions());
   const [search, setSearch] = useState('');
@@ -270,8 +270,14 @@ export function AdvisoryClients() {
                       ? {
                           label: 'Restore',
                           icon: ArrowCounterClockwise,
+                          // A-X05: archive and restore are confirmed first.
                           onSelect: () =>
-                            void act(
+                            ask(
+                              {
+                                title: 'Restore this advisory client?',
+                                message: `${r.client.name} comes back to the advisory clients list.`,
+                                confirm: 'Restore',
+                              },
                               () => api.advisory.restoreClient(r.id),
                               `${r.client.name} restored.`,
                             ),
@@ -281,7 +287,13 @@ export function AdvisoryClients() {
                           icon: Archive,
                           danger: true,
                           onSelect: () =>
-                            void act(
+                            ask(
+                              {
+                                title: 'Archive this advisory client?',
+                                message: `${r.client.name} leaves the advisory clients list; their records are kept and can be restored.`,
+                                confirm: 'Archive',
+                                danger: true,
+                              },
                               () => api.advisory.archiveClient(r.id),
                               `${r.client.name} archived.`,
                             ),

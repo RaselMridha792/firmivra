@@ -82,6 +82,7 @@ test('A-07: View Snapshot shows the whole finalized plan, read only', async ({ p
     .getByRole('button', { name: 'Actions for Fleet Expansion Plan' })
     .click({ timeout: 60_000 });
   await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
+  await page.getByTestId('confirm-action').click();
   await expect(page.getByText('Fleet Expansion Plan finalized.')).toBeVisible();
   await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
   await page.getByRole('menuitem', { name: 'Version History' }).click();
@@ -172,4 +173,30 @@ test('A-X04: the Recommendation field suggests the firm’s services and earlier
     .fill('Open a second operating account (fake)');
   await page.getByRole('button', { name: 'Add Recommendation' }).last().click();
   await expect(page.getByText('Open a second operating account (fake)').first()).toBeVisible();
+});
+
+test('A-X05: status changes and sharing ask first, in the app; Cancel changes nothing', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/business-advisory/action-plans'));
+  const recs = page.getByTestId('ba-recommendations');
+  const actions = recs.getByRole('button', { name: 'Actions for Hire Operations Manager' });
+  await actions.click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Accept' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Accept?' });
+  await expect(dialog).toContainText('Hire Operations Manager moves from Proposed to Accepted.');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('Hire Operations Manager: accepted.')).toHaveCount(0);
+  await actions.click();
+  await page.getByRole('menuitem', { name: 'Accept' }).click();
+  await page.getByTestId('confirm-action').click();
+  await expect(page.getByText('Hire Operations Manager: accepted.')).toBeVisible();
+  // Showing it to the client is confirmed too.
+  await actions.click();
+  const share = page.getByRole('menuitem', { name: /on Client Portal|from Client Portal/ });
+  await share.click();
+  await expect(
+    page.getByRole('dialog', { name: /to the client\?|from the client\?/ }),
+  ).toBeVisible();
 });

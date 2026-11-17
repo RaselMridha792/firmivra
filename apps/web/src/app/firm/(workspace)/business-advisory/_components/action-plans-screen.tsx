@@ -59,10 +59,13 @@ import {
 
 const SIZE = 8;
 
-type Act = ReturnType<typeof useAct>['act'];
-/** Show or hide a recommendation or task on the client portal (a row menu item). */
+type Ask = ReturnType<typeof useAct>['ask'];
+/**
+ * Show or hide a recommendation or task on the client portal (a row menu item). A-X05: a change
+ * of what the client can see is confirmed first, either way.
+ */
 const visibilityItem = (
-  act: Act,
+  ask: Ask,
   label: string,
   on: boolean,
   work: (clientVisible: boolean) => Promise<unknown>,
@@ -71,12 +74,30 @@ const visibilityItem = (
     ? {
         label: 'Hide from Client Portal',
         icon: EyeSlash,
-        onSelect: () => void act(() => work(false), `${label} hidden from the client.`),
+        onSelect: () =>
+          ask(
+            {
+              title: 'Hide from the client?',
+              message: `${label} will no longer show on the client portal.`,
+              confirm: 'Hide from Client',
+            },
+            () => work(false),
+            `${label} hidden from the client.`,
+          ),
       }
     : {
         label: 'Show on Client Portal',
         icon: Eye,
-        onSelect: () => void act(() => work(true), `${label} shown to the client.`),
+        onSelect: () =>
+          ask(
+            {
+              title: 'Show to the client?',
+              message: `${label} will show on the client portal, where the client can see it.`,
+              confirm: 'Show to Client',
+            },
+            () => work(true),
+            `${label} shown to the client.`,
+          ),
       };
 
 /** /business-advisory/action-plans: recommendations and the action items that carry them out. */
@@ -126,7 +147,7 @@ export function ActionPlans() {
  * (their Recommendations tab: no client column, and new ones are theirs).
  */
 export function RecommendationsSection({ advisoryClientId: fixed }: { advisoryClientId?: string }) {
-  const { act, toast, say } = useAct();
+  const { ask, toast, say } = useAct();
   const clients = useApiQuery([...BA_KEY, 'pick-clients'], () =>
     api.advisory.clients({ pageSize: 100 }),
   );
@@ -160,8 +181,14 @@ export function RecommendationsSection({ advisoryClientId: fixed }: { advisoryCl
     const to = (status: string, label: string, icon: ActionMenuItem['icon']) => ({
       label,
       icon,
+      // A-X05: a status change is confirmed first.
       onSelect: () =>
-        void act(
+        ask(
+          {
+            title: `${label}?`,
+            message: `${r.title} moves from ${REC_STATUS[r.status] ?? r.status} to ${REC_STATUS[status] ?? status}.`,
+            confirm: label,
+          },
           () => api.advisory.updateRecommendation(r.id, { status: status as never }),
           `${r.title}: ${REC_STATUS[status]?.toLowerCase()}.`,
         ),
@@ -178,7 +205,7 @@ export function RecommendationsSection({ advisoryClientId: fixed }: { advisoryCl
     return moves;
   };
   const visibility = (label: string, on: boolean, work: (v: boolean) => Promise<unknown>) =>
-    visibilityItem(act, label, on, work);
+    visibilityItem(ask, label, on, work);
   const recCols: Column<AdvisoryRecommendationRow>[] = [
     {
       id: 'title',
@@ -332,7 +359,7 @@ export function RecommendationsSection({ advisoryClientId: fixed }: { advisoryCl
  * tab: no client column, and new ones are theirs).
  */
 export function ActionItemsSection({ advisoryClientId: fixed }: { advisoryClientId?: string }) {
-  const { act, toast, say } = useAct();
+  const { ask, toast, say } = useAct();
   const members = useMembers();
   const clientId = fixed ?? '';
   const [adding, setAdding] = useState(false);
@@ -379,8 +406,15 @@ export function ActionItemsSection({ advisoryClientId: fixed }: { advisoryClient
     const to = (status: string, label: string, icon: ActionMenuItem['icon']) => ({
       label,
       icon,
+      // A-X05: a status change (Cancel among them) is confirmed first.
       onSelect: () =>
-        void act(
+        ask(
+          {
+            title: `${label}?`,
+            message: `${a.title} moves from ${ACTION_STATUS[a.status] ?? a.status} to ${ACTION_STATUS[status] ?? status}.`,
+            confirm: label,
+            ...(status === 'CANCELLED' ? { danger: true } : {}),
+          },
           () => api.advisory.updateActionItem(a.id, { status: status as never }),
           `${a.title}: ${ACTION_STATUS[status]?.toLowerCase()}.`,
         ),
@@ -394,7 +428,7 @@ export function ActionItemsSection({ advisoryClientId: fixed }: { advisoryClient
     return moves;
   };
   const visibility = (label: string, on: boolean, work: (v: boolean) => Promise<unknown>) =>
-    visibilityItem(act, label, on, work);
+    visibilityItem(ask, label, on, work);
   const taskCols: Column<AdvisoryActionItemRow>[] = [
     {
       id: 'title',

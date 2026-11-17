@@ -91,6 +91,7 @@ test('B9: a finalized plan offers Modify Plan, not Edit; a version opens as a sn
   const list = page.getByTestId('ba-plans');
   await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
   await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
+  await page.getByTestId('confirm-action').click();
   await expect(page.getByText('Fleet Expansion Plan finalized.')).toBeVisible();
   await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
   await expect(page.getByRole('menuitem', { name: 'Modify Plan' })).toBeVisible();
@@ -102,5 +103,6 @@ test('B9: a finalized plan offers Modify Plan, not Edit; a version opens as a sn
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
   await page.getByRole('menuitem', { name: 'Modify Plan' }).click();
+  await page.getByTestId('confirm-action').click();
   await expect(page).toHaveURL(/\/business-advisory\/plans\/[0-9a-f-]{36}\/edit/);
 });

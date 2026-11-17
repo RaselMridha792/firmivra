@@ -138,7 +138,7 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
   const services = engagements.all;
   const open = engagements.open;
   const advisory = engagements.ids;
-  const { act, toast, say } = useAct();
+  const { act, ask, toast, say } = useAct();
   const [serviceId, setServiceId] = useState('');
   const [search, setSearch] = useState('');
   const [cursors, setCursors] = useState<string[]>([]);
@@ -359,8 +359,18 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
             r.status === 'REQUESTED' ? (
               <Button
                 variant="secondary"
+                // A-X05: a cancel is confirmed first.
                 onClick={() =>
-                  void act(() => api.documents.cancelRequest(r.id), `Request cancelled: ${r.title}`)
+                  ask(
+                    {
+                      title: 'Cancel this request?',
+                      message: `The request for ${r.title} is cancelled; the client can no longer upload to it.`,
+                      confirm: 'Cancel Request',
+                      danger: true,
+                    },
+                    () => api.documents.cancelRequest(r.id),
+                    `Request cancelled: ${r.title}`,
+                  )
                 }
               >
                 Cancel
@@ -630,7 +640,7 @@ export function ClientPortalTab({ advisoryClientId }: { advisoryClientId: string
   const c = client.data;
   const firmClientId = c?.client.id;
   const advisory = useAdvisoryEngagements(firmClientId, c?.workstreams ?? []).ids;
-  const { act, toast, say } = useAct();
+  const { ask, toast, say } = useAct();
   const plans = useApiQuery([...BA_KEY, 'client-plans', advisoryClientId], () =>
     api.advisory.plans({ advisoryClientId, includeArchived: true, pageSize: 50 }),
   );
@@ -664,7 +674,18 @@ export function ClientPortalTab({ advisoryClientId }: { advisoryClientId: string
     <Button
       variant="secondary"
       aria-label={`Hide ${label} from the client`}
-      onClick={() => void act(work, `${label} hidden from the client.`)}
+      // A-X05: a change of what the client sees is confirmed first.
+      onClick={() =>
+        ask(
+          {
+            title: 'Hide from the client?',
+            message: `${label} will no longer show on the client portal.`,
+            confirm: 'Hide from Client',
+          },
+          work,
+          `${label} hidden from the client.`,
+        )
+      }
     >
       <EyeSlash aria-hidden weight="fill" className="size-4" />
     </Button>
