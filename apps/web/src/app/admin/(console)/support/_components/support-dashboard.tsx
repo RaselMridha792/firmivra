@@ -27,9 +27,11 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useId, useState } from 'react';
 import {
   isActive,
+  TICKET_STATUSES,
   type SupportSummary,
   type SupportTicket,
   type TicketQuery,
+  type TicketStatus,
   type TicketTab,
 } from '../../../../../mocks/admin-support';
 import { adminSupport } from './support-api';
@@ -210,8 +212,11 @@ export function SupportDashboard() {
       return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
     };
     const firm = params.get('firm') ?? '';
+    // SA-DSH-F09: the dashboard's Open support tickets opens the list filtered to Open.
+    const status = params.get('status') ?? '';
     return {
       ...NO_FILTERS,
+      status: Object.hasOwn(TICKET_STATUSES, status) ? (status as TicketStatus) : '',
       // SA-RPT-R5: a firm-scoped link (Reports' firm view) opens Support for that firm.
       firmId: /^[0-9a-f-]{36}$/i.test(firm) ? firm : '',
       created: { from: day('createdFrom'), to: day('createdTo') },

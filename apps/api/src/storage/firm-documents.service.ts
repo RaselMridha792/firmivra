@@ -61,6 +61,14 @@ export class FirmDocumentsService {
     const where: Prisma.DocumentWhereInput = {
       AND: [
         { businessId, clientId },
+        // Clients Review 2 (C2-051): an archived file leaves this list unless asked for; a file
+        // in the Trash never shows here.
+        { trashedAt: null },
+        q.archived === 'include'
+          ? {}
+          : q.archived === 'only'
+            ? { archivedAt: { not: null } }
+            : { archivedAt: null },
         q.serviceId ? { engagementId: q.serviceId } : {},
         q.categoryId ? { categoryId: q.categoryId } : {},
         q.taxYear ? { taxYear: q.taxYear } : {},
@@ -90,7 +98,7 @@ export class FirmDocumentsService {
         select: documentSelect,
       });
       const years = await tx.document.findMany({
-        where: { businessId, clientId, taxYear: { not: null } },
+        where: { businessId, clientId, taxYear: { not: null }, trashedAt: null },
         distinct: ['taxYear'],
         orderBy: { taxYear: 'desc' },
         select: { taxYear: true },

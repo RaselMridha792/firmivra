@@ -12,7 +12,10 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { AdminDashboard } from '@firmivra/types';
 
-type DashboardMetric = keyof Pick<AdminDashboard, 'pendingApplications' | 'newUsersThisWeek'>;
+type DashboardMetric = keyof Pick<
+  AdminDashboard,
+  'pendingApplications' | 'newUsersThisWeek' | 'openTickets' | 'renewalsThisWeek'
+>;
 
 /** Labels and presentation only; all displayed figures come from api.firmApplications. */
 export const dashboardStats = [
@@ -28,7 +31,8 @@ export const dashboardStats = [
   {
     key: 'activeFirms',
     label: 'Active Firms',
-    href: '/firms',
+    // SA-DSH-F02: the Firms list on its Active tab.
+    href: '/firms?status=ACTIVE',
     linkLabel: 'View Firms',
     icon: Building2,
     tone: 'green',
@@ -37,7 +41,8 @@ export const dashboardStats = [
   {
     key: 'totalUsers',
     label: 'Total Users',
-    href: undefined,
+    // SA-DSH-F03: Reports' Users view (read-only).
+    href: '/reports/users',
     linkLabel: 'View Users',
     icon: Users,
     tone: 'purple',
@@ -54,6 +59,10 @@ export const dashboardStats = [
   },
 ] as const;
 
+/**
+ * Each row opens the list it counts, filtered the same way, at any count. `href: 'week'` is
+ * Reports' Users view for this week, from Monday (the page builds it on the viewer's clock).
+ */
 export const attentionItems: {
   label: string;
   icon: LucideIcon;
@@ -64,13 +73,35 @@ export const attentionItems: {
     label: 'Firm application pending review',
     key: 'pendingApplications',
     icon: FileText,
-    href: '/applications',
+    // SA-DSH-F07: Applications on its Pending tab.
+    href: '/applications?tab=PENDING_REVIEW',
   },
   { label: 'Payment issues', icon: TriangleAlert },
-  { label: 'Open support tickets', icon: Headset },
-  { label: 'New users this week', key: 'newUsersThisWeek', icon: Users },
-  { label: 'Renewals this week', icon: ChartColumn },
+  // SA-DSH-F09: Support filtered to Open.
+  {
+    label: 'Open support tickets',
+    key: 'openTickets',
+    icon: Headset,
+    href: '/support?status=OPEN',
+  },
+  // SA-DSH-F10: Reports' Users view, this week.
+  { label: 'New users this week', key: 'newUsersThisWeek', icon: Users, href: 'week' },
+  // SA-DSH-F11: Subscriptions filtered to Renewing this week.
+  {
+    label: 'Renewals this week',
+    key: 'renewalsThisWeek',
+    icon: ChartColumn,
+    href: '/subscriptions?status=RENEWING_THIS_WEEK',
+  },
 ];
+
+/** SA-DSH-F10: Reports' Users view from this week's Monday to today (UTC days, as Reports). */
+export function usersThisWeekHref(now: Date): string {
+  const today = now.toISOString().slice(0, 10);
+  const monday = new Date(`${today}T00:00:00.000Z`);
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+  return `/reports/users?from=${monday.toISOString().slice(0, 10)}&to=${today}`;
+}
 
 export const systemStatuses = [
   'Platform',

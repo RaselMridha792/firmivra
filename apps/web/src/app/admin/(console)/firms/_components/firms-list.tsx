@@ -1,9 +1,10 @@
 'use client';
 
-import { FIRM_PLANS, type FirmStatusFilter } from '@firmivra/types';
+import { FIRM_PLANS, FirmStatusFilter } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
 import { Building2, Clock3, Search, UsersRound, X } from 'lucide-react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
@@ -25,11 +26,16 @@ const tabs: {
   label: string;
   count: 'total' | 'active' | 'pendingSetup' | 'inactive';
 }[] = [
-  { value: undefined, label: 'All Firms', count: 'total' },
+  // SA-FRM-F01: Active first, and the tab a firm list opens on.
   { value: 'ACTIVE', label: 'Active', count: 'active' },
   { value: 'PENDING_SETUP', label: 'Pending Setup', count: 'pendingSetup' },
   { value: 'INACTIVE', label: 'Inactive', count: 'inactive' },
+  { value: undefined, label: 'All Firms', count: 'total' },
 ];
+
+/** SA-FRM-F01: the tab in the address, `?status=ACTIVE` … or `ALL`; Active when it has none. */
+const statusOf = (value: string | null): FirmStatusFilter | undefined =>
+  value === 'ALL' ? undefined : (FirmStatusFilter.safeParse(value).data ?? 'ACTIVE');
 
 const statusText = (status: string) =>
   status === 'PENDING_SETUP' ? 'Pending Setup' : status === 'ACTIVE' ? 'Active' : 'Inactive';
@@ -59,10 +65,17 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function FirmsList() {
-  const [status, setStatus] = useState<FirmStatusFilter>();
+  const params = useSearchParams();
+  const router = useRouter();
+  const path = usePathname();
+  // The address is the tab: a link to the list (the menu, the dashboard) sets it again, even
+  // from this page; the page number starts over with each tab.
+  const status = statusOf(params.get('status'));
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [paging, setPaging] = useState({ status, page: 1 });
+  const page = paging.status === status ? paging.page : 1;
+  const setPage = (next: number) => setPaging({ status, page: next });
   const query = useApiQuery(['admin-firms', status, appliedSearch, page], async () => {
     const [counts, result] = await Promise.all([
       api.firmApplications.firmCounts(),
@@ -86,8 +99,11 @@ export function FirmsList() {
   }
 
   function show(value: FirmStatusFilter | undefined) {
-    setStatus(value);
-    setPage(1);
+    setPaging({ status: value, page: 1 });
+    // The tab stays in the address, so a reload or Back keeps it.
+    const q = new URLSearchParams(params.toString());
+    q.set('status', value ?? 'ALL');
+    router.replace(`${path}?${q.toString()}`);
   }
 
   return (

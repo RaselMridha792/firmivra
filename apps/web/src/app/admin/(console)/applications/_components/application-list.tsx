@@ -20,7 +20,14 @@ import { mergeListQuery, pageOf, writeListQuery } from '../../../../../lib/list-
 import { withOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
 import { applicationCountsKey, applicationListKey } from './application-data';
-import { LIST_DEFAULTS, type ListView } from './list-view';
+import {
+  type DateRange,
+  LIST_DEFAULTS,
+  type ListView,
+  RANGE_LABELS,
+  RANGES,
+  rangeBounds,
+} from './list-view';
 import {
   cellClass,
   EmailText,
@@ -77,7 +84,6 @@ function ReviewFacts({ application }: { application: FirmApplicationListItem }) 
 }
 
 type Tab = 'all' | FirmApplicationReviewStatus;
-type DateRange = 'all' | '7' | '30' | 'month';
 type StatusFilter = '' | FirmApplicationReviewStatus;
 // SA-APP-Y04: All, Pending, In Review, Awaiting Information, Approved, Declined; All is the sum.
 const STATUS_ORDER: FirmApplicationReviewStatus[] = [
@@ -103,21 +109,9 @@ const ORDERS: { value: Order; label: string }[] = [
 ];
 const pageSize = 5;
 
-function rangeBounds(value: DateRange): Pick<ListFirmApplicationsQuery, 'from' | 'to'> {
-  if (value === 'all') return {};
-  const today = new Date();
-  const start =
-    value === 'month'
-      ? new Date(today.getFullYear(), today.getMonth(), 1)
-      : new Date(today.getFullYear(), today.getMonth(), today.getDate() - Number(value) + 1);
-  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-  return { from: start.toISOString(), to: end.toISOString() };
-}
-
 // SA-APP-F11: the list's view in the address, so the detail's Back and the browser's Back open it
 // exactly as it was. Defaults stay out of the address.
 const TAB_IDS = ['all', ...STATUS_ORDER];
-const RANGES = ['all', '7', '30', 'month'];
 
 export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListView }) {
   const { me } = useMe();
@@ -129,10 +123,10 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
   );
   const [search, setSearch] = useState(initial.search.slice(0, 100));
   const [dateRange, setDateRange] = useState<DateRange>(
-    RANGES.includes(initial.range) ? (initial.range as DateRange) : 'all',
+    RANGES.includes(initial.range as DateRange) ? (initial.range as DateRange) : 'all',
   );
   const [dates, setDates] = useState<Pick<ListFirmApplicationsQuery, 'from' | 'to'>>(() =>
-    rangeBounds(RANGES.includes(initial.range) ? (initial.range as DateRange) : 'all'),
+    rangeBounds(RANGES.includes(initial.range as DateRange) ? (initial.range as DateRange) : 'all'),
   );
   const [page, setPage] = useState(pageOf(initial.page));
   const [order, setOrder] = useState<Order>(() =>
@@ -302,10 +296,11 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
             }}
             className={`${selectClass} min-w-0 w-full max-w-full`}
           >
-            <option value="all">All Time</option>
-            <option value="7">Last 7 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="month">This month</option>
+            {RANGES.map((value) => (
+              <option key={value} value={value}>
+                {RANGE_LABELS[value]}
+              </option>
+            ))}
           </select>
         </label>
         <label className="flex min-w-0 flex-col gap-1 text-sm text-muted">
