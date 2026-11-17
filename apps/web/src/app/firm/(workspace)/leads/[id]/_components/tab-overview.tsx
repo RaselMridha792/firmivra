@@ -47,6 +47,7 @@ import { BeginOnlineRequest } from './lead-screen';
 import { ActivityTimeline } from './profile-activity';
 import { CardFrame, linkClass, outlineButton } from './profile-cards';
 import { useProfile } from './profile-frame';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
 import { dayText, shortName, stamp } from './profile-shared';
 import { UpcomingAppointmentsCard } from './tab-appointments';
 import { ACTIONS, FollowUpCard, OpenTasksCard } from './tab-tasks';
@@ -235,6 +236,8 @@ function MergeLinks({ lead }: { lead: LeadProfile }) {
 }
 
 export function OverviewTab() {
+  // Leads time zone (DECISIONS, Nov 16): times in the firm's zone, labelled with it.
+  const timeZone = useFirmTimeZone();
   const { id, profile: lead, open } = useProfile();
   const [declining, setDeclining] = useState(false);
   // The Follow-Up card is remounted when the lead's version changes (a save), so the form opens on
@@ -410,7 +413,11 @@ export function OverviewTab() {
                   {lead ? dayText(lead.createdAt) : null}
                 </Line>
                 <Line icon={Phone} label="Last Contact">
-                  {lead?.lastContact ? stamp(lead.lastContact.at) : lead ? 'No contact yet' : '—'}
+                  {lead?.lastContact
+                    ? stamp(lead.lastContact.at, timeZone)
+                    : lead
+                      ? 'No contact yet'
+                      : '—'}
                 </Line>
                 <Line icon={PaperPlaneTilt} label="Next Action">
                   {lead ? <NextActionText lead={lead} /> : null}
