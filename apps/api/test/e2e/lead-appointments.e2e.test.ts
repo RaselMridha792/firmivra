@@ -16,8 +16,11 @@ import {
   AppointmentDetail,
   AppointmentList,
   AppointmentRecord,
+  ClientTimelinePage,
+  ConvertLeadToClientResult,
   DashboardSummary,
   LeadAppointment,
+  LeadMessageThreadList,
   RemindersSent,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -583,5 +586,101 @@ describe('notices (item 5)', () => {
       schedule({ reminders: [{ channel: 'SMS', amount: 1, unit: 'DAYS' }] }),
     );
     expectError(atBooking, 400, 'SMS_UNAVAILABLE');
+  });
+});
+
+// ---- item 6 ----
+describe('conversion (item 6)', () => {
+  it('the lead’s appointments take the client; its history shows on the client’s Activity and Messages', async () => {
+    const email = `convert-${run}@p41.test`;
+    const lead = await newLead('Cora Convert', { assignedUserId: people.staffA.id, email });
+    const record = await book({ sendConfirmation: false }, people.ownerA, lead);
+    const logged = await call('post', `/leads/${lead}/activity`, people.ownerA, {
+      kind: 'CALL',
+      summary: 'Fake: discussed the 2025 return',
+    });
+    expect(logged.status, JSON.stringify(logged.body)).toBe(201);
+    const thread = await asOwner(ids.firmA, (tx) =>
+      tx.messageThread.create({
+        data: {
+          businessId: ids.firmA,
+          leadId: lead,
+          subject: 'Fake: welcome',
+          createdByUserId: people.ownerA.id,
+        },
+        select: { id: true },
+      }),
+    );
+
+    const res = await call('post', `/leads/${lead}/convert-to-client`, people.ownerA, {
+      idempotencyKey: randomUUID(),
+      accountType: 'INDIVIDUAL',
+      fullName: 'Cora Convert',
+      email,
+      phone: '+15550100999',
+      serviceIds: [ids.service],
+      primaryStaffUserId: people.staffA.id,
+      sendPortalInvite: false,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const result = ConvertLeadToClientResult.parse(res.body);
+    expect(result.carried).toMatchObject({ appointments: 1, communications: 1 });
+
+    const row = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({
+        where: { id: record.id },
+        select: { clientId: true, leadId: true },
+      }),
+    );
+    expect(row).toEqual({ clientId: result.clientId, leadId: lead });
+    const detail = exact(
+      AppointmentDetail,
+      await call('get', `/appointments/${record.id}`, people.ownerA),
+    );
+    expect(detail).toMatchObject({
+      client: { id: result.clientId, displayName: 'Cora Convert' },
+      lead: { id: lead, name: 'Cora Convert' },
+    });
+
+    const timeline = ClientTimelinePage.parse(
+      (await call('get', `/clients/${result.clientId}/timeline`, people.ownerA)).body,
+    );
+    const titles = timeline.items.map((i) => [i.title, i.summary]);
+    expect(titles).toContainEqual(['As a lead: call', 'Fake: discussed the 2025 return']);
+    expect(titles).toContainEqual(['As a lead: appointment scheduled', `Consult ${run}`]);
+
+    // The lead's tab keeps it, now under the client.
+    const tab = (await call('get', `/leads/${lead}/appointments`, people.ownerA)).body as {
+      items: { id: string; client: unknown }[];
+    };
+    expect(tab.items).toEqual([
+      expect.objectContaining({
+        id: record.id,
+        client: { id: result.clientId, name: 'Cora Convert' },
+      }),
+    ]);
+
+    // Its message threads stay on the lead and show in the client's Messages (staffA: theirs).
+    const threads = exact(
+      LeadMessageThreadList,
+      await call('get', `/lead-message-threads?clientId=${result.clientId}`, people.staffA),
+    );
+    expect(threads.items.map((t) => t.id)).toEqual([thread.id]);
+    expectError(
+      await call('get', `/lead-message-threads?clientId=${result.clientId}`, people.staffB),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'get',
+        `/lead-message-threads?clientId=${result.clientId}`,
+        people.ownerB,
+        undefined,
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
+    );
   });
 });
