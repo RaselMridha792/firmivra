@@ -206,6 +206,61 @@ describe('prod stacks', () => {
   });
 });
 
+describe('prod app alarms (launch readiness, Nov 17)', () => {
+  const APP_ALARMS = [
+    'api-5xx',
+    'alb-5xx',
+    'api-unhealthy-targets',
+    'web-unhealthy-targets',
+    'api-no-healthy-targets',
+    'web-no-healthy-targets',
+    'db-free-storage',
+    'db-cpu',
+  ].map((n) => `firmivra-prod-${n}`);
+  const alarms = () =>
+    Object.values(t(stacks.app).findResources('AWS::CloudWatch::Alarm'))
+      .map((r) => r['Properties'] as Record<string, unknown>)
+      .filter((p) => APP_ALARMS.includes(String(p['AlarmName'])));
+
+  it('cover 5xx, target health, and the database, each emailing the alarm topic on ALARM and OK', () => {
+    const found = alarms();
+    expect(found.map((p) => p['AlarmName']).sort()).toEqual([...APP_ALARMS].sort());
+    for (const p of found) {
+      for (const key of ['AlarmActions', 'OKActions']) {
+        expect(JSON.stringify(p[key])).toMatch(/AlarmTopic/);
+      }
+      expect(p['TreatMissingData']).toBe('notBreaching');
+    }
+  });
+
+  it('name the database by its identifier, so the app stack imports nothing new from the data stack', () => {
+    const db = alarms().filter((p) => String(p['AlarmName']).includes('-db-'));
+    expect(db).toHaveLength(2);
+    for (const p of db) {
+      expect(p['Dimensions']).toEqual([
+        { Name: 'DBInstanceIdentifier', Value: 'firmivra-prod-postgres' },
+      ]);
+    }
+    expect(JSON.stringify(t(stacks.app).toJSON())).not.toMatch(/Fn::ImportValue[^}]*Postgres/);
+  });
+
+  it('wait out a rollout: unhealthy for 3 minutes, no healthy task for 2', () => {
+    const by = Object.fromEntries(alarms().map((p) => [String(p['AlarmName']), p]));
+    expect(by['firmivra-prod-api-unhealthy-targets']).toMatchObject({
+      Period: 60,
+      EvaluationPeriods: 3,
+      DatapointsToAlarm: 3,
+      Threshold: 1,
+    });
+    expect(by['firmivra-prod-web-no-healthy-targets']).toMatchObject({
+      Period: 60,
+      EvaluationPeriods: 2,
+      ComparisonOperator: 'LessThanThreshold',
+      Threshold: 1,
+    });
+  });
+});
+
 describe('prod email', () => {
   it("writes no DMARC record: firmivra.com keeps its own (the company mail's)", () => {
     expect(config.dmarcRecord).toBe(false);
@@ -249,5 +304,13 @@ describe('dev keeps its settings', () => {
       CapacityProviderStrategy: [{ CapacityProvider: 'FARGATE_SPOT', Weight: 1 }],
     });
     app.resourceCountIs('AWS::ApplicationAutoScaling::ScalableTarget', 0);
+  });
+
+  it('has no app alarms (Spot, and its topic emails a person): only the malware scan ones', () => {
+    const names = Object.values(
+      Template.fromStack(dev.app).findResources('AWS::CloudWatch::Alarm'),
+    ).map((r) => String((r['Properties'] as { AlarmName?: unknown }).AlarmName));
+    expect(names.length).toBeGreaterThan(0);
+    for (const n of names) expect(n).toMatch(/^firmivra-dev-malware-scan-/);
   });
 });
