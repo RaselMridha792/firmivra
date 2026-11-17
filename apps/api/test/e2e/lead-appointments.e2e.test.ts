@@ -18,6 +18,7 @@ import {
   AppointmentRecord,
   DashboardSummary,
   LeadAppointment,
+  RemindersSent,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { addDays, minutesOf, zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
@@ -540,5 +541,47 @@ describe('lists and counts (item 4)', () => {
     expect(await count(people.ownerA)).toBe(before.owner + 1);
     expect(await count(people.staffA)).toBe(before.staffA + 1);
     expect(await count(people.staffB)).toBe(before.staffB);
+  });
+});
+
+// ---- item 5 ----
+describe('notices (item 5)', () => {
+  it('the lead gets its confirmation and reminder by email, never with a portal link', async () => {
+    const email = `notice-${run}@p41.test`;
+    const lead = await newLead('Nora Notice', { assignedUserId: people.staffA.id, email });
+    outbox.length = 0;
+    const record = await book({ sendConfirmation: true }, people.ownerA, lead);
+    expect(outbox.map((m) => [m.template, m.to])).toEqual([['appointment.lead-booked', email]]);
+    const booked = outbox[0]!;
+    expect(booked.data).not.toHaveProperty('link');
+    expect(JSON.stringify(booked.data)).not.toMatch(/portal/i);
+    expect(booked).not.toHaveProperty('recipient');
+
+    outbox.length = 0;
+    const sent = exact(
+      RemindersSent,
+      await call('post', `/appointments/${record.id}/send-reminder`, people.ownerA, {
+        channels: ['EMAIL'],
+      }),
+    );
+    expect(sent).toEqual({ sent: 1, skipped: 0 });
+    expect(outbox.map((m) => [m.template, m.to])).toEqual([['appointment.lead-reminder', email]]);
+    expect(outbox[0]!.data).not.toHaveProperty('link');
+  });
+
+  it('refuses a text reminder on a lead’s own appointment (400)', async () => {
+    const record = await book();
+    const now = await call('post', `/appointments/${record.id}/send-reminder`, people.ownerA, {
+      channels: ['SMS'],
+    });
+    expectError(now, 400, 'SMS_UNAVAILABLE');
+    expect(JSON.stringify(now.body)).toContain('not sent to leads');
+    const atBooking = await call(
+      'post',
+      '/appointments/schedule',
+      people.ownerA,
+      schedule({ reminders: [{ channel: 'SMS', amount: 1, unit: 'DAYS' }] }),
+    );
+    expectError(atBooking, 400, 'SMS_UNAVAILABLE');
   });
 });

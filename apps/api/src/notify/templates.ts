@@ -247,7 +247,7 @@ function appointment(
       },
       ...(instructions ? [text(`Instructions: ${instructions}`)] : []),
       // Review 2 (row 8): asked until the client confirms it.
-      ...(portal && field(data, 'confirmAsk') === true
+      ...(portal && field(data as NotifyTemplates['appointment.booked'], 'confirmAsk') === true
         ? [text('Please confirm this appointment in your client portal.')]
         : []),
       ...(portal

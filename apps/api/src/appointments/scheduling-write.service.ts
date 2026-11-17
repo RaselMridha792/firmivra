@@ -314,7 +314,13 @@ export class SchedulingWriteService {
       place.officeId,
       body.equipmentIds ?? [],
     );
-    const reminders = await this.remindersFor(tx, businessId, body.reminders, party.phone);
+    const reminders = await this.remindersFor(
+      tx,
+      businessId,
+      body.reminders,
+      party.phone,
+      !party.clientId,
+    );
 
     await lockForBooking(tx, businessId, staff.userId, party.clientId, attendees);
     await lockEquipment(tx, businessId, equipment);
@@ -1263,6 +1269,8 @@ export class SchedulingWriteService {
     businessId: string,
     reminders: readonly Reminder[],
     phone: string | null,
+    /** P4-1: a lead's own appointment: its lead gets email only, never a text. */
+    forLead = false,
   ): Promise<{ channel: Reminder['channel']; offsetMinutes: number; note: string | null }[]> {
     const rows = new Map<
       string,
@@ -1283,6 +1291,7 @@ export class SchedulingWriteService {
       });
     }
     const list = [...rows.values()];
+    if (forLead && list.some((r) => r.channel === 'SMS')) throw errors.leadSms();
     if (list.some((r) => r.channel === 'SMS')) {
       const settings = await tx.messageSettings.findUnique({
         where: { businessId },
@@ -1307,7 +1316,13 @@ export class SchedulingWriteService {
           select: { phone: true },
         })
       : null;
-    const next = await this.remindersFor(tx, businessId, reminders, client?.phone ?? null);
+    const next = await this.remindersFor(
+      tx,
+      businessId,
+      reminders,
+      client?.phone ?? null,
+      !current.clientId,
+    );
     const key = (r: { channel: string; offsetMinutes: number; note: string | null }) =>
       `${r.channel}:${r.offsetMinutes}:${r.note ?? ''}`;
     const before = new Set(current.reminders.map(key));
