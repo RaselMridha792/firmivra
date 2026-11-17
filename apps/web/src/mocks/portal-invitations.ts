@@ -26,18 +26,51 @@ interface State {
   sent: { id: string; at: number; revokedAt: number | null }[];
 }
 
+/** Every client's invitations, shared with the Client Portal mock's header (built on first use). */
+let invitationStates: Map<string, State> | undefined;
+const states = () => (invitationStates ??= new Map<string, State>());
+const stateOf = (id: string) => {
+  const s = states().get(id) ?? { sent: [] };
+  states().set(id, s);
+  return s;
+};
+
+/**
+ * The client's newest invitation, as the API reports it: Accepted once a login is linked, else
+ * Revoked, Expired or Open. The Client Portal mock's header reads it, so an invitation sent from
+ * the client's page shows there (its status, its date and Resend).
+ */
+export function mockPortalInvitationOf(
+  clientId: string,
+  logins: readonly { status: string }[],
+): ClientPortalAccess['invitation'] {
+  const latest = stateOf(clientId).sent.at(-1);
+  if (!latest) return null;
+  const linked = logins.some((l) => ['INVITED', 'PENDING_APPROVAL', 'ACTIVE'].includes(l.status));
+  const expiresAt = latest.at + PORTAL_INVITATION_DAYS * DAY_MS;
+  return {
+    id: latest.id,
+    sentAt: new Date(latest.at).toISOString(),
+    sentBy: SENDER,
+    expiresAt: new Date(expiresAt).toISOString(),
+    delivered: true,
+    revokedAt: latest.revokedAt ? new Date(latest.revokedAt).toISOString() : null,
+    state: linked
+      ? 'ACCEPTED'
+      : latest.revokedAt
+        ? 'REVOKED'
+        : expiresAt <= Date.now()
+          ? 'EXPIRED'
+          : 'OPEN',
+  };
+}
+
 /**
  * Contract mock for `api.portalInvitations` (Business Advisory B3): a client of the clients mock or
  * of the advisory mock, with no portal login; sends and revokes in memory, as the API's rules say.
  * A client of the clients mock with a login is HAS_LOGIN; one without an email, NO_EMAIL.
  */
 export function createPortalInvitationsMock(): PortalInvitationsClient {
-  const states = new Map<string, State>();
-  const stateOf = (id: string) => {
-    const s = states.get(id) ?? { sent: [] };
-    states.set(id, s);
-    return s;
-  };
   const view = (clientId: string): ClientPortalAccess => {
     const id = parseInput(ClientId, clientId);
     const record = clientFixtures().find((c) => c.id === id);
@@ -47,32 +80,14 @@ export function createPortalInvitationsMock(): PortalInvitationsClient {
     const email = record ? record.email : contact!.email;
     const logins = record?.portalLogins ?? [];
     const state = stateOf(id);
-    const latest = state.sent.at(-1);
     const today = state.sent.filter((s) => s.at > Date.now() - DAY_MS).length;
     const linked = logins.some((l) => ['INVITED', 'PENDING_APPROVAL', 'ACTIVE'].includes(l.status));
-    const expiresAt = latest ? latest.at + PORTAL_INVITATION_DAYS * DAY_MS : 0;
     return {
       clientId: id,
       clientName: name,
       recipient: email ? { name, email } : null,
       logins,
-      invitation: latest
-        ? {
-            id: latest.id,
-            sentAt: new Date(latest.at).toISOString(),
-            sentBy: SENDER,
-            expiresAt: new Date(expiresAt).toISOString(),
-            delivered: true,
-            revokedAt: latest.revokedAt ? new Date(latest.revokedAt).toISOString() : null,
-            state: linked
-              ? 'ACCEPTED'
-              : latest.revokedAt
-                ? 'REVOKED'
-                : expiresAt <= Date.now()
-                  ? 'EXPIRED'
-                  : 'OPEN',
-          }
-        : null,
+      invitation: mockPortalInvitationOf(id, logins),
       blocked: !email
         ? 'NO_EMAIL'
         : linked

@@ -17,6 +17,7 @@ import {
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
 import { mockIntakeFormsOfClient } from './intake-forms';
+import { mockPortalInvitationOf } from './portal-invitations';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MEMBER = 'Morgan Example';
@@ -146,6 +147,7 @@ export function createClientPortalMock(): ClientPortalClient {
       const active = found.portalLogins.some((l) => l.status === 'ACTIVE');
       const pending = found.portalLogins.some((l) => l.status === 'PENDING_APPROVAL');
       const latest = events(found.id)[0];
+      const invitation = mockPortalInvitationOf(found.id, found.portalLogins);
       const header: ClientPortalHeader = {
         client: {
           id: found.id,
@@ -167,14 +169,17 @@ export function createClientPortalMock(): ClientPortalClient {
                 ? 'ACTIVE'
                 : pending
                   ? 'PENDING_APPROVAL'
-                  : 'NOT_ACTIVATED',
+                  : invitation?.state === 'OPEN'
+                    ? 'INVITATION_PENDING'
+                    : 'NOT_ACTIVATED',
           lock,
           logins: found.portalLogins,
           portalSince: active ? '2024-01-12T15:00:00.000Z' : null,
           lastLogin: active ? new Date(Date.now() - 6 * DAY_MS).toISOString() : null,
           lastActivity: latest ? { at: latest.at, type: latest.type } : null,
           mfa: active ? 'ENABLED' : null,
-          invitation: null,
+          // As the API: the client's newest invitation (an invitation sent here shows here).
+          invitation,
           invitationBlocked: found.email ? (active || pending ? 'HAS_LOGIN' : null) : 'NO_EMAIL',
           link: PORTAL,
         },
