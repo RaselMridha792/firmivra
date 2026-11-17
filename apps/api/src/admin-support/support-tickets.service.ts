@@ -38,6 +38,7 @@ import {
   type SupportContext,
   supportError,
   targetOf,
+  ticketReachOf,
 } from './support-context.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
@@ -892,9 +893,9 @@ export class SupportTicketsService {
 
   /** Every ticket, or only one's own (VIEW_OWN); 403 with neither. */
   private scopeOf(ctx: SupportContext): Prisma.SupportTicketWhereInput {
-    if (ctx.permissions.has('VIEW_ALL')) return {};
-    if (ctx.permissions.has('VIEW_OWN')) return { assignedUserId: ctx.me.id };
-    throw supportError(403, 'FORBIDDEN', 'Your support role does not allow this');
+    const reach = ticketReachOf(ctx.permissions, ctx.me.id);
+    if (!reach) throw supportError(403, 'FORBIDDEN', 'Your support role does not allow this');
+    return reach;
   }
 
   private async byRequest(requestId: string): Promise<SupportTicket | null> {

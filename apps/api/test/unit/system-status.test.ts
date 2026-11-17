@@ -84,11 +84,22 @@ describe('SystemStatusService', () => {
 });
 
 describe('dashboard', () => {
-  it('counts staff and client logins from users, and gives 0 revenue', async () => {
+  it('counts staff and client logins from users, open tickets and renewals, and gives 0 revenue', async () => {
     const count = vi.fn().mockResolvedValue(3);
     const userCount = vi.fn().mockResolvedValueOnce(12).mockResolvedValueOnce(2);
+    const renewals = vi.fn().mockResolvedValue(1);
+    // SA-DSH-F09: the open tickets come from Support's own rule, in one admin transaction.
+    const transaction = vi.fn().mockResolvedValue(4);
     const service = new FirmApplicationsService(
-      { db: { firmApplication: { count }, business: { count } } } as unknown as AdminPrisma,
+      {
+        adminUserId: 'admin',
+        db: {
+          firmApplication: { count },
+          business: { count },
+          platformFirmSubscription: { count: renewals },
+        },
+        transaction,
+      } as unknown as AdminPrisma,
       {} as never,
       {} as never,
       { forPlatform: () => ({ user: { count: userCount } }) } as never,
@@ -102,11 +113,19 @@ describe('dashboard', () => {
       activeFirms: 3,
       totalUsers: 12,
       newUsersThisWeek: 2,
+      openTickets: 4,
+      renewalsThisWeek: 1,
       monthlyRevenueCents: 0,
     });
+    expect(transaction).toHaveBeenCalledTimes(1);
     expect(userCount.mock.calls[0]?.[0]).toEqual({ where: { pool: { not: 'ADMIN' } } });
     expect(userCount.mock.calls[1]?.[0]).toMatchObject({
       where: { pool: { not: 'ADMIN' }, createdAt: { gte: expect.any(Date) } },
     });
+    // SA-DSH-F10: this week from Monday 00:00 UTC.
+    const from = (userCount.mock.calls[1]?.[0] as { where: { createdAt: { gte: Date } } }).where
+      .createdAt.gte;
+    expect(from.getUTCDay()).toBe(1);
+    expect(from.toISOString().slice(11)).toBe('00:00:00.000Z');
   });
 });

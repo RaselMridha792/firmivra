@@ -42,11 +42,14 @@ export function DocumentsFiltersBar({
           comment says to size a parent instead, so each one sits in a flex-1 wrapper with a
           min-w floor: narrow at 1280px, growing to share the row's extra space at 1440px.
         */}
-        <div className="min-w-48 flex-1">
+        {/* Clients Review 2 (V-003): room for a long client name at 1165 px, and the whole name
+            on hover. */}
+        <div className="min-w-72 flex-1">
           <Select
             label="Client"
             hideLabel
             data-testid="filter-client"
+            title={clients.find((c) => c.id === clientId)?.displayName ?? 'All Clients'}
             value={clientId}
             onChange={(event) => onClientChange(event.target.value)}
             options={[

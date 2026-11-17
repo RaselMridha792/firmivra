@@ -79,7 +79,8 @@ for (const width of [1280, 1366, 1536]) {
       range.boundingBox(),
     ]);
     expect(title && select && select.y < title.y + title.height).toBe(true);
-    // Each row's Review button and status pill stay inside the row.
+    // Each row's Review button and status pill stay inside the row (once the rows are in).
+    await expect(page.getByTestId('recent-application')).toHaveCount(5);
     for (const row of await page.getByTestId('recent-application').all()) {
       const [box, button] = await Promise.all([
         row.boundingBox(),
@@ -88,7 +89,7 @@ for (const width of [1280, 1366, 1536]) {
       expect(box && button && button.x + button.width <= box.x + box.width).toBe(true);
       expect(
         await row
-          .getByText(/Pending Review|Approved|Declined/)
+          .getByText(/Pending Review|In Review|Info Requested|Approved|Declined/)
           .evaluate((el) => el.getClientRects().length),
       ).toBe(1);
     }

@@ -18,6 +18,7 @@ import {
   DocumentSettings,
   DocumentVersionList,
   FirmDocument,
+  FirmDocumentList,
   LibraryDocument,
   LibraryPage,
   LibrarySummary,
@@ -880,5 +881,47 @@ describe('N8-17: a document review started activates a New client; an upload alo
       LibraryDocument,
     );
     expect(await statusOf(held.clientId)).toBe('ON_HOLD');
+  });
+});
+
+describe('Clients Review 2 (C2-051): an archived file leaves the client’s documents', () => {
+  const listed = async (query = '') =>
+    ok(
+      await call('get', `/clients/${ids.c1}/documents${query}`, ownerA),
+      FirmDocumentList,
+    ).items.map((d) => d.id);
+
+  it('is out of the client’s list by default, still there when asked for and in the archive view; a trashed file never shows', async () => {
+    const doc = ok(
+      await upload({ fileName: `fake-archive-${randomUUID().slice(0, 8)}.pdf` }),
+      FirmDocument,
+    ).id;
+    expect(await listed('?limit=100')).toContain(doc);
+
+    ok(await call('post', `/documents/${doc}/archive`, ownerA), LibraryDocument);
+    expect(await listed('?limit=100')).not.toContain(doc);
+    // Only the archived ones (earlier tests here archived other files of this client), none of
+    // which the default list shows.
+    const only = await listed('?limit=100&archived=only');
+    expect(only).toContain(doc);
+    const shown = await listed('?limit=100');
+    expect(only.filter((id) => shown.includes(id))).toEqual([]);
+    expect(await listed('?limit=100&archived=include')).toContain(doc);
+    expect(
+      ok(await call('get', '/documents?scope=archived', ownerA), LibraryPage).items.map(
+        (d) => d.id,
+      ),
+    ).toContain(doc);
+    expectError(
+      await call('get', `/clients/${ids.c1}/documents?archived=all`, ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+
+    // Restored, it is back; moved to the Trash, it is gone even with archived=include.
+    ok(await call('post', `/documents/${doc}/restore`, ownerA), LibraryDocument);
+    expect(await listed('?limit=100')).toContain(doc);
+    ok(await call('post', `/documents/${doc}/trash`, ownerA), LibraryDocument);
+    expect(await listed('?limit=100&archived=include')).not.toContain(doc);
   });
 });

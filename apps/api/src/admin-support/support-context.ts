@@ -321,6 +321,32 @@ export async function loadContext(
   };
 }
 
+/**
+ * The tickets a support role shows: every ticket (View all tickets), only the caller's own (View
+ * own tickets), or none (null). Support's list and the dashboard's Open support tickets both use
+ * it, so the count is what the click opens.
+ */
+export function ticketReachOf(
+  permissions: ReadonlySet<SupportPermission>,
+  meId: string,
+): { assignedUserId?: string } | null {
+  if (permissions.has('VIEW_ALL')) return {};
+  if (permissions.has('VIEW_OWN')) return { assignedUserId: meId };
+  return null;
+}
+
+/**
+ * SA-DSH-F09: the open tickets the caller's Support list shows (status Open, not deleted); null
+ * when their support role shows none.
+ */
+export async function openTicketsFor(tx: TxClient, adminUserId: string): Promise<number | null> {
+  const [team, grid] = await Promise.all([loadTeam(tx), loadGrid(tx)]);
+  const me = team.agents.find((a) => a.id === adminUserId);
+  const reach = me ? ticketReachOf(new Set(grid[me.role]), me.id) : null;
+  if (!reach) return null;
+  return tx.supportTicket.count({ where: { status: 'OPEN', deletedAt: null, ...reach } });
+}
+
 /** 403 FORBIDDEN unless the caller's support role allows it. */
 export function need(ctx: SupportContext, permission: SupportPermission): void {
   if (!ctx.permissions.has(permission))

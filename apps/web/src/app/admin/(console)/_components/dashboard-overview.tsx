@@ -20,14 +20,26 @@ import {
   Zap,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { PageState } from '../../../../components/page-state';
 import { useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
 import { mocked } from '../../../../lib/mock';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiQuery } from '../../../../lib/query';
-import { attentionItems, dashboardStats, platformModules, systemStatuses } from './dashboard-data';
+import {
+  type DateRange,
+  RANGE_LABELS,
+  RANGES,
+  rangeBounds,
+} from '../applications/_components/list-view';
+import {
+  attentionItems,
+  dashboardStats,
+  platformModules,
+  systemStatuses,
+  usersThisWeekHref,
+} from './dashboard-data';
 import { EmailText } from './list-parts';
 import { PlatformGrowth } from './platform-growth';
 import { SectionTitle } from './section-title';
@@ -41,6 +53,9 @@ const localDateLabel = () =>
     year: 'numeric',
   }).format(new Date());
 const serverDateLabel = () => '';
+/** SA-DSH-F10: on the server, Reports' Users view without dates; the browser adds this week. */
+const weekHref = () => usersThisWeekHref(new Date());
+const serverWeekHref = () => '/reports/users';
 
 function StatCard({
   stat,
@@ -256,9 +271,12 @@ export function DashboardOverview() {
   const dashboard = useApiQuery(['firm-applications', 'dashboard'], () =>
     api.firmApplications.dashboard(),
   );
-  const recent = useApiQuery(['firm-applications', 'recent'], () =>
-    api.firmApplications.list({ pageSize: 5 }),
+  // SA-DSH-F12: the last 30 days unless another period is chosen; View All keeps it.
+  const [range, setRange] = useState<DateRange>('30');
+  const recent = useApiQuery(['firm-applications', 'recent', range], () =>
+    api.firmApplications.list({ pageSize: 5, ...rangeBounds(range) }),
   );
+  const usersThisWeek = useSyncExternalStore(subscribeToNothing, weekHref, serverWeekHref);
   const firstName = me.user.name.trim().split(/\s+/)[0] || 'there';
   const isMockMode = mocked('firmApplications');
   // Mock mode has no API behind it: the statuses show the mockup's Online.
@@ -310,12 +328,27 @@ export function DashboardOverview() {
             <SectionTitle
               icon={FileText}
               action={
-                <Link
-                  href="/applications"
-                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm text-brand-700 hover:underline"
-                >
-                  View All <ArrowRight aria-hidden className="size-4" />
-                </Link>
+                <span className="flex flex-wrap items-center justify-end gap-3">
+                  <select
+                    aria-label="Recent applications period"
+                    data-testid="recent-period"
+                    value={range}
+                    onChange={(event) => setRange(event.target.value as DateRange)}
+                    className="rounded-control border border-border bg-surface px-2 py-1 text-sm text-text"
+                  >
+                    {RANGES.map((value) => (
+                      <option key={value} value={value}>
+                        {RANGE_LABELS[value]}
+                      </option>
+                    ))}
+                  </select>
+                  <Link
+                    href={range === 'all' ? '/applications' : `/applications?range=${range}`}
+                    className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm text-brand-700 hover:underline"
+                  >
+                    View All <ArrowRight aria-hidden className="size-4" />
+                  </Link>
+                </span>
               }
             >
               Recent Firm Applications
@@ -337,7 +370,11 @@ export function DashboardOverview() {
               </div>
               <PageState<ListFirmApplicationsResponse>
                 query={recent}
-                empty="No applications yet"
+                empty={
+                  range === 'all'
+                    ? 'No applications yet'
+                    : `No applications in the ${RANGE_LABELS[range].toLowerCase()}`
+                }
                 isEmpty={(result) => result.items.length === 0}
               >
                 {(result) => (
@@ -360,11 +397,16 @@ export function DashboardOverview() {
                 Tasks Requiring Attention
               </SectionTitle>
               <ul className="divide-y divide-border">
-                {attentionItems.map(({ label, key, icon: Icon, href }, index) => {
-                  // Payments, support and renewals have nothing to count yet, and an unknown count shows 0.
+                {attentionItems.map(({ label, key, icon: Icon, href: to }, index) => {
+                  // Payments have nothing to count yet, and an unknown count shows 0.
                   // Unknown when the figures could not be read: a dash, never a zero.
-                  const count = dashboard.data ? (key ? (dashboard.data[key] ?? 0) : 0) : null;
-                  const canOpen = href && count !== null && count > 0;
+                  // SA-DSH-F09: a null count is a list this viewer cannot open (Support with no
+                  // view permission): a dash and no link, never a number the click can't show.
+                  const closed = key === 'openTickets' && dashboard.data?.openTickets === null;
+                  const count =
+                    dashboard.data && !closed ? (key ? (dashboard.data[key] ?? 0) : 0) : null;
+                  // SA-DSH-F07 to F11: a row with a list opens it at any count.
+                  const href = closed ? undefined : to === 'week' ? usersThisWeek : to;
                   return (
                     <li
                       key={label}
@@ -385,7 +427,7 @@ export function DashboardOverview() {
                         <Icon aria-hidden className="size-5" />
                       </span>
                       <span className="font-semibold text-text">{count ?? '—'}</span>
-                      {canOpen ? (
+                      {href ? (
                         <Link
                           href={href}
                           aria-label={`Open ${label}`}
@@ -430,15 +472,15 @@ export function DashboardOverview() {
                 <span className="flex-1">View Firms</span>
                 <ChevronRight aria-hidden className="size-4" />
               </Link>
-              <button
-                type="button"
-                disabled
-                className="flex cursor-not-allowed items-center gap-3 rounded-control bg-purple-soft px-3 py-3 text-left text-sm font-medium text-purple"
+              {/* SA-DSH-F13: System Settings. */}
+              <Link
+                href="/system-settings"
+                className="flex items-center gap-3 rounded-control bg-purple-soft px-3 py-3 text-sm font-medium text-purple hover:bg-purple-soft/80"
               >
                 <Settings aria-hidden className="size-5" />
                 <span className="flex-1">Platform Settings</span>
                 <ChevronRight aria-hidden className="size-4" />
-              </button>
+              </Link>
             </div>
           </Card>
 
