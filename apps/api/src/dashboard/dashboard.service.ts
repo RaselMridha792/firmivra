@@ -119,38 +119,47 @@ export class DashboardService {
     // Dashboard Review Two V5: each number only for a member who may view its list. One step at a
     // time, as before: run side by side, the steps held more connections and timed out under load.
     const can = await this.cards.viewable(tenant, actor.userId, SUMMARY_MODULES);
-    const { today, range, pipeline, revenueRange, counts, revenue, previousCents, season } =
-      await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-        const [day] = await tx.$queryRaw<{ today: string }[]>`
-          WITH s AS (${zone(businessId)}) SELECT (now() AT TIME ZONE tz)::date::text AS today FROM s`;
-        if (!day) throw new Error('dashboard today returned no row');
-        const today = day.today;
-        // Dashboard Review 2: the firm's tax season, from its settings.
-        const season = await tx.businessSettings.findUnique({
-          where: { businessId },
-          select: { taxSeasonStart: true, taxSeasonEnd: true },
-        });
-        // A Custom period ends today at the latest; a revenue year is never in the future.
-        for (const [path, to] of [
-          ['to', q.to],
-          ['pipelineTo', q.pipelineTo],
-          ['revenueTo', q.revenueTo],
-        ] as const) {
-          if (to && to > today) throw invalid(path, 'The end date cannot be after today');
-        }
-        if (q.revenueYear && q.revenueYear > Number(today.slice(0, 4))) {
-          throw invalid('revenueYear', 'The revenue year cannot be in the future');
-        }
-        const custom = (from?: string, to?: string) => (from && to ? { from, to } : undefined);
-        const range = rangeOf(q.period, today, custom(q.from, q.to));
-        const pipeline = rangeOf(q.pipelinePeriod, today, custom(q.pipelineFrom, q.pipelineTo));
-        const revenueRange = revenueRangeOf(q.revenuePeriod, today, {
-          year: q.revenueYear,
-          custom: custom(q.revenueFrom, q.revenueTo),
-        });
-        // Each period as instants: its first day's midnight to the midnight after its last day.
-        const at = (day: string) => Prisma.sql`(${day}::date)::timestamp AT TIME ZONE s.tz`;
-        const [counts] = await tx.$queryRaw<Counts[]>`
+    const {
+      today,
+      range,
+      pipeline,
+      revenueRange,
+      counts,
+      revenue,
+      previousCents,
+      season,
+      timeZone,
+    } = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+      const [day] = await tx.$queryRaw<{ today: string; tz: string }[]>`
+          WITH s AS (${zone(businessId)}) SELECT (now() AT TIME ZONE tz)::date::text AS today, tz FROM s`;
+      if (!day) throw new Error('dashboard today returned no row');
+      const today = day.today;
+      // Dashboard Review 2: the firm's tax season, from its settings.
+      const season = await tx.businessSettings.findUnique({
+        where: { businessId },
+        select: { taxSeasonStart: true, taxSeasonEnd: true },
+      });
+      // A Custom period ends today at the latest; a revenue year is never in the future.
+      for (const [path, to] of [
+        ['to', q.to],
+        ['pipelineTo', q.pipelineTo],
+        ['revenueTo', q.revenueTo],
+      ] as const) {
+        if (to && to > today) throw invalid(path, 'The end date cannot be after today');
+      }
+      if (q.revenueYear && q.revenueYear > Number(today.slice(0, 4))) {
+        throw invalid('revenueYear', 'The revenue year cannot be in the future');
+      }
+      const custom = (from?: string, to?: string) => (from && to ? { from, to } : undefined);
+      const range = rangeOf(q.period, today, custom(q.from, q.to));
+      const pipeline = rangeOf(q.pipelinePeriod, today, custom(q.pipelineFrom, q.pipelineTo));
+      const revenueRange = revenueRangeOf(q.revenuePeriod, today, {
+        year: q.revenueYear,
+        custom: custom(q.revenueFrom, q.revenueTo),
+      });
+      // Each period as instants: its first day's midnight to the midnight after its last day.
+      const at = (day: string) => Prisma.sql`(${day}::date)::timestamp AT TIME ZONE s.tz`;
+      const [counts] = await tx.$queryRaw<Counts[]>`
           WITH s AS (${zone(businessId)}),
           p AS (
             SELECT ${at(range.from)} AS k_start, ${at(addDays(range.to, 1))} AS k_end,
@@ -211,10 +220,10 @@ export class DashboardService {
               FROM invoices i ${ofClient('i')} WHERE i.business_id = ${businessId}::uuid
               AND i.status = 'OPEN' AND ${mine}) AS outstanding
           FROM p, s`;
-        if (!counts) throw new Error('dashboard counts returned no row');
-        // Money received, on the firm's calendar: Stripe payments when paid, less refunds when
-        // confirmed, plus check and cash on the day received (a voided one never counts).
-        const money = Prisma.sql`
+      if (!counts) throw new Error('dashboard counts returned no row');
+      // Money received, on the firm's calendar: Stripe payments when paid, less refunds when
+      // confirmed, plus check and cash on the day received (a voided one never counts).
+      const money = Prisma.sql`
           money AS (
             SELECT pm.invoice_id, (pm.paid_at AT TIME ZONE s.tz)::date AS day, pm.amount_cents AS cents
               FROM payments pm, s WHERE pm.business_id = ${businessId}::uuid
@@ -228,7 +237,7 @@ export class DashboardService {
             UNION ALL
             SELECT o.invoice_id, o.received_on, o.amount_cents FROM offline_payments o
               WHERE o.business_id = ${businessId}::uuid AND o.voided_at IS NULL)`;
-        const revenue = await tx.$queryRaw<RevenueRow[]>`
+      const revenue = await tx.$queryRaw<RevenueRow[]>`
           WITH s AS (${zone(businessId)}),
           ${money}
           SELECT m.day::text AS day, sv.id AS "serviceId", sv.name, sum(m.cents)::float8 AS cents
@@ -240,8 +249,8 @@ export class DashboardService {
           WHERE m.day BETWEEN ${revenueRange.from}::date AND ${revenueRange.to}::date
             AND ${mine}
           GROUP BY 1, 2, 3`;
-        // The equivalent span before; null when no money was received in it at all.
-        const [before] = await tx.$queryRaw<{ cents: number | null }[]>`
+      // The equivalent span before; null when no money was received in it at all.
+      const [before] = await tx.$queryRaw<{ cents: number | null }[]>`
           WITH s AS (${zone(businessId)}),
           ${money}
           SELECT sum(m.cents)::float8 AS cents
@@ -250,17 +259,18 @@ export class DashboardService {
           ${ofClient('i')}
           WHERE m.day BETWEEN ${revenueRange.previousFrom}::date AND ${revenueRange.previousTo}::date
             AND ${mine}`;
-        return {
-          today,
-          range,
-          pipeline,
-          revenueRange,
-          counts,
-          revenue,
-          previousCents: before?.cents ?? null,
-          season,
-        };
-      });
+      return {
+        today,
+        range,
+        pipeline,
+        revenueRange,
+        counts,
+        revenue,
+        previousCents: before?.cents ?? null,
+        season,
+        timeZone: day.tz,
+      };
+    });
     // D4: the firm's service cards for the same period (the defaults while it has none).
     const serviceCards = await this.cards.forSummary(tenant, actor, range, today);
     const tasksDue = can.has('TASKS') ? await this.dueTasks(businessId, actor) : undefined;
@@ -272,6 +282,7 @@ export class DashboardService {
       can.has(module) ? value : undefined;
     return {
       today,
+      timeZone,
       range,
       kpis: {
         totalClients: only('CLIENTS', kpi(c.clients_now, c.clients_before)),

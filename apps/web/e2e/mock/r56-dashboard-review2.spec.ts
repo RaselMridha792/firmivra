@@ -46,3 +46,13 @@ test('V5: a card or widget whose module the member may not view says so, with no
   await expect(tasks).toContainText("You don't have access to Tasks.");
   await expect(tasks.getByRole('link', { name: 'View All' })).toHaveCount(0);
 });
+
+test('V8: the lists do not wait for the availability call: with it failing they still load', async ({
+  page,
+}) => {
+  await page.addInitScript(() => window.sessionStorage.setItem('fv-mock-fail', 'availability.get'));
+  await page.goto(app('/'));
+  for (const title of ['Recent Messages', 'Tasks Due', 'Upcoming Appointments'])
+    await expect(page.getByRole('region', { name: title })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText("We couldn't load messages and appointments.")).toHaveCount(0);
+});

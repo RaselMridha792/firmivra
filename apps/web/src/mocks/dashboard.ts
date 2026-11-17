@@ -153,6 +153,7 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
           }));
   return {
     today,
+    timeZone: 'America/New_York',
     range,
     kpis: {
       totalClients: { value: 127, previous: 113 },

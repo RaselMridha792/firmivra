@@ -232,6 +232,11 @@ export type DashboardTask = z.infer<typeof DashboardTask>;
 export const DashboardSummary = z.object({
   /** The firm's today (YYYY-MM-DD), the day every period above is counted from. */
   today: Day,
+  /**
+   * Dashboard Review Two V8: the firm's time zone, so the lists can show their times as soon as
+   * either this or the firm's availability answers.
+   */
+  timeZone: z.string().optional(),
   /** The global period, which the first four KPI cards follow. */
   range: DashboardRange,
   kpis: DashboardKpis,
