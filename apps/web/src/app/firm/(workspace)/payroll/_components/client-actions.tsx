@@ -45,7 +45,7 @@ import {
 import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
-import { describeConnection } from '../../../../../lib/connection-state';
+import { providerState } from './payroll-shared';
 import { ServiceBillingDialog } from '../../../../../components/service-billing-dialog';
 import type { Scope } from '../../../../../lib/service-billing';
 import { CatalogPlanSelect } from '../../../../../components/catalog-plan-select';
@@ -249,6 +249,9 @@ function ClientDialog({
   const detail = useApiQuery([...PAYROLL_KEY, 'client', client.id], () =>
     api.payroll.getClient(client.id),
   );
+  // F01: the plan chosen here, else the client's saved one (never "No plan" before it loads).
+  const [plan, setPlan] = useState<string | null>(null);
+  const planChoice = plan ?? detail.data?.catalogServiceId ?? '';
   const team = useApiQuery([...PAYROLL_KEY, 'members'], () => api.team.list());
   const members = (team.data ?? [])
     .filter((m) => m.status === 'ACTIVE')
@@ -273,7 +276,13 @@ function ClientDialog({
         case 'frequency':
           return api.payroll.setFrequency(id, { frequency: choice as 'MONTHLY' });
         case 'plan':
-          return api.payroll.setPlan(id, { catalogServiceId: text || null });
+          // F01: no plan clears a saved one only as Remove Plan.
+          return api.payroll.setPlan(
+            id,
+            planChoice
+              ? { catalogServiceId: planChoice }
+              : { catalogServiceId: null, remove: true },
+          );
         case 'pause':
           return api.payroll.pause(id, text.trim() ? { reason: text.trim() } : {});
         case 'archive':
@@ -301,14 +310,8 @@ function ClientDialog({
   };
   const needsText = kind === 'note' || kind === 'activity' || kind === 'remove';
   const d = detail.data;
-  const conn = d
-    ? describeConnection({
-        provider: d.provider?.label ?? null,
-        status: d.provider ? (d.provider.connected ? 'CONNECTED' : 'NOT_AUTHORIZED') : null,
-        lastSuccessAt: d.lastSyncedAt,
-        lastAttemptAt: d.lastSyncAttemptAt,
-      })
-    : undefined;
+  // F01: the same words as the client's Overview and the providers panel.
+  const conn = d ? providerState(d) : undefined;
   return (
     <Modal
       open
@@ -326,7 +329,7 @@ function ClientDialog({
               Cancel
             </Button>
             <Button
-              disabled={send.isPending || (needsText && !text.trim())}
+              disabled={send.isPending || (needsText && !text.trim()) || (kind === 'plan' && !d)}
               onClick={() => send.mutate(undefined, { onSuccess: () => onDone(done[kind]) })}
             >
               {kind === 'remove'
@@ -352,8 +355,15 @@ function ClientDialog({
                 [
                   // SH7: the connection apart from the sync; times only from real syncs.
                   ['Provider', d.provider ? d.provider.label : 'None chosen'],
-                  ['Connection', `${conn!.label}. ${conn!.detail}`],
-                  ['Sync', conn!.sync.label],
+                  ['Connection', conn!.label],
+                  [
+                    'Sync',
+                    conn!.failedAt
+                      ? `Last attempt failed ${stamp(conn!.failedAt)}`
+                      : d.lastSyncedAt
+                        ? `Synced ${stamp(d.lastSyncedAt)}`
+                        : 'Never synced',
+                  ],
                   ['Last successful sync', d.lastSyncedAt ? stamp(d.lastSyncedAt) : 'Never'],
                   ['Last attempt', d.lastSyncAttemptAt ? stamp(d.lastSyncAttemptAt) : 'Never'],
                   ['Employees found', d.employeeCount === null ? '—' : String(d.employeeCount)],
@@ -458,7 +468,19 @@ function ClientDialog({
           </>
         ) : null}
         {kind === 'plan' ? (
-          <CatalogPlanSelect kind="PAYROLL" value={text} onChange={setText} />
+          // F01: the form shows once the client's plan has loaded, starting on it.
+          d ? (
+            <CatalogPlanSelect
+              kind="PAYROLL"
+              value={planChoice}
+              savedName={d.plan}
+              onChange={setPlan}
+            />
+          ) : (
+            <p className={quiet} data-testid="plan-loading">
+              {detail.isError ? 'The plan is not available right now.' : 'Loading the plan…'}
+            </p>
+          )
         ) : null}
         {kind === 'pause' ? (
           <>
