@@ -153,3 +153,23 @@ test('A-X01: a business client’s EIN status is kept apart from the number', as
   // Not Applicable keeps no number: nothing "ends" any more.
   await expect(page.getByLabel('New EIN', { exact: true })).toBeDisabled();
 });
+
+test('A-X04: the Recommendation field suggests the firm’s services and earlier recommendations, and takes a typed one', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app(`/business-advisory/clients/${MARCUS}/recommendations`));
+  await page.getByRole('button', { name: 'Add Recommendation' }).first().click({ timeout: 60_000 });
+  const dialog = page.getByTestId('add-recommendation');
+  const options = dialog.getByTestId('recommendation-suggestions');
+  // A service from Services & Pricing, and a recommendation the firm already made.
+  await expect(options.locator('option[value="Growth Strategy"]')).toHaveCount(1, {
+    timeout: 60_000,
+  });
+  await expect(options.locator('option[value="Implement Job Costing System"]')).toHaveCount(1);
+  await dialog
+    .getByLabel('Recommendation', { exact: true })
+    .fill('Open a second operating account (fake)');
+  await page.getByRole('button', { name: 'Add Recommendation' }).last().click();
+  await expect(page.getByText('Open a second operating account (fake)').first()).toBeVisible();
+});

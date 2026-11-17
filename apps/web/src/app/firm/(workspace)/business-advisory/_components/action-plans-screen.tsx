@@ -666,7 +666,21 @@ export function AddRecommendationDialog({
   const [impact, setImpact] = useState('');
   const [visible, setVisible] = useState(false);
   const categoriesId = useId();
+  const titlesId = useId();
   const portalHintId = useId();
+  // Advisory Review 2 A-X04 (B24): the Recommendation field suggests as you type, from the firm's
+  // own words only (its advisory services in Services & Pricing and the recommendations it has
+  // made), and any other recommendation can still be typed.
+  const services = useApiQuery([...BA_KEY, 'services'], () => api.advisory.serviceOptions());
+  const made = useApiQuery([...BA_KEY, 'recommendation-titles'], () =>
+    api.advisory.recommendations({ pageSize: 100 }),
+  );
+  const suggestions = [
+    ...new Set([
+      ...(services.data ?? []).map((s) => s.name),
+      ...(made.data?.items ?? []).map((r) => r.title),
+    ]),
+  ].sort((a, b) => a.localeCompare(b));
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const save = async () => {
@@ -721,9 +735,19 @@ export function AddRecommendationDialog({
           hint={PROPOSED_HELP.recommendation}
           required
           maxLength={300}
+          list={titlesId}
+          autoComplete="off"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
+        <datalist id={titlesId} data-testid="recommendation-suggestions">
+          {suggestions.map((t) => (
+            <option key={t} value={t} />
+          ))}
+        </datalist>
+        <p className="-mt-2 text-xs text-muted">
+          Type to search your services and earlier recommendations, or write your own.
+        </p>
         {/* A focus area to choose, or any category typed in. */}
         <Input
           label="Category"
