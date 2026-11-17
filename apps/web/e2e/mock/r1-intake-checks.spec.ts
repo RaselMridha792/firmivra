@@ -32,3 +32,33 @@ test('INTAKE-USABILITY-01: More Filters names the sent dates "Date Sent: From" a
   await expect(page.getByLabel('Date Sent: From')).toHaveAttribute('type', 'date');
   await expect(page.getByLabel('To', { exact: true })).toHaveAttribute('type', 'date');
 });
+
+test('INTAKE-USABILITY-02: the search and its results come back after opening a form and the breadcrumb', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(list);
+  const table = page.getByRole('table').first();
+  const forms = (t = table) => t.locator('a[href^="/intake-forms/"]');
+  const firstForm = forms().first();
+  const name = (await firstForm.textContent({ timeout: 60_000 }))?.trim() ?? '';
+  expect(name).not.toBe('');
+  const all = await forms().count();
+  const search = page.getByLabel('Search forms');
+  await search.fill(name);
+  // The search narrows the list (it waits for the typing to pause).
+  await expect.poll(() => forms().count(), { timeout: 30_000 }).toBeLessThan(all);
+  await expect(forms().filter({ hasText: name }).first()).toBeVisible();
+  const shown = await forms().count();
+  await forms().filter({ hasText: name }).first().click();
+  await expect(page).toHaveURL(/\/intake-forms\/[0-9a-f-]{36}/, { timeout: 60_000 });
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb' })
+    .getByRole('link', {
+      name: 'Intake Forms',
+    })
+    .click();
+  await expect(page).toHaveURL(list);
+  await expect(page.getByLabel('Search forms')).toHaveValue(name);
+  await expect(forms(page.getByRole('table').first())).toHaveCount(shown);
+});
