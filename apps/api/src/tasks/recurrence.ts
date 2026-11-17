@@ -91,12 +91,51 @@ function* raw(rule: RecurrenceRule): Generator<string> {
   }
 }
 
-/** A date that falls on a weekend moves to the next or previous weekday, as the rule says. */
+/**
+ * Tasks Review Two T-D14: the US federal holidays of a year, as observed: a Saturday holiday is
+ * kept the Friday before, a Sunday one the Monday after (so New Year's Day of the next year can be
+ * observed on 31 December). Juneteenth counts from 2021.
+ */
+const holidayCache = new Map<number, Set<string>>();
+export function federalHolidays(year: number): Set<string> {
+  const cached = holidayCache.get(year);
+  if (cached) return cached;
+  const observed = (date: string) => {
+    const day = weekdayOf(date);
+    return day === 6 ? addDays(date, -1) : day === 0 ? addDays(date, 1) : date;
+  };
+  const fixed = (m: number, d: number) => observed(make(year, m, d));
+  const days = [
+    fixed(0, 1), // New Year's Day
+    nthWeekday(year, 0, 3, 1), // Martin Luther King Jr. Day: third Monday of January
+    nthWeekday(year, 1, 3, 1), // Washington's Birthday: third Monday of February
+    nthWeekday(year, 4, 5, 1), // Memorial Day: last Monday of May
+    ...(year >= 2021 ? [fixed(5, 19)] : []), // Juneteenth
+    fixed(6, 4), // Independence Day
+    nthWeekday(year, 8, 1, 1), // Labor Day: first Monday of September
+    nthWeekday(year, 9, 2, 1), // Columbus Day: second Monday of October
+    fixed(10, 11), // Veterans Day
+    nthWeekday(year, 10, 4, 4), // Thanksgiving: fourth Thursday of November
+    fixed(11, 25), // Christmas Day
+    observed(make(year + 1, 0, 1)), // next New Year's Day, when kept on 31 December
+  ];
+  const set = new Set(days);
+  holidayCache.set(year, set);
+  return set;
+}
+
+const isBusinessDay = (date: string) =>
+  ![0, 6].includes(weekdayOf(date)) && !federalHolidays(parse(date).y).has(date);
+
+/**
+ * A date on a weekend or a US federal holiday (as observed) moves to the next or previous
+ * business day, as the rule says (DECISIONS, Tasks Review Two: US federal, NEXT_BUSINESS_DAY).
+ */
 export function adjust(date: string, rule: HolidayRule): string {
   if (rule === 'NONE') return date;
   const step = rule === 'NEXT_BUSINESS_DAY' ? 1 : -1;
   let d = date;
-  for (let i = 0; i < 3 && [0, 6].includes(weekdayOf(d)); i++) d = addDays(d, step);
+  for (let i = 0; i < 10 && !isBusinessDay(d); i++) d = addDays(d, step);
   return d;
 }
 

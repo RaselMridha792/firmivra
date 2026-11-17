@@ -458,7 +458,8 @@ test('C5 Related To: the chosen client open engagements; a client change clears 
   await expect(page.getByTestId('form-summary')).toContainText('Bookkeeping (Growth)');
   await chooseClient(page, 'Riley Example');
   await expect(related).toHaveValue('');
-  await expect(related.locator('option').first()).toHaveText('No open engagement for this client');
+  // T-C10: Related To lists every record type now, so the empty choice names none.
+  await expect(related.locator('option').first()).toHaveText('No related record');
   await expect(page.getByTestId('form-summary')).not.toContainText('Bookkeeping (Growth)');
 });
 

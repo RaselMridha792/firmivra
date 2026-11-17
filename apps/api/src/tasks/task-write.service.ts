@@ -78,6 +78,8 @@ type Prerequisite = { id: string; status: StoredTaskStatus } | null;
 
 const CREATE_FIELDS = [
   'taxPlanId',
+  'deadlineId',
+  'relatedText',
   'details',
   'dueOn',
   'engagementId',
@@ -105,6 +107,10 @@ const UPDATE_FIELDS = [
   'dueOn',
   'assignedUserId',
   'status',
+  'engagementId',
+  'taxPlanId',
+  'deadlineId',
+  'relatedText',
   'typeId',
   'priority',
   'progress',
@@ -128,6 +134,12 @@ const engagementMismatch = () =>
 const taskClosed = () => conflict('TASK_CLOSED', 'Reopen or restore the task before changing it');
 /** The engagement and the attachments are the client's: a draft without one takes neither. */
 const chooseClientFirst = () => taskErrors.invalid('clientId', 'Choose the client first');
+/** T-C10 (Tasks A1, the tasks_related_text check): a record or a custom note, never both. */
+const recordOrNote = () =>
+  taskErrors.invalid('relatedText', 'Choose a related engagement or type a custom note, not both');
+/** tasks_one_per_deadline_template: the template's task for this deadline is already made. */
+const deadlineHasTemplateTask = () =>
+  taskErrors.invalid('deadlineId', 'This deadline already has a task from this template');
 
 interface Shape {
   dueOn: string | null;
@@ -272,22 +284,13 @@ export class TaskWriteService {
     this.checkShape(shape, draft);
     const attachments = body.attachments ?? [];
     if (attachments.length > 0 && !clientId) throw chooseClientFirst();
-    // C15 (Tax Planning Review 2): an implementation task of one of the client's open plans.
-    const taxPlanId = 'taxPlanId' in body ? (body.taxPlanId ?? null) : null;
-    if (taxPlanId) {
-      if (!clientId) throw chooseClientFirst();
-      const plan = await tx.taxPlan.findFirst({
-        where: {
-          businessId,
-          id: taxPlanId,
-          clientId,
-          archivedAt: null,
-          status: { not: 'CLOSED' },
-        },
-        select: { id: true },
-      });
-      if (!plan) throw notFound();
-    }
+    // C15 (Tax Planning Review 2) and T-C10: Related To's other records are the client's.
+    const taxPlanId = body.taxPlanId ?? null;
+    const deadlineId = body.deadlineId ?? null;
+    const relatedText = body.relatedText ?? null;
+    if (body.engagementId && relatedText) throw recordOrNote();
+    await this.checkRelated(tx, businessId, clientId, { taxPlanId, deadlineId });
+    await this.checkDeadlineTemplate(tx, businessId, null, deadlineId, tpl?.id ?? null);
     const created = await tx.task.create({
       data: {
         businessId,
@@ -295,6 +298,8 @@ export class TaskWriteService {
         ...(draft ? { status: 'DRAFT' as const } : {}),
         engagementId: body.engagementId ?? null,
         taxPlanId,
+        deadlineId,
+        relatedText,
         title: body.title,
         details: body.details !== undefined ? body.details : (tpl?.description ?? null),
         dueOn: dueOn ? toDay(dueOn) : null,
@@ -351,10 +356,13 @@ export class TaskWriteService {
       if (version !== undefined && version !== current.updatedAt.toISOString()) {
         throw taskErrors.saveConflict();
       }
-      // TX-F18: a task of a tax return's engagement is reassigned by the return's own people.
+      // TX-F18: a task of a tax return's engagement is reassigned by the return's own people,
+      // and (T-C10) moved to another engagement by them too, so a move never side-steps it.
       if (
-        changes.assignedUserId !== undefined &&
-        (changes.assignedUserId ?? null) !== (current.assignedUserId ?? null)
+        (changes.assignedUserId !== undefined &&
+          (changes.assignedUserId ?? null) !== (current.assignedUserId ?? null)) ||
+        (changes.engagementId !== undefined &&
+          (changes.engagementId ?? null) !== (current.engagementId ?? null))
       ) {
         reassign = await returnReassignAuthority(
           tx,
@@ -372,6 +380,7 @@ export class TaskWriteService {
         await this.checkType(tx, businessId, changes.typeId);
       }
       if (changes.serviceId) await this.checkService(tx, businessId, changes.serviceId);
+      await this.checkRelatedChange(tx, businessId, current, current.clientId, changes);
       const prerequisite =
         changes.dependsOnTaskId === undefined
           ? await this.currentPrerequisite(tx, businessId, current.dependsOnTaskId)
@@ -523,6 +532,10 @@ export class TaskWriteService {
     if (changes.typeId !== undefined) data.typeId = changes.typeId;
     if (changes.priority !== undefined) data.priority = changes.priority;
     if (changes.serviceId !== undefined) data.serviceId = changes.serviceId;
+    if (changes.engagementId !== undefined) data.engagementId = changes.engagementId;
+    if (changes.taxPlanId !== undefined) data.taxPlanId = changes.taxPlanId;
+    if (changes.deadlineId !== undefined) data.deadlineId = changes.deadlineId;
+    if (changes.relatedText !== undefined) data.relatedText = changes.relatedText;
     if (changes.startOn !== undefined)
       data.startOn = changes.startOn === null ? null : toDay(changes.startOn);
     if (changes.clientVisible !== undefined) data.clientVisible = changes.clientVisible;
@@ -566,9 +579,20 @@ export class TaskWriteService {
       const client = await lockClient(tx, businessId, clientId);
       if (!client || !reachesClient(actor, client)) throw notFound();
     }
-    if (changes.engagementId !== undefined) {
-      await this.checkEngagement(tx, businessId, clientId, changes.engagementId);
-    }
+    // A new client's draft drops the old client's records unless the change sends new ones.
+    const related = clientChanged
+      ? {
+          ...changes,
+          engagementId: changes.engagementId ?? null,
+          taxPlanId: changes.taxPlanId ?? null,
+          deadlineId: changes.deadlineId ?? null,
+        }
+      : changes;
+    // With a new client every record sent is checked against it, even one the draft had.
+    const stored = clientChanged
+      ? { ...current, engagementId: null, taxPlanId: null, deadlineId: null }
+      : current;
+    await this.checkRelatedChange(tx, businessId, stored, clientId, related);
     if (changes.attachments?.length && !clientId) throw chooseClientFirst();
     if (changes.assignedUserId) await checkMember(tx, businessId, changes.assignedUserId);
     if (changes.typeId !== undefined && changes.typeId !== current.typeId) {
@@ -581,11 +605,8 @@ export class TaskWriteService {
         : await this.prerequisite(tx, businessId, actor, id, changes.dependsOnTaskId);
     const shape = await this.shapeAfter(tx, current, changes, prerequisite);
     this.checkShape(shape, true);
-    const data = this.fieldsOf(changes, shape);
+    const data = this.fieldsOf(related, shape);
     if (clientChanged) data.clientId = clientId;
-    if (clientChanged || changes.engagementId !== undefined) {
-      data.engagementId = changes.engagementId ?? null;
-    }
     // The old client's documents go before the task takes another client.
     if (clientChanged || changes.attachments !== undefined) {
       await tx.taskAttachment.deleteMany({ where: { businessId, taskId: id } });
@@ -631,6 +652,9 @@ export class TaskWriteService {
     const client = await lockClient(tx, businessId, draft.clientId);
     if (!client || !reachesClient(actor, client)) throw notFound();
     await this.checkEngagement(tx, businessId, draft.clientId, draft.engagementId);
+    // T-C10: the plan or deadline saved with the draft must still be the client's and open.
+    await this.checkRelated(tx, businessId, draft.clientId, draft);
+    await this.checkDeadlineTemplate(tx, businessId, draft.id, draft.deadlineId, draft.templateId);
     await this.checkType(tx, businessId, draft.typeId);
     await this.checkService(tx, businessId, draft.serviceId);
     if (draft.assignedUserId) {
@@ -1173,6 +1197,10 @@ export class TaskWriteService {
       if (isUniqueViolation(error)) {
         // task_reminders_*: each rule once (only a backstop: the rules are checked first).
         if (violatedIndex(error)?.startsWith('task_reminders')) throw reminderErrors.once();
+        // T-C10: the template's task for the deadline was made at the same time.
+        if (violatedIndex(error) === 'tasks_one_per_deadline_template') {
+          throw deadlineHasTemplateTask();
+        }
         // tasks_one_open_name_change: another name change of this client opened at the same time.
         throw nameChangePending();
       }
@@ -1208,6 +1236,102 @@ export class TaskWriteService {
     }
     if (!draft && s.reminders.length > 0 && s.dueOn === null) throw reminderErrors.needsDueDate();
     checkReminders(s.reminders, timedDue(s), !draft);
+  }
+
+  /**
+   * T-C10: Related To's plan is one of the client's that is not closed or archived (C15), and its
+   * deadline one of the client's that is not archived: 404 otherwise, as for a record the firm
+   * does not have. Without a client, neither.
+   */
+  private async checkRelated(
+    tx: TxClient,
+    businessId: string,
+    clientId: string | null,
+    ids: { taxPlanId?: string | null; deadlineId?: string | null },
+  ): Promise<void> {
+    if (!ids.taxPlanId && !ids.deadlineId) return;
+    if (!clientId) throw chooseClientFirst();
+    if (ids.taxPlanId) {
+      const plan = await tx.taxPlan.findFirst({
+        where: {
+          businessId,
+          id: ids.taxPlanId,
+          clientId,
+          archivedAt: null,
+          status: { not: 'CLOSED' },
+        },
+        select: { id: true },
+      });
+      if (!plan) throw notFound();
+    }
+    if (ids.deadlineId) {
+      const deadline = await tx.complianceDeadline.findFirst({
+        where: { businessId, id: ids.deadlineId, clientId, archivedAt: null },
+        select: { id: true },
+      });
+      if (!deadline) throw notFound();
+    }
+  }
+
+  /**
+   * A stored task's (or draft's) Related To after `changes`: each record sent that differs from
+   * the stored one is checked as for a new task (one it keeps is not, so a plan closed since
+   * stays until changed), and an engagement and a custom note are never kept together.
+   */
+  private async checkRelatedChange(
+    tx: TxClient,
+    businessId: string,
+    current: Task,
+    clientId: string | null,
+    changes: {
+      engagementId?: string | null;
+      taxPlanId?: string | null;
+      deadlineId?: string | null;
+      relatedText?: string | null;
+    },
+  ): Promise<void> {
+    const differs = (sent: string | null | undefined, stored: string | null) =>
+      sent !== undefined && sent !== null && sent.toLowerCase() !== stored?.toLowerCase();
+    if (differs(changes.engagementId, current.engagementId)) {
+      await this.checkEngagement(tx, businessId, clientId, changes.engagementId);
+    }
+    await this.checkRelated(tx, businessId, clientId, {
+      taxPlanId: differs(changes.taxPlanId, current.taxPlanId) ? changes.taxPlanId : null,
+      deadlineId: differs(changes.deadlineId, current.deadlineId) ? changes.deadlineId : null,
+    });
+    const engagementId =
+      changes.engagementId !== undefined ? changes.engagementId : current.engagementId;
+    const relatedText =
+      changes.relatedText !== undefined ? changes.relatedText : current.relatedText;
+    if (engagementId && relatedText) throw recordOrNote();
+    if (differs(changes.deadlineId, current.deadlineId)) {
+      await this.checkDeadlineTemplate(
+        tx,
+        businessId,
+        current.id,
+        changes.deadlineId ?? null,
+        current.templateId,
+      );
+    }
+  }
+
+  /**
+   * A task from a template takes a deadline only when that template has no task for it yet
+   * (tasks_one_per_deadline_template, counted with archived and draft tasks too).
+   */
+  private async checkDeadlineTemplate(
+    tx: TxClient,
+    businessId: string,
+    taskId: string | null,
+    deadlineId: string | null,
+    templateId: string | null,
+  ): Promise<void> {
+    if (!deadlineId || !templateId) return;
+    const other = await tx.task.findFirst({
+      where: { businessId, deadlineId, templateId, ...(taskId ? { id: { not: taskId } } : {}) },
+      select: { id: true },
+    });
+    if (other) throw deadlineHasTemplateTask();
   }
 
   /** The engagement must be the client's (409 ENGAGEMENT_MISMATCH); without a client, none. */

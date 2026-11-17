@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { WorkspacesModule } from '../workspaces/workspaces.module.js';
 import { TaskBulkService } from './task-bulk.service.js';
 import { TaskDraftsController } from './task-drafts.controller.js';
@@ -20,7 +21,7 @@ import { TasksController } from './tasks.controller.js';
  * types, and drafts (R1). The older list still comes from WorkspacesModule's TasksService.
  */
 @Module({
-  imports: [WorkspacesModule],
+  imports: [WorkspacesModule, NotificationsModule],
   controllers: [
     // First: its routes under business/tasks/drafts must match before TasksController's ':id'.
     TaskDraftsController,

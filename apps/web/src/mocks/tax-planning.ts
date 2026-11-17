@@ -356,6 +356,17 @@ const compute = (
   };
 };
 
+/** T-C10: the plans of the last mock made, for the tasks mock's Related To (as the API's check). */
+let livePlans: readonly TaxPlanDetail[] = [];
+export function mockPlanRef(
+  id: string,
+): { id: string; name: string; clientId: string; open: boolean } | null {
+  const p = livePlans.find((x) => x.id === id);
+  return p
+    ? { id: p.id, name: p.name, clientId: p.client.id, open: !p.archived && p.status !== 'CLOSED' }
+    : null;
+}
+
 export function createTaxPlanningMock({
   role = 'OWNER',
   empty = false,
@@ -429,6 +440,7 @@ export function createTaxPlanningMock({
     unavailableReason: cents === null ? 'Add the missing income figures to estimate this.' : null,
   });
   const plans: (TaxPlanDetail & { _versions: PlanVersionDetail[] })[] = [];
+  livePlans = plans;
   const opps: (TaxOpportunityDetail & { _events: TaxOpportunityEvent[] })[] = [];
   const scenarios: TaxScenario[] = [];
 

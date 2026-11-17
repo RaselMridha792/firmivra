@@ -1,8 +1,10 @@
 // R55: the dates of a recurring task. Pure functions: a preview and the generator must agree, and a
 // retry must give the same dates (the occurrence key is the scheduled date).
 import { describe, expect, it } from 'vitest';
+import { zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
 import {
   adjust,
+  federalHolidays,
   generationCutoff,
   describe as describeRule,
   type RecurrenceRule,
@@ -173,6 +175,79 @@ describe('holidays', () => {
       { scheduledOn: '2026-11-07', dueOn: '2026-11-09' },
       { scheduledOn: '2026-11-08', dueOn: '2026-11-09' },
     ]);
+  });
+});
+
+describe('the recurrence rules (Tasks Review Two T-D14, DECISIONS)', () => {
+  it('holidays: US federal, as observed; NEXT_BUSINESS_DAY moves past them and weekends', () => {
+    expect([...federalHolidays(2027)].filter((d) => d.startsWith('2027')).sort()).toEqual([
+      '2027-01-01', // New Year's Day (Friday)
+      '2027-01-18', // Martin Luther King Jr. Day
+      '2027-02-15', // Washington's Birthday
+      '2027-05-31', // Memorial Day
+      '2027-06-18', // Juneteenth, a Saturday, kept on Friday
+      '2027-07-05', // Independence Day, a Sunday, kept on Monday
+      '2027-09-06', // Labor Day
+      '2027-10-11', // Columbus Day
+      '2027-11-11', // Veterans Day
+      '2027-11-25', // Thanksgiving
+      '2027-12-24', // Christmas, a Saturday, kept on Friday
+      '2027-12-31', // New Year's Day 2028, a Saturday, kept on Friday
+    ]);
+    expect(adjust('2026-11-26', 'NEXT_BUSINESS_DAY')).toBe('2026-11-27'); // Thanksgiving
+    expect(adjust('2027-07-04', 'NEXT_BUSINESS_DAY')).toBe('2027-07-06'); // Sunday, then kept Monday
+    expect(adjust('2027-12-24', 'NEXT_BUSINESS_DAY')).toBe('2027-12-27'); // over the weekend
+    // Across the year: 31 Dec 2027 is New Year's Day kept, then a weekend.
+    expect(adjust('2027-12-31', 'NEXT_BUSINESS_DAY')).toBe('2028-01-03');
+    expect(adjust('2027-01-01', 'PREVIOUS_BUSINESS_DAY')).toBe('2026-12-31');
+    expect(adjust('2027-07-05', 'NONE')).toBe('2027-07-05');
+    // The key stays the scheduled date; only the due date moves.
+    const r = rule({ unit: 'YEAR', startOn: '2026-11-26', holidayRule: 'NEXT_BUSINESS_DAY' });
+    expect(schedule(r, { limit: 1 })).toEqual([{ scheduledOn: '2026-11-26', dueOn: '2026-11-27' }]);
+  });
+
+  it("time zone: the firm's day follows its zone, DST included; dates never shift with DST", () => {
+    // 14 March 2027: New York moves to daylight time at 2:00.
+    const ny = 'America/New_York';
+    expect(zonedDate(ny, Date.parse('2027-03-15T03:30:00Z'))).toBe('2027-03-14'); // 23:30 EDT
+    expect(zonedDate(ny, Date.parse('2027-03-15T04:30:00Z'))).toBe('2027-03-15');
+    expect(zonedDate(ny, Date.parse('2027-11-08T04:30:00Z'))).toBe('2027-11-07'); // 23:30 EST
+    expect(new Date(zonedInstant(ny, '2027-03-15', 0)).toISOString()).toBe(
+      '2027-03-15T04:00:00.000Z',
+    );
+    expect(new Date(zonedInstant(ny, '2027-03-13', 0)).toISOString()).toBe(
+      '2027-03-13T05:00:00.000Z',
+    );
+    // A weekly series keeps its weekday across the change.
+    const weekly = rule({ unit: 'WEEK', startOn: '2027-03-08', pattern: { weekdays: [1] } });
+    expect(dates(weekly, 3)).toEqual(['2027-03-08', '2027-03-15', '2027-03-22']);
+  });
+
+  it('lead time and start of period: as configured, else the default by unit', () => {
+    expect(
+      generationCutoff({ unit: 'MONTH' }, '2027-03-10', { atPeriodStart: false, leadDays: 5 }),
+    ).toBe('2027-03-15');
+    expect(
+      generationCutoff({ unit: 'MONTH' }, '2027-03-10', { atPeriodStart: true, leadDays: 5 }),
+    ).toBe('2027-03-31');
+  });
+
+  it('month end: a day the month lacks falls on its last day, and comes back in long months', () => {
+    expect(dates(rule({ startOn: '2027-01-30' }), 4)).toEqual([
+      '2027-01-30',
+      '2027-02-28',
+      '2027-03-30',
+      '2027-04-30',
+    ]);
+  });
+
+  it('leap years: 29 Feb is 28 Feb in other years; a month from 31 Jan is 29 Feb in a leap year', () => {
+    expect(dates(rule({ unit: 'YEAR', startOn: '2028-02-29' }), 3)).toEqual([
+      '2028-02-29',
+      '2029-02-28',
+      '2030-02-28',
+    ]);
+    expect(dates(rule({ startOn: '2028-01-31' }), 2)).toEqual(['2028-01-31', '2028-02-29']);
   });
 });
 

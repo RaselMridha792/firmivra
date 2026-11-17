@@ -230,6 +230,13 @@ export const TaskRow = z.object({
   service: TaskLink.nullable(),
   /** The compliance deadline it works on. */
   deadline: TaskLink.nullable(),
+  /** T-C10: the client's tax plan it implements (C15). */
+  taxPlan: TaskLink.nullable().default(null),
+  /**
+   * T-C10 (Tasks A1): Related To typed by the firm when no record fits, shown as a custom note and
+   * never as a record link. Never set together with `engagement`.
+   */
+  relatedText: z.string().nullable().default(null),
   priority: TaskPriority,
   /** OPEN, DONE or CANCELLED. */
   status: TaskStatus,
@@ -312,6 +319,12 @@ export const TaskOverviewQuery = z.strictObject({
   dueSet: QueryBool.optional(),
   dueFrom: CalendarDate.optional(),
   dueTo: CalendarDate.optional(),
+  /**
+   * T-D02: completed on these days of the firm's calendar, both ends included (the Completed
+   * (This Month) card sends the month's first day and today).
+   */
+  completedFrom: CalendarDate.optional(),
+  completedTo: CalendarDate.optional(),
   search: SearchText.optional(),
   sort: TaskSort.optional().default('due'),
   direction: z.enum(['asc', 'desc']).optional().default('asc'),
@@ -424,6 +437,17 @@ const taskFields = {
 export const CreateTaskDetailRequest = z.strictObject({
   clientId: z.uuid(),
   engagementId: z.uuid().optional(),
+  /**
+   * T-C10: Related To can also be one of the client's compliance deadlines that is not archived
+   * (404 otherwise), or a tax plan (`taxPlanId`). With the template's own deadline task already
+   * made, 400 VALIDATION_FAILED naming `deadlineId`.
+   */
+  deadlineId: z.uuid().optional(),
+  /**
+   * T-C10 (Tasks A1): Related To typed when no record fits, 1 to 200 characters, kept as a custom
+   * note. Not with `engagementId`: 400 VALIDATION_FAILED naming `relatedText`.
+   */
+  relatedText: text(200).optional(),
   title: text(200),
   details: clearable(text(2_000, 'many')),
   dueOn: CalendarDate.optional(),
@@ -455,6 +479,16 @@ export const UpdateTaskDetailRequest = z
     dueOn: CalendarDate.nullable().optional(),
     assignedUserId: z.uuid().nullable().optional(),
     status: TaskStatus.optional(),
+    /**
+     * T-C10: Related To, changeable in Edit with the rules of a new task: the client's engagement
+     * (409 ENGAGEMENT_MISMATCH), plan or deadline (404), or a custom note; `null` clears. An
+     * engagement and a custom note never together (400). Moving a tax return's task to another
+     * engagement needs the authority that reassigns it (TX-F18).
+     */
+    engagementId: z.uuid().nullable().optional(),
+    taxPlanId: z.uuid().nullable().optional(),
+    deadlineId: z.uuid().nullable().optional(),
+    relatedText: clearable(text(200)),
     ...taskFields,
     checklist: z.array(ChecklistItemInput).max(50).optional(),
     version: z.string().min(1).max(100).optional(),
@@ -863,6 +897,12 @@ export const TaskOccurrence = z.object({
   taskId: z.uuid().nullable(),
   skipReason: z.string().nullable(),
   generatedAt: DateTime.nullable(),
+  /** T-C03: the task made, and where it is now (Open, Done or Cancelled). */
+  task: z.object({ id: z.uuid(), title: z.string(), status: TaskStatus }).nullable().default(null),
+  /** T-C03: why making the task failed (the error's name), with FAILED or while retried. */
+  failureCode: z.string().nullable().default(null),
+  /** Tries so far; FAILED after the fifth. */
+  attempts: z.number().int().default(0),
 });
 export type TaskOccurrence = z.infer<typeof TaskOccurrence>;
 
@@ -890,6 +930,11 @@ export type SkipFutureRequest = z.input<typeof SkipFutureRequest>;
  */
 export const ConvertToRecurringRequest = z.strictObject({
   recurrence: endRules(z.strictObject(recurrenceShape)),
+  /**
+   * Tasks Review Two T-C11: the task's checklist goes to every occurrence (each gets its own
+   * copy); `false` starts the occurrences without one.
+   */
+  applyChecklist: z.boolean().optional().default(true),
   idempotencyKey: IdempotencyKey.optional(),
 });
 export type ConvertToRecurringRequest = z.input<typeof ConvertToRecurringRequest>;

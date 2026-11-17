@@ -36,6 +36,7 @@ import {
   UpcomingDeadlines,
 } from './tasks-rail';
 import { TaskTable } from './task-table';
+import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
 import { BackToWorkflow } from '../../settings/workflow/_components/back-to-workflow';
 
 type Tab = TaskView;
@@ -52,7 +53,19 @@ const TABS: { id: Tab; label: string }[] = [
   // T-C13: archived tasks, with Restore.
   { id: 'archived', label: 'Archived' },
 ];
-type KpiFilter = 'pending' | 'progress' | 'overdue' | 'completed' | undefined;
+// T-D02: each card lists what it counts; 'total' is Total Tasks (open and done).
+type KpiFilter = 'total' | 'pending' | 'progress' | 'overdue' | 'completed' | undefined;
+
+/** The firm's month so far, as days of its calendar: the Completed (This Month) card's range. */
+function monthSoFar(timeZone: string | undefined): { from: string; to: string } {
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  return { from: `${today.slice(0, 8)}01`, to: today };
+}
 
 /**
  * The Add Task button with its menu: Add Task, Add Recurring Task, Use a Template, and for Owner
@@ -157,6 +170,7 @@ export function TasksScreen({
   const manages = role === 'OWNER' || role === 'ADMIN';
   const [tab, setTab] = useState<Tab>(view ?? (clientId ? 'all' : 'mine'));
   const [kpi, setKpi] = useState<KpiFilter>();
+  const timeZone = useFirmTimeZone();
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState({
     progress: '',
@@ -189,7 +203,10 @@ export function TasksScreen({
           : tab === 'archived'
             ? 'archived'
             : 'all',
-    ...(tab === 'mine' || tab === 'all' ? { status: 'OPEN' as const } : {}),
+    // T-D02: a card's list is what the card counts: Total and Completed are not "open only".
+    ...((tab === 'mine' || tab === 'all') && kpi !== 'total' && kpi !== 'completed'
+      ? { status: 'OPEN' as const }
+      : {}),
     ...(term ? { search: term } : {}),
     ...(applied.progress ? { progress: applied.progress as TaskOverviewQuery['progress'] } : {}),
     ...(applied.priority ? { priority: applied.priority as TaskOverviewQuery['priority'] } : {}),
@@ -199,7 +216,13 @@ export function TasksScreen({
     ...(kpi === 'pending' ? { progress: 'PENDING' as const } : {}),
     ...(kpi === 'progress' ? { progress: 'IN_PROGRESS' as const } : {}),
     ...(kpi === 'overdue' ? { overdue: true } : {}),
-    ...(kpi === 'completed' ? { view: 'completed' as const } : {}),
+    ...(kpi === 'completed'
+      ? {
+          view: 'completed' as const,
+          completedFrom: monthSoFar(timeZone).from,
+          completedTo: monthSoFar(timeZone).to,
+        }
+      : {}),
     ...(date ? { dueFrom: date, dueTo: date } : {}),
     ...(dueSet ? { dueSet: true } : {}),
     ...sort,
@@ -226,14 +249,15 @@ export function TasksScreen({
     <li key={id}>
       <button
         type="button"
-        aria-pressed={kpi === id}
+        aria-pressed={kpi === (id === 'all' ? 'total' : id)}
         data-testid={`kpi-${id}`}
         onClick={() => {
-          setKpi(id === 'all' ? undefined : kpi === id ? undefined : id);
+          const chosen = id === 'all' ? 'total' : id;
+          setKpi(kpi === chosen ? undefined : chosen);
           if (tab !== 'all' && tab !== 'completed') setTab('all');
           setPage(1);
         }}
-        className={`block w-full rounded-xl text-left ${kpi === id ? 'ring-2 ring-action' : ''}`}
+        className={`block w-full rounded-xl text-left ${kpi === (id === 'all' ? 'total' : id) ? 'ring-2 ring-action' : ''}`}
       >
         <KpiCard
           icon={icon}
