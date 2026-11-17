@@ -13,6 +13,7 @@ import { notFound } from '../workspaces/common.js';
 import { sanitize, stripTags } from './html.js';
 import { BUILT_IN_FIELDS, fill, smsLength } from './merge-fields.js';
 import { PLAIN_KINDS } from './templates.common.js';
+import { withClient } from '../appointments/appointment-party.js';
 
 /** What a render needs from a template: the master text, never a client's data. */
 export interface Renderable {
@@ -183,7 +184,8 @@ export class TemplateRenderService {
       },
     });
     if (!a) throw notFound();
-    await this.reachable(tx, businessId, actor, a.clientId);
+    // P4-1: a template's client fields need a client; a lead's own appointment is refused here.
+    await this.reachable(tx, businessId, actor, withClient(a).clientId);
     const at = a.timeZone ?? zone;
     put(values, 'Appointment Date', dateIn(at, a.startsAt, 'date'));
     put(values, 'Appointment Time', dateIn(at, a.startsAt, 'time'));

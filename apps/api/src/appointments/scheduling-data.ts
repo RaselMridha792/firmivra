@@ -15,6 +15,7 @@ import {
   reminderFromOffset,
   versionOf,
 } from './scheduling-map.js';
+import { withClient } from './appointment-party.js';
 
 // The rows and shapes of the scheduling screens (contract in
 // packages/types/src/appointments/scheduling.ts). They read the same appointment records as R12's
@@ -107,7 +108,9 @@ const memberRef = (m: { userId: string; user: { name: string } }): MemberRef => 
   name: m.user.name,
 });
 
-export function contactOf(row: SchedulingRow): AppointmentContact {
+export function contactOf(appointment: SchedulingRow): AppointmentContact {
+  // P4-1: a lead's own appointment has no client contact yet; refused here until lead booking.
+  const row = withClient(appointment);
   const business = row.client.accountType === 'BUSINESS';
   return {
     kind: 'CLIENT',

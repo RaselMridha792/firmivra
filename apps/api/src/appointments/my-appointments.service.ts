@@ -47,6 +47,7 @@ import {
   MEETING_LINKS,
   type MeetingLinkStore,
 } from './meeting-links.js';
+import { withClient } from './appointment-party.js';
 
 type ListQuery = z.output<typeof MyAppointmentsQuery>;
 type SlotsQ = z.output<typeof MySlotsQuery>;
@@ -78,7 +79,7 @@ const lengthOf = (row: { startsAt: Date; endsAt: Date }) =>
  * else attends, and only its own client changes it (`changeableUntil` null for the attendee).
  */
 export function toMine(row: AppointmentRow, now: number, clientId: string): MyAppointment {
-  const attending = row.clientId.toLowerCase() !== clientId.toLowerCase();
+  const attending = withClient(row).clientId.toLowerCase() !== clientId.toLowerCase();
   return {
     id: row.id,
     type: row.type ? { id: row.type.id, name: row.type.name } : null,
@@ -99,7 +100,11 @@ export function toMine(row: AppointmentRow, now: number, clientId: string): MyAp
 }
 
 /** A1: the people an appointment books, its client and each attendee. */
-const peopleOf = (row: AppointmentRow) => [row.clientId, ...row.attendees.map((a) => a.clientId)];
+// P4-1: the portal reads only its clients' appointments, so each one here has a client.
+const peopleOf = (row: AppointmentRow) => [
+  withClient(row).clientId,
+  ...row.attendees.map((a) => a.clientId),
+];
 
 /**
  * Review 2 (row 8): the firm booked it and it is not confirmed yet, still ahead: the client is
@@ -359,7 +364,7 @@ export class MyAppointmentsService {
       return created;
     });
     await this.notices.send('appointment.booked', businessId, row.id, { clientAccountId });
-    return toMine(row, Date.now(), row.clientId);
+    return toMine(row, Date.now(), withClient(row).clientId);
   }
 
   /** A new start from the slots, same length, before the cutoff. Same staff member when free. */
@@ -385,7 +390,7 @@ export class MyAppointmentsService {
         staff.userId,
       );
       const [, ...attendees] = peopleOf(current);
-      await lockForBooking(tx, businessId, staff.userId, current.clientId, attendees);
+      await lockForBooking(tx, businessId, staff.userId, withClient(current).clientId, attendees);
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: {
@@ -403,9 +408,9 @@ export class MyAppointmentsService {
       });
       return { before: current, after: updated };
     });
-    if (!after) return toMine(before, Date.now(), before.clientId);
+    if (!after) return toMine(before, Date.now(), withClient(before).clientId);
     await this.notices.send('appointment.changed', businessId, after.id, { clientAccountId });
-    return toMine(after, Date.now(), after.clientId);
+    return toMine(after, Date.now(), withClient(after).clientId);
   }
 
   /**
@@ -435,7 +440,7 @@ export class MyAppointmentsService {
         { by: 'CLIENT', clientId: row.clientId },
       );
     }
-    return toMine(row, Date.now(), row.clientId);
+    return toMine(row, Date.now(), withClient(row).clientId);
   }
 
   async cancel(
@@ -460,7 +465,7 @@ export class MyAppointmentsService {
       });
       return updated;
     });
-    return toMine(after, Date.now(), after.clientId);
+    return toMine(after, Date.now(), withClient(after).clientId);
   }
 
   /**

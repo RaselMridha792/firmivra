@@ -31,6 +31,7 @@ import type {
 import { RESOURCES, resourceOf, toResource } from './catalog.js';
 import { advErrors, clientRef, clientRefSelect, DISCLAIMER, iso } from './advisory.common.js';
 import { FACTORS, FACTOR_KEYS } from './health.js';
+import { withClient } from '../appointments/appointment-party.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -145,16 +146,18 @@ export class AdvisoryOverviewService {
       appts.map((a) => a.staffUserId),
     );
     const rows = appts.map((a) => {
+      // P4-1: an advisory meeting is a client's (the query reads advisory clients only).
+      const { client } = withClient(a);
       const details = a.locationDetails;
       const isUrl = details !== null && /^https?:\/\//i.test(details);
       return {
         appointmentId: a.id,
         startsAt: a.startsAt.toISOString(),
         endsAt: a.endsAt.toISOString(),
-        client: clientRef(a.client),
+        client: clientRef(client),
         businessName:
-          a.client.profile?.businessName ??
-          (a.client.accountType === 'BUSINESS' ? a.client.displayName : null),
+          client.profile?.businessName ??
+          (client.accountType === 'BUSINESS' ? client.displayName : null),
         meetingType: a.type?.name ?? null,
         joinUrl: a.locationKind === 'VIDEO' && isUrl ? details : null,
         location: isUrl ? null : details,

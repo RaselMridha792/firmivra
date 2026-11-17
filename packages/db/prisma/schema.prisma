@@ -1010,6 +1010,7 @@ model Business {
   bookkeepingSettings          BookkeepingSettings[]
   intakeSettings               IntakeSettings?
   intakeTemplates              IntakeTemplate[]
+  intakeFormNotes              IntakeFormNote[]
   staffJobTitles               StaffJobTitle[]
   staffWorkSchedules           StaffWorkSchedule[]
   staffSecurityDefaults        StaffSecurityDefaults?
@@ -1269,6 +1270,7 @@ model Membership {
   // R37 back-relations (no columns on memberships).
   intakesAssigned           Intake[]                   @relation("IntakeAssignedTo")
   intakesCompleted          Intake[]                   @relation("IntakeCompletedBy")
+  intakeFormNotes           IntakeFormNote[]           @relation("IntakeFormNoteAuthor")
   intakeSettingsOwner       IntakeSettings[]           @relation("IntakeSettingsOwner")
   intakeSettingsFollowUp    IntakeSettings[]           @relation("IntakeSettingsFollowUp")
   intakeTemplatesCreated    IntakeTemplate[]           @relation("IntakeTemplateCreatedBy")
@@ -3954,6 +3956,8 @@ model Intake {
   documents      Document[]
   /// R55 (item n): the lead's own files through this intake's secure link.
   leadUploads    LeadUpload[]
+  /// R1 (Intake Review 2 24b): the firm's notes on this form record.
+  notes          IntakeFormNote[]
 
   /// R1 (Nov 7, A9): the appointment this intake was requested for; its completion is the
   /// intake's own status.
@@ -4107,6 +4111,9 @@ model Lead {
   duplicateDismissals      LeadDuplicateDismissal[] @relation("DismissalLead")
   duplicateDismissalsOther LeadDuplicateDismissal[] @relation("DismissalOther")
   sequenceRuns             LeadSequenceRun[]
+
+  /// P4-1: appointments booked for the lead.
+  appointments Appointment[]
 
   @@unique([businessId, id])
   @@unique([businessId, number])
@@ -4359,7 +4366,12 @@ model BlockedTime {
 model Appointment {
   id                 String            @id @default(uuid(7)) @db.Uuid
   businessId         String            @map("business_id") @db.Uuid
-  clientId           String            @map("client_id") @db.Uuid
+  /// P4-1 (Leads Review Two 26/17, Nov 17): empty for a lead's own appointment (`leadId`); set at
+  /// the lead's conversion, and fixed after that.
+  clientId           String?           @map("client_id") @db.Uuid
+  /// P4-1: the lead it was booked for, kept after the lead converts (where it came from). At least
+  /// one of the client and the lead; a lead-only one has no engagement or tax plan.
+  leadId             String?           @map("lead_id") @db.Uuid
   engagementId       String?           @map("engagement_id") @db.Uuid
   taxPlanId          String?           @map("tax_plan_id") @db.Uuid
   staffUserId        String            @map("staff_user_id") @db.Uuid
@@ -4422,7 +4434,8 @@ model Appointment {
   bufferBeforeMinutes  Int            @default(0) @map("buffer_before_minutes")
   bufferAfterMinutes   Int            @default(0) @map("buffer_after_minutes")
 
-  client     Client                 @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  client     Client?                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lead       Lead?                  @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement?            @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   /// R1 (Nov 14, Review 2 C12, S3): the planning plan this discussion is for (the same client's).
   taxPlan    TaxPlan?               @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -4448,6 +4461,7 @@ model Appointment {
   @@index([businessId, seriesId])
   @@index([businessId, staffUserId, startsAt])
   @@index([businessId, clientId, startsAt])
+  @@index([businessId, leadId])
   @@index([businessId, startsAt])
   @@map("appointments")
 }
@@ -11542,6 +11556,27 @@ model IntakeSettings {
 /// service can have several. The versions are IntakeForm rows, numbered per template and
 /// unchangeable once published. One live template per service is the default: the form Begin
 /// Online and "send for an engagement" use. Archived, never deleted.
+/// R1 (Intake Review 2 24b-i, the lead's approval Nov 17): the firm's notes on one assigned form
+/// (an intake), for its staff only: never shown to the client, never in an email or a log.
+model IntakeFormNote {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  intakeId     String   @map("intake_id") @db.Uuid
+  authorUserId String   @map("author_user_id") @db.Uuid
+  /// 1 to 2000 characters (SQL check).
+  body         String
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business   @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  intake   Intake     @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Cascade)
+  author   Membership @relation("IntakeFormNoteAuthor", fields: [businessId, authorUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@index([businessId, intakeId, createdAt])
+  @@map("intake_form_notes")
+}
+
 model IntakeTemplate {
   id                    String    @id @default(uuid(7)) @db.Uuid
   businessId            String    @map("business_id") @db.Uuid
@@ -11570,9 +11605,12 @@ model IntakeTemplate {
 
   /// R55 (Rasel, Nov 14; INTAKE-ACCESS-02): Publish in client portal, off by default. On: any of
   /// the firm's clients can open it in the portal, whatever their services.
-  portalPublished Boolean @default(false) @map("portal_published")
+  portalPublished  Boolean @default(false) @map("portal_published")
   /// The public share link's and embed's token, kept only as its SHA-256 (hex); null: no link.
-  shareTokenHash  String? @unique @map("share_token_hash")
+  shareTokenHash   String? @unique @map("share_token_hash")
+  /// R1 (Intake Review 2 P4-16, the lead's approval Nov 17): the share link's generation, mixed
+  /// into its token. Rotate is +1: the old link stops at once and a new one is made.
+  shareLinkVersion Int     @default(0) @map("share_link_version")
 
   @@unique([businessId, id])
   // Target of the versions' same-service foreign key.

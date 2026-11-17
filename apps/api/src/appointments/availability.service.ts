@@ -30,6 +30,7 @@ import {
 import { lockForBlock, retryWhenBusy, tryLock, workingHoursLockKey } from './calendar-locks.js';
 import { errors } from './errors.js';
 import { linkOf, MEETING_LINKS, type MeetingLinkStore } from './meeting-links.js';
+import { clientOrLeadName } from './appointment-party.js';
 
 type BlocksQuery = z.output<typeof BlockedTimesQuery>;
 type BlockBody = z.output<typeof CreateBlockedTimeRequest>;
@@ -113,7 +114,7 @@ async function scheduledConflicts(
     startsAt: r.startsAt.toISOString(),
     endsAt: r.endsAt.toISOString(),
     member: { userId: r.staffUserId, name: names.get(r.staffUserId) ?? 'Former member' },
-    clientName: r.client.displayName,
+    clientName: clientOrLeadName(r),
   }));
 }
 

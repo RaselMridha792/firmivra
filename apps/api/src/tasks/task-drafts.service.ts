@@ -43,6 +43,9 @@ const FILTERS = ['search', 'clientId', 'typeId', 'priority', 'assignedUserId', '
 const FIELDS = [
   'clientId',
   'engagementId',
+  'taxPlanId',
+  'deadlineId',
+  'relatedText',
   'details',
   'dueOn',
   'assignedUserId',
