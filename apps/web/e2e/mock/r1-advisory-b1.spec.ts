@@ -122,3 +122,34 @@ test('A-09: advisory reports keep the client and Advisory context, and their car
   await page.getByTestId('report-goals').getByRole('link', { name: 'Open Goals' }).click();
   await expect(page).toHaveURL(app('/business-advisory/goals'));
 });
+
+test('A-X01: a business client’s EIN status is kept apart from the number', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // Acme Widgets LLC (fake): a Business with an EIN on file.
+  await page.goto(app('/clients/0199b6a1-0000-7000-8000-000000000002'));
+  await page.getByRole('button', { name: 'Edit details' }).click({ timeout: 60_000 });
+  const status = page.getByLabel('EIN status');
+  await expect(status).toHaveValue('HAS_EIN');
+  await expect(page.getByLabel(/^New EIN/)).toBeEnabled();
+  await status.selectOption('NOT_APPLICABLE');
+  await expect(page.getByLabel(/^New EIN/)).toBeDisabled();
+  // The mock's Acme lacks details the form requires of a Business: fill them (fake values).
+  const fill = async (label: string, value: string) => {
+    const f = page.getByLabel(label, { exact: true });
+    if (!(await f.inputValue())) await f.fill(value);
+  };
+  await fill('Business phone *', '5550101234');
+  await fill('Street address *', '1 Sample Way');
+  await fill('City *', 'Atlanta');
+  await fill('State *', 'GA');
+  await fill('ZIP code *', '30301');
+  await fill('Full name *', 'Avery Sample');
+  await fill('Their email *', 'avery@example.test');
+  await fill('Their phone *', '5550109876');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit details' }).click();
+  await expect(page.getByLabel('EIN status')).toHaveValue('NOT_APPLICABLE');
+  // Not Applicable keeps no number: nothing "ends" any more.
+  await expect(page.getByLabel('New EIN', { exact: true })).toBeDisabled();
+});
