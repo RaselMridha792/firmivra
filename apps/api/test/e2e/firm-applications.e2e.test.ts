@@ -603,7 +603,7 @@ describe('GET /admin/firms and /admin/dashboard', () => {
     const admin = { kind: 'admin', adminUserId: fx.users.admin.id } as const;
     /** The counts as the screens they open read them, straight from the database. */
     const expected = async () => {
-      const logins = { pool: { in: ['STAFF', 'CLIENT'] } } as const;
+      const logins: Prisma.UserWhereInput = { pool: { in: ['STAFF', 'CLIENT'] } };
       const users = await runInScope(owner, { kind: 'platform' }, (tx) =>
         Promise.all([
           tx.user.count({ where: logins }),

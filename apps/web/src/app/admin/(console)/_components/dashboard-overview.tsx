@@ -402,7 +402,7 @@ export function DashboardOverview() {
                   // Unknown when the figures could not be read: a dash, never a zero.
                   // SA-DSH-F09: a null count is a list this viewer cannot open (Support with no
                   // view permission): a dash and no link, never a number the click can't show.
-                  const closed = key !== undefined && dashboard.data?.[key] === null;
+                  const closed = key === 'openTickets' && dashboard.data?.openTickets === null;
                   const count =
                     dashboard.data && !closed ? (key ? (dashboard.data[key] ?? 0) : 0) : null;
                   // SA-DSH-F07 to F11: a row with a list opens it at any count.
