@@ -177,6 +177,18 @@ export async function seedDemoIntake(prisma: Prisma, org: DemoOrgResult): Promis
         });
       }
     }
+    // Intake Review 2 24b-i: one staff note on the in-progress form (staff only; sample text).
+    await tx.intakeFormNote.upsert({
+      where: { id: demoId('intake-note:01:tax2025') },
+      create: {
+        id: demoId('intake-note:01:tax2025'),
+        businessId,
+        intakeId: demoId('intake:01:tax2025'),
+        authorUserId: SEED_DEMO_USERS.clientSupport.id,
+        body: 'Called about the missing 1099 form; the client will upload it this week (sample).',
+      },
+      update: {},
+    });
     return form;
   });
 
