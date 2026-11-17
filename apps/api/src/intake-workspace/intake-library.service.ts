@@ -106,6 +106,8 @@ export class IntakeLibraryService {
         : t.updatedAt
       ).toISOString(),
       owner,
+      // 24c-i: an archived one shows in the Archived view, with Restore.
+      archived: t.archivedAt !== null,
     };
   }
 
@@ -156,7 +158,8 @@ export class IntakeLibraryService {
       const rows = await tx.intakeTemplate.findMany({
         where: {
           businessId,
-          archivedAt: null,
+          // 24c-i: the Archived view lists only the archived ones; every other view, none.
+          archivedAt: q.archived === 'true' ? { not: null } : null,
           ...(q.templates === 'all' ? {} : { serviceDefault: q.templates === 'true' }),
         },
         include: templateInclude,
@@ -192,7 +195,11 @@ export class IntakeLibraryService {
   }
 
   async summary(tenant: TenantContext): Promise<IntakeFormLibrarySummary> {
-    const { items } = await this.list(tenant, { templates: 'all', sort: 'updated' });
+    const { items } = await this.list(tenant, {
+      templates: 'all',
+      sort: 'updated',
+      archived: 'false',
+    });
     const since = Date.now() - 30 * 86_400_000;
     const most = Math.max(0, ...items.map((i) => i.usageCount));
     const byCategory = new Map<FormCategory, number>();

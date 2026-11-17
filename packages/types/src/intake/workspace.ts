@@ -248,6 +248,8 @@ export const IntakeFormListItem = z.object({
   updatedAt: DateTime,
   /** The owner shown on the card (the last editor until Octavia says otherwise). */
   owner: MemberRef.nullable(),
+  /** Intake Review 2 24c-i: archived (listed only with `archived=true`); Restore brings it back. */
+  archived: z.boolean().default(false),
 });
 export type IntakeFormListItem = z.infer<typeof IntakeFormListItem>;
 
@@ -258,6 +260,8 @@ export const IntakeFormsQuery = z.strictObject({
   search: SearchText.optional(),
   status: IntakeFormStatus.optional(),
   sort: z.enum(['updated', 'name', 'used', 'recent']).optional().default('updated'),
+  /** Intake Review 2 24c-i: 'true' lists only the archived forms and templates (the Archived view). */
+  archived: z.enum(['true', 'false']).optional().default('false'),
 });
 export type IntakeFormsQuery = z.input<typeof IntakeFormsQuery>;
 

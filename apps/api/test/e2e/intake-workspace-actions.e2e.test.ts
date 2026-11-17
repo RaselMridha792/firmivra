@@ -1121,6 +1121,31 @@ describe('the form builder', () => {
       'INVALID_STATUS',
     );
     expectError(await call('post', `/intake-forms/${copy.id}/archive`, staffA), 403, 'FORBIDDEN');
+    // Intake Review 2 24c-i: the Archived view lists it; Restore (Owner and Admin) brings it back
+    // as a draft, its content kept, ready to publish; audited once.
+    const archivedView = IntakeFormList.parse(
+      ok(await call('get', '/intake-forms?archived=true', ownerA)),
+    );
+    expect(archivedView.items.find((f) => f.id === ids.built)).toMatchObject({ archived: true });
+    expect(archivedView.items.every((f) => f.archived)).toBe(true);
+    expectError(await call('post', `/intake-forms/${ids.built}/restore`, staffA), 403, 'FORBIDDEN');
+    const back = IntakeFormDetail.parse(
+      ok(await call('post', `/intake-forms/${ids.built}/restore`, adminA)),
+    );
+    expect(back).toMatchObject({ status: 'DRAFT', archived: false, name: gone.name });
+    expect(back.sections).toEqual(gone.sections);
+    ok(await call('post', `/intake-forms/${ids.built}/restore`, adminA));
+    const live = IntakeFormList.parse(ok(await call('get', '/intake-forms', ownerA)));
+    expect(live.items.map((f) => f.id)).toContain(ids.built);
+    const restored = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({ where: { entityId: ids.built, action: 'intake_form.restored' } }),
+    );
+    expect(restored).toHaveLength(1);
+    // Published again, it can be sent.
+    expect(
+      IntakeFormDetail.parse(ok(await call('post', `/intake-forms/${ids.built}/publish`, ownerA)))
+        .status,
+    ).toBe('PUBLISHED');
   });
 
   it('18d: a copy keeps every question, the description, the settings, the notes and the default assignee, and stays its own form', async () => {
@@ -1243,6 +1268,7 @@ describe('another firm', () => {
       ['post', `/intake-forms/${ids.template}/publish`, undefined],
       ['post', `/intake-forms/${ids.template}/duplicate`, {}],
       ['post', `/intake-forms/${ids.template}/archive`, undefined],
+      ['post', `/intake-forms/${ids.template}/restore`, undefined],
     ] as const) {
       expectError(await call(method, path, ownerB, body, 'b'), 404, 'NOT_FOUND');
     }

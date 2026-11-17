@@ -149,6 +149,18 @@ export class IntakeFormsController {
   ): Promise<IntakeFormDetail> {
     return this.builder.archive(tenant, id);
   }
+
+  /** Intake Review 2 24c-i: an archived form or template back in the library, as a draft. */
+  @Post(':id/restore')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  restore(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+  ): Promise<IntakeFormDetail> {
+    return this.builder.restore(tenant, auth.userId, id);
+  }
 }
 
 /** The firm's Intake Forms settings. Owner and Admin change them. */

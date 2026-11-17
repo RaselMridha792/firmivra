@@ -205,6 +205,7 @@ function seed(empty: boolean): Store {
     lastUsedAt: empty ? null : ago(24 * (3 + i * 2)),
     updatedAt: ago(24 * (5 + i)),
     owner: people[i % people.length] ?? null,
+    archived: false,
     internalNotes: null,
     sections: [
       section('personal', 'Personal Information', [
@@ -934,6 +935,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         f.status === 'DRAFT' && s.live.has(f.id) ? { ...f, status: 'PUBLISHED' as const } : f;
       const rows = s.forms
         .map(shown)
+        // Intake Review 2 24c-i, as the API: the Archived view lists only the archived ones.
+        .filter((f) => f.archived === (q.archived === 'true'))
         .filter((f) => q.templates === 'all' || String(f.isTemplate) === q.templates)
         .filter((f) => !q.category || f.category === q.category)
         .filter((f) => !q.status || f.status === q.status)
@@ -1017,6 +1020,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         category: filed.category,
         service: filed.service ?? null,
         description: input.description ?? null,
+        archived: false,
         isTemplate: input.isTemplate,
         custom: true,
         status: 'DRAFT',
@@ -1128,7 +1132,20 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       managers();
       const f = findForm(id);
       f.status = 'RETIRED';
+      f.archived = true;
       s.live.delete(f.id);
+      return copy(f);
+    },
+    // Intake Review 2 24c-i, as the API: Owner and Admin bring it back as a draft to publish.
+    restoreForm: async (id) => {
+      await mockDelay();
+      managers();
+      const f = findForm(id);
+      if (f.archived) {
+        f.archived = false;
+        f.status = 'DRAFT';
+        f.updatedAt = new Date().toISOString();
+      }
       return copy(f);
     },
     publicLink: async (id) => {

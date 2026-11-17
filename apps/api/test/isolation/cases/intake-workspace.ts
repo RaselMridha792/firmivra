@@ -136,6 +136,8 @@ export const cases: CaseModule['cases'] = {
     body: { formId: PLACEHOLDER },
   },
   'POST /api/v1/business/intake-forms/:id/archive': { params: { id: 'builderTemplate' } },
+  // Intake Review 2 24c-i: restoring a live form changes nothing (200).
+  'POST /api/v1/business/intake-forms/:id/restore': { params: { id: 'builderTemplate' } },
 
   // Send Intake Form and its drafts.
   'POST /api/v1/business/intakes/send': {
