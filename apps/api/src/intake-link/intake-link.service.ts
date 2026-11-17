@@ -39,7 +39,7 @@ import {
   intakeConsentRequired,
   submittedNoticeExcludes,
 } from '../intake/intake-completion.js';
-import { readDefinition } from '../intake/intake-forms.js';
+import { readDefinition, showsProgressBar } from '../intake/intake-forms.js';
 import { maskStoredNumbers } from '../intake/intake-numbers.js';
 import type { IntakeSigner } from '../intake/intake-signing.js';
 import { intakeLocked, OPEN_STATUSES, requireOpen, saveIntakeStep } from '../intake/intake-step.js';
@@ -219,6 +219,8 @@ export class IntakeLinkService {
       canEdit: OPEN_STATUSES.includes(row.status),
       consentRequired: await intakeConsentRequired(tx, businessId),
       completion: await intakeCompletion(tx, businessId, row.form.definition),
+      // Intake Review 2 23-h: the form's Show progress bar.
+      showProgressBar: showsProgressBar(row.form.definition),
     });
   }
 

@@ -240,7 +240,8 @@ export class IntakeLibraryService {
         settings: {
           requireAllQuestions: flag('requireAllQuestions', false),
           allowFileUploads: flag('allowFileUploads', hasUpload),
-          requireSignature: flag('requireSignature', settings?.requireSignature ?? true),
+          // 23-h: always on (every submission signs the firm's agreements).
+          requireSignature: true,
           showProgressBar: flag('showProgressBar', settings?.showProgressBar ?? true),
           expiresAfterDays:
             saved['expiresAfterDays'] === null || typeof saved['expiresAfterDays'] === 'number'

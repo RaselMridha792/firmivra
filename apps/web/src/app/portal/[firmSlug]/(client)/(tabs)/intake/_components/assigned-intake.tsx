@@ -78,6 +78,8 @@ export type FlowIntake = Pick<
   consentRequired?: boolean;
   /** Review Two row 21: the firm's message and redirect once it is sent. */
   completion?: MyIntake['completion'];
+  /** Intake Review 2 23-h: the form's Show progress bar (the stepper); shown unless it is off. */
+  showProgressBar?: boolean;
 };
 
 /**
@@ -494,18 +496,20 @@ function IntakeFlow({
           Your firm asked for changes: {intake.correction.note}
         </p>
       ) : null}
-      <IntakeStepper
-        steps={definition.steps.map((s, i) => ({
-          id: i + 1,
-          label: fill(s.title),
-          skipped: !shown.steps.has(s.key),
-        }))}
-        current={definition.steps.findIndex((s) => s.key === step.key) + 1}
-        onEdit={(n) => {
-          const target = definition.steps[n - 1];
-          if (target && shown.steps.has(target.key)) void jump(target.key);
-        }}
-      />
+      {intake.showProgressBar === false ? null : (
+        <IntakeStepper
+          steps={definition.steps.map((s, i) => ({
+            id: i + 1,
+            label: fill(s.title),
+            skipped: !shown.steps.has(s.key),
+          }))}
+          current={definition.steps.findIndex((s) => s.key === step.key) + 1}
+          onEdit={(n) => {
+            const target = definition.steps[n - 1];
+            if (target && shown.steps.has(target.key)) void jump(target.key);
+          }}
+        />
+      )}
       {agreements.data?.ready === false ? (
         <p role="alert" className="rounded-control border border-danger bg-danger-soft p-3 text-sm">
           This form can&apos;t be submitted online yet. Your answers are saved: please message your

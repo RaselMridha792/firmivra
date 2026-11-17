@@ -323,6 +323,8 @@ export const MyIntake = MyIntakeListItem.extend({
   consentRequired: z.boolean(),
   /** Review Two row 21: the message and redirect once it is sent. */
   completion: IntakeCompletion,
+  /** Intake Review 2 23-h: the form's Show progress bar (the stepper); upload questions are left out of `definition` while Allow file uploads is off. */
+  showProgressBar: z.boolean(),
 }).superRefine(refuseFullNumbers);
 export type MyIntake = z.infer<typeof MyIntake>;
 

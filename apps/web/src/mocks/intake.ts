@@ -813,6 +813,8 @@ export function createMyIntakesMock(
       // thanks the client in its own words; no redirect.
       consentRequired: true,
       completion: MOCK_INTAKE_COMPLETION,
+      // Intake Review 2 23-h, as the API: the mock's forms keep their progress bar.
+      showProgressBar: true,
     });
 
   return {
