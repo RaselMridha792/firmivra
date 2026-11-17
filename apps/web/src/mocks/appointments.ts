@@ -1,5 +1,6 @@
 import {
   Appointment,
+  appointmentWith,
   type AppointmentAction,
   type AppointmentDetail,
   type AppointmentEvent,
@@ -216,6 +217,7 @@ function seed(): Store {
     return Appointment.parse({
       id: id('3', n),
       client,
+      lead: null,
       staff: mockStaff,
       type: { id: types[0]!.id, name: types[0]!.name },
       engagementId: null,
@@ -320,7 +322,8 @@ function freeStarts(
             (a) =>
               a.id !== excludeAppointmentId &&
               a.status === 'SCHEDULED' &&
-              (a.staff.userId === member.userId || a.client.id === clientId) &&
+              (a.staff.userId === member.userId ||
+                (clientId !== null && a.client?.id === clientId)) &&
               overlaps(a, slot),
           ) ||
           s.blocks.some(
@@ -359,7 +362,8 @@ function assertFree(
   s: Store,
   range: { startsAt: string; endsAt: string },
   staffId: string,
-  clientId: string,
+  /** Null for a lead's own appointment (P4-1). */
+  clientId: string | null,
   except?: string,
 ) {
   const clash =
@@ -367,7 +371,7 @@ function assertFree(
       (a) =>
         a.id !== except &&
         a.status === 'SCHEDULED' &&
-        (a.staff.userId === staffId || a.client.id === clientId) &&
+        (a.staff.userId === staffId || (clientId !== null && a.client?.id === clientId)) &&
         overlaps(a, range),
     ) ||
     s.blocks.some((b) => (b.member === null || b.member.userId === staffId) && overlaps(b, range));
@@ -544,7 +548,7 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
         startsAt: a.startsAt,
         endsAt: a.endsAt,
         member: a.staff,
-        clientName: a.client.displayName,
+        clientName: appointmentWith(a),
       }));
   return {
     get: async () => {
@@ -694,7 +698,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
   const assigned = (clientId: string) =>
     clientFixtures().some((c) => c.id === clientId && c.assignedTo?.userId === me.userId);
   const inFull = (a: Appointment) =>
-    !staffOnly || a.staff.userId === me.userId || assigned(a.client.id);
+    !staffOnly || a.staff.userId === me.userId || (a.client !== null && assigned(a.client.id));
   const entry = (a: Appointment): CalendarAppointment =>
     inFull(a)
       ? { ...a, restricted: false }
@@ -736,7 +740,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
             (a) =>
               overlaps(a, { startsAt: q.from, endsAt: q.to }) &&
               (!q.staffUserId || a.staff.userId === q.staffUserId) &&
-              (!q.clientId || a.client.id === q.clientId) &&
+              (!q.clientId || a.client?.id === q.clientId) &&
               (!q.status || a.status === q.status),
           )
           .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
@@ -763,7 +767,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       const minutes = moving
         ? (Date.parse(moving.endsAt) - Date.parse(moving.startsAt)) / MINUTE
         : t.durationMinutes;
-      const clientId = moving?.client.id ?? q.clientId;
+      const clientId = moving?.client?.id ?? q.clientId;
       const [from, to] = dayRange(q.from, q.to);
       const who = q.staffUserId
         ? [member(q.staffUserId)].filter((m) => m !== undefined)
@@ -794,6 +798,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       const created: Appointment = {
         id: id('3', s.next++),
         client: { id: booked.id, displayName: booked.displayName },
+        lead: null,
         staff,
         type: t ? { id: t.id, name: t.name } : null,
         engagementId: input.engagementId ?? null,
@@ -828,7 +833,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       const moved = startsAt !== new Date(a.startsAt).toISOString();
       // The same time and member: nothing changes, nothing is recorded (as the API).
       if (!moved && staff.userId === a.staff.userId) return copy(a);
-      assertFree(s, range, staff.userId, a.client.id, a.id);
+      assertFree(s, range, staff.userId, a.client?.id ?? null, a.id);
       const before = copy(a);
       // As the database: the count follows time changes, not a change of member only.
       Object.assign(a, range, {
@@ -927,7 +932,7 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       Date.parse(a.startsAt) > Date.now(),
   });
   const mine = (appointmentId: string) => {
-    const a = db().appointments.find((x) => x.id === appointmentId && x.client.id === client.id);
+    const a = db().appointments.find((x) => x.id === appointmentId && x.client?.id === client.id);
     if (!a) throw errors.notFound();
     return a;
   };
@@ -961,7 +966,7 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       await mockDelay();
       const { when } = parseInput(MyAppointmentsQuery, query);
       const now = Date.now();
-      const all = db().appointments.filter((a) => a.client.id === client.id);
+      const all = db().appointments.filter((a) => a.client?.id === client.id);
       const upcoming = (a: Appointment) => a.status === 'SCHEDULED' && Date.parse(a.endsAt) > now;
       const items =
         when === 'upcoming'
@@ -1015,6 +1020,7 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       const created: Appointment = {
         id: id('3', s.next++),
         client,
+        lead: null,
         staff,
         type: { id: t.id, name: t.name },
         engagementId: null,

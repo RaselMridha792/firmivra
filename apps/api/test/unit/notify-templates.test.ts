@@ -153,6 +153,19 @@ describe('templates', () => {
     }
   });
 
+  it("P4-1: a lead's appointment email has no portal link and never asks to confirm in a portal", () => {
+    for (const template of ['appointment.lead-booked', 'appointment.lead-reminder'] as const) {
+      const out = email(template, { ...SAMPLE_DATA[template], message: 'Fake: bring the W-2.' });
+      expect(out.text).toContain('When: Tuesday, October 20, 2026 at 9:30 AM CDT');
+      expect(out.text).toContain('Fake: bring the W-2.');
+      expect(out.text).not.toContain('View appointment');
+      expect(out.text).not.toContain('client portal');
+      expect(JSON.stringify(out)).not.toContain('portal.example.test');
+    }
+    expect(email('appointment.lead-booked').text).toContain('is booked.');
+    expect(email('appointment.lead-reminder').text).toContain('This is a reminder');
+  });
+
   it('q18: a declined client sign-up carries no reason; a declined firm application does', () => {
     const data = { ...SAMPLE_DATA['client.signup-declined'], reason: 'Synthetic private reason' };
     expect(JSON.stringify(email('client.signup-declined', data))).not.toContain('Synthetic');

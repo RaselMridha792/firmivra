@@ -215,11 +215,13 @@ function hello(data: { name: string }): Block {
 }
 
 function appointment(
-  data: NotifyTemplates['appointment.booked'],
+  data: NotifyTemplates['appointment.booked'] | NotifyTemplates['appointment.lead-booked'],
   b: Branding,
   o: RenderOptions,
   intro: (firm: string) => string,
   subject: (firm: string) => string,
+  /** P4-1: a lead has no portal: no link and no ask to confirm there. */
+  portal = true,
 ): Content {
   const firm = b.name;
   // Review 2 (B7, B9): the firm's own words and the client instructions, when there are any.
@@ -245,10 +247,17 @@ function appointment(
       },
       ...(instructions ? [text(`Instructions: ${instructions}`)] : []),
       // Review 2 (row 8): asked until the client confirms it.
-      ...(field(data, 'confirmAsk') === true
+      ...(portal && field(data, 'confirmAsk') === true
         ? [text('Please confirm this appointment in your client portal.')]
         : []),
-      button('View appointment', link(data, 'link', o)),
+      ...(portal
+        ? [
+            button(
+              'View appointment',
+              link(data as NotifyTemplates['appointment.booked'], 'link', o),
+            ),
+          ]
+        : [text('To change or cancel it, reply to this email or contact the firm.')]),
     ],
   };
 }
@@ -483,6 +492,27 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       o,
       (firm) => `This is a reminder of your appointment with ${firm}.`,
       (firm) => `Reminder: your appointment with ${firm}`,
+    ),
+
+  // P4-1: a lead's own appointment, to the lead's email: no portal link, never a text.
+  'appointment.lead-booked': (d, b, o) =>
+    appointment(
+      d,
+      b,
+      o,
+      (firm) => `Your appointment with ${firm} is booked.`,
+      (firm) => `Your appointment with ${firm} is booked`,
+      false,
+    ),
+
+  'appointment.lead-reminder': (d, b, o) =>
+    appointment(
+      d,
+      b,
+      o,
+      (firm) => `This is a reminder of your appointment with ${firm}.`,
+      (firm) => `Reminder: your appointment with ${firm}`,
+      false,
     ),
 
   // Tax Planning Review 2 (Project Deadlines): a member's reminder, never the description.

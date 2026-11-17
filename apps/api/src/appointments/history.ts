@@ -33,6 +33,8 @@ export const HistoryMetadata = z.object({
   by: z.enum(['STAFF', 'CLIENT']),
   /** Null for a lead's own appointment (P4-1). */
   clientId: z.string().nullable(),
+  /** P4-1: the lead's id, for a lead's own appointment (never its name or email). */
+  leadId: z.string().nullable().optional(),
   from: Placement.nullable(),
   to: Placement.nullable(),
   /** Cancel only: whether a reason was given (its text stays on the appointment). */

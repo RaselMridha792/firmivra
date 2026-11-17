@@ -427,6 +427,7 @@ function seed(empty: boolean): Store {
                 type: 'Consultation',
                 staff: assigned,
                 status: 'CONFIRMED',
+                client: null,
               },
             ]
           : [];

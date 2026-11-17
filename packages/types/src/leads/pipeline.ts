@@ -472,6 +472,10 @@ export type CreateLeadTaskRequest = z.input<typeof CreateLeadTaskRequest>;
 export const UpdateLeadTaskRequest = z.strictObject({ done: z.boolean() });
 export type UpdateLeadTaskRequest = z.input<typeof UpdateLeadTaskRequest>;
 
+/**
+ * One of the lead's appointments (P4-1): booked for the lead before it became a client, or after.
+ * `client` is the client it went to when the lead converted; null while it is the lead's own.
+ */
 export const LeadAppointment = z.object({
   id: z.uuid(),
   startsAt: DateTime,
@@ -479,6 +483,7 @@ export const LeadAppointment = z.object({
   type: z.string().nullable(),
   staff: MemberRef,
   status: z.string(),
+  client: NamedRef.nullable(),
 });
 export type LeadAppointment = z.infer<typeof LeadAppointment>;
 
