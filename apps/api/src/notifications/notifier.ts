@@ -96,6 +96,9 @@ export const CHOSEN_RECIPIENT_EVENTS: ReadonlySet<NotificationEvent> = new Set<N
   'project-deadline.reminder',
   // Tasks T-D12: a task's assignees.
   'task.reminder',
+  // P4-8: a tax plan's assigned staff, when the client asks or approves in the portal.
+  'tax-plan.client-request',
+  'tax-plan.client-approved',
 ]);
 
 /**
@@ -323,6 +326,15 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
         timeZone,
       },
     };
+  },
+  // P4-8: a tax plan the client asked about or approved; the text names the plan (the firm's own
+  // words) and the client, never the request's text.
+  tax_plan: async (tx, businessId, id) => {
+    const p = await tx.taxPlan.findFirst({
+      where: { businessId, id },
+      select: { name: true, clientId: true },
+    });
+    return p && { clientId: p.clientId, values: { title: short(p.name) } };
   },
   // The person's own account: reaches only them, and only if they have a place in this firm.
   user: (_tx, _businessId, id) =>

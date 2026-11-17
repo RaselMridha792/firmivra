@@ -34,8 +34,12 @@ import {
   TaxPlanningOverview,
   TaxScenario,
   TaxScenarioPage,
+  MyTaxPlan,
+  MyTaxPlanList,
+  type NotificationEvent,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { storedType } from '../../src/notifications/notification-text.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -2723,5 +2727,227 @@ describe('the approved workflow (Review 2)', () => {
       original.strategies.map((s) => [s.name, s.status === 'DECLINED' ? 'DECLINED' : 'PROPOSED']),
     );
     expect((await plan(p.id)).etag).toBe(original.etag);
+  });
+});
+
+describe("the client's plans in the portal (P4-8)", () => {
+  // Casey (c3) has a portal login; Nora (c4) has one too, and never sees Casey's plans.
+  const login = { id: randomUUID(), email: `r55t-portal-c3-${run}@r55.test` };
+  const other = { id: randomUUID(), email: `r55t-portal-c4-${run}@r55.test` };
+  const slugOf = (firm: 'a' | 'b') => `r55t-${firm}-${run}`;
+  const portal = async (
+    method: 'get' | 'post',
+    path: string,
+    who: { email: string },
+    body?: object,
+    firm: 'a' | 'b' = 'a',
+  ) => {
+    const req = request(app.getHttpServer())
+      [method](`/api/v1/portal/${slugOf(firm)}/me/tax-plans${path}`)
+      .set('authorization', `Bearer ${await tokenFor(who.email)}`)
+      .set('x-forwarded-for', viewer());
+    return body === undefined ? req : req.send(body);
+  };
+  const step = async (pid: string, path: string, body: object = {}) =>
+    TaxPlanDetail.parse(ok(await call('post', `/plans/${pid}/${path}`, ownerA, body)));
+  const bells = (planId: string, event: NotificationEvent) =>
+    inFirm('a', (tx) =>
+      tx.notification.findMany({
+        where: { businessId: firms.a, entityId: planId, type: storedType(event) },
+        select: { recipientUserId: true },
+      }),
+    );
+
+  beforeAll(async () => {
+    await asOwner({ kind: 'platform' }, async (tx) => {
+      for (const [p, key] of [
+        [login, 'c3'],
+        [other, 'c4'],
+      ] as const) {
+        await tx.user.create({
+          data: { id: p.id, cognitoSub: p.id, pool: 'CLIENT', email: p.email, name: `Fake ${key}` },
+        });
+      }
+    });
+    await inFirm('a', async (tx) => {
+      for (const [p, key] of [
+        [login, 'c3'],
+        [other, 'c4'],
+      ] as const) {
+        await tx.clientAccount.create({
+          data: {
+            businessId: firms.a,
+            userId: p.id,
+            clientId: clients[key],
+            email: p.email,
+            status: 'ACTIVE',
+          },
+        });
+      }
+    });
+  });
+
+  /** A plan of Casey's, assigned to the Admin, finalized and sent for review. */
+  const sentPlan = async () => {
+    const p = await createPlan({
+      clientId: clients.c3,
+      name: mark('Portal plan'),
+      assignedUserId: adminA.id,
+    });
+    ok(
+      await call('post', `/plans/${p.id}/strategies`, ownerA, {
+        kind: 'CUSTOM',
+        name: mark('Portal strategy'),
+        category: 'DEDUCTIONS',
+      }),
+      201,
+    );
+    await step(p.id, 'finalize', await withEtag(p.id));
+    const sent = await step(p.id, 'send', { channel: 'PORTAL_MESSAGE' });
+    expect(sent.status).toBe('AWAITING_CLIENT');
+    return { id: p.id, version: sent.workflow.sentVersion ?? 0, name: sent.name };
+  };
+
+  it('lists only the plans sent to the client, opens the version sent, and links it from the message', async () => {
+    const draft = await createPlan({ clientId: clients.c3, name: mark('Never sent') });
+    const p = await sentPlan();
+    const list = MyTaxPlanList.parse(ok(await portal('get', '', login)));
+    expect(list.items.map((r) => r.id)).toContain(p.id);
+    expect(list.items.map((r) => r.id)).not.toContain(draft.id);
+    expect(list.items.find((r) => r.id === p.id)).toMatchObject({
+      version: p.version,
+      state: 'AWAITING_REVIEW',
+    });
+    expectError(await portal('get', `/${draft.id}`, login), 404, 'NOT_FOUND');
+
+    const res = await portal('get', `/${p.id}`, login);
+    const mine = MyTaxPlan.parse(ok(res));
+    expect(mine).toMatchObject({
+      id: p.id,
+      version: p.version,
+      state: 'AWAITING_REVIEW',
+      approval: null,
+      requests: [],
+      can: { approve: true, request: true },
+    });
+    expect(mine.strategies.map((s) => s.name)).toEqual([
+      expect.stringContaining('Portal strategy'),
+    ]);
+    // Only what the client may see: no notes, sources, overrides or screening.
+    expect(Object.keys(res.body as object).sort()).toEqual(Object.keys(mine).sort());
+    for (const word of ['internalNotes', 'overrideReason', 'source', 'opportunit', 'note']) {
+      expect(JSON.stringify(res.body)).not.toContain(word);
+    }
+
+    // The plan's message opens it in the portal.
+    const linked = await inFirm('a', (tx) =>
+      tx.message.count({
+        where: { businessId: firms.a, body: { contains: `/${slugOf('a')}/tax-plans/${p.id}` } },
+      }),
+    );
+    expect(linked).toBe(1);
+
+    // Another client, and another firm, never reach it.
+    expect(MyTaxPlanList.parse(ok(await portal('get', '', other))).items).toEqual([]);
+    expectError(await portal('get', `/${p.id}`, other), 404, 'NOT_FOUND');
+    expect((await portal('get', `/${p.id}`, login, undefined, 'b')).status).toBeGreaterThanOrEqual(
+      400,
+    );
+  });
+
+  it("takes the client's request: Needs Review, the staff's bell, audited; nothing on a closed plan", async () => {
+    const p = await sentPlan();
+    expectError(
+      await portal('post', `/${p.id}/requests`, login, { kind: 'REVISION', body: ' ' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await portal('post', `/${p.id}/requests`, login, { kind: 'DOCUMENT', body: 'Fake' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await portal('post', `/${p.id}/requests`, other, { kind: 'QUESTION', body: 'Fake' }),
+      404,
+      'NOT_FOUND',
+    );
+    const asked = MyTaxPlan.parse(
+      ok(
+        await portal('post', `/${p.id}/requests`, login, {
+          kind: 'REVISION',
+          body: 'Please add the HSA (fake).',
+        }),
+      ),
+    );
+    expect(asked.state).toBe('REQUEST_WITH_FIRM');
+    expect(asked.requests).toEqual([
+      expect.objectContaining({
+        kind: 'REVISION',
+        body: 'Please add the HSA (fake).',
+        status: 'OPEN',
+      }),
+    ]);
+    const staff = await plan(p.id);
+    expect(staff.status).toBe('READY_FOR_REVIEW');
+    expect(staff.workflow.requests[0]).toMatchObject({
+      direction: 'CLIENT_TO_FIRM',
+      kind: 'REVISION',
+      status: 'OPEN',
+    });
+    expect((await auditRows(p.id)).map((a) => a.action)).toContain('tax_plan.client_request');
+    expect(await bells(p.id, 'tax-plan.client-request')).toEqual([{ recipientUserId: adminA.id }]);
+
+    const meeting = MyTaxPlan.parse(
+      ok(
+        await portal('post', `/${p.id}/requests`, login, {
+          kind: 'MEETING',
+          body: 'Call me (fake).',
+        }),
+      ),
+    );
+    expect(meeting.requests.map((r) => r.kind)).toEqual(['MEETING', 'REVISION']);
+    expect((await plan(p.id)).status).toBe('READY_FOR_REVIEW');
+
+    await call('post', `/plans/${p.id}/status`, ownerA, await withEtag(p.id, { status: 'CLOSED' }));
+    expectError(
+      await portal('post', `/${p.id}/requests`, login, { kind: 'QUESTION', body: 'Fake?' }),
+      409,
+      'INVALID_STATUS',
+    );
+  });
+
+  it('approves exactly the version sent, once, dated today: Client Approved, the bell, audited', async () => {
+    const p = await sentPlan();
+    expectError(
+      await portal('post', `/${p.id}/approve`, other, { version: p.version }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await portal('post', `/${p.id}/approve`, login, { version: p.version + 1 }),
+      409,
+      'INVALID_STATUS',
+    );
+    const approved = MyTaxPlan.parse(
+      ok(await portal('post', `/${p.id}/approve`, login, { version: p.version })),
+    );
+    expect(approved).toMatchObject({
+      state: 'APPROVED',
+      approval: { version: p.version, method: 'PORTAL', approvedOn: firmDay() },
+      can: { approve: false, request: true },
+    });
+    const staff = await plan(p.id);
+    expect(staff.status).toBe('CLIENT_APPROVED');
+    expect(staff.workflow.approvals).toEqual([
+      expect.objectContaining({ version: p.version, method: 'PORTAL' }),
+    ]);
+    expect((await auditRows(p.id)).map((a) => a.action)).toContain('tax_plan.approval_recorded');
+    expect(await bells(p.id, 'tax-plan.client-approved')).toEqual([{ recipientUserId: adminA.id }]);
+    expectError(
+      await portal('post', `/${p.id}/approve`, login, { version: p.version }),
+      409,
+      'INVALID_STATUS',
+    );
   });
 });
