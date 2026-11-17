@@ -143,11 +143,13 @@ export const SUBSCRIPTION_MAX_TRIAL_EXTENSION_DAYS = 60;
  * The Status filter: a status, or one of the KPI cards' groups.
  * - PAYING: SUBSCRIPTION_PAYING_STATUSES (the MRR and ARR cards)
  * - RENEWING_SOON: Auto-Renew on, Active or Past Due, next billing within 30 days from today
+ * - RENEWING_THIS_WEEK (SA-DSH-F11): the same, next billing from this week's Monday to Sunday
  */
 export const SubscriptionStatusFilter = z.enum([
   ...PlatformSubscriptionStatus.options,
   'PAYING',
   'RENEWING_SOON',
+  'RENEWING_THIS_WEEK',
 ]);
 export type SubscriptionStatusFilter = z.infer<typeof SubscriptionStatusFilter>;
 export const SUBSCRIPTION_STATUS_FILTER_LABELS: Readonly<Record<SubscriptionStatusFilter, string>> =
@@ -155,6 +157,7 @@ export const SUBSCRIPTION_STATUS_FILTER_LABELS: Readonly<Record<SubscriptionStat
     ...SUBSCRIPTION_STATUS_LABELS,
     PAYING: 'Paying (MRR)',
     RENEWING_SOON: 'Renewing in 30 days',
+    RENEWING_THIS_WEEK: 'Renewing this week',
   };
 
 /**

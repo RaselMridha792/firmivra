@@ -18,6 +18,7 @@ import { SubscriptionTable } from './subscription-table';
 import {
   adminSubscriptions,
   errorMessage,
+  STATUS_FILTERS,
   type StatusFilter,
   type SubscriptionListItem,
   type SubscriptionQuery,
@@ -49,15 +50,21 @@ type Subject = Pick<SubscriptionListItem, 'id' | 'autoRenew' | 'status'> & {
   firm: { name: string };
 };
 
+/** The filters a link opens the list with: ?search= and ?status=. */
+const filtersOf = (address: Pick<URLSearchParams, 'get'>): Filters => ({
+  ...NO_FILTERS,
+  search: (address.get('search') ?? '').slice(0, 100),
+  status: STATUS_FILTERS.find((f) => f.value === address.get('status'))?.value ?? '',
+});
+
 /** The Super Admin Subscriptions page (S03): docx §2 to §5, every action a dialog on the page. */
 export function SubscriptionsScreen() {
-  const [draft, setDraft] = useState<Filters>(NO_FILTERS);
   // SA-RPT-R5: a firm-scoped link (Reports' firm view) opens the list found by the firm's name.
+  // SA-DSH-F11: the dashboard's links open it filtered by ?status= (one of the Status filter's);
+  // the filter bar shows what the link chose.
   const address = useSearchParams();
-  const [applied, setApplied] = useState<Filters>(() => ({
-    ...NO_FILTERS,
-    search: (address.get('search') ?? '').slice(0, 100),
-  }));
+  const [draft, setDraft] = useState<Filters>(() => filtersOf(address));
+  const [applied, setApplied] = useState<Filters>(() => filtersOf(address));
   const [periodError, setPeriodError] = useState<string | null>(null);
   const [panel, setPanel] = useState<{
     id: string;

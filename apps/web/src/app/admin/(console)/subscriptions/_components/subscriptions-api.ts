@@ -237,6 +237,8 @@ export const STATUS_FILTERS: readonly { value: StatusFilter; label: string }[] =
   ...STATUS_ORDER.map((status) => ({ value: status, label: STATUS_LABELS[status] })),
   { value: 'PAYING', label: SUBSCRIPTION_STATUS_FILTER_LABELS.PAYING },
   { value: 'RENEWING_SOON', label: SUBSCRIPTION_STATUS_FILTER_LABELS.RENEWING_SOON },
+  // SA-DSH-F11: the dashboard's Renewals this week.
+  { value: 'RENEWING_THIS_WEEK', label: SUBSCRIPTION_STATUS_FILTER_LABELS.RENEWING_THIS_WEEK },
   ...(MOCKED ? [{ value: 'ENDED' as const, label: 'Canceled or Closed' }] : []),
 ];
 /** What the Churn card filters: the API's Canceled (note 4). */
