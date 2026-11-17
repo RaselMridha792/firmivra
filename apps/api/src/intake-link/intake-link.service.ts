@@ -74,6 +74,8 @@ const linkSelect = {
   correctionRequestedAt: true,
   accessTokenExpiresAt: true,
   sentAt: true,
+  // Intake Review 2 23-g: the Submission ID on the done screen.
+  referenceNumber: true,
   form: {
     select: {
       version: true,
@@ -218,7 +220,7 @@ export class IntakeLinkService {
           : null,
       canEdit: OPEN_STATUSES.includes(row.status),
       consentRequired: await intakeConsentRequired(tx, businessId),
-      completion: await intakeCompletion(tx, businessId, row.form.definition),
+      completion: await intakeCompletion(tx, businessId, row.form.definition, row.referenceNumber),
       // Intake Review 2 23-h: the form's Show progress bar.
       showProgressBar: showsProgressBar(row.form.definition),
     });

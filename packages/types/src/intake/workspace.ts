@@ -485,6 +485,8 @@ export type FormNote = z.infer<typeof FormNote>;
  * history. The answers themselves are R11's IntakeView (`api.intakeForms.responses`).
  */
 export const AssignedFormRecord = AssignedFormRow.extend({
+  /** Intake Review 2 23-g: "SUB-00012" (`submissionIdOf`); null when the form has no number. */
+  submissionId: z.string().nullable().default(null),
   submittedAt: DateTime.nullable(),
   completedAt: DateTime.nullable(),
   completedBy: MemberRef.nullable(),

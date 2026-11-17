@@ -1439,6 +1439,38 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
     expect(record.history.map((e) => e.label)).not.toContain('First reminder sent');
   });
 
+  it("23-g: Auto-generate submission ID gives a sent form SUB-00012 on its record and in the client's completion; off, none", async () => {
+    const settings = async (autoSubmissionId: boolean) => {
+      const s = z
+        .object({ version: z.string() })
+        .parse(ok(await call('get', '/intake-settings', ownerA)));
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: s.version,
+          general: { autoSubmissionId },
+        }),
+      );
+    };
+    const recordOf = async (id: string) =>
+      AssignedFormRecord.parse(ok(await call('get', `/intakes/${id}/record`, ownerA)));
+    await settings(true);
+    const on = await sentForm('subid-on');
+    const record = await recordOf(on.id);
+    expect(record.submissionId).toMatch(/^SUB-\d{5}$/);
+    const mine = await request(app.getHttpServer())
+      .get(`/api/v1/portal/${slugs.a}/me/intakes/${on.id}`)
+      .set('authorization', `Bearer ${await tokenFor(on.email)}`);
+    expect(mine.status, JSON.stringify(mine.body)).toBe(200);
+    expect((mine.body as { completion: { submissionId: string | null } }).completion).toMatchObject(
+      {
+        submissionId: record.submissionId,
+      },
+    );
+    await settings(false);
+    const off = await sentForm('subid-off');
+    expect((await recordOf(off.id)).submissionId).toBeNull();
+  });
+
   it('22: a submitted or completed form gets no reminder, even with one due', async () => {
     const jobs = app.get(IntakeScheduleJobs);
     const submitted = await sentForm('stop-sub');

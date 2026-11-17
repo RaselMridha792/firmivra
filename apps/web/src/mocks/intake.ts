@@ -736,6 +736,8 @@ let myMocks: Map<string, MyIntakesClient> | undefined;
 export const MOCK_INTAKE_COMPLETION = {
   message: 'Thank you! We have your form and will be in touch within two business days.',
   redirectUrl: null,
+  /** Intake Review 2 23-g: the mock firm numbers its forms. */
+  submissionId: 'SUB-00004',
 };
 
 export function myIntakesMock(firmSlug: string): MyIntakesClient {

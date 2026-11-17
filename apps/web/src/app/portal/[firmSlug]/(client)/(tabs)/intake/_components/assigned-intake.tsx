@@ -228,6 +228,12 @@ function ReadOnlyIntake({
               <span className="block font-semibold">{intake.completion.message}</span>
             ) : null}
             {`Submitted and signed by ${intake.signature.printedName} on ${day(intake.signature.signedAt)}. Your firm has it; they will tell you if anything needs changing.`}
+            {/* Intake Review 2 23-g: the form's Submission ID, when the firm numbers its forms. */}
+            {intake.completion?.submissionId ? (
+              <span className="block font-semibold" data-testid="submission-id">
+                Submission ID {intake.completion.submissionId}
+              </span>
+            ) : null}
           </span>
         ) : intake.status === 'EXPIRED' || intake.status === 'ARCHIVED' ? (
           // INTAKE-ACCESS-01: an expired or closed form says so, and what to do next.

@@ -86,3 +86,17 @@ test('23-h: Require e-signature is always on in the builder’s Form Settings, w
   for (const name of ['Allow file uploads', 'Show progress bar'])
     await expect(settings.getByRole('switch', { name })).toBeVisible();
 });
+
+test('23-g: a numbered form shows its Submission ID on its record', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(list);
+  await page
+    .getByRole('table')
+    .first()
+    .locator('a[href^="/intake-forms/"]')
+    .first()
+    .click({ timeout: 60_000 });
+  await expect(page.getByTestId('submission-id')).toHaveText(/^Submission ID SUB-\d{5}$/, {
+    timeout: 60_000,
+  });
+});

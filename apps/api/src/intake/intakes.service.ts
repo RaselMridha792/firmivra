@@ -96,6 +96,8 @@ const summarySelect = {
   correctionRequestedAt: true,
   createdAt: true,
   updatedAt: true,
+  // Intake Review 2 23-g: the Submission ID on the done screen.
+  referenceNumber: true,
   form: { select: { version: true, title: true, definition: true } },
   engagement: {
     select: {
@@ -365,7 +367,7 @@ export class IntakesService {
       canEdit: open,
       canSubmit: open,
       consentRequired: await intakeConsentRequired(tx, businessId),
-      completion: await intakeCompletion(tx, businessId, row.form.definition),
+      completion: await intakeCompletion(tx, businessId, row.form.definition, row.referenceNumber),
       showProgressBar: showsProgressBar(row.form.definition),
     });
   }

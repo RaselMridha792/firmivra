@@ -33,6 +33,7 @@ import {
   SendIntakeFormRequest,
   UpdateAssignedFormRequest,
   UpdateIntakeSettingsRequest,
+  submissionIdOf,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { appointmentIntakes } from './appointment-intakes';
@@ -367,6 +368,8 @@ function seed(empty: boolean): Store {
           history,
           communications: history.filter((h) => h.kind === 'SENT'),
           revisionNote: null,
+          // Intake Review 2 23-g: the mock firm numbers its forms (Auto-generate submission ID on).
+          submissionId: submissionIdOf(i + 1),
         };
       });
   return {
@@ -751,6 +754,10 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
               ? null
               : `${input.expiresOn ?? day(-24 * 14)}T23:59:59.999Z`,
         formVersionId: form.id,
+        // 23-g, as the database: numbered while Auto-generate submission ID is on.
+        submissionId: s.settings.general.autoSubmissionId
+          ? submissionIdOf(s.assigned.length + 1)
+          : null,
         submittedAt: null,
         completedAt: null,
         completedBy: null,
@@ -1255,6 +1262,12 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
  * submitted intake and the season before's completed one; their ids are records of the intake
  * forms mock, so Open shows that form's page and Request Correction goes through `api.intakeForms`.
  */
+/**
+ * Intake Review 2 23-g (mock mode): Intake Form Settings > Use this branding on client-facing
+ * forms, as the portal info reads it for the forms outside the portal.
+ */
+export const mockFormBranding = (): boolean => storeFor({}).settings.branding.useFirmBranding;
+
 export function createIntakesMock(): IntakesClient {
   const season = new Date().getFullYear() - 1;
   // The same store as `api.intakeForms` in mock mode, so a correction requested there shows here.

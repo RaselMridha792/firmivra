@@ -11,6 +11,7 @@ import {
   intakeFields,
   intakeReminderSkipWords,
   shownIntakeKeys,
+  submissionIdOf,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -304,6 +305,8 @@ export class IntakeRecordService {
 
     const record: AssignedFormRecord = {
       ...toRow(row),
+      // Intake Review 2 23-g: the number Auto-generate submission ID gave it, as its Submission ID.
+      submissionId: submissionIdOf(row.referenceNumber),
       submittedAt: iso(row.submissions.find((s) => s.submittedAt)?.submittedAt),
       completedAt: iso(row.completedAt),
       completedBy: row.completedBy
