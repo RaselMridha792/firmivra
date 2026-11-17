@@ -304,11 +304,59 @@ function portalPacket(): MyRequestPacket {
   };
 }
 
+/** The Payroll mock's Green Leaf Café LLC (mocks/payroll-base.ts, client 1) and its payroll service. */
+const GREEN_LEAF = '0199c0f0-1d00-7000-8000-000000000001';
+const GREEN_LEAF_PAYROLL = '0199c0f0-1e00-7000-8000-000000000001';
+
+/**
+ * Review 2 (Payroll F02): a payroll request of Green Leaf Café that the client answered from the
+ * portal, so the Payroll workspace's file names the request it answered. Kept out of
+ * documentFixtures(), which other mocks read as the portal client's own files.
+ */
+function payrollRequestFixture(f: Readonly<Fixtures>): {
+  document: FirmDocument;
+  request: FirmDocumentRequest;
+} {
+  const service = { id: GREEN_LEAF_PAYROLL, title: 'Payroll' };
+  const document: FirmDocument = {
+    ...structuredClone(f.documents[0]!),
+    id: docId(90),
+    clientId: GREEN_LEAF,
+    service,
+    category: null,
+    requestId: requestId(90),
+    direction: 'CLIENT_TO_FIRM',
+    fileName: 'Fake_Q4_Payroll_Register.pdf',
+    taxYear: null,
+    scanStatus: 'CLEAN',
+    uploadedBy: { name: 'Green Leaf Café LLC', byClient: true },
+    createdAt: at(24),
+  };
+  const request: FirmDocumentRequest = {
+    ...structuredClone(f.requests[1]!),
+    id: requestId(90),
+    clientId: GREEN_LEAF,
+    service,
+    category: null,
+    title: 'Fake Q4 payroll register',
+    taxYear: null,
+    taxReturn: null,
+    instructions: null,
+    dueOn: '2026-12-15',
+    status: 'SUBMITTED',
+    statusNote: null,
+    documents: [{ id: document.id, fileName: document.fileName, createdAt: document.createdAt }],
+    createdAt: at(20),
+  };
+  return { document, request };
+}
+
 /** In-memory state shared by one mock client: documents, requests and pending uploads. */
 function store() {
   const f = documentFixtures();
-  let documents = structuredClone(f.documents);
-  let requests = structuredClone(f.requests);
+  const payroll = payrollRequestFixture(f);
+  let documents = [...structuredClone(f.documents), payroll.document];
+  let requests = [...structuredClone(f.requests), payroll.request];
   const categories = structuredClone(f.categories);
   const pending = new Map<string, { clientId: string; body: Record<string, unknown> }>();
   /** When each new upload's scan finishes (a few seconds after it was stored). */
