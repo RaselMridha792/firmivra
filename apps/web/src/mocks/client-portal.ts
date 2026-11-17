@@ -16,6 +16,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
+import { mockIntakeFormsOfClient } from './intake-forms';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MEMBER = 'Morgan Example';
@@ -366,10 +367,19 @@ export function createClientPortalMock(): ClientPortalClient {
     },
     formsSummary: async (clientId) => {
       await mockDelay();
-      const has = record(clientId).found.portalLogins.length > 0;
-      return has
-        ? { total: 8, completed: 3, needsReview: 1, inProgress: 2, notStarted: 1, archived: 1 }
-        : { total: 0, completed: 0, needsReview: 0, inProgress: 0, notStarted: 0, archived: 0 };
+      record(clientId);
+      // As the API: counted from the client's intake forms, the records the list shows (before,
+      // fixed numbers that the empty list contradicted).
+      const forms = mockIntakeFormsOfClient(clientId);
+      const n = (...status: string[]) => forms.filter((f) => status.includes(f.status)).length;
+      return {
+        total: forms.length,
+        completed: n('COMPLETED'),
+        needsReview: n('SUBMITTED', 'UNDER_REVIEW'),
+        inProgress: n('IN_PROGRESS', 'NEEDS_CORRECTION'),
+        notStarted: n('SENT', 'EXPIRED'),
+        archived: n('ARCHIVED'),
+      };
     },
   };
 }
