@@ -69,15 +69,22 @@ test('V-002: each Documents card label fits its card, under its icon, never brok
   }
 });
 
-// Clients Review 2 (V-003): the narrow centre panel cut off the chosen client, All Document Types,
+// Clients Review 2 (V-003): the narrow centre panel cut off the chosen client (a long name too), All Document Types,
 // All Statuses and the search hint. Each filter shows its whole value (measured in its own font
 // against the room inside it), none overlaps another, and all stay inside the filter card.
 test('V-003: the Documents filters show their whole values, with no overlap or clipping', async ({
   page,
 }) => {
-  for (const size of [HER, WIDE]) {
-    // A client chosen, as she had (a name of everyday length).
-    await openJamie(page, size);
+  // A client chosen, as she had: a name of everyday length, and the longest (27 characters).
+  for (const [size, client] of [
+    [HER, 'Jamie Sample'],
+    [HER, 'Northwind Bakery LLC (fake)'],
+    [WIDE, 'Jamie Sample'],
+    [WIDE, 'Northwind Bakery LLC (fake)'],
+  ] as const) {
+    await openDocuments(page, size, client);
+    // The whole name on hover too.
+    await expect(page.getByTestId('filter-client')).toHaveAttribute('title', client);
     const filters = page.getByTestId('documents-filters');
     const measured = await filters.evaluate((root) => {
       const ctx = document.createElement('canvas').getContext('2d')!;
@@ -117,7 +124,7 @@ test('V-003: the Documents filters show their whole values, with no overlap or c
     expect(
       measured.values.map((v) => v.text),
       `at ${size.width}`,
-    ).toEqual(['Jamie Sample', 'All Document Types', 'All Statuses', 'Search documents...']);
+    ).toEqual([client, 'All Document Types', 'All Statuses', 'Search documents...']);
     for (const v of measured.values) {
       expect(v.need, `"${v.text}" at ${size.width}`).toBeLessThanOrEqual(v.room);
     }

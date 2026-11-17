@@ -110,7 +110,7 @@ These rows ask for test coverage, not features.
 | --- | --- | --- | --- |
 | V-001 Tab strip scrollbar | Done: one-line strips scroll sideways only, never up and down; focus rings stay in view | #1381, #1415 (R55); test #1584 | mock `r55-clients-tab-strips` "V-001: the Sign-ups and Share Access tab strips show no vertical scrollbar and keep focus rings in view" (1165 and 1440 px; the profile: N8-09) |
 | V-002 Documents KPI labels | Done | #1381 (R55); test #1584 | mock `r55-clients-documents-layout` "V-002: each Documents card label fits its card, under its icon, never broken inside a word" |
-| V-003 Documents filters | Done for her values (a chosen client, All Document Types, All Statuses, the search hint). A client name past about 26 characters is still cut by a few pixels at 1165 px, with no hover text | #1381 (R55); test #1584 | mock `r55-clients-documents-layout` "V-003: the Documents filters show their whole values, with no overlap or clipping" |
+| V-003 Documents filters | Done: her values (a chosen client, All Document Types, All Statuses, the search hint) and a 27-character client name show whole at 1165 px, and the client filter shows the name on hover | #1381 (R55); test and the long-name fix #1584 | mock `r55-clients-documents-layout` "V-003: the Documents filters show their whole values, with no overlap or clipping" |
 | V-004 Documents table readability | Done | #1381 (R55); test #1584 | mock `r55-clients-documents-layout` "V-004: the Documents table keeps each header and value in its cell and scrolls inside its region" |
 | V-005 Actions menu clipping | Done | #1381 (R55); test #1584 | mock `r55-clients-documents-layout` "V-005: the Documents row menu opens outside the table with every item in view and working" (Download asks for the file, Archive asks first, Share opens Share Access) |
 | V-006 Request KPI baselines | Done | #1381 (R55); test #1584 | mock `r55-clients-documents-layout` "V-006: the Document Requests cards put their counts and labels on shared lines" |
@@ -220,7 +220,6 @@ G1 to G12 are closed; G9's prefill is #1558 (Nov 15, 2026). The open items are l
 
 **Open: product (GAP)**
 - C2-051: an archived file stays in the Documents table (the client documents list does not leave archived or trashed files out)
-- V-003 (minor): a client name past about 26 characters is cut by a few pixels at 1165 px in the Documents client filter, with no hover text
 
 **Open: tests**
 - G4: the archived client's read-only notes card (only the API's 409 is tested)
