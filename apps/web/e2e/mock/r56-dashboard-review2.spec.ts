@@ -68,3 +68,21 @@ test('K8: a number that fell says Down with the percentage, and that it is unfav
     { timeout: 60_000 },
   );
 });
+
+test('K2, V9, R2 NEW6: Back to Dashboard returns to the same place on the page', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 700 });
+  await page.goto(app('/'));
+  const tasks = page.getByRole('region', { name: 'Tasks Due' });
+  const viewAll = tasks.getByRole('link', { name: 'View All' });
+  await expect(viewAll).toBeVisible({ timeout: 60_000 });
+  await tasks.scrollIntoViewIfNeeded();
+  const y = await page.evaluate(() => window.scrollY);
+  expect(y).toBeGreaterThan(200);
+  await viewAll.click();
+  await expect(page).toHaveURL(/\/tasks\?/);
+  await page.getByTestId('back-to-origin').click();
+  await expect(page.getByTestId('firm-dashboard')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(y - 60);
+});
