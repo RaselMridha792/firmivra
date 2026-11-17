@@ -86,3 +86,21 @@ test('K2, V9, R2 NEW6: Back to Dashboard returns to the same place on the page',
   await expect(page.getByTestId('firm-dashboard')).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(y - 60);
 });
+
+test('T1, B07: a message preview opens that client’s conversation, with Back to Dashboard', async ({
+  page,
+}) => {
+  await page.goto(app('/'));
+  const preview = page
+    .getByRole('region', { name: 'Recent Messages' })
+    .getByRole('listitem')
+    .first()
+    .getByRole('link');
+  await expect(preview).toHaveAttribute('href', /^\/clients\/[^/?]+\/messages\?from=%2F/, {
+    timeout: 60_000,
+  });
+  await preview.click();
+  await expect(page).toHaveURL(/\/clients\/[^/?]+\/messages\?from=%2F/);
+  await page.getByTestId('back-to-origin').click();
+  await expect(page.getByTestId('firm-dashboard')).toBeVisible();
+});
