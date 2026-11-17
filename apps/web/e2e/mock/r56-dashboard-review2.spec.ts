@@ -104,3 +104,29 @@ test('T1, B07: a message preview opens that client’s conversation, with Back t
   await page.getByTestId('back-to-origin').click();
   await expect(page.getByTestId('firm-dashboard')).toBeVisible();
 });
+
+test('V6: a task that cannot be completed, or a reminder that cannot be sent, says so', async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    window.sessionStorage.setItem('fv-mock-fail', 'tasks.update,scheduling.sendReminder'),
+  );
+  await page.goto(app('/'));
+  const tasks = page.getByRole('region', { name: 'Tasks Due' });
+  const box = tasks.getByRole('checkbox').first();
+  await expect(box).toBeVisible({ timeout: 60_000 });
+  const title = ((await box.getAttribute('aria-label')) ?? '').replace(/^Mark | complete$/g, '');
+  // The box opens Mark this task complete? (it is ticked only while the change is saved).
+  await box.click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Mark Complete' }).click();
+  await expect(tasks.getByRole('alert')).toContainText('The task could not be marked complete');
+  await expect(tasks).toContainText(title);
+
+  const appointments = page.getByRole('region', { name: 'Upcoming Appointments' });
+  await appointments
+    .getByRole('button', { name: /^Actions for/ })
+    .first()
+    .click();
+  await page.getByRole('menuitem', { name: 'Send Reminder' }).click();
+  await expect(appointments.getByRole('status')).toContainText('The reminder was not sent');
+});

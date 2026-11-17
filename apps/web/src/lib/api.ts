@@ -428,7 +428,11 @@ export const api = {
   /** Appointments workspace (R42 contract): KPIs, agenda views, the full scheduling form, availability panel. */
   scheduling:
     dev && mocked('scheduling')
-      ? createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
+      ? // Dashboard Review Two V6: Send Reminder can be made to fail (`fv-mock-fail`).
+        failable(
+          'scheduling',
+          createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') }),
+        )
       : createSchedulingClient(request),
   /** Appointments A3 (R55): the firm's waitlist requests, and its switch and mode. */
   appointmentWaitlist:
@@ -492,7 +496,11 @@ export const api = {
       ? myDocumentsMock(firmSlug)
       : createMyDocumentsClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
-  tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  // Dashboard Review Two V6: completing a task can be made to fail (`fv-mock-fail`).
+  tasks:
+    dev && mocked('tasks')
+      ? failable('tasks', createTasksMock({ role: MOCK_ROLE }))
+      : createTasksClient(request),
   /**
    * Payroll (R39): payroll clients, workers, runs, filings and reports. Mock:
    * NEXT_PUBLIC_API_MOCK=payroll (mocks/payroll.ts, R56).
