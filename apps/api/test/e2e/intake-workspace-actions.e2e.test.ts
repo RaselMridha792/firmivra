@@ -1439,6 +1439,27 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
     expect(record.history.map((e) => e.label)).not.toContain('First reminder sent');
   });
 
+  it('22: a submitted or completed form gets no reminder, even with one due', async () => {
+    const jobs = app.get(IntakeScheduleJobs);
+    const submitted = await sentForm('stop-sub');
+    const completed = await sentForm('stop-done');
+    await inFirm('a', async (tx) => {
+      await tx.intake.update({ where: { id: submitted.id }, data: { status: 'SUBMITTED' } });
+      await tx.intake.update({ where: { id: completed.id }, data: { status: 'COMPLETED' } });
+    });
+    const at = (ms: number) => ({ now: new Date(ms), businessIds: [firms.a] });
+    // Both reminders are due by then (first 3 days in, final 7 days before the expiry).
+    await jobs.run('intake-reminders', at(Date.now() + 4320 * MIN + MIN));
+    await jobs.run('intake-reminders', at(submitted.expiresAt - 10080 * MIN + MIN));
+    for (const f of [submitted, completed]) {
+      expect(reminders(f.email)).toEqual([]);
+      expect(await row(f.id)).toMatchObject({
+        firstReminderSentAt: null,
+        finalReminderSentAt: null,
+      });
+    }
+  });
+
   it('10c order: when the final goes before a first that was due (the job was behind), the first is skipped, never marked sent', async () => {
     const jobs = app.get(IntakeScheduleJobs);
     const f = await sentForm('behind');
