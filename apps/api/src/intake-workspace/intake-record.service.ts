@@ -12,6 +12,7 @@ import {
   intakeReminderSkipWords,
   shownIntakeKeys,
   submissionIdOf,
+  type FormNote,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -132,11 +133,27 @@ function eventId(intakeId: string, kind: string, at: Date): string {
 const isEmpty = (v: unknown) =>
   v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 
+/** Intake Review 2 24b-i: a note as the record and the add answer show it. */
+const noteSelect = {
+  id: true,
+  body: true,
+  createdAt: true,
+  author: { select: { userId: true, user: { select: { name: true } } } },
+} satisfies Prisma.IntakeFormNoteSelect;
+const toFormNote = (
+  n: Prisma.IntakeFormNoteGetPayload<{ select: typeof noteSelect }>,
+): FormNote => ({
+  id: n.id,
+  text: n.body,
+  by: { userId: n.author.userId, name: n.author.user.name },
+  at: n.createdAt.toISOString(),
+});
+
 /**
  * One assigned form (Frame 3): the record (header, Submission Summary, documents, history), the
  * row More menu (assign, dates, resend, remind, archive) and Export PDF. Staff reach the forms of
- * their own clients and leads and those assigned to them (404 otherwise). Notes need a table
- * (FormNote): the list is empty and adding one answers 503 NOTES_UNAVAILABLE.
+ * their own clients and leads and those assigned to them (404 otherwise). Notes are staff-only
+ * (intake_form_notes, 24b-i).
  */
 @Injectable()
 export class IntakeRecordService {
@@ -327,7 +344,15 @@ export class IntakeRecordService {
         uploadedAt: d.createdAt.toISOString(),
         scanStatus: d.scanStatus,
       })),
-      notes: [],
+      // 24b-i: the firm's notes on this form, newest first.
+      notes: (
+        await tx.intakeFormNote.findMany({
+          where: { businessId, intakeId: row.id },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 200,
+          select: noteSelect,
+        })
+      ).map(toFormNote),
       history: history.slice(-200),
       communications: history.filter((e) => COMMUNICATION.includes(e.kind)),
       revisionNote: row.correctionNote,
@@ -349,16 +374,26 @@ export class IntakeRecordService {
     return record;
   }
 
-  /** POST /business/intakes/{id}/notes: no table keeps assigned-form notes yet. */
-  async addNote(tenant: TenantContext, userId: string, id: string): Promise<never> {
-    await this.inFirm(tenant, (tx) => this.find(tx, tenant, userId, id));
-    throw new HttpException(
-      {
-        code: 'NOTES_UNAVAILABLE',
-        message: 'Notes on a form are not available yet: add the note on the client instead',
-      },
-      HttpStatus.SERVICE_UNAVAILABLE,
-    );
+  /**
+   * POST /business/intakes/{id}/notes (Intake Review 2 24b-i): a staff note on the form, by any
+   * member who can open it. Staff only: never shown to the client, never in an email; the audit
+   * keeps that a note was added, never its text.
+   */
+  async addNote(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    text: string,
+  ): Promise<FormNote> {
+    const note = await this.inFirm(tenant, async (tx) => {
+      const row = await this.find(tx, tenant, userId, id);
+      return tx.intakeFormNote.create({
+        data: { businessId: tenant.businessId, intakeId: row.id, authorUserId: userId, body: text },
+        select: noteSelect,
+      });
+    });
+    await this.audit.log('intake.note_added', { type: 'intake', id }, { noteId: note.id });
+    return toFormNote(note);
   }
 
   /** PATCH /business/intakes/{id}: assignee, due date, expiration (an expired form reopens). */

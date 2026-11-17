@@ -14,6 +14,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   AssignedFormRecord,
   FormFileLink,
+  FormNote,
   IntakeFormDetail,
   IntakeFormList,
   INTAKE_FORMS,
@@ -756,13 +757,31 @@ describe('one form', () => {
     expectError(await call('get', '/intakes/nope/record', ownerA), 400, 'VALIDATION_FAILED');
   });
 
-  it('notes need their table: 503 after the checks', async () => {
-    expectError(
-      await call('post', `/intakes/${ids.sent}/notes`, ownerA, { text: 'Fake note' }),
-      503,
-      'NOTES_UNAVAILABLE',
+  it('24b-i: a staff note is kept on the form, newest first, its author and time; the audit has no text', async () => {
+    const first = FormNote.parse(
+      ok(await call('post', `/intakes/${ids.sent}/notes`, ownerA, { text: 'Fake note one' })),
     );
+    expect(first).toMatchObject({ text: 'Fake note one', by: { userId: ownerA.id } });
+    const second = FormNote.parse(
+      ok(await call('post', `/intakes/${ids.sent}/notes`, adminA, { text: 'Fake note two' })),
+    );
+    const record = AssignedFormRecord.parse(
+      ok(await call('get', `/intakes/${ids.sent}/record`, ownerA)),
+    );
+    expect(record.notes.map((n) => n.id).slice(0, 2)).toEqual([second.id, first.id]);
+    const audits = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { entityId: ids.sent, action: 'intake.note_added' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audits.map((a) => a.metadata)).toEqual(
+      expect.arrayContaining([{ noteId: first.id }, { noteId: second.id }]),
+    );
+    expect(JSON.stringify(audits)).not.toContain('Fake note');
     expect((await call('post', `/intakes/${ids.sent}/notes`, ownerA, {})).status).toBe(400);
+    const long = { text: 'x'.repeat(2001) };
+    expect((await call('post', `/intakes/${ids.sent}/notes`, ownerA, long)).status).toBe(400);
     expectError(
       await call('post', `/intakes/${ids.sent}/notes`, otherStaffA, { text: 'x' }),
       404,

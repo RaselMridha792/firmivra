@@ -100,3 +100,51 @@ test('23-g: a numbered form shows its Submission ID on its record', async ({ pag
     timeout: 60_000,
   });
 });
+
+test('24c-i: an archived template shows in the Archived view, and Restore brings it back as a draft', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${list}/templates`);
+  const cards = page.getByTestId('template-card');
+  const first = cards.first();
+  const name = ((await first.getByRole('heading').textContent({ timeout: 60_000 })) ?? '').trim();
+  await first.getByRole('button', { name: `Actions for ${name}` }).click();
+  await page.getByRole('menuitem', { name: 'Archive' }).click();
+  await page.getByRole('button', { name: 'Archive Template' }).click();
+  await expect(cards.filter({ hasText: name })).toHaveCount(0);
+  // The Archived view (Status: Archived).
+  await page.getByRole('button', { name: /More Filters/ }).click();
+  await page.getByLabel('Template status').selectOption('ARCHIVED');
+  await page.getByRole('button', { name: 'Apply Filters' }).click();
+  const archived = cards.filter({ hasText: name });
+  await expect(archived).toContainText('Archived');
+  await archived.getByRole('button', { name: 'Restore' }).click();
+  await expect(page.getByText(`"${name}" was restored as a draft.`)).toBeVisible();
+  // Back in the library, as a draft.
+  await page.getByRole('button', { name: /More Filters/ }).click();
+  await page.getByLabel('Template status').selectOption('');
+  await page.getByRole('button', { name: 'Apply Filters' }).click();
+  await expect(cards.filter({ hasText: name }).first()).toContainText('Draft');
+});
+
+test('P4-16: Make a New Link asks first, then gives a new share link', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${list}/templates`);
+  // A firm-made form, not a service's main form: it has a share link of its own, on in the mock.
+  const name = 'Audit Support Intake Form';
+  const card = page.getByTestId('template-card').filter({ hasText: name });
+  await card.getByRole('button', { name: `Actions for ${name}` }).click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Share & Publish' }).click();
+  const dialog = page.getByTestId('form-share');
+  const link = dialog.getByLabel('Link', { exact: true });
+  const before = await link.inputValue({ timeout: 60_000 });
+  const rotate = dialog.getByTestId('rotate-link');
+  await rotate.getByRole('button', { name: 'Make a New Link' }).click();
+  await expect(rotate.getByRole('alertdialog', { name: 'Make a new link?' })).toContainText(
+    'The current link stops working at once',
+  );
+  await rotate.getByRole('button', { name: 'Make New Link' }).click();
+  await expect(rotate).toContainText('A new link is ready. The old one no longer works.');
+  await expect(link).not.toHaveValue(before);
+});

@@ -111,6 +111,8 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'intakeTemplate' },
     body: { sharing: false, portalPublished: false },
   },
+  // Intake Review 2 P4-16: a builder form (not a main form) makes its next link generation.
+  'POST /api/v1/business/intake-forms/:id/share/rotate': { params: { id: 'builderTemplate' } },
 
   // The builder.
   'POST /api/v1/business/intake-forms': {
@@ -158,11 +160,10 @@ export const cases: CaseModule['cases'] = {
 
   // One assigned form.
   'GET /api/v1/business/intakes/:id/record': { params: { id: 'intake' } },
-  // No table keeps notes yet: refused after the form is found.
+  // Intake Review 2 24b-i: a staff note on the form (intake_form_notes).
   'POST /api/v1/business/intakes/:id/notes': {
     params: { id: 'intake' },
     body: { text: 'Fake note' },
-    expect: 503,
   },
   'PATCH /api/v1/business/intakes/:id': {
     params: { id: 'intake' },

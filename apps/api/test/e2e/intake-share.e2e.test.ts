@@ -365,6 +365,35 @@ describe('the shared link (public)', () => {
     BeginOnlineForm.parse(ok(await v.get(`/share/${token}`)));
   });
 
+  it('P4-16: Make a New Link stops the old link at once and the new one works; Owner and Admin only, audited', async () => {
+    const before = share(await firmCall('get', `/${ids.shared}/share`, people.ownerA));
+    const old = tokenOf(before.link!.url);
+    const v = visitor(firms.a.slug);
+    BeginOnlineForm.parse(ok(await v.get(`/share/${old}`)));
+    expectError(
+      await firmCall('post', `/${ids.shared}/share/rotate`, people.staffA, {}),
+      403,
+      'FORBIDDEN',
+    );
+    const after = share(await firmCall('post', `/${ids.shared}/share/rotate`, people.ownerA, {}));
+    expect(after.sharing).toBe(true);
+    const fresh = tokenOf(after.link!.url);
+    expect(fresh).not.toBe(old);
+    expectError(await v.get(`/share/${old}`), 410, 'LINK_INVALID');
+    BeginOnlineForm.parse(ok(await v.get(`/share/${fresh}`)));
+    // The link reads back as the new one, and off and on again keeps the new one.
+    expect(share(await firmCall('get', `/${ids.shared}/share`, people.ownerA)).link!.url).toBe(
+      after.link!.url,
+    );
+    const rotated = await inFirmA((tx) =>
+      tx.auditLog.findMany({
+        where: { entityId: ids.shared, action: 'intake_form.share_rotated' },
+        select: { metadata: true },
+      }),
+    );
+    expect(rotated.map((a) => a.metadata)).toEqual([{ version: 1 }]);
+  });
+
   it('takes at most its hourly cap of starts', async () => {
     const on = share(await firmCall('get', `/${ids.shared}/share`, people.ownerA));
     const token = tokenOf(on.link!.url);

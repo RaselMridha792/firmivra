@@ -163,6 +163,9 @@ export function createIntakeFormsClient(request: ApiRequest) {
         method: 'PUT',
         body: parseInput(SaveIntakeShareRequest, body),
       }),
+    /** Intake Review 2 P4-16: Owner and Admin make a new share link; the old one stops at once. */
+    rotateShare: async (id: string): Promise<IntakeShare> =>
+      request(IntakeShare, `${form(id)}/share/rotate`, post()),
 
     // Settings
     settings: async (): Promise<IntakeSettings> => request(IntakeSettings, SETTINGS),

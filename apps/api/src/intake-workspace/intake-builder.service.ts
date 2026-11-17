@@ -267,7 +267,8 @@ export class IntakeBuilderService {
       if (first && !t.serviceDefault) {
         await tx.intakeTemplate.update({
           where: { id: t.id },
-          data: { shareTokenHash: intakeShareHash(this.env, t.id) },
+          // A first publish: no link was made yet, so generation 0 (P4-16).
+          data: { shareTokenHash: intakeShareHash(this.env, t.id, 0) },
         });
       }
       const definition = publishable(newest.definition, {

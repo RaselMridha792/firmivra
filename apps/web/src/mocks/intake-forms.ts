@@ -486,13 +486,16 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           : ('LIVE' as const),
     };
   };
+  /** Intake Review 2 P4-16: each form's share link generation (Make a New Link adds one). */
+  const linkVersions = new Map<string, number>();
   const shareOf = (id: string): IntakeShare => {
     const f = findForm(id);
     const shareable = s.live.has(f.id) && f.status !== 'RETIRED';
     const main = mainLinkOf(f);
     const set = shares.get(id) ?? { sharing: shareable && !main, portalPublished: false };
-    // The share link's token: 43 base64url characters, as the API's.
-    const url = `${PORTAL}/lvp/start/${f.id.replace(/-/g, '')}mockshare00`;
+    // The share link's token: 43 base64url characters, as the API's; its generation (P4-16) last.
+    const version = String(linkVersions.get(id) ?? 0).padStart(2, '0');
+    const url = `${PORTAL}/lvp/start/${f.id.replace(/-/g, '')}mockshare${version}`;
     return {
       templateId: f.id,
       main: main !== null,
@@ -1180,6 +1183,16 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         sharing: input.sharing && !before.main,
         portalPublished: input.portalPublished,
       });
+      return shareOf(id);
+    },
+    // P4-16, as the API: a new link generation; a main form has no link of its own (409).
+    rotateShare: async (id) => {
+      await mockDelay();
+      managers();
+      const before = shareOf(id);
+      if (before.main)
+        throw fail(409, 'NOT_SHAREABLE', 'This form is reached through its Begin Online page');
+      linkVersions.set(id, (linkVersions.get(id) ?? 0) + 1);
       return shareOf(id);
     },
 
