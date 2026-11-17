@@ -110,8 +110,11 @@ export class AppointmentNotices {
       });
       if (!a || a.status !== 'SCHEDULED' || a.startsAt.getTime() <= Date.now()) return [];
       const only = to.clientIds && new Set(to.clientIds.map((id) => id.toLowerCase()));
+      // P4-1: a lead's own appointment has no client to tell here (its lead is told separately).
       const people = [
-        { clientId: a.clientId, client: a.client, primary: true },
+        ...(a.clientId && a.client
+          ? [{ clientId: a.clientId, client: a.client, primary: true }]
+          : []),
         ...a.attendees.map((x) => ({ ...x, primary: false })),
       ].filter((p) => !only || only.has(p.clientId.toLowerCase()));
       if (people.length === 0) return [];

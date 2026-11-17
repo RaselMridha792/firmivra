@@ -46,7 +46,8 @@ export interface ConflictStaff {
 export interface LiveAppointment {
   id: string;
   staffUserId: string;
-  clientId: string;
+  /** Null for a lead's own appointment (P4-1). */
+  clientId: string | null;
   roomId: string | null;
   /** Review 2 (A2): the items it holds, of those the candidate asks for. */
   equipmentIds?: readonly string[];
@@ -177,7 +178,9 @@ export function findConflicts(data: ConflictData, c: Candidate): Found[] {
     for (const a of data.appointments) {
       if (a.id === except) continue;
       // A1: the client or an attendee of the candidate already has, or attends, one then.
-      const theirs = [a.clientId, ...(a.attendeeClientIds ?? [])].map((id) => id.toLowerCase());
+      const theirs = [a.clientId, ...(a.attendeeClientIds ?? [])].flatMap((id) =>
+        id ? [id.toLowerCase()] : [],
+      );
       const clash = theirs.filter((id) => people.has(id));
       if (clash.length > 0 && overlaps(slot, a)) {
         push(

@@ -12,6 +12,7 @@ import {
   historyUserIds,
   placement,
 } from './history.js';
+import { clientOrLeadName } from './appointment-party.js';
 
 type Placed = { startsAt: Date; endsAt: Date; staffUserId: string };
 
@@ -35,7 +36,7 @@ export class AppointmentHistory {
   async record(
     tx: TxClient,
     action: AppointmentAction,
-    appointment: { id: string; clientId: string },
+    appointment: { id: string; clientId: string | null },
     change: { by: 'STAFF' | 'CLIENT'; from: Placed | null; to: Placed | null; reason?: unknown },
   ): Promise<void> {
     const metadata: HistoryMetadata = {
@@ -121,7 +122,7 @@ export class AppointmentHistory {
       {
         users: new Map(users.map((u) => [u.id, u.name])),
         members: await memberNames(tx, businessId, ids.staff),
-        clientName: appointment.client.displayName,
+        clientName: clientOrLeadName(appointment),
       },
       appointment.cancelReason,
     );
