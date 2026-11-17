@@ -3,6 +3,7 @@ import { MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import {
   DeliveryChannel,
+  DeliveryStatus,
   HolidayRule,
   RecurrenceEnd,
   RecurrenceUnit,
@@ -288,6 +289,53 @@ export const TaskDetail = TaskRow.extend({
   version: z.string(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
+
+/** One copy of a sent reminder beyond the bell: the outbox row (notification_deliveries). */
+export const TaskNoticeDelivery = z.object({
+  channel: DeliveryChannel,
+  /** QUEUED, then SENT, FAILED (tried again, up to five times) or SKIPPED (final). */
+  status: DeliveryStatus,
+  attempts: z.number().int(),
+  sentAt: DateTime.nullable(),
+  /** The provider's message id (SES), for support and bounces. */
+  providerMessageId: z.string().nullable(),
+  /** A short error code from the provider, never message content. */
+  error: z.string().nullable(),
+});
+export type TaskNoticeDelivery = z.infer<typeof TaskNoticeDelivery>;
+
+/** One reminder that went out to one person: the bell item and its copies. */
+export const TaskNotice = z.object({
+  id: z.uuid(),
+  /** When it went out. */
+  at: DateTime,
+  /** The due moment it was for: a day, or a day and time ("2026-11-20T17:00"). */
+  dueFor: z.string(),
+  recipient: MemberRef.nullable(),
+  /** When the recipient opened it in the bell. */
+  readAt: DateTime.nullable(),
+  deliveries: z.array(TaskNoticeDelivery),
+});
+export type TaskNotice = z.infer<typeof TaskNotice>;
+
+/**
+ * Dashboard Review Two §9: GET /business/tasks/{id}/notices: the task's reminder history, for
+ * anyone who reaches the task. `recipients`: who a reminder reaches now (the assignee and the
+ * additional assignees, or with none the member who made it; never the client). `upcoming`: when
+ * each reminder goes out next, in the firm's time zone: a days reminder at its time, or 9:00 AM
+ * when it has none (an all-day task's too); one whose moment passed more than an hour ago does not
+ * go. `sent`: each reminder that went out, newest first (100 at most). A reminder with the bell
+ * switched off is emailed directly and leaves no per-person record: `emailOnly` lists the due
+ * dates it went out for.
+ */
+export const TaskNotices = z.object({
+  timeZone: z.string(),
+  recipients: z.array(MemberRef),
+  upcoming: z.array(z.object({ reminderId: z.uuid(), at: DateTime })),
+  sent: z.array(TaskNotice).max(100),
+  emailOnly: z.array(z.object({ reminderId: z.uuid(), firedFor: CalendarDate })),
+});
+export type TaskNotices = z.infer<typeof TaskNotices>;
 
 export const TaskSort = z.enum(['due', 'priority', 'status', 'client', 'title', 'updated']);
 

@@ -31,6 +31,7 @@ import {
   timeText,
 } from './task-shared';
 import { beforeText } from './task-form-parts';
+import { ReminderHistory } from './task-reminder-history';
 import { workspacePath } from './new-task-href';
 import { OriginLink } from '../../../../../components/origin-link';
 
@@ -405,6 +406,7 @@ export function TaskDetailScreen({
                 {t.blocked ? <Badge tone="danger">Blocked</Badge> : null}
               </p>
               {t.blockedReason ? <p className="text-text">Blocked: {t.blockedReason}</p> : null}
+              <ReminderHistory taskId={id} />
             </div>
           ) : (
             <p className={quiet}>{note}</p>

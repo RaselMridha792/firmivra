@@ -3,6 +3,7 @@ import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   TaskCalendar,
   TaskDetail,
+  TaskNotices,
   TaskOverviewPage,
   TaskSummary,
   TaskType,
@@ -14,7 +15,8 @@ import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { likeEscape } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
-import { memberNames, notFound, sentFields, toDay } from '../workspaces/common.js';
+import { TASK_REMINDER_LATE_MS, taskReminderAt } from '../notifications/reminder-jobs.js';
+import { day, memberNames, memberRef, notFound, sentFields, toDay } from '../workspaces/common.js';
 import {
   detailInclude,
   type DetailShape,
@@ -293,6 +295,130 @@ export class TaskReadService {
       { clientId: task.client.id },
     );
     return task;
+  }
+
+  /**
+   * Dashboard Review Two §9: the task's reminder history (contract: TaskNotices), for a member who
+   * reaches the task (404 otherwise), worked out as the reminder job sends: who it reaches, when
+   * each reminder goes next, and what went out with each copy's delivery. Audited as a view.
+   */
+  async notices(businessId: string, actor: ClientsActor, id: string): Promise<TaskNotices> {
+    const { clientId, out } = await this.inFirm(businessId, async (tx) => {
+      const task = await tx.task.findFirst({
+        where: { businessId, id, ...LIVE_TASK, ...reach(actor) },
+        select: {
+          id: true,
+          clientId: true,
+          status: true,
+          archivedAt: true,
+          dueOn: true,
+          dueTime: true,
+          allDay: true,
+          assignedUserId: true,
+          createdByUserId: true,
+          assignees: { select: { userId: true } },
+          taskReminders: {
+            select: {
+              id: true,
+              daysBefore: true,
+              timeOfDay: true,
+              minutesBefore: true,
+              unit: true,
+              inApp: true,
+              lastFiredFor: true,
+            },
+          },
+        },
+      });
+      if (!task) throw notFound();
+      const rows = await tx.notification.findMany({
+        where: { businessId, type: 'task.reminder', entityType: 'task', entityId: task.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 100,
+        select: {
+          id: true,
+          recipientUserId: true,
+          eventKey: true,
+          readAt: true,
+          createdAt: true,
+          deliveries: {
+            orderBy: { channel: 'asc' },
+            select: {
+              channel: true,
+              status: true,
+              attempts: true,
+              sentAt: true,
+              providerMessageId: true,
+              lastError: true,
+            },
+          },
+        },
+      });
+      const { timeZone } = await firmClock(tx, businessId);
+      // As the reminder job: the assignees, or with none the member who made the task.
+      const assignees = [task.assignedUserId, ...task.assignees.map((a) => a.userId)].filter(
+        (u): u is string => !!u,
+      );
+      const to = [
+        ...new Set(
+          assignees.length ? assignees : task.createdByUserId ? [task.createdByUserId] : [],
+        ),
+      ];
+      // Names as the task's assignees are shown (the membership's user); a removed member's none.
+      const names = new Map(
+        (
+          await tx.membership.findMany({
+            where: {
+              businessId,
+              userId: { in: [...new Set([...to, ...rows.map((r) => r.recipientUserId)])] },
+            },
+            select: { userId: true, user: { select: { name: true } } },
+          })
+        ).map((m): [string, string] => [m.userId, m.user.name]),
+      );
+      const dueOn = day(task.dueOn);
+      const now = Date.now();
+      const upcoming =
+        task.status === 'OPEN' && !task.archivedAt && dueOn
+          ? task.taskReminders
+              .filter((r) => day(r.lastFiredFor) !== dueOn)
+              .map((r) => ({
+                reminderId: r.id,
+                at: taskReminderAt(timeZone, { ...r, task }, dueOn),
+              }))
+              .filter((r): r is { reminderId: string; at: number } => r.at !== null)
+              .filter((r) => r.at + TASK_REMINDER_LATE_MS >= now)
+              .sort((a, b) => a.at - b.at)
+              .map((r) => ({ reminderId: r.reminderId, at: new Date(r.at).toISOString() }))
+          : [];
+      const out: TaskNotices = {
+        timeZone,
+        recipients: to.map((u) => memberRef(names, u)).filter((m) => m !== null),
+        upcoming,
+        sent: rows.map((r) => ({
+          id: r.id,
+          at: r.createdAt.toISOString(),
+          // The eventKey is `task.reminder:<reminder id>:<due moment>`; the moment may hold a time.
+          dueFor: (r.eventKey ?? '').split(':').slice(2).join(':'),
+          recipient: memberRef(names, r.recipientUserId),
+          readAt: r.readAt?.toISOString() ?? null,
+          deliveries: r.deliveries.map((d) => ({
+            channel: d.channel,
+            status: d.status,
+            attempts: d.attempts,
+            sentAt: d.sentAt?.toISOString() ?? null,
+            providerMessageId: d.providerMessageId,
+            error: d.lastError,
+          })),
+        })),
+        emailOnly: task.taskReminders
+          .filter((r) => !r.inApp && r.lastFiredFor)
+          .map((r) => ({ reminderId: r.id, firedFor: day(r.lastFiredFor)! })),
+      };
+      return { clientId: task.clientId, out };
+    });
+    await this.audit.log('task.notices_viewed', { type: 'task', id }, { clientId });
+    return out;
   }
 
   /** One live task the actor reaches, as a TaskDetail, inside the caller's transaction. */
