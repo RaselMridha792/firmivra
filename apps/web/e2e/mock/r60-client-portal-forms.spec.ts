@@ -17,8 +17,12 @@ test("a client's intake forms: KPIs, side cards, and Request Form with the clien
   const kpis = forms.getByTestId('form-kpis');
   await expect(kpis).toContainText('Total Forms', { timeout: 60_000 });
   await expect(kpis).toContainText('Submitted Needs Review');
-  await expect(kpis).toContainText('8');
-  await expect(page.getByTestId('form-pending-actions')).toContainText('1 intake form submitted');
+  // The counts are the client's forms, and Jamie has none yet: zero, as the list shows.
+  await expect(
+    kpis.getByText('Total Forms', { exact: true }).locator('xpath=preceding-sibling::p[1]'),
+  ).toHaveText('0');
+  await expect(forms).toContainText('No intake forms sent to this client yet.');
+  await expect(page.getByTestId('form-pending-actions')).toContainText('0 items');
   await expect(forms).toContainText('Form Settings (Client Permissions)');
 
   await forms.getByRole('button', { name: 'Request Form' }).click();

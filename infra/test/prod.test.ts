@@ -167,6 +167,24 @@ describe('prod stacks', () => {
     });
   });
 
+  it('let the deploy role describe, start and stop only the prod database (the hold)', () => {
+    const statements = Object.values(t(stacks.ci).findResources('AWS::IAM::Policy')).flatMap(
+      (p) =>
+        (p['Properties'] as { PolicyDocument: { Statement: Record<string, unknown>[] } })
+          .PolicyDocument.Statement,
+    );
+    const rds = statements.filter((s) => JSON.stringify(s['Action']).includes('rds:'));
+    expect(rds).toHaveLength(1);
+    expect(rds[0]!['Action']).toEqual([
+      'rds:DescribeDBInstances',
+      'rds:StartDBInstance',
+      'rds:StopDBInstance',
+    ]);
+    expect(rds[0]!['Resource']).toBe(
+      'arn:aws:rds:us-east-1:778127141557:db:firmivra-prod-postgres',
+    );
+  });
+
   it('grant the deploy role by name, so the CI stack comes before the app stack', () => {
     // deploy-prod.yml creates the app stack with this role on the first v* tag.
     app.synth();
@@ -228,6 +246,10 @@ describe('dev keeps its settings', () => {
     ci.resourceCountIs('AWS::ECR::PullThroughCacheRule', 1);
     expect(dev.ci.pullRequestRole).toBeDefined();
     ci.resourceCountIs('AWS::IAM::Role', 2);
+  });
+
+  it('gives its deploy role nothing on RDS (only prod has a hold)', () => {
+    expect(JSON.stringify(Template.fromStack(dev.ci).toJSON())).not.toMatch(/"rds:/);
   });
 
   it("grants its deploy role on the app stack's resources by reference, as deployed", () => {

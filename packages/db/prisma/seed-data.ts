@@ -195,6 +195,8 @@ export const SEED_TAX_RETURN_IDS = {
 export const SEED_INTAKE_IDS = {
   taxIntake: '00000000-0000-400f-8000-000000000001',
   taxSubmission: '00000000-0000-400f-8000-000000000002',
+  /** R1 (Intake Review 2 24b-i): a staff note on the tax intake. */
+  taxNote: '00000000-0000-400f-8000-000000000003',
   lead: '00000000-0000-400f-8000-000000000011',
   leadIntake: '00000000-0000-400f-8000-000000000012',
   leadSubmission: '00000000-0000-400f-8000-000000000013',

@@ -131,6 +131,20 @@ export class CiStack extends Stack {
       }),
     );
 
+    // Prod hold (Rasel, Nov 17): Deploy prod's hold stops the database and its deploy starts it
+    // again; prod-hold-keeper.yml stops it again after AWS restarts it on day 7. Only this one
+    // instance, and never modify or delete it.
+    if (config.envName === 'prod') {
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['rds:DescribeDBInstances', 'rds:StartDBInstance', 'rds:StopDBInstance'],
+          resources: [
+            `arn:aws:rds:${this.region}:${this.account}:db:${resourceName(config, 'postgres')}`,
+          ],
+        }),
+      );
+    }
+
     // Base images (node, postgres) through our own ECR: the anonymous public.ecr.aws limit
     // ("toomanyrequests: Data limit exceeded") failed CI and Deploy dev. A pull-through cache needs
     // no upstream credentials for ECR Public; the first pull of a tag creates the repository and

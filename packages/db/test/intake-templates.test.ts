@@ -198,14 +198,17 @@ describe('template rules', () => {
     ).rejects.toThrow(/cannot change/);
   });
 
-  it('is archived for good and takes no new version; its published versions keep it', async () => {
+  it('archived, it takes no new version and keeps its archive time; its published versions keep it', async () => {
     const template = await newTemplate();
     const published = await newForm({ templateId: template.id, version: 1 });
     const archivedAt = new Date();
     await A().intakeTemplate.update({ where: { id: template.id }, data: { archivedAt } });
     await expect(
-      A().intakeTemplate.update({ where: { id: template.id }, data: { archivedAt: null } }),
-    ).rejects.toThrow(/stays archived/);
+      A().intakeTemplate.update({
+        where: { id: template.id },
+        data: { archivedAt: new Date(Date.now() + 60_000) },
+      }),
+    ).rejects.toThrow(/keeps its archive time/);
     await expect(newForm({ templateId: template.id, version: 2 })).rejects.toThrow(
       /archived template takes no new version/,
     );
@@ -213,6 +216,44 @@ describe('template rules', () => {
     await expect(
       A().intakeForm.update({ where: { id: published.id }, data: { templateId: other.id } }),
     ).rejects.toThrow(/template of a published version cannot change/);
+  });
+
+  it('24c-i: Restore brings an archived template back as an ordinary one, never as the default', async () => {
+    const template = await newTemplate();
+    const published = await newForm({ templateId: template.id, version: 1 });
+    await A().intakeTemplate.update({
+      where: { id: template.id },
+      data: { archivedAt: new Date() },
+    });
+    // Restoring it as the default at the same time is refused.
+    await expect(
+      A().intakeTemplate.update({
+        where: { id: template.id },
+        data: { archivedAt: null, serviceDefault: true },
+      }),
+    ).rejects.toThrow(/ordinary template, not the default/);
+    const back = await A().intakeTemplate.update({
+      where: { id: template.id },
+      data: { archivedAt: null },
+    });
+    expect([back.archivedAt, back.serviceDefault]).toEqual([null, false]);
+    // Live again, it takes its next version; the sent one is untouched.
+    const next = await newForm({ templateId: template.id, version: 2 });
+    expect(next.templateId).toBe(template.id);
+    const kept = await A().intakeForm.findUniqueOrThrow({ where: { id: published.id } });
+    expect(kept.templateId).toBe(template.id);
+    // An archived default is still refused (intake_templates_default_live).
+    const service = (
+      await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.service.create({
+          data: { businessId: ids.firmA, kind: 'TAX_PLANNING', name: `Planning ${run}` },
+        }),
+      )
+    ).id;
+    const def = await newTemplate({ serviceId: service, serviceDefault: true });
+    await expect(
+      A().intakeTemplate.update({ where: { id: def.id }, data: { archivedAt: new Date() } }),
+    ).rejects.toThrow(/intake_templates_default_live/);
   });
 
   it('is never deleted', async () => {
