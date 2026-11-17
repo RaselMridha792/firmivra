@@ -19,6 +19,7 @@ import { errors } from './errors.js';
 import { findSchedulingRow, toAgendaItem, toRecord } from './scheduling-data.js';
 import { reminderFromOffset } from './scheduling-map.js';
 import type { NoteBody, ReminderBody, RemindersBody } from './scheduling.input.js';
+import { withClient } from './appointment-party.js';
 
 type ReminderReq = z.output<typeof ReminderBody>;
 type RemindersReq = z.output<typeof RemindersBody>;
@@ -63,8 +64,10 @@ export class SchedulingActionsService {
     const target = await this.inFirm(businessId, async (tx) => {
       const row = await findSchedulingRow(tx, businessId, actor, id);
       if (!row) throw errors.notFound();
-      if (channels.includes('SMS')) await this.requireSms(tx, businessId, row.clientId);
-      return { id: row.id, clientId: row.clientId };
+      // P4-1: a lead's own appointment has no client to remind here (refused, never skipped).
+      const { clientId } = withClient(row);
+      if (channels.includes('SMS')) await this.requireSms(tx, businessId, clientId);
+      return { id: row.id, clientId };
     });
     return this.remind(businessId, [target], channels);
   }
@@ -99,8 +102,13 @@ export class SchedulingActionsService {
       }
       return rows;
     });
-    // Over or closed appointments are skipped, not an error.
-    const open = asked.filter((a) => a.status === 'SCHEDULED' && a.startsAt > now);
+    // Over or closed appointments are skipped, not an error; so is a lead's own (P4-1: no client
+    // to remind here), counted among the skipped.
+    const open = asked.flatMap((a) =>
+      a.status === 'SCHEDULED' && a.startsAt > now && a.clientId
+        ? [{ ...a, clientId: a.clientId }]
+        : [],
+    );
     const result = await this.remind(businessId, open, ['EMAIL']);
     return { sent: result.sent, skipped: result.skipped + (asked.length - open.length) };
   }

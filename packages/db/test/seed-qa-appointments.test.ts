@@ -86,7 +86,7 @@ describe('QA seed part 4: Test Firm B appointments', () => {
       expect(r.status).toBe('SCHEDULED');
       expect(r.startsAt.getTime()).toBeGreaterThan(now.getTime() + 24 * 3_600_000);
       expect(r.reminderSentAt).not.toBeNull();
-      expect(r.client.email).toBe(QA_APPOINTMENTS_EMAIL);
+      expect(r.client?.email).toBe(QA_APPOINTMENTS_EMAIL);
       expect(owners.map((o) => o.userId)).toContain(r.staffUserId);
       // One after the other: none overlaps the next.
       const next = rows[i + 1];

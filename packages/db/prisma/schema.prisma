@@ -4112,6 +4112,9 @@ model Lead {
   duplicateDismissalsOther LeadDuplicateDismissal[] @relation("DismissalOther")
   sequenceRuns             LeadSequenceRun[]
 
+  /// P4-1: appointments booked for the lead.
+  appointments Appointment[]
+
   @@unique([businessId, id])
   @@unique([businessId, number])
   @@index([businessId, status, createdAt])
@@ -4363,7 +4366,12 @@ model BlockedTime {
 model Appointment {
   id                 String            @id @default(uuid(7)) @db.Uuid
   businessId         String            @map("business_id") @db.Uuid
-  clientId           String            @map("client_id") @db.Uuid
+  /// P4-1 (Leads Review Two 26/17, Nov 17): empty for a lead's own appointment (`leadId`); set at
+  /// the lead's conversion, and fixed after that.
+  clientId           String?           @map("client_id") @db.Uuid
+  /// P4-1: the lead it was booked for, kept after the lead converts (where it came from). At least
+  /// one of the client and the lead; a lead-only one has no engagement or tax plan.
+  leadId             String?           @map("lead_id") @db.Uuid
   engagementId       String?           @map("engagement_id") @db.Uuid
   taxPlanId          String?           @map("tax_plan_id") @db.Uuid
   staffUserId        String            @map("staff_user_id") @db.Uuid
@@ -4426,7 +4434,8 @@ model Appointment {
   bufferBeforeMinutes  Int            @default(0) @map("buffer_before_minutes")
   bufferAfterMinutes   Int            @default(0) @map("buffer_after_minutes")
 
-  client     Client                 @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  client     Client?                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lead       Lead?                  @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement?            @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   /// R1 (Nov 14, Review 2 C12, S3): the planning plan this discussion is for (the same client's).
   taxPlan    TaxPlan?               @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -4452,6 +4461,7 @@ model Appointment {
   @@index([businessId, seriesId])
   @@index([businessId, staffUserId, startsAt])
   @@index([businessId, clientId, startsAt])
+  @@index([businessId, leadId])
   @@index([businessId, startsAt])
   @@map("appointments")
 }

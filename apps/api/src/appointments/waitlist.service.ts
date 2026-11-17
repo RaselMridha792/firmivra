@@ -34,6 +34,7 @@ import {
   withHolds,
 } from './waitlist-openings.js';
 import type { SaveWaitlistSettingsBody, WaitlistListQuery } from './waitlist.input.js';
+import { clientOrLeadName } from './appointment-party.js';
 
 type ListQ = z.output<typeof WaitlistListQuery>;
 type SettingsBody = z.output<typeof SaveWaitlistSettingsBody>;
@@ -113,7 +114,7 @@ function toEntry(row: EntryRow): WaitlistEntry {
   return {
     id: row.id,
     appointmentId: row.appointmentId,
-    client: { id: row.clientId, name: a.client.displayName },
+    client: { id: row.clientId, name: clientOrLeadName(a) },
     staffName: a.staff.user.name,
     typeName: a.type?.name ?? null,
     startsAt: a.startsAt.toISOString(),

@@ -43,6 +43,7 @@ import {
 import { expandRecurrence } from './scheduling-recurrence.js';
 import type { DetailsBody, ScheduleBody } from './scheduling.input.js';
 import { MINUTE } from './calendar.js';
+import { withClient } from './appointment-party.js';
 
 type Schedule = z.output<typeof ScheduleBody>;
 type Details = z.output<typeof DetailsBody>;
@@ -513,7 +514,8 @@ export class SchedulingWriteService {
             ? await this.returnEngagement(
                 tx,
                 businessId,
-                current.clientId,
+                // P4-1: a tax return is a client's; a lead's own appointment is refused here.
+                withClient(current).clientId,
                 body.related.taxReturnId,
               )
             : null;
@@ -747,7 +749,8 @@ export class SchedulingWriteService {
         let added: string[] = [];
         let removed: string[] = [];
         if (body.attendeeClientIds !== undefined) {
-          const own = current.clientId.toLowerCase();
+          // P4-1: other clients attend a client's appointment; a lead's own is refused here.
+          const own = withClient(current).clientId.toLowerCase();
           attendees = [...new Set(body.attendeeClientIds.map((c) => c.toLowerCase()))].filter(
             (c) => c !== own,
           );
@@ -849,7 +852,9 @@ export class SchedulingWriteService {
         const notify =
           moved || fields.has('place') || fields.has('location') || fields.has('method');
         // A1: a new attendee hears of the booking; the client and the others of the change.
-        const kept = [current.clientId, ...attendees.filter((c) => !added.includes(c))];
+        const kept = [current.clientId, ...attendees.filter((c) => !added.includes(c))].filter(
+          (c): c is string => c !== null,
+        );
         return {
           record: await this.recordIn(tx, businessId, actor, id),
           notify: notify ? kept : [],
@@ -1214,10 +1219,13 @@ export class SchedulingWriteService {
     current: SchedulingRow,
     reminders: readonly Reminder[],
   ): Promise<boolean> {
-    const client = await tx.client.findFirst({
-      where: { businessId, id: current.clientId },
-      select: { phone: true },
-    });
+    // P4-1: a lead's own appointment has no client phone here (a text reminder is then refused).
+    const client = current.clientId
+      ? await tx.client.findFirst({
+          where: { businessId, id: current.clientId },
+          select: { phone: true },
+        })
+      : null;
     const next = await this.remindersFor(tx, businessId, reminders, client?.phone ?? null);
     const key = (r: { channel: string; offsetMinutes: number; note: string | null }) =>
       `${r.channel}:${r.offsetMinutes}:${r.note ?? ''}`;
@@ -1238,7 +1246,8 @@ export class SchedulingWriteService {
     tx: TxClient,
     businessId: string,
     actor: FirmActor,
-    appointment: { id: string; clientId: string },
+    /** clientId null: a lead's own appointment (P4-1). */
+    appointment: { id: string; clientId: string | null },
     clientIds: readonly string[],
   ): Promise<void> {
     if (clientIds.length === 0) return;
