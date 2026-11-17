@@ -155,6 +155,13 @@ describe('Edit a sent invoice with nothing paid (I-N06)', () => {
         idempotencyKey: randomUUID(),
       }),
     );
+    // I-N10: the list says how money came in (the Payment Method filter).
+    const listed = (
+      expectOk(await t.firm('get', '?limit=100', t.people.ownerA)).body as {
+        items: { id: string; paymentMethods: string[] }[];
+      }
+    ).items.find((i) => i.id === o.id);
+    expect(listed?.paymentMethods).toEqual(['CASH']);
     const body = { lines: lines(20_000), dueOn: nyDay(30), reason: 'Wrong rate (fake)' };
     await refused(edit(o.id, body), 409, 'HAS_PAYMENTS');
     expect(

@@ -384,6 +384,9 @@ const AmountDetail = {
   refundedCents: Cents,
 };
 
+/** How money came in: Stripe's card and bank (ACH) payments and the firm's recorded ones. */
+export const PaymentMethodKey = z.enum(['CARD', 'ACH', 'CASH', 'CHECK', 'OTHER']);
+
 // ---------- Firm side ----------
 /** One row of the firm's invoice lists. */
 export const InvoiceListItem = z.object({
@@ -434,6 +437,11 @@ export const InvoiceListItem = z.object({
   archivedAt: DateTime.nullable(),
   createdAt: DateTime,
   updatedAt: DateTime,
+  /**
+   * Invoices Review 2 I-N10: how money came in on it (the list's Payment Method filter): a Stripe
+   * payment that went through (card or ACH) and each live recorded one, each method once.
+   */
+  paymentMethods: z.array(PaymentMethodKey),
 });
 export type InvoiceListItem = z.infer<typeof InvoiceListItem>;
 
@@ -486,8 +494,7 @@ export const ListInvoicesQuery = z.strictObject({
 export type ListInvoicesQuery = z.input<typeof ListInvoicesQuery>;
 
 // ---------- IP-F20: Payment Methods (Octavia, Oct 27) ----------
-/** How money came in: Stripe's card and bank (ACH) payments and the firm's recorded ones. */
-export const PaymentMethodKey = z.enum(['CARD', 'ACH', 'CASH', 'CHECK', 'OTHER']);
+
 export type PaymentMethodKey = z.infer<typeof PaymentMethodKey>;
 export const PAYMENT_METHOD_LABELS: Readonly<Record<PaymentMethodKey, string>> = {
   CARD: 'Card',
@@ -569,6 +576,16 @@ const InvoiceNote = z
 const DraftFields = {
   /** One of this client's services (an engagement id from api.engagements); null or left out: none. */
   engagementId: z.uuid().nullable().optional(),
+  /**
+   * Invoices Review 2 I-N01: a service from the firm's catalog instead (Services & Pricing), for
+   * a client not enrolled in it: saving adds it as a PENDING "Requested" engagement (one per
+   * client and service, reused) and the invoice is for it; enrolled, its active engagement is
+   * used. 404 for another firm's, an inactive, a draft or an archived service. With
+   * `engagementId` too, both are checked and the client's own engagement decides.
+   */
+  serviceId: z.uuid().optional(),
+  /** I-N01: the plan chosen for a Requested engagement, by name (one of the service's plans). */
+  servicePackage: z.string().trim().max(100).nullable().optional(),
   lines: z
     .array(LineInput)
     .min(1, 'Add at least one line')

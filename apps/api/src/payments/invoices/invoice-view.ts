@@ -12,6 +12,7 @@ import {
   MY_INVOICE_SECTIONS,
   type MyInvoice,
   type MyInvoiceDetail,
+  type PaymentMethodKey,
   myInvoiceStatus,
 } from '@firmivra/types';
 import { firmTimeZone } from '../../appointments/calendar-data.js';
@@ -74,6 +75,8 @@ const paymentSelect = {
   amountCents: true,
   currency: true,
   status: true,
+  // I-N10: card or bank (ACH), for the list's Payment Method filter.
+  methodType: true,
   failureCode: true,
   paidAt: true,
   refundReservedCents: true,
@@ -387,7 +390,21 @@ export function toListItem(
     archivedAt: iso(row.archivedAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    paymentMethods: methodsOf(row),
   };
+}
+
+/** I-N10: each way money came in on the invoice, once: card or ACH at Stripe, or as recorded. */
+function methodsOf(row: InvoiceRow): PaymentMethodKey[] {
+  const out = new Set<PaymentMethodKey>();
+  for (const p of row.payments) {
+    if (p.status !== 'SUCCEEDED' && p.status !== 'REFUNDED') continue;
+    out.add(
+      p.methodType === 'card' ? 'CARD' : p.methodType === 'us_bank_account' ? 'ACH' : 'OTHER',
+    );
+  }
+  for (const o of row.offlinePayments) if (o.voidedAt === null) out.add(o.method);
+  return [...out];
 }
 
 export function toInvoice(row: InvoiceRow, today: string, sentAt: string | null = null): Invoice {

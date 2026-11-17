@@ -75,6 +75,7 @@ export function toCatalogService(s: DetailShape): CatalogService {
   return {
     ...row(s),
     kind: s.kind,
+    packageNames: s.packages,
     fullDescription: s.fullDescription,
     basePriceCents: s.basePriceCents,
     billingFrequency: priceOf(s).frequency,

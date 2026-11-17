@@ -3,15 +3,17 @@
 import {
   CUSTOM_TERM_LIMITS,
   offeredPaymentTerms,
+  OVERDUE_REMINDER_MAX_LIMIT,
   PAYMENT_TERM_DAYS,
   type PaymentPreferences,
   PaymentTerm,
   paymentTermLabel,
+  REMINDER_DAYS_LIMITS,
   UpdatePaymentPreferencesRequest,
 } from '@firmivra/types';
-import { Button, Card, Modal, Toggle } from '@firmivra/ui';
+import { Badge, Button, Card, Modal, Toggle } from '@firmivra/ui';
 import { X } from '@phosphor-icons/react';
-import { type ReactNode, useId, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -52,17 +54,32 @@ function Switch({
   hint,
   checked,
   onChange,
+  notActive,
 }: {
   label: string;
   hint: string;
   checked: boolean;
   onChange: (on: boolean) => void;
+  /** Saved, but not acted on yet: says so beside the label (as Intake's settings). */
+  notActive?: string;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 border-t border-divider pt-3">
       <div>
-        <p className="text-sm font-medium text-heading">{label}</p>
+        <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-heading">
+          {label}
+          {notActive ? (
+            <Badge tone="neutral">
+              Not active yet<span className="sr-only">: {notActive}</span>
+            </Badge>
+          ) : null}
+        </p>
         <p className="text-xs text-muted">{hint}</p>
+        {notActive ? (
+          <p className="text-xs text-muted" data-testid="tip-not-active">
+            Not active yet: {notActive}
+          </p>
+        ) : null}
       </div>
       <span className="flex items-center gap-2 text-sm text-text">
         <Toggle label={label} checked={checked} onChange={onChange} />
@@ -108,6 +125,101 @@ function NumberField({
  * The firm's own payment terms beside the four standard ones (#1220's `custom_term_days`): each a
  * number of days, offered on Create Invoice and as the default. Saved with Save Changes.
  */
+/**
+ * I-N04: the days before the due date a reminder goes out, one to five (0: on the due date), the
+ * earliest first. Saved with Save Changes.
+ */
+function ReminderDays({
+  days,
+  onChange,
+}: {
+  days: readonly number[];
+  onChange: (days: number[]) => void;
+}) {
+  const id = useId();
+  const [draft, setDraft] = useState('');
+  const n = Number(draft);
+  const full = days.length >= REMINDER_DAYS_LIMITS.maxEntries;
+  const problem = !draft
+    ? null
+    : !Number.isInteger(n) || n < REMINDER_DAYS_LIMITS.minDays || n > REMINDER_DAYS_LIMITS.maxDays
+      ? 'Use a whole number of days, 0 to 60.'
+      : days.includes(n)
+        ? `${n} is in the list already.`
+        : null;
+  const add = () => {
+    if (!draft || problem || full) return;
+    onChange([...days, n].sort((a, b) => b - a));
+    setDraft('');
+  };
+  const label = (d: number) =>
+    d === 0 ? 'On the due date' : `${d} ${d === 1 ? 'day' : 'days'} before`;
+  return (
+    <section
+      aria-labelledby={`${id}-title`}
+      className="flex flex-col gap-2"
+      data-testid="reminder-days"
+    >
+      <h3 id={`${id}-title`} className="text-sm font-medium text-heading">
+        Remind on
+      </h3>
+      <p className="text-xs text-muted">Up to 5 days, each 0 (the due date) to 60 days before.</p>
+      <ul className="flex flex-wrap gap-2">
+        {days.map((d) => (
+          <li
+            key={d}
+            className="flex items-center gap-1 rounded-pill bg-info-soft py-1 pr-1 pl-3 text-sm text-heading"
+          >
+            {label(d)}
+            {days.length > 1 ? (
+              <button
+                type="button"
+                aria-label={`Remove ${label(d)}`}
+                onClick={() => onChange(days.filter((x) => x !== d))}
+                className="flex size-6 items-center justify-center rounded-full text-muted hover:bg-surface hover:text-danger"
+              >
+                <X aria-hidden weight="bold" className="size-3.5" />
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap items-end gap-2">
+        <Labelled label="Days before">
+          {(fieldId) => (
+            <input
+              id={fieldId}
+              type="number"
+              min={REMINDER_DAYS_LIMITS.minDays}
+              max={REMINDER_DAYS_LIMITS.maxDays}
+              step={1}
+              value={draft}
+              disabled={full}
+              aria-invalid={problem !== null}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  add();
+                }
+              }}
+              className={`${field} w-28`}
+            />
+          )}
+        </Labelled>
+        <Button variant="secondary" disabled={!draft || problem !== null || full} onClick={add}>
+          Add day
+        </Button>
+      </div>
+      {problem ? (
+        <p role="alert" className="text-sm text-danger">
+          {problem}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function CustomTerms({
   days,
   onChange,
@@ -332,12 +444,9 @@ function PreferencesForm({
             onChange={(on) => set('reminders', { sendReminders: on })}
           />
           {r.sendReminders ? (
-            <NumberField
-              label="Days before the due date"
-              value={r.reminderDaysBefore}
-              min={0}
-              max={60}
-              onChange={(n) => set('reminders', { reminderDaysBefore: n })}
+            <ReminderDays
+              days={r.reminderDaysBeforeList}
+              onChange={(reminderDaysBeforeList) => set('reminders', { reminderDaysBeforeList })}
             />
           ) : null}
           <Switch
@@ -347,13 +456,24 @@ function PreferencesForm({
             onChange={(on) => set('reminders', { notifyOverdue: on })}
           />
           {r.notifyOverdue ? (
-            <NumberField
-              label="Repeat every (days, 0 for once)"
-              value={r.overdueReminderDays}
-              min={0}
-              max={90}
-              onChange={(n) => set('reminders', { overdueReminderDays: n })}
-            />
+            <div className="flex flex-wrap gap-4">
+              <NumberField
+                label="Repeat every (days, 0 for once)"
+                value={r.overdueReminderDays}
+                min={0}
+                max={90}
+                onChange={(n) => set('reminders', { overdueReminderDays: n })}
+              />
+              {/* I-N04: the notices stop after this many. */}
+              <NumberField
+                label="Stop after (notices)"
+                hint="1 to 12 overdue notices per invoice."
+                value={r.overdueReminderMax}
+                min={1}
+                max={OVERDUE_REMINDER_MAX_LIMIT}
+                onChange={(n) => set('reminders', { overdueReminderMax: n })}
+              />
+            </div>
           ) : null}
           <Switch
             label="Automatic receipts"
@@ -466,6 +586,8 @@ function PreferencesForm({
         <Switch
           label="Tipping"
           hint="Lets an invoice offer the client a tip."
+          // I-N05: saved, but Pay Now does not charge a tip yet (after Nov 17).
+          notActive="clients can't add a tip at Pay Now yet"
           checked={f.tippingEnabled}
           onChange={(on) => set('taxesAndFees', { tippingEnabled: on })}
         />
@@ -751,6 +873,14 @@ function DepositAccounts() {
 /** Invoice templates (Invoice Defaults' branding and template): add, make default, archive. */
 function Templates() {
   const list = useApiQuery(['invoice-templates'], () => api.paymentPreferences.templates());
+  // I-N09: Invoices' Invoice Templates link lands here (#invoice-templates), once they are loaded.
+  const ref = useRef<HTMLElement>(null);
+  const loaded = list.isSuccess;
+  useEffect(() => {
+    if (loaded && window.location.hash === '#invoice-templates') {
+      ref.current?.scrollIntoView({ block: 'start' });
+    }
+  }, [loaded]);
   const [name, setName] = useState('');
   const [showLogo, setShowLogo] = useState(true);
   const add = useApiMutation(() => api.paymentPreferences.createTemplate({ name, showLogo }), {
@@ -772,8 +902,10 @@ function Templates() {
   );
   return (
     <section
+      ref={ref}
+      id="invoice-templates"
       aria-label="Invoice templates"
-      className="flex flex-col gap-2 border-t border-divider pt-3"
+      className="flex scroll-mt-20 flex-col gap-2 border-t border-divider pt-3"
     >
       <h3 className="text-sm font-semibold text-heading">Templates</h3>
       <PageState

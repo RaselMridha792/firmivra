@@ -54,9 +54,10 @@ export const DEFAULTS: Sections = {
   },
   reminders: {
     sendReminders: false,
-    reminderDaysBefore: 3,
+    reminderDaysBeforeList: [3],
     notifyOverdue: false,
     overdueReminderDays: 7,
+    overdueReminderMax: 3,
     autoReceipts: false,
     autoApplyPayments: false,
     retryAttempts: 0,
@@ -102,9 +103,12 @@ function sectionsOf(row: Row | null): PaymentPreferences {
     },
     reminders: {
       sendReminders: row.sendReminders,
-      reminderDaysBefore: row.reminderDaysBefore,
+      reminderDaysBeforeList: row.reminderDaysBeforeList?.length
+        ? [...row.reminderDaysBeforeList].sort((a, b) => b - a)
+        : [row.reminderDaysBefore],
       notifyOverdue: row.notifyOverdue,
       overdueReminderDays: row.overdueReminderDays,
+      overdueReminderMax: row.overdueReminderMax,
       autoReceipts: row.autoReceipts,
       autoApplyPayments: row.autoApplyPayments,
       retryAttempts: row.retryAttempts,
@@ -130,6 +134,9 @@ export const columnsOf = (s: Sections) => {
     ...s.invoiceDefaults,
     customTermDays: [...s.invoiceDefaults.customTermDays].sort((a, b) => a - b),
     ...s.reminders,
+    // I-N04: the days, the earliest first; the older single column keeps the earliest of them.
+    reminderDaysBeforeList: [...s.reminders.reminderDaysBeforeList].sort((a, b) => b - a),
+    reminderDaysBefore: Math.max(...s.reminders.reminderDaysBeforeList),
     lateFeeEnabled: fees.lateFeeEnabled,
     lateFeeType: fees.lateFeeType,
     lateFeePercent: fees.lateFeeType === 'PERCENT' ? fees.lateFeePercent : null,

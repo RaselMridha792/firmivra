@@ -99,6 +99,18 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     link: 'https://app.example.test/tax-planning/deadlines',
   },
   'invoice.sent': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
+  'invoice.reminder': {
+    name: 'Robin Example',
+    invoiceNumber: 'INV-1042',
+    dueOn: '2026-12-01',
+    link,
+  },
+  'invoice.overdue': {
+    name: 'Robin Example',
+    invoiceNumber: 'INV-1042',
+    dueOn: '2026-12-01',
+    link,
+  },
   'payment.received': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
   'esign.request': {
     name: 'Robin Example',

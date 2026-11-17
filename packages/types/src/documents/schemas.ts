@@ -327,6 +327,12 @@ export const ListFirmDocumentsQuery = z
     search: SearchTerm.optional(),
     uploadedFrom: CalendarDate.optional(),
     uploadedTo: CalendarDate.optional(),
+    /**
+     * Clients Review 2 (C2-051): an archived file leaves the client's list. `include` lists them
+     * too, `only` lists just them. A file in the Trash is never listed here (the Documents
+     * library has its own Archived and Trash views).
+     */
+    archived: z.enum(['include', 'only']).optional(),
     cursor: z.string().max(200).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional().default(25),
   })

@@ -67,6 +67,33 @@ test('an internal document is never shared with the client', async ({ page }) =>
   await expect(page.getByText('Internal documents stay with your team')).toBeVisible();
 });
 
+// Clients Review 2 (C2-049): on an internal file, Team Member offered only "Choose a team member"
+// with no staff to pick, so it could not be shared at all. It lists the firm's active members
+// (never an invited or deactivated one), and choosing one shares the file with them.
+test('C2-049: Team Member lists the active staff and shares an internal file with one of them', async ({
+  page,
+}) => {
+  await open(page, 7);
+  await expect(page.getByRole('radio', { name: /^Team Member/ })).toBeChecked();
+  const recipient = page.getByLabel('Recipient', { exact: true });
+  await expect(recipient.locator('option')).toHaveText([
+    'Choose a team member',
+    'Olivia Owner (olivia@lvp.test)',
+    'Adam Admin (adam@lvp.test)',
+    'Sam Staff (sam@lvp.test)',
+  ]);
+  await recipient.selectOption({ label: 'Adam Admin (adam@lvp.test)' });
+  await page.getByRole('button', { name: 'Share Document' }).click();
+  await expect(page.getByText('The document was shared.')).toBeVisible();
+  await expect(page.getByTestId('current-access')).toContainText('Adam Admin');
+  // Shared once: Adam is no longer offered.
+  await expect(recipient.locator('option')).toHaveText([
+    'Choose a team member',
+    'Olivia Owner (olivia@lvp.test)',
+    'Sam Staff (sam@lvp.test)',
+  ]);
+});
+
 test('a document that is not there says so', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto(app('/documents/not-a-document/share'));

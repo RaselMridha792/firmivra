@@ -471,6 +471,56 @@ describe('POST /business/clients/bulk', () => {
     expect(after.bulk?.metadata).toEqual({ action: 'ASSIGN', updated: 2, skipped: 1 });
   });
 
+  // Clients Review 2 (§6 Multi client mutations): unassigning several clients at once ("Nobody"
+  // in Assign Staff Member sends assignedUserId null). Staff may not; each current client is left
+  // with nobody and audited on its own, an archived one is skipped and keeps its assignee, and the
+  // Staff member who had a client no longer reaches it.
+  it('unassigns several clients at once (Nobody); Staff may not; the old assignee loses reach', async () => {
+    const [u1, u2, u3] = await inFirm('a', (tx) => {
+      const make = (i: number, extra: { assignedUserId: string; archivedAt?: Date }) =>
+        tx.client
+          .create({
+            data: { businessId: firms.a.id, displayName: `Unassign ${i} (fake)`, ...extra },
+          })
+          .then((c) => c.id);
+      return Promise.all([
+        make(1, { assignedUserId: people.staffA.id }),
+        make(2, { assignedUserId: people.adminA.id }),
+        make(3, { assignedUserId: people.staffA.id, archivedAt: new Date() }),
+      ]);
+    });
+    const body = { action: 'ASSIGN', clientIds: [u1, u2, u3], assignedUserId: null };
+    expect((await bulk(people.staffA, body)).status).toBe(403);
+    expect((await call('get', `/${u1}`, people.staffA)).status).toBe(200);
+
+    const res = await bulk(people.adminA, body);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(BulkClientsResponse.parse(res.body)).toEqual({
+      updated: 2,
+      skipped: [{ clientId: u3, code: 'CLIENT_ARCHIVED' }],
+    });
+    const after = await inFirm('a', async (tx) => ({
+      rows: await tx.client.findMany({
+        where: { id: { in: [u1, u2, u3] } },
+        select: { id: true, assignedUserId: true },
+      }),
+      audit: await tx.auditLog.findMany({
+        where: { businessId: firms.a.id, action: 'client.updated', entityId: { in: [u1, u2, u3] } },
+        select: { entityId: true, metadata: true },
+      }),
+    }));
+    const byId = Object.fromEntries(after.rows.map((c) => [c.id, c.assignedUserId]));
+    expect([byId[u1], byId[u2], byId[u3]]).toEqual([null, null, people.staffA.id]);
+    expect(after.audit.map((a) => a.entityId).sort()).toEqual([u1, u2].sort());
+    for (const entry of after.audit) {
+      expect(entry.metadata).toMatchObject({ fields: ['assignedUserId'] });
+    }
+    // The server enforces it: Staff reach only their own clients, and u1 is no longer theirs.
+    expect((await call('get', `/${u1}`, people.staffA)).status).toBe(404);
+    const owned = await call('get', `/${u1}`, people.ownerA);
+    expect(owned.body).toMatchObject({ id: u1, assignedTo: null });
+  });
+
   it('archives and restores several clients', async () => {
     const archive = await bulk(people.ownerA, { action: 'ARCHIVE', clientIds: [ids.w2, ids.w4] });
     expect(BulkClientsResponse.parse(archive.body)).toEqual({ updated: 2, skipped: [] });

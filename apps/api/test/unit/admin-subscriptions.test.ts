@@ -37,10 +37,12 @@ import {
   pricesOf,
   reactivatedStatus,
   renewsSoon,
+  renewsThisWeek,
   sortRows,
   splitEventNote,
   suspensionKindOf,
   usageOf,
+  weekStartOf,
 } from '../../src/admin-subscriptions/subscriptions-math.js';
 
 const TODAY = '2026-10-20';
@@ -309,6 +311,23 @@ describe('the table', () => {
     expect(matchesStatus(row({ id: 'c', status: 'NON_RENEWING' }), 'PAYING', TODAY)).toBe(true);
     expect(matchesStatus(row({ id: 'd', status: 'TRIAL' }), 'PAYING', TODAY)).toBe(false);
     expect(matchesStatus(row({ id: 'e', status: 'TRIAL' }), 'TRIAL', TODAY)).toBe(true);
+  });
+
+  it('SA-DSH-F11: renewing this week is next billing from Monday to Sunday', () => {
+    // TODAY is a Tuesday: its week is Monday Oct 19 to Sunday Oct 25.
+    for (const day of ['2026-10-19', TODAY, '2026-10-25'])
+      expect(weekStartOf(day)).toBe('2026-10-19');
+    for (const [on, inWeek] of [
+      ['2026-10-18', false],
+      ['2026-10-19', true],
+      ['2026-10-25', true],
+      ['2026-10-26', false],
+    ] as const) {
+      expect(matchesStatus(row({ id: on, nextBillingOn: on }), 'RENEWING_THIS_WEEK', TODAY)).toBe(
+        inWeek,
+      );
+    }
+    expect(renewsThisWeek(row({ id: 'n', nextBillingOn: null }), TODAY)).toBe(false);
   });
 
   it('in force during the period; search covers the firm’s name, slug, email and domain', () => {

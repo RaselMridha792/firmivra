@@ -137,6 +137,13 @@ export const NOTIFICATION_EVENTS = {
   'appointment.waitlist-requested': { category: 'APPOINTMENTS', kind: 'appointment', to: 'staff' },
   // ----- Invoices (R7; never an amount) -----
   'invoice.sent': { category: 'BILLING', kind: 'invoice', to: 'client' },
+  /**
+   * Invoices Review 2 (I-C02, I-N04): an open invoice is coming due (the firm's days before), and
+   * an unpaid one is overdue (repeated every few days up to the firm's cap). To the client: a bell
+   * item and an email with the portal link to pay, as the invoice's own email choice allows.
+   */
+  'invoice.reminder': { category: 'BILLING', kind: 'invoice', to: 'client' },
+  'invoice.overdue': { category: 'BILLING', kind: 'invoice', to: 'client' },
   'payment.received': { category: 'BILLING', kind: 'invoice', to: 'both' },
   // ----- Account and team (locked) -----
   'account.password-changed': { category: 'ACCOUNT', kind: 'user', to: 'both' },

@@ -3,10 +3,13 @@ export function newTaskHref(context: {
   clientId: string;
   engagementId?: string;
   period?: string;
+  /** I-P01: the invoice it is about ("INV-2026-0106"): the name and details say so. */
+  invoice?: string;
 }): string {
   const params = new URLSearchParams({ clientId: context.clientId });
   if (context.engagementId) params.set('engagementId', context.engagementId);
   if (context.period) params.set('period', context.period);
+  if (context.invoice) params.set('invoice', context.invoice);
   return `/tasks/new?${params.toString()}`;
 }
 
