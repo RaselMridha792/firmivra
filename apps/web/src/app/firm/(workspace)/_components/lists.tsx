@@ -103,10 +103,11 @@ export function TasksDue({ summary }: { summary: UseQueryResult<DashboardSummary
       query={summary}
       // T2 (Review 2): the same tasks as the widget, every open one with a due date, soonest first.
       link={{ href: '/tasks?view=all&due=set', label: 'View All' }}
-      isEmpty={(d) => d.tasksDue.length === 0}
+      isEmpty={(d) => !d.tasksDue?.length}
+      denied={(d) => (d.tasksDue ? undefined : 'Tasks')}
       empty="No tasks due"
     >
-      {({ tasksDue, today }) => (
+      {({ tasksDue = [], today }) => (
         <>
           <ul className="flex flex-col divide-y divide-border">
             {done.isError ? (

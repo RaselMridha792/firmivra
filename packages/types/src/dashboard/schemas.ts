@@ -22,34 +22,37 @@ export type DashboardKpi = z.infer<typeof DashboardKpi>;
 /**
  * The six cards. `range` (the global period) drives the first four, each compared with the
  * equivalent period before (`range.previousFrom` to `previousTo`); the last two never follow it.
+ * Dashboard Review Two V5: a card whose list the member may not view is left out of the answer
+ * (Total Clients: Clients; New Leads: Leads; the two return cards: Tax Returns; Outstanding
+ * Invoices: Invoices & Payments; Appointments Today: Appointments), and the card says so.
  */
 export const DashboardKpis = z.object({
   /** Clients not archived at the end of the period; previous: at the end of the period before. */
-  totalClients: DashboardKpi,
+  totalClients: DashboardKpi.optional(),
   /**
    * Leads still at New Lead (SUBMITTED) that came in the period, as Leads lists them with Stage
    * New Lead and the period's dates; previous: those of the period before, still at New Lead.
    */
-  newLeads: DashboardKpi,
+  newLeads: DashboardKpi.optional(),
   /**
    * Tax returns in one of the in-progress workflow statuses (TAX_RETURN_IN_PROGRESS_STATUSES) at
    * the end of the period, as Tax Returns lists them with Status In Progress (now: their status;
    * earlier: the status history); previous: the same at the end of the period before.
    */
-  returnsInProgress: DashboardKpi,
+  returnsInProgress: DashboardKpi.optional(),
   /**
    * Tax returns Accepted in the period (Octavia's K5: not Transmitted, not Rejected), as Tax
    * Returns lists them with Status Accepted and the period's accepted dates; previous: in the
    * period before.
    */
-  acceptedReturns: DashboardKpi,
+  acceptedReturns: DashboardKpi.optional(),
   /**
    * Balance due on OPEN invoices now, in cents, whatever the period; previous is null (partial
    * payments keep no history to compare).
    */
-  outstandingInvoicesCents: DashboardKpi,
+  outstandingInvoicesCents: DashboardKpi.optional(),
   /** Scheduled appointments on the firm's today, whatever the period; previous is null. */
-  appointmentsToday: DashboardKpi,
+  appointmentsToday: DashboardKpi.optional(),
 });
 export type DashboardKpis = z.infer<typeof DashboardKpis>;
 
@@ -153,29 +156,30 @@ export type DashboardSummaryQuery = z.input<typeof DashboardSummaryQuery>;
  * Null: no record holds that stage (Consultation, for now). Leads and Completed follow `from` to
  * `to`; Intake and In Progress are open now, as their lists show them.
  */
+/** V5: a stage whose list the member may not view (Leads, Intake Forms, Tax Returns) is left out. */
 export const DashboardPipeline = z.object({
   /**
    * Leads at New Lead that came in the period, as the Leads list shows them with Stage New Lead
    * and the period's dates (Staff: those assigned to them, as kpis.newLeads).
    */
-  leads: Count.nullable(),
+  leads: Count.nullable().optional(),
   consultation: Count.nullable(),
   /**
    * Intakes not finished now (sent, being filled, to correct, submitted or under review): the
    * Intake Forms list's Not Finished view (`tab=open`).
    */
-  intake: Count.nullable(),
+  intake: Count.nullable().optional(),
   /**
    * Tax returns in an in-progress workflow status now (TAX_RETURN_IN_PROGRESS_STATUSES), as Tax
    * Returns lists them with Status In Progress; the same as kpis.returnsInProgress when the global
    * period ends today.
    */
-  inProgress: Count.nullable(),
+  inProgress: Count.nullable().optional(),
   /**
    * Tax returns Accepted in the period (K5: not Transmitted, not Rejected), as Tax Returns lists
    * them with Status Accepted and the period's accepted dates. The stage reads "Accepted".
    */
-  completed: Count.nullable(),
+  completed: Count.nullable().optional(),
   /** The period `completed` counts, and its days. */
   period: DashboardPeriod,
   from: Day,
@@ -238,8 +242,10 @@ export const DashboardSummary = z.object({
    */
   serviceCards: z.array(DashboardServiceCard).max(DASHBOARD_CARD_SLOTS),
   pipeline: DashboardPipeline,
-  revenue: DashboardRevenue,
-  tasksDue: z.array(DashboardTask).max(5),
+  /** V5: left out for a member who may not view Invoices & Payments. */
+  revenue: DashboardRevenue.optional(),
+  /** V5: left out for a member who may not view Tasks. */
+  tasksDue: z.array(DashboardTask).max(5).optional(),
   /**
    * The firm's tax season (the date card: "Tax Season: Jan 15 – May 15, 2027", In Season or
    * Off-Season);  null until the firm's settings hold one.

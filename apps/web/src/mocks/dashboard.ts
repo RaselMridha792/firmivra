@@ -23,7 +23,7 @@ import {
   shapeOf,
   UpdateDashboardCardRequest,
 } from '@firmivra/types';
-import { mockDelay } from '../lib/mock';
+import { mockDelay, mockNoView } from '../lib/mock';
 
 const ME = { userId: '0199b6a0-0000-7000-8000-0000000000f0', name: 'Mock User' };
 
@@ -256,7 +256,34 @@ export function createDashboardMock(): DashboardClient {
     services: servicesOf(),
   });
   return {
-    summary: async (query = {}) => (await mockDelay(), build(query)),
+    // V5, as the API: a number whose list the member may not view is left out.
+    summary: async (query = {}) => {
+      await mockDelay();
+      const d = build(query);
+      const no = mockNoView();
+      const only = <T>(module: string, value: T): T | undefined =>
+        no.has(module) ? undefined : value;
+      return {
+        ...d,
+        kpis: {
+          totalClients: only('CLIENTS', d.kpis.totalClients),
+          newLeads: only('LEADS', d.kpis.newLeads),
+          returnsInProgress: only('TAX_RETURNS', d.kpis.returnsInProgress),
+          acceptedReturns: only('TAX_RETURNS', d.kpis.acceptedReturns),
+          outstandingInvoicesCents: only('INVOICES_PAYMENTS', d.kpis.outstandingInvoicesCents),
+          appointmentsToday: only('APPOINTMENTS', d.kpis.appointmentsToday),
+        },
+        pipeline: {
+          ...d.pipeline,
+          leads: only('LEADS', d.pipeline.leads),
+          intake: only('INTAKE_FORMS', d.pipeline.intake),
+          inProgress: only('TAX_RETURNS', d.pipeline.inProgress),
+          completed: only('TAX_RETURNS', d.pipeline.completed),
+        },
+        revenue: only('INVOICES_PAYMENTS', d.revenue),
+        tasksDue: only('TASKS', d.tasksDue),
+      };
+    },
     cards: {
       list: async () => (await mockDelay(), settings()),
       create: async (body) => {

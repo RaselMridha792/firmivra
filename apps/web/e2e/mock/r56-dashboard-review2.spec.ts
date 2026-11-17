@@ -21,3 +21,28 @@ test('§9: a task’s page shows its reminder history: who it reaches, when it g
   await expect(sent).toContainText('Sent');
   await expect(sent).toContainText('ID mock-0100');
 });
+
+test('V5: a card or widget whose module the member may not view says so, with no number or link', async ({
+  page,
+}) => {
+  // The member's Invoices & Payments and Tasks views are off (a custom role or their own change).
+  await page.addInitScript(() =>
+    window.sessionStorage.setItem('fv-mock-no-view', 'INVOICES_PAYMENTS,TASKS'),
+  );
+  await page.goto(app('/'));
+  const outstanding = page.getByTestId('kpi-card').filter({ hasText: 'Outstanding Invoices' });
+  await expect(outstanding).toContainText("You don't have access to Invoices & Payments.", {
+    timeout: 60_000,
+  });
+  await expect(outstanding.getByRole('link')).toHaveCount(0);
+  await expect(page.getByTestId('kpi-card').filter({ hasText: 'Total Clients' })).toContainText(
+    /\d/,
+  );
+  for (const title of ['Revenue Overview', 'Service Breakdown'])
+    await expect(page.getByRole('region', { name: title })).toContainText(
+      "You don't have access to Invoices & Payments.",
+    );
+  const tasks = page.getByRole('region', { name: 'Tasks Due' });
+  await expect(tasks).toContainText("You don't have access to Tasks.");
+  await expect(tasks.getByRole('link', { name: 'View All' })).toHaveCount(0);
+});
