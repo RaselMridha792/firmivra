@@ -34,7 +34,9 @@ test('F06: through the Status filter, the chart and a tab, the period stays and 
   const status = page.getByLabel('Status', { exact: true });
   await expect(period).toHaveValue('LAST_MONTH');
   await status.selectOption('ON_HOLD');
-  await expect(page.getByRole('table', { name: 'On Hold clients' })).toBeVisible();
+  // The mock has no client On Hold: once loaded, the list says none match.
+  await expect(status).toHaveValue('ON_HOLD');
+  await expect(page.getByText('No clients match these filters')).toBeVisible();
 
   // The chart's Past Due replaces the On Hold filter: one status, the chart's count of rows.
   const legend = page.getByRole('list', { name: 'Filter the client list by payroll status' });
