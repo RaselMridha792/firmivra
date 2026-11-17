@@ -375,6 +375,26 @@ describe('GET /business/dashboard/summary', () => {
     expect(await get('/tasks?status=OPEN&limit=100')).not.toContain('Fake task archived');
   });
 
+  it('T6: a task completed leaves Tasks Due at once and is Done, not deleted', async () => {
+    const { token } = await app.get(TokenService).signLocal(people.ownerA.id, 'STAFF');
+    const api = (method: 'get' | 'post', path: string) =>
+      request(app.getHttpServer())
+        [method](`/api/v1/business${path}`)
+        .set('x-business-id', firms.a.id)
+        .set('authorization', `Bearer ${token}`);
+    const due = async () => ((await read(people.ownerA, 'a')).tasksDue ?? []).map((t) => t.id);
+    const [first] = await due();
+    expect(first).toBeDefined();
+    const done = await api('post', `/tasks/${first}/complete`);
+    expect(done.status, JSON.stringify(done.body)).toBeLessThan(300);
+    expect(await due()).not.toContain(first);
+    const completed = await api('get', '/tasks/overview?view=completed&pageSize=100');
+    expect((completed.body as { items: { id: string }[] }).items.map((t) => t.id)).toContain(first);
+    // Back as it was, for the tests after this one.
+    expect((await api('post', `/tasks/${first}/reopen`)).status).toBeLessThan(300);
+    expect(await due()).toContain(first);
+  });
+
   it('gives Staff the numbers of the clients assigned to them only', async () => {
     const s = await read(people.staffA, 'a');
     expect(s.kpis.totalClients).toEqual({ value: 1, previous: 0 });
