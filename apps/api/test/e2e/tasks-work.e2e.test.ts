@@ -974,6 +974,13 @@ describe('overview, summary and calendar', () => {
     ]);
     expect(await titles('view=completed&completedFrom=2099-01-01')).toEqual([]);
     expect(await titles('view=completed&completedTo=2000-01-01')).toEqual([]);
+    // A day Postgres cannot hold is a bad request, as for the due dates.
+    for (const q of ['completedFrom=0000-01-01', 'completedTo=0000-12-31'])
+      expectError(
+        await call('get', `/tasks/overview?view=completed&${q}`, people.ownerA),
+        400,
+        'VALIDATION_FAILED',
+      );
     // Total Tasks lists what it counts: open and done, never cancelled or archived.
     expect(await titles('view=all')).toEqual(['late', 'soon', 'undated', 'finished']);
     expect(await titles('view=archived')).toEqual(['filed']);
