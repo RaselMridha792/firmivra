@@ -18,7 +18,8 @@ export function readDefinition(row: { version: number; definition: unknown }, ki
   const parsed = IntakeFormDefinition.parse(row.definition);
   // Intake Review 2 23-h: with Allow file uploads off, the client sees no upload question and
   // none is required (the builder's Preview shows the same).
-  const shown = storedSettings(row.definition).allowFileUploads === false ? withoutUploads(parsed) : parsed;
+  const shown =
+    storedSettings(row.definition).allowFileUploads === false ? withoutUploads(parsed) : parsed;
   return { ...shown, key: IntakeFormKey.parse(kind), version: row.version };
 }
 
@@ -29,7 +30,9 @@ export function storedSettings(definition: unknown): {
 } {
   const s = (definition as { formSettings?: Record<string, unknown> } | null)?.formSettings ?? {};
   return {
-    ...(typeof s['allowFileUploads'] === 'boolean' ? { allowFileUploads: s['allowFileUploads'] } : {}),
+    ...(typeof s['allowFileUploads'] === 'boolean'
+      ? { allowFileUploads: s['allowFileUploads'] }
+      : {}),
     ...(typeof s['showProgressBar'] === 'boolean' ? { showProgressBar: s['showProgressBar'] } : {}),
   };
 }
