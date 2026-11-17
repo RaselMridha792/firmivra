@@ -465,6 +465,46 @@ function storeFor(options: Options): Store {
   return s;
 }
 
+/**
+ * P4-1: the lead a booking names, as the API's leadToBook reads it (the scheduling mock asks):
+ * 404 for an archived lead, and for Staff a lead not assigned to them; a converted lead books as
+ * its client. Null for a lead this mock does not hold (the scheduling mock's own sample leads).
+ */
+export function mockLeadToBook(
+  id: string,
+  staffUserId: string | null,
+): {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  businessName: string | null;
+  client: { id: string; name: string } | null;
+} | null {
+  const s = stores?.get('full') ?? storeFor({});
+  const l = s.leads.find((x) => x.profile.id === id);
+  if (!l) return null;
+  if (l.profile.archivedAt) throw fail(404, 'NOT_FOUND', 'Not found');
+  const client = l.profile.client;
+  if (!client && staffUserId && l.profile.assignedTo?.userId !== staffUserId)
+    throw fail(404, 'NOT_FOUND', 'Not found');
+  const p = l.profile;
+  return {
+    id: p.id,
+    name: `${p.firstName} ${p.lastName}`.trim(),
+    email: p.email || null,
+    phone: p.phone,
+    businessName: p.businessName,
+    client,
+  };
+}
+
+/** P4-1: a lead's own appointment the scheduling mock booked, on the lead's Appointments tab. */
+export function addMockLeadAppointment(id: string, appointment: LeadAppointment): void {
+  const s = stores?.get('full') ?? storeFor({});
+  s.leads.find((x) => x.profile.id === id)?.appointments.push(appointment);
+}
+
 const toRow = (l: Lead): LeadRow => {
   const p = l.profile;
   return {
