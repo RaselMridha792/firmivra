@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { sessionFetch, setSession } from './session';
+import { QueryClient } from '@tanstack/react-query';
+import { claimCache, releaseCache, sessionFetch, setSession } from './session';
 
 const answer = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -82,5 +83,41 @@ describe('sessionFetch (SM4)', () => {
     await sessionFetch('/api/v1/business/clients');
     expect(page.end).toHaveBeenCalledTimes(1);
     expect(page.replace).toHaveBeenCalledWith('/sign-in');
+  });
+});
+
+describe('the data cache follows its owner (Dashboard Review Two V4)', () => {
+  const cached = (client: QueryClient) => client.getQueryData(['dashboard', 'summary']);
+
+  it('keeps the cache for the same user and firm, and empties it when either changes', () => {
+    const client = new QueryClient();
+    releaseCache(client);
+    claimCache(client, 'user', 'user-1');
+    claimCache(client, 'firm', 'firm-a');
+    client.setQueryData(['dashboard', 'summary'], { n: 1 });
+    // The same person in the same firm: the dashboard's numbers stay.
+    claimCache(client, 'user', 'user-1');
+    claimCache(client, 'firm', 'firm-a');
+    expect(cached(client)).toEqual({ n: 1 });
+    // Another firm: nothing of the first firm's is shown.
+    claimCache(client, 'firm', 'firm-b');
+    expect(cached(client)).toBeUndefined();
+    client.setQueryData(['dashboard', 'summary'], { n: 2 });
+    // Another person on the same tab: empty again.
+    claimCache(client, 'user', 'user-2');
+    expect(cached(client)).toBeUndefined();
+  });
+
+  it('empties the cache and forgets its owners on sign-out', () => {
+    const client = new QueryClient();
+    claimCache(client, 'user', 'user-1');
+    client.setQueryData(['dashboard', 'summary'], { n: 1 });
+    releaseCache(client);
+    expect(cached(client)).toBeUndefined();
+    // After sign-out the next person's first claim keeps what they load.
+    claimCache(client, 'user', 'user-2');
+    client.setQueryData(['dashboard', 'summary'], { n: 3 });
+    claimCache(client, 'user', 'user-2');
+    expect(cached(client)).toEqual({ n: 3 });
   });
 });
