@@ -124,10 +124,16 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
   const flows =
     q.period === 'TODAY'
       ? { newLeads: { value: 0, previous: 0 }, acceptedReturns: { value: 3, previous: 0 } }
-      : {
-          newLeads: { value: scale(24), previous: scale(17) },
-          acceptedReturns: { value: scale(52), previous: scale(41) },
-        };
+      : q.period === 'LAST_YEAR'
+        ? // Dashboard Review Two K8: a year with fewer new leads than the one before.
+          {
+            newLeads: { value: scale(17), previous: scale(24) },
+            acceptedReturns: { value: scale(52), previous: scale(41) },
+          }
+        : {
+            newLeads: { value: scale(24), previous: scale(17) },
+            acceptedReturns: { value: scale(52), previous: scale(41) },
+          };
 
   const pipelineDays = (Date.parse(pipeline.to) - Date.parse(pipeline.from)) / 86_400_000 + 1;
   const services = servicesOf();

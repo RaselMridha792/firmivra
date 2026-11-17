@@ -56,3 +56,15 @@ test('V8: the lists do not wait for the availability call: with it failing they 
     await expect(page.getByRole('region', { name: title })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText("We couldn't load messages and appointments.")).toHaveCount(0);
 });
+
+test('K8: a number that fell says Down with the percentage, and that it is unfavourable', async ({
+  page,
+}) => {
+  await page.goto(app('/'));
+  await page.getByRole('combobox', { name: 'Dashboard period' }).selectOption('LAST_YEAR');
+  // Last year: 207 new leads against 292 the year before.
+  await expect(page.getByTestId('kpi-card').filter({ hasText: 'New Leads' })).toContainText(
+    'Down 29%, unfavourable',
+    { timeout: 60_000 },
+  );
+});
