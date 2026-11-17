@@ -549,11 +549,27 @@ describe('GET /admin/firms and /admin/dashboard', () => {
             },
           });
         }
-        const roles = await tx.platformRoleDefinition.findMany({
-          where: { code: 'EXECUTIVE_CEO' },
-          select: { id: true },
+        // The Owner's grid is stored on the CEO role (seed-platform-team.ts); a fresh test database
+        // may not have it yet, so it is made here too, and rolled back with the rest.
+        const executive = await tx.platformDepartment.upsert({
+          where: { code: 'EXECUTIVE' },
+          create: { code: 'EXECUTIVE', name: 'Executive' },
+          update: {},
         });
-        expect(roles.length).toBeGreaterThan(0);
+        const roles = [
+          await tx.platformRoleDefinition.upsert({
+            where: { code: 'EXECUTIVE_CEO' },
+            create: {
+              code: 'EXECUTIVE_CEO',
+              title: 'CEO',
+              level: 'CEO',
+              departmentId: executive.id,
+              defaultScopeType: 'COMPANY',
+            },
+            update: {},
+            select: { id: true },
+          }),
+        ];
         /** The Owner's View all tickets and View own tickets. */
         const grid = async (viewAll: boolean, viewOwn: boolean) => {
           for (const { id: roleDefinitionId } of roles) {
