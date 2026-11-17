@@ -124,7 +124,7 @@ These rows ask for test coverage, not features.
 | Row | Status | PR | Test |
 | --- | --- | --- | --- |
 | C2-052 Existing file visibility | Fixed (G1) | #1426: `POST /business/documents/{id}/visibility` and the switch on Document Details | `documents-library.e2e` (visibility, 409s, peer Staff 403, firm B 404), `r60-document-visibility` |
-| C2-051 Document action scope | Done: Rename, Move, Request e-sign and Archive work from the table's row menu. **GAP:** an archived file stays in the table: `GET /business/clients/{id}/documents` does not leave archived or trashed files out (`firm-documents.service.ts` list), though the dialog says it leaves the list | #1381 (R55); test #1584 | mock `r55-clients-document-actions` "C2-051: Rename, Move, Request e-sign and Archive each work from the Documents table row menu" |
+| C2-051 Document action scope | Done: Rename, Move, Request e-sign and Archive work from the table's row menu, and an archived file leaves the client's list as the dialog says (`archived=include` or `only` still lists it; a file in the Trash never shows there) | #1381 (R55); test and the archive fix #1584 | mock `r55-clients-document-actions` "C2-051: Rename, Move, Request e-sign and Archive each work from the Documents table row menu" (the archived file leaves the table); e2e `documents-library` "is out of the client's list by default, still there when asked for and in the archive view; a trashed file never shows" |
 | C2-049 Empty staff choices | Done: an internal file lists the firm's active members under Team Member | #1382 (R1); test #1584 | mock `r56-share-document` "C2-049: Team Member lists the active staff and shares an internal file with one of them" |
 | Approved later client sharing (off by default, explicit opt-in) | Fixed (G1) | #1426: `POST /business/documents/{id}/visibility` and the switch on Document Details | `documents-library.e2e` (visibility, 409s, peer Staff 403, firm B 404), `r60-document-visibility` |
 | C2-055 Portal notice when a document is shared | Done: a file made client-visible later tells the client's portal login, as an upload or a Share does | #1574 (R56) | e2e `documents-portal` "C2-055: a firm file made client-visible later tells the PRIMARY login: at once when clean, by its scan result while checked" |
@@ -219,7 +219,7 @@ G1 to G12 are closed; G9's prefill is #1558 (Nov 15, 2026). The open items are l
 - #1584 (R55, tests only): §2 and §4 stale profile (C2-034), §4 Last Activity dismissal and names (C2-018, C2-019), N8-10, §4 Dirty Add (C2-029), §6 Edit's Save Anyway, §6 bulk unassign, §6 Reliability a, V-001, N8-09, V-002 to V-006, V-008, C2-051, C2-049, N8-25, N8-37's order, FC-03's words
 
 **Open: product (GAP)**
-- C2-051: an archived file stays in the Documents table (the client documents list does not leave archived or trashed files out)
+- None from the Nov 16 check: N8-36, C2-051's archived file and V-003's long name are fixed in #1584
 
 **Open: tests**
 - G4: the archived client's read-only notes card (only the API's 409 is tested)

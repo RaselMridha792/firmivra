@@ -497,9 +497,18 @@ export function createDocumentLibraryMock(options: {
     };
   };
   const baseList = options.documents.list;
-  options.documents.list = async (...args) => {
-    const page = await baseList(...args);
-    return { ...page, items: page.items.map(shown) };
+  options.documents.list = async (clientId, query = {}) => {
+    const page = await baseList(clientId, query);
+    // As the API (Clients Review 2, C2-051): an archived file leaves the client's list unless
+    // `archived` asks for it; a file in the Trash never shows there.
+    const flag = query.archived;
+    const items = page.items.filter((d) => {
+      const e = edits.get(d.id);
+      if (e?.trashedAt) return false;
+      const archived = Boolean(e?.archivedAt);
+      return flag === 'include' ? true : flag === 'only' ? archived : !archived;
+    });
+    return { ...page, items: items.map(shown) };
   };
   const baseGet = options.documents.get;
   options.documents.get = async (id) => shown(await baseGet(id));

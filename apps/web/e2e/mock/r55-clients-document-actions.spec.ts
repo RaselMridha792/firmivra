@@ -70,4 +70,6 @@ test('C2-051: Rename, Move, Request e-sign and Archive each work from the Docume
   await expect(archive).toContainText('It leaves this list but is kept');
   await archive.getByRole('button', { name: 'Archive' }).click();
   await expect(done).toHaveText('Driver_License.jpg archived.');
+  // As the dialog says, it leaves this list.
+  await expect(names.filter({ hasText: 'Driver_License.jpg' })).toHaveCount(0);
 });
