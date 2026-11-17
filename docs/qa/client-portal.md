@@ -59,7 +59,7 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Tabs: Overview, Documents, Messages, Appointments, Tax Returns, Invoices & Payments, Intake Forms | #1405, #1410, #1414 | `r60-client-portal`, `r60-client-portal-forms` |
 | Portal Summary: six cards with a Last 7 / 30 / 90 Days range; each card opens its tab | #1375, #1405 | `client-portal-management`, `r60-client-portal` |
 | Recent Activity table and View All Activity | #1370, #1375, #1405 | `client-portal-management`, `r60-client-portal` |
-| **Unsaved edits: a warning before Switch Client or Back: not built yet (assigned to R56, Nov 15).** | — | — |
+| Unsaved edits: leaving the client (Switch Client, Back, breadcrumbs, tabs) with an unsaved edit asks first (instructions 13, 27) | #1551 | `r56-client-portal-documents` "instructions 19 and 13: Rename in place; leaving with the name unsaved asks first" |
 
 ## Frame 2: individual-client-portal-management-access-and-visibility.jpg (`/client-portal/{id}`)
 
@@ -72,7 +72,7 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Tabs: Overview, Access & Security, Portal Content, Documents, Forms & Requests, Communications, Activity | #1405, #1410, #1414 | `r60-client-portal-manage` |
 | Pending Client Actions: documents, intake incomplete or submitted, signature, invoice, appointment, task; each opens its record; overdue flagged | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
 | Portal Content & Visibility: 8 areas per client, on top of the firm's switches; enforced in the portal API and menu; audited | #1400, #1405 | `client-portal-access`, `r60-client-portal-manage` |
-| Quick Actions: Resend Portal Invitation | #1405 (existing invitation API) | `portal-invitations` (the API; the button is not tested yet) |
+| Quick Actions: Send and Resend Portal Invitation | #1405, #1595 | `portal-invitations` (the API); `r60-client-portal-frame2` "Frame 2: the invitation's status and date, and Send then Resend Portal Invitation". #1595 makes the mock's client page read the invitation sent, as the API's does. |
 | Quick Actions: Reset Client Access | #1400, #1405 | `client-portal-access` |
 | Quick Actions: Lock and Unlock Portal Access (refused at sign-in, on refresh and on every portal request) | #1370, #1405 | `client-portal-lock`, `r60-client-portal-manage` |
 | Quick Actions: Deactivate and Reactivate Portal | #1400, #1405 | `client-portal-access` |
@@ -82,8 +82,8 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Recent Portal Activity with IP address (Owner and Admin only) | #1370, #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
 | Access & Security: invitation status and date, MFA Management (Reset MFA), Login History and Security Events | #1375, #1400, #1405 | `client-portal-management`, `client-portal-access`, `r60-client-portal-manage` |
 | Activity tab: type, actor and date filters; load more | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
-| **Activity: each row opens its record: not built yet (assigned to R56, Nov 15).** The API returns the record; the screen does not link it. | — | — |
-| **Pending Client Actions: Send Reminder on an overdue item: not built yet (assigned to R56, Nov 15).** Overdue is flagged; the existing reminder routes are not wired here. | — | — |
+| Activity: each row opens its record; a row with no record stays text (instructions 24) | #1546 | `r56-client-portal-gaps` "instructions 24: an activity row opens its record; one with no record stays text" |
+| Pending Client Actions: Send Reminder on an overdue item, through the item's own reminder route (instructions 17) | #1546 | e2e `client-portal-management` "names Send Reminder's target on an overdue request, form or signature, and none on time"; mock `r56-client-portal-gaps` "instructions 17: an overdue pending action has Send Reminder; the others do not" |
 | Communications tab: the client's threads, unread counts, New Message | #1414 | `r60-client-portal-forms` |
 
 ## Frame 3: documents-tab.jpg (Documents)
@@ -96,7 +96,7 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Tabs: All Documents, Client Uploaded, Firm Shared, Pending Review, Requested | #1410 | `r60-client-portal-documents` |
 | Table columns: Name, Type, Category, Source, Uploaded By, Date, Status | #1410 | `r60-client-portal-documents` |
 | Row menu: View, Download, Mark Reviewed, Request Replacement, Share to or Remove from Portal, Archive, Move to Trash | #1410 | `r60-client-portal-documents` |
-| **Row menu: Link to Record, Reclassify and Rename: not built yet (assigned to R56, Nov 15).** The Documents library's APIs exist. | — | — |
+| Row menu: Link to Record, Reclassify and Rename (instructions 19) | #1551 | `r56-client-portal-documents` (both tests) |
 | Pagination with 10, 25 or 50 per page | #1410 | `r60-client-portal-documents` |
 | Document Requests panel, with Request New Document | #1410 | `r60-client-portal-documents` |
 | Recent Document Activity | #1370, #1410 | `r60-client-portal-documents` |
@@ -124,17 +124,18 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | --- | --- | --- |
 | TX-F04: a tax return's Client Portal action opens the firm-side Client Portal for its client, with Back to the return on every tab | #1418 | `r60-client-portal-preview`, `r60-tax-returns-shared` |
 | Frame 1's record tabs: Messages, Appointments, Tax Returns, Invoices & Payments | #1414 | `r60-client-portal-forms` |
-| **Tax Returns tab: the assigned staff column: not built yet (assigned to R56, Nov 15).** | — | — |
+| Tax Returns tab: the assigned staff column (preparer, reviewer, or Unassigned) (instructions 4) | #1546 | e2e `tax-returns` "names each return's assigned staff"; mock `r56-client-portal-gaps` "instructions 4: the Tax Returns tab shows each return's assigned staff" |
 | Layout: nothing overlaps with the side menu open; no sideways scroll at 1440 or 390 | #1480 | `r60-portal-layout`, `r29-firm-sidebar` |
 
-## Tests still to add (cross-check, Nov 15)
+## Tests added (cross-check of Nov 15, done in #1595)
 
-These rows have their code and a named spec, but the spec does not assert the row yet. R60 adds the checks after Payroll's test PR; until then the row's code is merged and untested.
+Every row of the Nov 15 list now has a check:
 
-- Frame 1: Switch Client search; the Clients list search, status and service filters and pagination; Send Message and View Profile; View All Activity; the last client reopened; the More menu.
-- Frame 2: Client Notes, Copy Link, the breadcrumb's Clients link, the Portal Content tab, the invitation status and date, the Resend Portal Invitation button.
-- Pending Client Actions: a signature item (none is seeded).
-- Intake KPIs: counts other than zero.
-- Frame 3: Request Document, the filters with Clear, the columns, the row menu, 10, 25 or 50 per page.
-- Intake Forms: Send Reminder, More Actions, the filters, the row actions, Quick Actions, Manage Templates, and a "Submitted - Needs Review" row in the table.
-- The record tabs and Communications: the client's records and unread counts, not just the tabs.
+- Frame 1: `r60-client-portal-frame1`: Switch Client's search; the Clients list's search, no-match message, status filter and page summary; Send Message and View Profile; the More menu; View All Activity; the last client reopened from the menu.
+- Frame 2: `r60-client-portal-frame2`: Client Notes, Copy Link, the Portal Content tab, the breadcrumb's Clients link; the invitation's status and date; Send, then Resend Portal Invitation.
+- Pending Client Actions: `r60-client-portal-pending`: the signature item (Form 8879).
+- Frame 3: `r60-client-portal-frame3`: the columns, search with Clear, the row menu, 10, 25 or 50 per page, and Request Document with the client chosen.
+- Intake Forms: `r60-client-portal-intake`: the counts are the client's own forms (none, then the one sent; #1595 fixes the mock, which showed 8 forms beside an empty list); the actions of a form waiting on the client, with Send Reminder; More Actions; the Quick Actions; Manage Templates.
+- The record tabs and Communications: `r60-client-portal-records`: each lists the client's records, and Messages shows read and unread.
+
+One row is left to Octavia's retest on dev: a "Submitted - Needs Review" row in the table. In mock mode a form can't be submitted from the firm's side, and the mock seeds no submitted form for the module's clients; the label itself is the forms tab's status text for a submitted form.
