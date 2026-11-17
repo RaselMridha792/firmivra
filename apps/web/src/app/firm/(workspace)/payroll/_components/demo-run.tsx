@@ -18,7 +18,7 @@ export function DemoRunScreen() {
   // One synthetic payroll for the page: the firm's data is never read or written here.
   const [client] = useState(() => createPayrollMock({ role: 'OWNER' }));
   // The lead (Nov 7): three sample employees, round figures, so the pay grid has rows to review.
-  const addSamples = async (payrollClientId: string, runId: string) => {
+  const addSamples = async (payrollClientId: string) => {
     const samples = [
       {
         name: 'Alex Rivera (sample)',
@@ -45,34 +45,35 @@ export function DemoRunScreen() {
         deductionsCents: s.type === 'CONTRACTOR' ? 0 : 30_000,
       });
     }
-    await client.saveRunLines(runId, { lines });
+    return lines;
   };
   const demo = useQuery({
     queryKey: [...PAYROLL_KEY, 'demo-run'],
     queryFn: async () => {
-      const page = await client.runs({});
-      // The run being prepared with the most lines, so the pay grid has rows (one not started
-      // is started, in this page only); else a new one.
-      const candidates = page.items.filter((r) =>
-        ['DRAFT', 'IN_PROGRESS', 'NOT_STARTED'].includes(r.status),
-      );
-      const full = await Promise.all(candidates.map((r) => client.getRun(r.id)));
-      const open = full.sort((x, y) => y.lineCounts.total - x.lineCounts.total)[0];
-      if (open) {
-        if (open.status === 'NOT_STARTED') await client.updateRun(open.id, { step: 1 });
-        if (open.lineCounts.total === 0) await addSamples(open.payrollClientId, open.id);
-        return open.id;
-      }
-      const first = (await client.clients({})).items[0];
-      if (!first) return null;
+      // PY-B02, N01: a run of its own holding only the three samples, so the grid shows what the
+      // banner says ("The three employees are samples"). A run takes every active employee of its
+      // client, so in this page's own mock the client's employees are set inactive first.
+      const c = (await client.clients({})).items.find((x) => x.provider && x.status !== 'ON_HOLD');
+      if (!c) return null;
+      const own = await client.workers(c.id, { pageSize: 100 });
+      for (const w of own.items) await client.updateWorker(c.id, w.id, { status: 'INACTIVE' });
+      const lines = await addSamples(c.id);
       const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
-      const made = await client.createRun(first.id, {
-        periodStart: day(-13),
-        periodEnd: day(0),
-        payDate: day(5),
-      });
-      await addSamples(first.id, made.id);
-      return made.id;
+      // This period, else a later one when the client's run for it has started already.
+      for (const offset of [0, 28, 56]) {
+        try {
+          const made = await client.createRun(c.id, {
+            periodStart: day(offset - 13),
+            periodEnd: day(offset),
+            payDate: day(offset + 5),
+          });
+          await client.saveRunLines(made.id, { lines });
+          return made.id;
+        } catch {
+          // A run for that period exists: the next period.
+        }
+      }
+      return null;
     },
     staleTime: Infinity,
   });
