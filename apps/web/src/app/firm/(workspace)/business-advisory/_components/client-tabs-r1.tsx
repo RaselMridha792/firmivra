@@ -446,7 +446,8 @@ export function ClientMeetingsTab({ advisoryClientId }: { advisoryClientId: stri
           />
           <Link
             href={scheduleMeetingHref(client.data, path)}
-            className={primary}
+            aria-disabled={!client.data}
+            className={`${primary} ${client.data ? '' : 'pointer-events-none opacity-50'}`}
             data-testid="meetings-schedule"
           >
             <Plus aria-hidden weight="bold" className="size-4" /> Schedule Meeting

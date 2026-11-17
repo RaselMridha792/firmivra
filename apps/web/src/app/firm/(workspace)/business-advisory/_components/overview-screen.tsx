@@ -17,6 +17,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { AddClientDialog, AddGoalDialog } from './ba-dialogs';
@@ -35,11 +36,13 @@ import {
   outlined,
   primary,
   quiet,
+  scheduleMeetingHref,
 } from './ba-shared';
 
 /** /business-advisory: KPIs, quick actions, recent clients, meetings, goals and resources. */
 export function AdvisoryOverview() {
   const router = useRouter();
+  const navigate = useOriginNavigate();
   const q = useApiQuery([...BA_KEY, 'overview'], () => api.advisory.overview());
   const o = q.data;
   const [dialog, setDialog] = useState<{ kind: 'client' } | { kind: 'goal'; clientId?: string }>();
@@ -116,9 +119,10 @@ export function AdvisoryOverview() {
                     ]
                   : []),
                 {
+                  // Advisory A-04: on this client, with the advisory type; back here after.
                   label: 'Schedule Meeting',
                   icon: CalendarDots,
-                  onSelect: () => router.push('/calendar/new'),
+                  onSelect: () => navigate(scheduleMeetingHref({ client: r.client }, BASE)),
                 },
               ],
             },
@@ -243,10 +247,11 @@ export function AdvisoryOverview() {
           >
             <FileText aria-hidden weight="fill" className="size-5" /> Create Business Plan
           </Link>
-          <Link href="/calendar/new" className={outlined}>
+          {/* Advisory A-04: the advisory type preselected; the client is chosen in the form. */}
+          <OriginLink href={scheduleMeetingHref(undefined, BASE)} className={outlined}>
             <CalendarDots aria-hidden weight="fill" className="size-5 text-action" /> Schedule
             Advisory Meeting
-          </Link>
+          </OriginLink>
           <button
             type="button"
             disabled={!canGoal}

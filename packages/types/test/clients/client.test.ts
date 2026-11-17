@@ -41,6 +41,7 @@ const profile = {
   dateOfBirthUnavailable: false,
   ssnLast4: '0001',
   einLast4: null,
+  einStatus: null,
   address: { line1: null, line2: null, city: null, state: null, postalCode: null, country: 'US' },
   preferredContactMethod: 'EMAIL',
   referralSource: null,

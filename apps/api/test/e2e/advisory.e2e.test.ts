@@ -503,7 +503,8 @@ describe('services and advisory clients', () => {
     shared.a2 = second.id;
     expect(second).toMatchObject({
       businessName: 'Riley Bakery (fake)',
-      businessProfile: { entityType: 'LLC', einMasked: 'XX-XXX1234' },
+      // A-X01: a number on file from before the status reads as Has EIN.
+      businessProfile: { entityType: 'LLC', einMasked: 'XX-XXX1234', einStatus: 'HAS_EIN' },
     });
     // A-12: c2 had no engagement on its primary service, so adding it started one.
     expect(second.engagementId).toBeTruthy();

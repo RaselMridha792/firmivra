@@ -224,7 +224,8 @@ export class SchedulingReadService {
       const services = await tx.service.findMany({
         where: { businessId, archivedAt: null, status: 'ACTIVE' },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-        select: { id: true, name: true },
+        // Advisory A-04/A-10: the kind lets a workspace preselect its kind of meeting.
+        select: { id: true, name: true, kind: true },
       });
       // Only ACTIVE locations take new bookings (Settings > Locations: an inactive one keeps its
       // appointments but is offered no more).

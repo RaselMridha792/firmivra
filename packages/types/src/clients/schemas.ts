@@ -7,6 +7,7 @@ import {
   ClientPriority,
   ClientStatus,
   ContactMethod,
+  EinStatus,
   EngagementStatus,
   LeadSource,
   ServiceKind,
@@ -426,6 +427,11 @@ export const ClientProfile = z.object({
   ssnLast4: last4,
   /** BUSINESS clients: the only part of the EIN the API ever returns. */
   einLast4: last4,
+  /**
+   * Advisory Review 2 A-X01 (Octavia's B15): Has EIN, Not Applicable or To Be Applied For, kept
+   * apart from the number (never saved as one); null when not set yet.
+   */
+  einStatus: EinStatus.nullable(),
   address: Address,
   preferredContactMethod: ContactMethod.nullable(),
   referralSource: z.string().nullable(),
@@ -483,6 +489,14 @@ const digits = (count: number, message: string) =>
     .transform((s) => s.replace(/[\s-]/g, ''))
     .pipe(z.string().regex(new RegExp(`^\\d{${count}}$`), message));
 
+/** A-X01: an EIN goes only with Has EIN (or no status): a status is never an EIN. */
+const einWithStatus = (b: { ein?: string | null; einStatus?: string | null }) =>
+  !b.ein || !b.einStatus || b.einStatus === 'HAS_EIN';
+const EIN_STATUS_ISSUE = {
+  path: ['ein'],
+  message: 'An EIN goes with Has EIN; clear it for Not Applicable or To Be Applied For',
+};
+
 /** The profile fields a request may send (see UpdateClientProfileRequest). */
 const ProfileFields = z.strictObject({
   firstName: clearable(text(100)),
@@ -494,6 +508,11 @@ const ProfileFields = z.strictObject({
   dateOfBirth: clearable(PastDate),
   ssn: clearable(digits(9, 'Enter the 9-digit SSN')),
   ein: clearable(digits(9, 'Enter the 9-digit EIN')),
+  /**
+   * A-X01: the EIN's status. Not Applicable or To Be Applied For clears a stored number and takes
+   * none; a number sent without a status is Has EIN.
+   */
+  einStatus: clearable(EinStatus),
   address: AddressInput.optional(),
   preferredContactMethod: clearable(ContactMethod),
   referralSource: clearable(text(200)),
@@ -517,7 +536,7 @@ const ProfileFields = z.strictObject({
 export const UpdateClientProfileRequest = ProfileFields.refine(
   (body) => Object.values(body).some((v) => v !== undefined),
   'Change at least one field',
-);
+).refine(einWithStatus, EIN_STATUS_ISSUE);
 export type UpdateClientProfileRequest = z.input<typeof UpdateClientProfileRequest>;
 
 /**
@@ -531,7 +550,7 @@ export const CreateClientRequest = z.strictObject({
   phone: clearable(Phone),
   assignedUserId: z.uuid().optional(),
   /** The same fields as the profile update; `{}` is the same as leaving it out. */
-  profile: ProfileFields.optional(),
+  profile: ProfileFields.refine(einWithStatus, EIN_STATUS_ISSUE).optional(),
   /**
    * Clients Review 2 (C2-038): a phone another client of the firm already has is 409
    * DUPLICATE_PHONE (details: `count` and the `matches` the caller may see, each with `id`,

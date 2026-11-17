@@ -334,26 +334,28 @@ function TYPES() {
     ['Internal / Staff Meeting', 60, '#7c3aed'],
     ['New Client Intake', 60, '#9333ea'],
     ['Client Workshop', 120, '#7c3aed'],
-  ].map(([name, durationMinutes, color], i) => ({
+    // Advisory A-04/A-10: the firm's advisory meeting type, on its Business Advisory service.
+    ['Business Advisory Meeting', 60, '#0d9488', uuid('0e20', 6)],
+  ].map(([name, durationMinutes, color, serviceId], i) => ({
     id: uuid('0e10', i + 1),
     name: String(name),
     durationMinutes: Number(durationMinutes),
     color: String(color),
-    serviceId: null,
+    serviceId: serviceId ? String(serviceId) : null,
   }));
 }
 
 function SERVICES() {
-  return [
-    'Tax Preparation',
-    'Bookkeeping',
-    'Payroll Setup',
-    'Business Tax',
-    'Business Formation',
-  ].map((name, i) => ({
-    id: uuid('0e20', i + 1),
-    name,
-  }));
+  return (
+    [
+      ['Tax Preparation', 'ANNUAL_TAX'],
+      ['Bookkeeping', 'BOOKKEEPING'],
+      ['Payroll Setup', 'PAYROLL'],
+      ['Business Tax', 'ANNUAL_TAX'],
+      ['Business Formation', 'OTHER'],
+      ['Business Advisory', 'BUSINESS_DEVELOPMENT'],
+    ] as const
+  ).map(([name, kind], i) => ({ id: uuid('0e20', i + 1), name, kind }));
 }
 
 let stores: Map<string, Store> | undefined;

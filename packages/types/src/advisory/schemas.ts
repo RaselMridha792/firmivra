@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Address, CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import {
+  EinStatus,
   AdvisoryActionStatus,
   AdvisoryAssigneeKind,
   AdvisoryClientStatus,
@@ -307,6 +308,8 @@ export const AdvisoryClientDetail = AdvisoryClientRow.extend({
     website: z.string().nullable(),
     /** The EIN masked to its last 4 digits, only for those who may see it. */
     einMasked: z.string().nullable(),
+    /** A-X01: Has EIN, Not Applicable or To Be Applied For, apart from the number; null when not set. */
+    einStatus: EinStatus.nullable(),
   }),
   currentPlan: z
     .object({

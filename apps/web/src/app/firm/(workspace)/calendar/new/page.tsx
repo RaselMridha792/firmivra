@@ -1,3 +1,4 @@
+import { ServiceKind } from '@firmivra/types';
 import type { Metadata } from 'next';
 import { safeOrigin } from '../../../../../lib/origin';
 import { ScheduleForm } from '../_components/schedule-form';
@@ -15,7 +16,9 @@ const id = (v: Param) => (typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? 
  * Schedule a Planning Consultation (C02) sends `serviceId` alone: its service is chosen and the
  * client is picked in the form. A plan's Schedule Client Discussion (C12) adds `taxPlanId`: the
  * appointment is that plan's discussion. Review 2 (Save as Draft): `?draft=` reopens one of the
- * member's saved drafts; scheduling it deletes the draft.
+ * member's saved drafts; scheduling it deletes the draft. Advisory A-04/A-10: `serviceKind`
+ * (BUSINESS_DEVELOPMENT from Business Advisory) picks a type of that kind of service when the
+ * engagement's own service has none, or when no engagement is sent.
  */
 export default async function CalendarNewPage({
   searchParams,
@@ -30,10 +33,22 @@ export default async function CalendarNewPage({
     taxPlanId?: Param;
     draft?: Param;
     from?: Param;
+    serviceKind?: Param;
   }>;
 }) {
-  const { date, time, clientId, engagementId, serviceId, taxReturnId, taxPlanId, draft, from } =
-    await searchParams;
+  const {
+    date,
+    time,
+    clientId,
+    engagementId,
+    serviceId,
+    taxReturnId,
+    taxPlanId,
+    draft,
+    from,
+    serviceKind,
+  } = await searchParams;
+  const kind = ServiceKind.safeParse(serviceKind);
   const at =
     typeof date === 'string' &&
     isCalendarDate(date) &&
@@ -50,6 +65,7 @@ export default async function CalendarNewPage({
         serviceId: id(serviceId),
         // Review 2 (TX-F06): a tax return's Schedule Appointment links it.
         taxReturnId: id(taxReturnId),
+        ...(kind.success ? { serviceKind: kind.data } : {}),
       }}
       cancelHref={safeOrigin(from) ?? undefined}
       taxPlanId={id(taxPlanId)}
