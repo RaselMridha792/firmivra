@@ -647,6 +647,38 @@ describe('portal uploads (household rules, q12)', () => {
   });
 });
 
+describe('a portal upload to a Bookkeeping service (Bookkeeping Review 2, A01)', () => {
+  it("shows in that client's Bookkeeping Activity as the client's, with no staff author", async () => {
+    const businessId = firms.a.id;
+    // A Bookkeeping service of its own, so the other tests' lists stay as they are.
+    const books = await asOwner(businessId, async (tx) => {
+      const { serviceId } = await tx.engagement.findUniqueOrThrow({ where: { id: ids.e1b } });
+      const data = { businessId, clientId: ids.c1, serviceId, title: 'R60 books (fake)' };
+      const e = await tx.engagement.create({ data: { ...data, status: 'ACTIVE' } });
+      await tx.bookkeepingProfile.create({ data: { businessId, engagementId: e.id } });
+      return e.id;
+    });
+    const doc = await mine(people.primary, {
+      serviceId: books,
+      fileName: 'Fake client bank statement.pdf',
+    });
+    const feed = await asOwner(businessId, (tx) =>
+      tx.bookkeepingActivity.findMany({
+        where: { businessId, engagementId: books },
+        select: { kind: true, summary: true, actorUserId: true, details: true },
+      }),
+    );
+    expect(feed).toEqual([
+      {
+        kind: 'OTHER',
+        summary: 'The client uploaded Fake client bank statement.pdf',
+        actorUserId: null,
+        details: { documentId: doc.id },
+      },
+    ]);
+  });
+});
+
 describe('portal lists, views and downloads', () => {
   it('shows the household the firm shared files, never INTERNAL ones, and AUTHORIZED no FIRM files', async () => {
     const shared = await firmFile({ shareWithClient: true, fileName: 'Engagement_Letter.pdf' });
