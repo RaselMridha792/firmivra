@@ -52,6 +52,7 @@ import {
 } from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
 import { FirmKeyJob } from './firm-key-job.js';
+import { openTicketsFor } from '../admin-support/support-context.js';
 import { OWNER_INVITES } from './owner-invites.js';
 
 /**
@@ -508,22 +509,45 @@ export class FirmApplicationsService {
   async dashboard(): Promise<AdminDashboard> {
     const db = this.admin.db;
     // Logins are a platform table (users_select allows platform scope); admin scope sees only
-    // owners. Counted from `users` alone, never memberships or client accounts.
+    // owners. Counted from `users` alone, never memberships or client accounts: the admin site
+    // never opens a firm's scope.
     const users = this.database.forPlatform().user;
     const staffAndClients = { pool: { not: 'ADMIN' } } as const;
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const [pendingApplications, activeFirms, totalUsers, newUsersThisWeek] = await Promise.all([
+    // SA-DSH-F10, F11: this week from Monday 00:00 UTC (Reports and Subscriptions count UTC days).
+    const today = new Date().toISOString().slice(0, 10);
+    const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
+    const monday = new Date(Date.parse(`${today}T00:00:00Z`) - ((weekday + 6) % 7) * 86_400_000);
+    const sunday = new Date(monday.getTime() + 6 * 86_400_000);
+    const [
+      pendingApplications,
+      activeFirms,
+      totalUsers,
+      newUsersThisWeek,
+      openTickets,
+      renewalsThisWeek,
+    ] = await Promise.all([
       // SA-APP-Y04: Pending and In Review; Awaiting Information waits on the applicant.
       db.firmApplication.count({ where: { status: { in: ['PENDING_REVIEW', 'IN_REVIEW'] } } }),
       db.business.count({ where: { status: 'ACTIVE' } }),
       users.count({ where: staffAndClients }),
-      users.count({ where: { ...staffAndClients, createdAt: { gte: weekAgo } } }),
+      users.count({ where: { ...staffAndClients, createdAt: { gte: monday } } }),
+      // SA-DSH-F09: what this viewer's Support list shows (all, or only their own).
+      this.admin.transaction((tx) => openTicketsFor(tx, this.admin.adminUserId)),
+      db.platformFirmSubscription.count({
+        where: {
+          status: { in: ['ACTIVE', 'PAST_DUE'] },
+          autoRenew: true,
+          nextBillingDate: { gte: monday, lte: sunday },
+        },
+      }),
     ]);
     return {
       pendingApplications,
       activeFirms,
       totalUsers,
       newUsersThisWeek,
+      openTickets,
+      renewalsThisWeek,
       // Firmivra does not bill firms yet (Subscriptions and Billing are "Soon").
       monthlyRevenueCents: 0,
     };

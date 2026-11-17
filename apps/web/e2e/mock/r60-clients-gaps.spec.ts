@@ -77,3 +77,35 @@ test('Overview names the profile text Additional Information and opens the inter
   await overview.getByTestId('open-client-notes').click();
   await expect(page).toHaveURL(/\/clients\/0199b6a1-0000-7000-8000-000000000001\/notes$/);
 });
+
+// Clients Review 2 (§6 Full Add and Edit coverage b): the override must work on Edit as it does on
+// Add. Edit Details with another client's phone (Morgan Lee's) asks first; Keep Editing keeps the
+// typed phone and saves nothing; Save Anyway then saves it.
+test('Edit Details: a phone another client has asks first, then Save Anyway saves it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1165, height: 747 });
+  await page.goto(app('/clients/0199b6a1-0000-7000-8000-000000000001'));
+  await expect(page.getByTestId('page-title')).toHaveText('Jamie Sample', { timeout: 60_000 });
+  const header = page.getByRole('main').locator('header');
+  await expect(header).toContainText('(404) 555-0123');
+
+  await page.getByRole('button', { name: 'Edit details' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit Jamie Sample' });
+  await dialog.getByLabel('Phone *').fill('(678) 555-0142');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+
+  const duplicate = page.getByRole('dialog', { name: 'Possible duplicate client' });
+  await expect(duplicate).toBeVisible();
+  await expect(duplicate.getByTestId('duplicate-matches')).toContainText('Morgan Lee');
+  await duplicate.getByRole('button', { name: 'Keep Editing' }).click();
+  await expect(duplicate).toBeHidden();
+  await expect(dialog.getByLabel('Phone *')).toHaveValue('(678) 555-0142');
+  await expect(header).toContainText('(404) 555-0123');
+
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await duplicate.getByRole('button', { name: 'Save Anyway' }).click();
+  await expect(duplicate).toBeHidden();
+  await expect(dialog).toBeHidden();
+  await expect(header).toContainText('(678) 555-0142');
+});

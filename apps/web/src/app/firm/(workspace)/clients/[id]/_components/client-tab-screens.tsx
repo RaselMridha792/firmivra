@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { OriginLink } from '../../../../../../components/origin-link';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
+import { newTaskHref } from '../../../tasks/_components/new-task-href';
 import { ServiceTasks } from '../../../tasks/_components/service-tasks';
 import { dateText } from '../../_components/client-parts';
 import { NotesCard } from '../messages/_components/notes-card';
@@ -96,12 +97,26 @@ export function ClientIntakesScreen() {
   );
 }
 
-/** The client's open tasks: the Tasks module's own table, with Create Task for this client. */
+/** The client's open tasks: the Tasks module's own table, with New Task for this client. */
 export function ClientTasksScreen() {
+  const clientId = useClientId();
   return (
-    <Card title="Tasks">
+    <Card
+      title={
+        <span className="flex flex-wrap items-center justify-between gap-2">
+          Tasks
+          {/* Clients Review 2 (N8-36): a task for this client, with Back to the client. */}
+          <OriginLink
+            href={newTaskHref({ clientId })}
+            className="text-sm font-medium text-link hover:underline"
+          >
+            New Task
+          </OriginLink>
+        </span>
+      }
+    >
       <div data-testid="client-tasks">
-        <ServiceTasks clientId={useClientId()} pageSize={20} caption="The client's open tasks" />
+        <ServiceTasks clientId={clientId} pageSize={20} caption="The client's open tasks" />
       </div>
     </Card>
   );

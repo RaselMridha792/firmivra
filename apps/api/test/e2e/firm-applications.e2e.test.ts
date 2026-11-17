@@ -19,6 +19,7 @@ import {
   ListFirmApplicationsResponse,
   ListFirmsResponse,
 } from '@firmivra/types';
+import { openTicketsFor } from '../../src/admin-support/support-context.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -520,6 +521,145 @@ describe('GET /admin/firms and /admin/dashboard', () => {
     expect(d.newUsersThisWeek).toBeGreaterThanOrEqual(7);
     expect(d.newUsersThisWeek).toBeLessThanOrEqual(d.totalUsers!);
     expect(d.monthlyRevenueCents).toBe(0);
+  });
+
+  it("SA-DSH-F09: Open support tickets counts only what the viewer's Support list shows", async () => {
+    // The Owner's grid is shared by every Super Admin, so it changes only inside a transaction
+    // that is rolled back: no other test ever sees it.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const me = fx.users.admin.id;
+    const rollback = new Error('rollback');
+    try {
+      await runInScope(owner, { kind: 'admin', adminUserId: me }, async (tx) => {
+        const category = await tx.supportCategory.findFirstOrThrow({ where: { isActive: true } });
+        const priority = await tx.supportPriority.findFirstOrThrow({ where: { isActive: true } });
+        // One open ticket assigned to this Super Admin, one to nobody.
+        for (const assignedUserId of [me, null]) {
+          await tx.supportTicket.create({
+            data: {
+              businessId: fx.firmA.id,
+              contactUserId: fx.users.ownerA.id,
+              subject: 'Fake dashboard ticket',
+              description: 'Fake',
+              categoryId: category.id,
+              priorityId: priority.id,
+              source: 'INTERNAL',
+              createdByUserId: me,
+              assignedUserId,
+            },
+          });
+        }
+        // The Owner's grid is stored on the CEO role (seed-platform-team.ts); a fresh test database
+        // may not have it yet, so it is made here too, and rolled back with the rest.
+        const executive = await tx.platformDepartment.upsert({
+          where: { code: 'EXECUTIVE' },
+          create: { code: 'EXECUTIVE', name: 'Executive' },
+          update: {},
+        });
+        const roles = [
+          await tx.platformRoleDefinition.upsert({
+            where: { code: 'EXECUTIVE_CEO' },
+            create: {
+              code: 'EXECUTIVE_CEO',
+              title: 'CEO',
+              level: 'CEO',
+              departmentId: executive.id,
+              defaultScopeType: 'COMPANY',
+            },
+            update: {},
+            select: { id: true },
+          }),
+        ];
+        /** The Owner's View all tickets and View own tickets. */
+        const grid = async (viewAll: boolean, viewOwn: boolean) => {
+          for (const { id: roleDefinitionId } of roles) {
+            for (const [permissionKey, on] of [
+              ['support.view_all', viewAll],
+              ['support.view_own', viewOwn],
+            ] as const) {
+              const state = on ? 'ALLOW' : 'DENY';
+              await tx.platformRolePermission.upsert({
+                where: { roleDefinitionId_permissionKey: { roleDefinitionId, permissionKey } },
+                create: { roleDefinitionId, permissionKey, state },
+                update: { state },
+              });
+            }
+          }
+        };
+        const open = (where: Prisma.SupportTicketWhereInput = {}) =>
+          tx.supportTicket.count({ where: { status: 'OPEN', deletedAt: null, ...where } });
+
+        await grid(true, true);
+        expect(await openTicketsFor(tx, me)).toBe(await open());
+        // View own tickets only: their own open tickets, fewer than all of them.
+        await grid(false, true);
+        const own = await open({ assignedUserId: me });
+        expect(own).toBeGreaterThanOrEqual(1);
+        expect(own).toBeLessThan(await open());
+        expect(await openTicketsFor(tx, me)).toBe(own);
+        // Neither: Support shows no list, so there is no number.
+        await grid(false, false);
+        expect(await openTicketsFor(tx, me)).toBeNull();
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it('SA-DSH-F09, F10, F11: counts what the screens they open show', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    // This week from Monday 00:00 UTC.
+    const monday = new Date();
+    monday.setUTCHours(0, 0, 0, 0);
+    monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+    const nextMonday = new Date(monday.getTime() + 7 * 86_400_000);
+    const admin = { kind: 'admin', adminUserId: fx.users.admin.id } as const;
+    /** The counts as the screens they open read them, straight from the database. */
+    const expected = async () => {
+      const logins: Prisma.UserWhereInput = { pool: { in: ['STAFF', 'CLIENT'] } };
+      const users = await runInScope(owner, { kind: 'platform' }, (tx) =>
+        Promise.all([
+          tx.user.count({ where: logins }),
+          tx.user.count({ where: { ...logins, createdAt: { gte: monday } } }),
+        ]),
+      );
+      const [openTickets, renewalsThisWeek] = await runInScope(owner, admin, (tx) =>
+        Promise.all([
+          tx.supportTicket.count({ where: { status: 'OPEN', deletedAt: null } }),
+          tx.platformFirmSubscription.count({
+            where: {
+              status: { in: ['ACTIVE', 'PAST_DUE'] },
+              autoRenew: true,
+              nextBillingDate: { gte: monday, lt: nextMonday },
+            },
+          }),
+        ]),
+      );
+      return { totalUsers: users[0], newUsersThisWeek: users[1], openTickets, renewalsThisWeek };
+    };
+    try {
+      // Other test files write at the same time: compare in a window where nothing changed.
+      let matched = false;
+      for (let i = 0; i < 5 && !matched; i++) {
+        const before = await expected();
+        const d = (await get('/admin/dashboard').expect(200)).body as AdminDashboard;
+        const after = await expected();
+        if (JSON.stringify(before) !== JSON.stringify(after)) continue;
+        expect({
+          totalUsers: d.totalUsers,
+          newUsersThisWeek: d.newUsersThisWeek,
+          openTickets: d.openTickets,
+          renewalsThisWeek: d.renewalsThisWeek,
+        }).toEqual(before);
+        matched = true;
+      }
+      expect(matched).toBe(true);
+    } finally {
+      await owner.$disconnect();
+    }
   });
 });
 
