@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { z } from 'zod';
-import { AgendaPage, AppointmentDetail, AppointmentList } from '@firmivra/types';
+import { AgendaPage, AppointmentDetail, AppointmentList, AppointmentRecord } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { addDays, minutesOf, zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -79,7 +79,7 @@ async function call(
 }
 
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
-export const expectError = (res: Response, status: number, code: string) =>
+const expectError = (res: Response, status: number, code: string) =>
   expect([res.status, codeOf(res)], JSON.stringify(res.body)).toEqual([status, code]);
 
 /** Parses with the contract and refuses anything it does not name (a leaked field fails). */
@@ -285,5 +285,150 @@ describe('contracts: a lead’s own appointment names its lead (item 1)', () => 
       restricted: false,
       contact: { kind: 'LEAD', id: ids.lead, name: 'Jordan Leadwell', clientType: null },
     });
+  });
+});
+
+// ---- item 2 ----
+const schedule = (extra: object = {}, contactId = ids.lead) => ({
+  idempotencyKey: randomUUID(),
+  contact: { kind: 'LEAD', id: contactId },
+  typeId: ids.type,
+  startsAt: at(freshDay(), '10:00'),
+  endsAt: at(nextDay, '10:30'),
+  method: 'PHONE',
+  staffUserIds: [people.ownerA.id],
+  ...extra,
+});
+const book = async (extra: object = {}, who: Who = people.ownerA, contactId = ids.lead) =>
+  exact(
+    AppointmentRecord,
+    await call('post', '/appointments/schedule', who, schedule(extra, contactId)),
+  );
+/** R12's answers to a change: the appointment without its history. */
+const Changed = AppointmentDetail.omit({ history: true });
+
+describe('booking a lead (item 2)', () => {
+  it('books a lead that is not a client yet: no client, its lead, audited by id only', async () => {
+    const record = await book();
+    expect(record.contact).toMatchObject({ kind: 'LEAD', id: ids.lead, name: 'Jordan Leadwell' });
+    const row = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({
+        where: { id: record.id },
+        select: { clientId: true, leadId: true },
+      }),
+    );
+    expect(row).toEqual({ clientId: null, leadId: ids.lead });
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { businessId: ids.firmA, entityId: record.id, action: 'appointment.booked' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit.metadata).toMatchObject({ clientId: null, leadId: ids.lead });
+    expect(JSON.stringify(audit.metadata)).not.toMatch(/Jordan|Leadwell|@p41\.test/);
+    // The lead's own timeline has it, by the type's name.
+    const activity = await asOwner(ids.firmA, (tx) =>
+      tx.leadActivity.findFirst({
+        where: { businessId: ids.firmA, leadId: ids.lead, kind: 'APPOINTMENT_SCHEDULED' },
+        select: { summary: true },
+      }),
+    );
+    expect(activity?.summary).toBe(`Consult ${run}`);
+  });
+
+  it('a lead is not double booked', async () => {
+    const first = await book();
+    const res = await call('post', '/appointments/schedule', people.ownerA, {
+      ...schedule({ staffUserIds: [people.staffB.id] }),
+      startsAt: first.startsAt,
+      endsAt: first.endsAt,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(['SCHEDULING_CONFLICT', 'SLOT_TAKEN']).toContain(codeOf(res));
+  });
+
+  it("refuses a tax return, a tax plan and other attendees on a lead's own appointment (400)", async () => {
+    const other = randomUUID();
+    for (const [extra, path] of [
+      [{ related: { taxReturnId: other } }, 'related.taxReturnId'],
+      [{ taxPlanId: other }, 'taxPlanId'],
+      [{ attendeeClientIds: [other] }, 'attendeeClientIds'],
+    ] as const) {
+      const res = await call('post', '/appointments/schedule', people.ownerA, schedule(extra));
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(res.body)).toContain(path);
+      expect(JSON.stringify(res.body)).toContain('Convert the lead');
+    }
+  });
+
+  it('404 for another firm’s lead, an archived lead, and a lead a Staff member does not reach', async () => {
+    expectError(
+      await call('post', '/appointments/schedule', people.ownerA, schedule({}, ids.leadB)),
+      404,
+      'NOT_FOUND',
+    );
+    const archived = await newLead('Gone Archived', { assignedUserId: people.staffA.id });
+    await asOwner(ids.firmA, (tx) =>
+      tx.lead.update({
+        where: { id: archived },
+        data: { archivedAt: new Date(), archivedByUserId: people.ownerA.id },
+      }),
+    );
+    expectError(
+      await call('post', '/appointments/schedule', people.ownerA, schedule({}, archived)),
+      404,
+      'NOT_FOUND',
+    );
+    // staffB is not the lead's member (staffA is).
+    expectError(
+      await call(
+        'post',
+        '/appointments/schedule',
+        people.staffB,
+        schedule({ staffUserIds: [people.staffB.id] }),
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    // The conflict check resolves the lead by the same rule.
+    expectError(
+      await call('post', '/appointments/conflicts', people.ownerA, {
+        staffUserIds: [people.ownerA.id],
+        contact: { kind: 'LEAD', id: ids.leadB },
+        startsAt: at(60, '10:00'),
+        endsAt: at(60, '10:30'),
+      }),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('reschedules, cancels and completes a lead’s own appointment like a client’s', async () => {
+    const record = await book();
+    const moved = exact(
+      Changed,
+      await call('post', `/appointments/${record.id}/reschedule`, people.ownerA, {
+        startsAt: at(freshDay(), '11:00'),
+      }),
+    );
+    expect(moved).toMatchObject({ client: null, lead: { id: ids.lead }, rescheduleCount: 1 });
+    const cancelled = exact(
+      Changed,
+      await call('post', `/appointments/${record.id}/cancel`, people.ownerA, {
+        reason: 'Fake: the lead asked',
+      }),
+    );
+    expect(cancelled.status).toBe('CANCELLED');
+    const past = await seedLeadAppointment(ids.lead, -2);
+    const done = exact(
+      Changed,
+      await call('post', `/appointments/${past}/complete`, people.ownerA, {}),
+    );
+    expect(done).toMatchObject({ status: 'COMPLETED', client: null });
+    const detail = exact(
+      AppointmentDetail,
+      await call('get', `/appointments/${record.id}`, people.ownerA),
+    );
+    expect(detail.history.map((h) => h.action)).toEqual(['BOOKED', 'RESCHEDULED', 'CANCELLED']);
   });
 });
