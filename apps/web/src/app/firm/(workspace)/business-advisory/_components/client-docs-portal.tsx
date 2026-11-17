@@ -45,6 +45,7 @@ import { useFirmDocumentMaxBytes } from '../../../../../lib/document-limit';
 import { uploadFile } from '../../../../../lib/upload';
 import { ErrorLine } from './ba-dialogs';
 import { FilterSelect, SearchBox, useAct } from './ba-list-kit';
+import { FileHistoryDialog } from './file-history';
 import {
   ActionStatusPill,
   BASE,
@@ -165,6 +166,16 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
       : Promise.resolve(null),
   );
   const rows = (docs.data?.items ?? []).filter((d) => advisory.has(d.service.id));
+  // Advisory Review 2 A-X12 (B33): what the client uploaded, apart from the firm's own files.
+  const inbound = useApiQuery([...BA_KEY, 'client-documents-inbound', firmClientId], () =>
+    firmClientId
+      ? api.documents
+          .list(firmClientId, { direction: 'CLIENT_TO_FIRM', limit: 50 })
+          .catch(noneWhenMissing(NO_DOCS))
+      : Promise.resolve(null),
+  );
+  const fromClient = (inbound.data?.items ?? []).filter((d) => advisory.has(d.service.id));
+  const [history, setHistory] = useState<FirmDocument>();
   const openRequests = (requests.data ?? []).filter((r) => advisory.has(r.service.id));
   const failed = client.isError || docs.isError;
   const reset = (set: (v: string) => void) => (v: string) => {
@@ -172,6 +183,39 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
     setCursors([]);
   };
 
+  /** A-X12: the client's own uploads: uploader, date, type, the request it answers, its state. */
+  const inboundCols: Column<FirmDocument>[] = [
+    {
+      id: 'name',
+      label: 'File',
+      cell: (d) => <span className="font-medium wrap-anywhere text-heading">{d.fileName}</span>,
+    },
+    {
+      id: 'by',
+      label: 'Uploaded By',
+      cell: (d) => (d.uploadedBy ? `${d.uploadedBy.name} (client)` : '—'),
+    },
+    {
+      id: 'date',
+      label: 'Date',
+      className: 'whitespace-nowrap',
+      cell: (d) => dayText(d.createdAt),
+    },
+    { id: 'type', label: 'Type', cell: (d) => d.category?.name ?? d.contentType },
+    { id: 'request', label: 'For a Request', cell: (d) => (d.requestId ? 'Yes' : 'No') },
+    {
+      id: 'direction',
+      label: 'Direction',
+      className: 'whitespace-nowrap',
+      cell: (d) => <Badge tone={DIRECTION[d.direction][1]}>{DIRECTION[d.direction][0]}</Badge>,
+    },
+    {
+      id: 'scan',
+      label: 'Status',
+      className: 'whitespace-nowrap',
+      cell: (d) => <Badge tone={SCAN[d.scanStatus][1]}>{SCAN[d.scanStatus][0]}</Badge>,
+    },
+  ];
   const cols: Column<FirmDocument>[] = [
     {
       id: 'name',
@@ -329,6 +373,35 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
           </Link>
         ) : null}
       </section>
+      <section className={card} aria-label="Files Shared by Client" data-testid="files-from-client">
+        <SectionHead
+          icon={FileArrowUp}
+          title="Files Shared by Client"
+          subtitle="What the client uploaded to their advisory services, kept in their documents: who, when, the request it answers and each file's history."
+        />
+        <Table
+          rows={fromClient}
+          columns={inboundCols}
+          rowKey={(d) => d.id}
+          caption="Files shared by the client"
+          dense
+          noun="files"
+          pageSize={10}
+          loading={Boolean(firmClientId) && inbound.isPending}
+          emptyTitle={inbound.isError ? 'Files are not available' : 'No files from the client yet'}
+          emptyText={
+            inbound.isError
+              ? 'We could not load them. Try again in a moment.'
+              : 'Files the client uploads, or sends for a request, show here.'
+          }
+          rowActions={(d) => (
+            <Button variant="secondary" onClick={() => setHistory(d)}>
+              History
+            </Button>
+          )}
+        />
+      </section>
+      {history ? <FileHistoryDialog doc={history} onClose={() => setHistory(undefined)} /> : null}
       <section className={card} aria-label="Document requests" data-testid="tab-doc-requests">
         <SectionHead
           icon={ListChecks}

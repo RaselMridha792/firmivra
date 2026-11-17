@@ -200,3 +200,23 @@ test('A-X05: status changes and sharing ask first, in the app; Cancel changes no
     page.getByRole('dialog', { name: /to the client\?|from the client\?/ }),
   ).toBeVisible();
 });
+
+test('A-X12: notes show their audience, and the client’s own files have their own section', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app(`/business-advisory/clients/${MARCUS}/notes`));
+  await expect(page.getByTestId('note-audience')).toContainText('Internal · staff only', {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId('note-audience')).toContainText(
+    'Sharing a note with the client is not offered.',
+  );
+
+  await page.goto(app(`/business-advisory/clients/${MARCUS}/documents`));
+  const files = page.getByTestId('files-from-client');
+  await expect(files.getByRole('heading', { name: 'Files Shared by Client' })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(files).toContainText(/No files from the client yet|Uploaded By/);
+});
