@@ -4,6 +4,7 @@ import { liveClient } from '../tasks/task-common.js';
 import { AUDIT_EVENTS, clientTypes, loadAuditEvent, providerName } from './audit-events.js';
 import { CONFIRMABLE_EVENTS } from './catalog.js';
 import type { FieldValue } from './logic.js';
+import { withClient } from '../appointments/appointment-party.js';
 
 // The records an event can start a rule for. Each event reads the firm's own tables (the
 // transaction's scope is the firm), puts what a condition can test into `fields`, and gives the
@@ -254,6 +255,8 @@ const LOADERS: Record<string, Loader> = {
         businessId: s.businessId,
         status: 'SCHEDULED',
         startsAt: { gte: s.now },
+        // P4-1: automations run on clients' records; a lead's own appointment is not one.
+        clientId: { not: null },
         ...(s.recordId ? { id: s.recordId } : {}),
       },
       select: {
@@ -268,22 +271,25 @@ const LOADERS: Record<string, Loader> = {
       orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
       take: s.limit ?? LIMIT,
     });
-    return rows.map((a) => ({
-      recordKind: 'appointment',
-      recordId: a.id,
-      clientId: a.client.id,
-      label: 'Appointment',
-      at: a.startsAt,
-      occurrence: a.startsAt.toISOString(),
-      fields: {
-        clientType: a.client.accountType,
-        locationKind: a.locationKind,
-        appointmentTypeId: a.typeId,
-        confirmation: a.confirmedAt ? 'CONFIRMED' : 'PENDING',
-        serviceKind: a.service?.kind ?? null,
-        startsOn: dayIn(s, a.startsAt),
-      },
-    }));
+    return rows.map((appointment) => {
+      const a = withClient(appointment);
+      return {
+        recordKind: 'appointment',
+        recordId: a.id,
+        clientId: a.client.id,
+        label: 'Appointment',
+        at: a.startsAt,
+        occurrence: a.startsAt.toISOString(),
+        fields: {
+          clientType: a.client.accountType,
+          locationKind: a.locationKind,
+          appointmentTypeId: a.typeId,
+          confirmation: a.confirmedAt ? 'CONFIRMED' : 'PENDING',
+          serviceKind: a.service?.kind ?? null,
+          startsOn: dayIn(s, a.startsAt),
+        },
+      };
+    });
   },
   // AU-F09: an open lead's next follow-up (its type and time), before or after it.
   'lead.follow_up_due': async (tx, s) => {

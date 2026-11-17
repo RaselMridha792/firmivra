@@ -824,7 +824,9 @@ export class ClientsService {
       services.set(e.clientId, list);
     }
     for (const r of requests) missing.set(r.clientId, r._count._all);
-    for (const a of appointments) if (a._min.startsAt) next.set(a.clientId, a._min.startsAt);
+    // P4-1: a lead's own appointment (no client) is no client's next one.
+    for (const a of appointments)
+      if (a.clientId && a._min.startsAt) next.set(a.clientId, a._min.startsAt);
     for (const o of owed) balance.set(o.clientId, Math.round(o.cents));
     return { services, missing, balance, next };
   }
