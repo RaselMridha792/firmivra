@@ -7,6 +7,7 @@ import {
 } from '../client-portal/portal-activity.js';
 import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { redactMetadata } from './audit-values.js';
 
 export interface AuditEntity {
   /** For example 'client', 'document', 'membership'. */
@@ -26,7 +27,8 @@ export interface AuditAt {
 /**
  * Append-only audit log. Every action on client data calls `log` (CLAUDE.md rule 8).
  * Actor, firm, IP, user agent and request id come from the request context.
- * Metadata must never hold passwords, codes, tokens, SSNs or document content.
+ * Metadata must never hold passwords, codes, tokens, SSNs or document content; as a second wall,
+ * every row's metadata goes through `redactMetadata` (audit-values.ts) before it is written.
  * A firm row whose action is one of a client's portal actions, written by that firm's client
  * login, is also copied into the client's portal activity (client-portal/portal-activity.ts).
  */
@@ -122,7 +124,9 @@ export class AuditService {
       action,
       entityType: entity.type,
       entityId: entity.id ?? null,
-      metadata: metadata as Prisma.InputJsonValue | undefined,
+      // M03: secrets never written, tax ids to their last 4, whatever the caller passed.
+      metadata: (metadata === undefined ? undefined : redactMetadata(metadata)) as
+        Prisma.InputJsonValue | undefined,
       ip: at.withoutOrigin ? null : (store?.ip ?? null),
       userAgent: at.withoutOrigin ? null : (store?.userAgent ?? null),
       requestId: store?.requestId ?? null,
