@@ -88,3 +88,34 @@ test('SM16: each Create Staff step says the progress is kept as a draft', async 
     { timeout: 60_000 },
   );
 });
+
+test.describe('SM38: Staff Management times are in the firm’s time zone', () => {
+  // The browser in Dhaka, the firm (mock) in New York: a time in the wrong zone is 10 to 11 hours off.
+  test.use({ timezoneId: 'Asia/Dhaka' });
+
+  test('the security defaults’ Last saved time is the firm’s', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(app('/team/settings/security'));
+    await page.getByLabel('Set automatic logout after inactivity').check({ timeout: 60_000 });
+    const clock = (d: Date) =>
+      /\d{1,2}:\d{2}/.exec(
+        d.toLocaleTimeString('en-US', {
+          timeZone: 'America/New_York',
+          hour: 'numeric',
+          minute: '2-digit',
+        }),
+      )?.[0];
+    const expected = [clock(new Date()), clock(new Date(Date.now() + 60_000))];
+    await page.getByRole('button', { name: 'Save Changes' }).click();
+    await page
+      .getByRole('dialog', { name: 'Save the new account defaults?' })
+      .getByRole('button', { name: 'Save Defaults' })
+      .click();
+    await expect(page.getByTestId('defaults-saved')).toBeVisible();
+    const saved = await page
+      .getByText(/by Morgan Avery/)
+      .first()
+      .innerText();
+    expect(expected).toContain(/\d{1,2}:\d{2}/.exec(saved)?.[0]);
+  });
+});

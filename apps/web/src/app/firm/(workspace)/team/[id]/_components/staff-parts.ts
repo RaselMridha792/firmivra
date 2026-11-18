@@ -15,9 +15,10 @@ export const STATUS_LOOKS: Record<
 /** Owner and Admin change a member; everyone else with the page reads it. */
 export const canManage = (role: MembershipRole | undefined) => role === 'OWNER' || role === 'ADMIN';
 
-/** "Sep 28, 2026 8:14 AM". */
-export const dateTime = (iso: string) =>
+/** "Sep 28, 2026 8:14 AM", in the firm's time zone when given (SM38). */
+export const dateTime = (iso: string, timeZone?: string) =>
   new Date(iso).toLocaleString('en-US', {
+    timeZone,
     month: 'short',
     day: 'numeric',
     year: 'numeric',

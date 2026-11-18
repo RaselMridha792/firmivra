@@ -41,6 +41,7 @@ import {
 } from '../../new/_components/wizard-parts';
 import { ActionModal, type StaffAction } from './staff-actions';
 import { MEMBER_ERRORS, STATUS_LOOKS, canManage, dateTime } from './staff-parts';
+import { useFirmTimeZone } from './firm-time';
 import { AccessSummary, NotesCard, ProfileCard, QuickActions, RecentActivity } from './staff-side';
 
 interface Form {
@@ -285,6 +286,7 @@ function EditForm({
     setSaved('');
   };
   const requirePasswordChange = mustChange ?? security.data?.requirePasswordChange ?? false;
+  const timeZone = useFirmTimeZone(); // SM38: the firm's time zone
   // SM18 (Staff Management Review 2): leaving with unsaved changes (Cancel, Back to Staff
   // Management, the sidebar, closing the tab) asks Keep Editing, Discard Changes or Save.
   const guard = useUnsavedGuard({ form, mustChange });
@@ -590,7 +592,9 @@ function EditForm({
               label="Last Login"
               disabled
               readOnly
-              value={m?.lastLogin ? dateTime(m.lastLogin.at) : m ? 'Not signed in yet' : '—'}
+              value={
+                m?.lastLogin ? dateTime(m.lastLogin.at, timeZone) : m ? 'Not signed in yet' : '—'
+              }
             />
             <Button
               disabled={locked || !m || (m.status !== 'ACTIVE' && m.status !== 'LOCKED')}

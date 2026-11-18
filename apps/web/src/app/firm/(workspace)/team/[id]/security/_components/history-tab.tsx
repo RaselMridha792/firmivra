@@ -8,6 +8,7 @@ import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { NOT_LOADED } from '../../../_components/quiet-card';
 import { MEMBER_ERRORS, dateTime } from '../../_components/staff-parts';
+import { useFirmTimeZone } from '../../_components/firm-time';
 import { Panel } from './panel';
 import { LOGIN_COLUMNS } from './security-cards';
 import { SecurityShell } from './security-shell';
@@ -22,6 +23,7 @@ const quiet = 'rounded-lg bg-subtle p-4 text-sm text-muted';
  * Load more, and a summary of what is shown. Place and IP are approximate telemetry.
  */
 export function HistoryTab({ id }: { id: string }) {
+  const timeZone = useFirmTimeZone(); // SM38: the firm's time zone
   const list = useCursorList(['staff', 'login-history', id, 'all'], (cursor) =>
     api.staff.loginHistory(id, { limit: 50, ...(cursor ? { cursor } : {}) }),
   );
@@ -33,8 +35,8 @@ export function HistoryTab({ id }: { id: string }) {
     ['Sign-ins shown', String(list.items.length)],
     ['Successful', String(ok.length)],
     ['Failed', String(failed.length)],
-    ['Last successful', ok[0] ? dateTime(ok[0].at) : '—'],
-    ['Last failed', failed[0] ? dateTime(failed[0].at) : '—'],
+    ['Last successful', ok[0] ? dateTime(ok[0].at, timeZone) : '—'],
+    ['Last failed', failed[0] ? dateTime(failed[0].at, timeZone) : '—'],
   ];
   return (
     <SecurityShell id={id} tab="history">

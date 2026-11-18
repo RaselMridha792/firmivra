@@ -619,7 +619,24 @@ describe('Bulk Upload Staff', () => {
         where: { businessId: firms.a, action: 'staff.imported', entityId: preview.previewToken },
       }),
     );
-    expect(audit.metadata).toEqual({ created: 1, updated: 0, failed: 1, invitationsSent: 0 });
+    // SM38 (Staff Management Review 2): the import's audit names the file, as its preview's does.
+    expect(audit.metadata).toEqual({
+      fileName: 'Fake staff.csv',
+      created: 1,
+      updated: 0,
+      failed: 1,
+      invitationsSent: 0,
+    });
+    const previewed = await inFirm('a', (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: {
+          businessId: firms.a,
+          action: 'staff.import_previewed',
+          entityId: preview.previewToken!,
+        },
+      }),
+    );
+    expect(previewed.metadata).toMatchObject({ fileName: 'Fake staff.csv', rows: 2 });
   });
 
   it('gives every row its errors and no preview when nothing can be imported (SM1)', async () => {

@@ -28,7 +28,8 @@ import { NOT_LOADED } from '../../../_components/quiet-card';
 import { RowMenu } from '../../../_components/row-menu';
 import { ACCESS_LEVELS } from '../../../new/_components/wizard-parts';
 import { ActionModal } from '../../_components/staff-actions';
-import { MEMBER_ERRORS, STATUS_LOOKS, dateTime, longDate } from '../../_components/staff-parts';
+import { MEMBER_ERRORS, STATUS_LOOKS, longDate } from '../../_components/staff-parts';
+import { FirmDateTime } from '../../_components/firm-time';
 import { Panel } from './panel';
 import { tabHref } from './security-shell';
 
@@ -91,7 +92,7 @@ export function AccountStatusCard({ id }: { id: string }) {
             <div className="min-w-0">
               <dt className="text-sm font-semibold text-heading">Last Login</dt>
               <dd className="text-sm text-link">
-                {s.lastLogin ? dateTime(s.lastLogin.at) : 'Not signed in yet'}
+                {s.lastLogin ? <FirmDateTime iso={s.lastLogin.at} /> : 'Not signed in yet'}
               </dd>
               {s.lastLogin && loginLine(s) ? (
                 <dd className="mt-1 flex items-start gap-1.5 text-xs text-muted">
@@ -234,7 +235,7 @@ const lastActive = (s: StaffSessionItem) =>
       Active now
     </span>
   ) : (
-    dateTime(s.lastActiveAt)
+    <FirmDateTime iso={s.lastActiveAt} />
   );
 
 /** Active Sessions: device, place, IP, last active, and Sign out for one row or all. */
@@ -303,7 +304,7 @@ export function SessionsCard({
                 {
                   id: 'started',
                   label: 'Signed In',
-                  cell: (s: StaffSessionItem) => dateTime(s.createdAt),
+                  cell: (s: StaffSessionItem) => <FirmDateTime iso={s.createdAt} />,
                 },
               ]),
           { id: 'last', label: 'Last Active', cell: lastActive },
@@ -419,7 +420,7 @@ const outcome = (e: StaffLoginEvent) =>
   );
 
 export const LOGIN_COLUMNS = [
-  { id: 'at', label: 'Date & Time', cell: (e: StaffLoginEvent) => dateTime(e.at) },
+  { id: 'at', label: 'Date & Time', cell: (e: StaffLoginEvent) => <FirmDateTime iso={e.at} /> },
   { id: 'place', label: 'Location', cell: (e: StaffLoginEvent) => e.place ?? 'Unknown' },
   { id: 'ip', label: 'IP Address', cell: (e: StaffLoginEvent) => e.ip ?? '—' },
   { id: 'outcome', label: 'Status', cell: outcome },
