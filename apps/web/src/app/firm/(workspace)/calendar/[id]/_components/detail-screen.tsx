@@ -1,7 +1,21 @@
 'use client';
 
-import type { AppointmentRecord } from '@firmivra/types';
-import { Badge, Button, Callout, Modal, Skeleton, Table, Textarea } from '@firmivra/ui';
+import {
+  type AppointmentRecord,
+  LEAD_APPOINTMENT_OUTCOME_LABELS,
+  LeadAppointmentOutcome,
+} from '@firmivra/types';
+import {
+  Badge,
+  Button,
+  Callout,
+  Input,
+  Modal,
+  Radio,
+  Skeleton,
+  Table,
+  Textarea,
+} from '@firmivra/ui';
 import {
   ArrowLeft,
   Bell,
@@ -16,7 +30,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
-import { OriginLink } from '../../../../../../components/origin-link';
+import { OriginLink, useOriginNavigate } from '../../../../../../components/origin-link';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
@@ -28,6 +42,7 @@ import {
   STATUS_LOOKS,
   dateAndTime,
 } from '../../_components/appointments-parts';
+import { todayIn } from '../../_components/time';
 import { WaitlistRequests } from '../../_components/waitlist-requests';
 
 const card =
@@ -396,6 +411,9 @@ export function DetailScreen({ id }: { id: string }) {
           id={id}
           ask={ask}
           name={r.internal ? 'Team Meeting' : r.contact.name}
+          // P4-2: a lead's own appointment (its contact is the lead) records an outcome.
+          leadId={r.contact.kind === 'LEAD' ? r.contact.id : null}
+          timeZone={r.timezone}
           onClose={() => setAsk(null)}
           onDone={(text) => {
             setAsk(null);
@@ -519,35 +537,139 @@ const ASKS: Record<
   },
 };
 
-/** Mark Completed, No-Show or Cancel (R12's calls), after asking; Cancel takes a reason. */
+/** P4-2 (Clients Review 2 N8-18): what each outcome of a lead's appointment does. */
+const OUTCOME_HINTS: Record<LeadAppointmentOutcome, string> = {
+  KEEP_LEAD: 'Undecided, or no service was chosen. The person stays a lead.',
+  KEEP_LEAD_FOLLOW_UP: 'The person stays a lead; their next follow-up is set for the date below.',
+  CONVERT_NEW:
+    'A service was chosen. Next, Convert to Client makes them a New client; you can complete intake for them there.',
+};
+
+/**
+ * Mark Completed, No-Show or Cancel (R12's calls), after asking; Cancel takes a reason. P4-2:
+ * completing a lead's own appointment (`leadId`: a lead, no client yet) records its outcome and
+ * notes; Convert to New client then opens the lead's Convert page, with Back to here.
+ */
 export function CloseModal({
   id,
   ask,
   name,
+  leadId = null,
+  timeZone,
   onClose,
   onDone,
 }: {
   id: string;
   ask: Ask;
   name: string;
+  leadId?: string | null;
+  /** The firm's time zone: the follow-up date is today or later there. */
+  timeZone?: string;
   onClose: () => void;
   onDone: (text: string) => void;
 }) {
   const look = ASKS[ask];
   const [reason, setReason] = useState('');
+  const withOutcome = ask === 'complete' && !!leadId;
+  const [outcome, setOutcome] = useState<LeadAppointmentOutcome | null>(null);
+  const [notes, setNotes] = useState('');
+  const [followUpOn, setFollowUpOn] = useState('');
+  const [tried, setTried] = useState(false);
+  const navigate = useOriginNavigate();
+  const missing = {
+    outcome: withOutcome && !outcome ? 'Choose the outcome' : undefined,
+    notes: withOutcome && !notes.trim() ? 'Add notes about the appointment' : undefined,
+    followUpOn:
+      withOutcome && outcome === 'KEEP_LEAD_FOLLOW_UP' && !followUpOn
+        ? 'Choose the follow-up date'
+        : undefined,
+  };
   const run = useApiMutation(
     () =>
       ask === 'cancel'
         ? api.appointments.cancel(id, { reason: reason.trim() || null })
         : ask === 'complete'
-          ? api.appointments.complete(id)
+          ? api.appointments.complete(
+              id,
+              withOutcome && outcome
+                ? {
+                    outcome,
+                    notes: notes.trim(),
+                    ...(outcome === 'KEEP_LEAD_FOLLOW_UP' ? { followUpOn } : {}),
+                  }
+                : {},
+            )
           : api.appointments.noShow(id),
     { invalidate: SCHEDULING },
   );
+  const submit = () => {
+    setTried(true);
+    if (missing.outcome || missing.notes || missing.followUpOn) return;
+    run.mutate(undefined, {
+      onSuccess: () => {
+        if (withOutcome && outcome === 'CONVERT_NEW' && leadId) {
+          navigate(`/leads/${leadId}/convert`);
+          return;
+        }
+        onDone(
+          withOutcome && outcome
+            ? `The appointment is marked completed: ${LEAD_APPOINTMENT_OUTCOME_LABELS[outcome]}.`
+            : look.done,
+        );
+      },
+    });
+  };
   return (
     <Modal open title={look.title} onClose={onClose}>
       <div className="flex flex-col gap-4">
         <p className="text-sm text-text">{look.line(name)}</p>
+        {withOutcome ? (
+          <>
+            <fieldset
+              className="flex flex-col gap-1"
+              aria-invalid={tried && missing.outcome ? true : undefined}
+              aria-describedby={tried && missing.outcome ? 'outcome-error' : undefined}
+            >
+              <legend className="mb-1 text-sm font-semibold text-heading">Outcome</legend>
+              {LeadAppointmentOutcome.options.map((value) => (
+                <div key={value} className="flex flex-col">
+                  <Radio
+                    name="lead-outcome"
+                    value={value}
+                    label={LEAD_APPOINTMENT_OUTCOME_LABELS[value]}
+                    checked={outcome === value}
+                    onChange={() => setOutcome(value)}
+                  />
+                  <p className="pl-8 text-xs text-muted">{OUTCOME_HINTS[value]}</p>
+                </div>
+              ))}
+              {tried && missing.outcome ? (
+                <p id="outcome-error" className="text-sm font-medium text-danger">
+                  {missing.outcome}
+                </p>
+              ) : null}
+            </fieldset>
+            {outcome === 'KEEP_LEAD_FOLLOW_UP' ? (
+              <Input
+                label="Follow-up date"
+                type="date"
+                min={timeZone ? todayIn(timeZone) : undefined}
+                value={followUpOn}
+                onChange={(e) => setFollowUpOn(e.target.value)}
+                error={tried ? missing.followUpOn : undefined}
+              />
+            ) : null}
+            <Textarea
+              label="Notes"
+              hint="Internal: kept on this appointment and the lead's activity."
+              rows={3}
+              maxLength={2000}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              error={tried ? missing.notes : undefined}
+            />
+          </>
+        ) : null}
         {ask === 'cancel' ? (
           <Textarea
             label="Reason (optional)"
@@ -574,7 +696,7 @@ export function CloseModal({
           <Button
             disabled={run.isPending}
             className={ask === 'cancel' ? 'bg-danger text-on-action hover:bg-danger' : ''}
-            onClick={() => run.mutate(undefined, { onSuccess: () => onDone(look.done) })}
+            onClick={submit}
           >
             {look.button}
           </Button>
