@@ -8,6 +8,7 @@ import {
   type DuplicatePhoneDetails,
   UpdateClientProfileRequest,
   UpdateClientRequest,
+  zipStateWarning,
 } from '@firmivra/types';
 import { Button, Input, Modal, Select } from '@firmivra/ui';
 import { useState } from 'react';
@@ -18,7 +19,6 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { TextArea } from '../../../../setup/_components/fields';
 import { CLIENT_ERRORS, CLIENTS, formatPhone } from '../../_components/client-parts';
 import { DuplicatePhoneDialog, duplicateOf } from '../../_components/duplicate-phone';
-import { zipStateWarning } from '../../_components/zip-state';
 import { useClientRecord } from './use-client-record';
 
 const CONTACT_FIELDS = ['displayName', 'email', 'phone'] as const;

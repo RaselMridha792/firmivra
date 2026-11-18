@@ -128,6 +128,7 @@ function EditForm({
     defaultValues: {
       firstName: lead.firstName,
       lastName: lead.lastName,
+      businessName: lead.businessName ?? '',
       email: lead.email,
       phone: lead.phone ?? '',
       otherContacts: lead.otherContacts.map((c) => ({ ...c, label: c.label ?? '' })),
@@ -223,6 +224,13 @@ function EditForm({
           {...register('lastName')}
         />
       </div>
+      {/* Leads Review Two row 3: as Add New Lead names it; conversion reads it. */}
+      <Input
+        label="Business / Company name"
+        maxLength={160}
+        error={formState.errors.businessName?.message}
+        {...register('businessName')}
+      />
       <div className="grid gap-3 sm:grid-cols-2">
         <Input
           label="Email *"

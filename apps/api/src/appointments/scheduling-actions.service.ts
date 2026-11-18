@@ -26,6 +26,39 @@ type NoteReq = z.output<typeof NoteBody>;
 
 /** appointments_notes: up to 5,000 characters. */
 const NOTES_LIMIT = 5000;
+
+/**
+ * Appends "date time · name: text" to an appointment's internal notes, in the firm's time zone
+ * (Add Notes, and P4-2's outcome of a lead's appointment). 400 when the notes would pass 5,000
+ * characters. The caller holds the appointment's lock and audits; the text never goes there.
+ */
+export async function appendInternalNote(
+  tx: TxClient,
+  businessId: string,
+  actor: FirmActor,
+  row: { id: string; internalNotes: string | null },
+  text: string,
+  timeZone: string,
+): Promise<void> {
+  const who = (await memberNames(tx, businessId, [actor.userId])).get(actor.userId);
+  const now = Date.now();
+  const clock = new Date(now).toLocaleTimeString('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const entry = `${zonedDate(timeZone, now)} ${clock} · ${who ?? 'Staff member'}: ${text}`;
+  const notes = row.internalNotes ? `${row.internalNotes}\n\n${entry}` : entry;
+  if (notes.length > NOTES_LIMIT) {
+    throw errors.unsupported('The notes are full. Shorten the note or an earlier one.');
+  }
+  await tx.appointment.update({
+    where: { id: row.id },
+    data: { internalNotes: notes, updatedAt: new Date() },
+    select: { id: true },
+  });
+}
 /** Bulk reminders go to at most this many appointments in one call. */
 const BULK_LIMIT = 200;
 
@@ -172,24 +205,7 @@ export class SchedulingActionsService {
         const row = await findSchedulingRow(tx, businessId, actor, id);
         if (!row) throw errors.notFound();
         const timeZone = await firmTimeZone(tx, businessId);
-        const who = (await memberNames(tx, businessId, [actor.userId])).get(actor.userId);
-        const now = Date.now();
-        const clock = new Date(now).toLocaleTimeString('en-GB', {
-          timeZone,
-          hour: '2-digit',
-          minute: '2-digit',
-          hourCycle: 'h23',
-        });
-        const entry = `${zonedDate(timeZone, now)} ${clock} · ${who ?? 'Staff member'}: ${body.text}`;
-        const notes = row.internalNotes ? `${row.internalNotes}\n\n${entry}` : entry;
-        if (notes.length > NOTES_LIMIT) {
-          throw errors.unsupported('The notes are full. Shorten the note or an earlier one.');
-        }
-        await tx.appointment.update({
-          where: { id: row.id },
-          data: { internalNotes: notes, updatedAt: new Date() },
-          select: { id: true },
-        });
+        await appendInternalNote(tx, businessId, actor, row, body.text, timeZone);
         await this.audit.logIn(
           tx,
           'appointment.note_added',

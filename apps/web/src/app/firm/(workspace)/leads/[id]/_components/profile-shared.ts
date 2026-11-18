@@ -73,8 +73,26 @@ export const zoneName = (timeZone: string, at: Date = new Date()) =>
     .formatToParts(at)
     .find((p) => p.type === 'timeZoneName')?.value ?? timeZone;
 
-export const dayText = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+/**
+ * "Sep 18, 2026": the day of an instant on the firm's calendar (Leads time zone, Leads Review Two
+ * row 26); without a zone (a calendar date sent as noon UTC, or before the zone loads), the
+ * device's.
+ */
+export const dayText = (iso: string, timeZone?: string) =>
+  new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    ...(timeZone ? { timeZone } : {}),
+  });
+
+/** "10:00 AM EST": the time of an instant on the firm's clock, labelled with its zone. */
+export const clockText = (iso: string, timeZone?: string) =>
+  new Date(iso).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    ...(timeZone ? { timeZone, timeZoneName: 'short' as const } : {}),
+  });
 
 /** "K. Allen" from "Kim Allen". */
 export const shortName = (name: string) => {
