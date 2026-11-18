@@ -444,8 +444,11 @@ export type SaveIntegrationMappingsRequest = z.input<typeof SaveIntegrationMappi
 
 export const IntegrationHealthCheck = z.object({
   key: z.enum(['AUTHENTICATION', 'API', 'DATA_SYNC', 'RECENT_ERRORS', 'PERMISSIONS']),
+  /** Says what the check found ("Data sync is failing"), never a healthy line for a failure. */
   label: z.string(),
   ok: z.boolean(),
+  /** I-R2-01: OK, FAIL, or UNKNOWN (nothing has shown it yet); `ok` is OK. */
+  state: z.enum(['OK', 'FAIL', 'UNKNOWN']).optional(),
   message: z.string().nullable(),
 });
 export type IntegrationHealthCheck = z.infer<typeof IntegrationHealthCheck>;
@@ -453,6 +456,15 @@ export type IntegrationHealthCheck = z.infer<typeof IntegrationHealthCheck>;
 /** Connection Health, and Troubleshooting (the checks, what to do, and the last check). */
 export const IntegrationConnectionHealth = z.object({
   ok: z.boolean(),
+  /**
+   * I-R2-01 and I-F03 (Integrations Review Two): the one state the summary, the checks and the
+   * advice follow. UNKNOWN: no check or sync has shown anything yet; STALE: the last one is older
+   * than a week; FAILING: a check fails; DISCONNECTED; HEALTHY only with a check or sync behind it.
+   */
+  state: z.enum(['UNKNOWN', 'HEALTHY', 'FAILING', 'DISCONNECTED', 'STALE']).optional(),
+  /** The last sync that succeeded, apart from the last attempt (which may have failed). */
+  lastSuccessAt: DateTime.nullable().optional(),
+  lastAttemptAt: DateTime.nullable().optional(),
   summary: z.string(),
   checks: z.array(IntegrationHealthCheck),
   /** Plain steps a person can take ("Reconnect to renew the authorization"). */

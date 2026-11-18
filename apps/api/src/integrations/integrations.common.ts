@@ -200,6 +200,9 @@ const ENTITY_LABELS = new Map<string, string>([
   ['test', 'Connection test'],
   ['webhook', 'Webhook'],
 ]);
+/** I-F03 (Integrations Review Two): a check or a sync older than this makes the health STALE. */
+export const STALE_AFTER_MS = 7 * 24 * 60 * 60_000;
+
 /**
  * I-R2-04 (Integrations Review Two): runs newest first by when they actually ran; one queued and
  * not started yet comes first. The screens show the same time (`startedAt`, else `createdAt`).

@@ -1407,3 +1407,102 @@ describe('the sync history (Integrations Review Two)', () => {
     ).toBe(true);
   });
 });
+
+describe('connection health, one state for the label, the checks and the advice (Integrations Review Two I-R2-01, I-F03)', () => {
+  type Health = {
+    ok: boolean;
+    state: string;
+    summary: string;
+    checks: { key: string; label: string; state: string }[];
+    suggestions: string[];
+    lastSuccessAt: string | null;
+    lastAttemptAt: string | null;
+  };
+  const DAY_MS = 86_400_000;
+  const make = (
+    provider: string,
+    data: {
+      status?: 'CONNECTED' | 'NEEDS_ATTENTION' | 'DISCONNECTED';
+      statusReason?: string;
+      lastCheckAt?: Date;
+      disconnectedAt?: Date;
+    },
+    runs: { status: 'SUCCEEDED' | 'FAILED'; at: Date }[] = [],
+  ) =>
+    inFirm('b', async (tx) => {
+      const c = await tx.integrationConnection.create({
+        data: {
+          businessId: firms.b,
+          provider,
+          environment: 'LIVE',
+          entities: ['contacts'],
+          ...data,
+        },
+        select: { id: true },
+      });
+      for (const r of runs)
+        await tx.integrationSyncRun.create({
+          data: {
+            businessId: firms.b,
+            connectionId: c.id,
+            entity: 'contacts',
+            status: r.status,
+            startedAt: r.at,
+            finishedAt: r.at,
+            createdAt: r.at,
+          },
+        });
+      return c.id;
+    });
+  const health = async (id: string) =>
+    ok(
+      await call('get', `/integrations/connections/${id}/health`, people.ownerB, undefined, 'b'),
+    ) as Health;
+  const checkOf = (h: Health, key: string) => h.checks.find((c) => c.key === key)!;
+
+  it('never calls a connection working before a check or a sync, and says what to do in each state', async () => {
+    const now = Date.now();
+    const unknown = await health(await make('xero', {}));
+    expect([unknown.state, unknown.ok]).toEqual(['UNKNOWN', false]);
+    expect(unknown.summary).toMatch(/No check has run yet/);
+    expect(unknown.checks.map((c) => c.state)).not.toContain('OK');
+    expect(unknown.suggestions).toEqual(['Run a connection test to check it.']);
+
+    const failing = await health(
+      await make('hubspot', { status: 'NEEDS_ATTENTION', statusReason: 'sync_failed' }, [
+        { status: 'SUCCEEDED', at: new Date(now - 3 * DAY_MS) },
+        { status: 'FAILED', at: new Date(now - DAY_MS / 2) },
+      ]),
+    );
+    expect([failing.state, failing.ok]).toEqual(['FAILING', false]);
+    // The failing sync reads as failing, never "Data syncing as expected".
+    expect(checkOf(failing, 'DATA_SYNC')).toMatchObject({
+      state: 'FAIL',
+      label: 'Data sync is failing',
+    });
+    expect(failing.suggestions.length).toBeGreaterThan(0);
+    // The last success is told apart from the last (failed) attempt.
+    expect(Date.parse(failing.lastSuccessAt!)).toBeLessThan(Date.parse(failing.lastAttemptAt!));
+
+    const off = await health(
+      await make('mailchimp', { status: 'DISCONNECTED', disconnectedAt: new Date() }),
+    );
+    expect([off.state, off.ok]).toEqual(['DISCONNECTED', false]);
+    expect(checkOf(off, 'AUTHENTICATION')).toMatchObject({ state: 'FAIL', label: 'Disconnected' });
+    expect(off.suggestions).toEqual(['Reconnect this integration to sync again.']);
+
+    const stale = await health(await make('stripe', { lastCheckAt: new Date(now - 10 * DAY_MS) }));
+    expect([stale.state, stale.ok]).toEqual(['STALE', false]);
+    expect(stale.suggestions).toEqual(['Run a connection test to check it again.']);
+
+    const healthy = await health(
+      await make('plaid', { lastCheckAt: new Date(now - 60_000) }, [
+        { status: 'SUCCEEDED', at: new Date(now - 120_000) },
+      ]),
+    );
+    expect([healthy.state, healthy.ok]).toEqual(['HEALTHY', true]);
+    expect(healthy.summary).toBe('Connection is active and working properly.');
+    expect(healthy.checks.every((c) => c.state === 'OK')).toBe(true);
+    expect(healthy.suggestions).toEqual([]);
+  });
+});

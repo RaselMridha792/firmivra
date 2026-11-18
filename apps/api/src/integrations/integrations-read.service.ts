@@ -35,6 +35,7 @@ import {
   toRun,
   toSummary,
   RUN_ORDER,
+  STALE_AFTER_MS,
   entityLabelOf,
 } from './integrations.common.js';
 import type {
@@ -482,19 +483,20 @@ export class IntegrationsReadService {
     if (!c) throw notFound();
     const provider = this.registry.get(c.provider);
     const since = new Date(Date.now() - DAY);
-    const [recentFailed, last] = await Promise.all([
+    const syncs = { businessId, connectionId: id, entity: { notIn: ['test', 'webhook'] } };
+    const [recentFailed, last, lastOk] = await Promise.all([
       tx.integrationSyncRun.count({
         where: { businessId, connectionId: id, status: 'FAILED', createdAt: { gte: since } },
       }),
       tx.integrationSyncRun.findFirst({
-        where: {
-          businessId,
-          connectionId: id,
-          entity: { notIn: ['test', 'webhook'] },
-          finishedAt: { not: null },
-        },
+        where: { ...syncs, finishedAt: { not: null } },
         orderBy: { finishedAt: 'desc' },
-        select: { status: true },
+        select: { status: true, finishedAt: true },
+      }),
+      tx.integrationSyncRun.findFirst({
+        where: { ...syncs, status: 'SUCCEEDED', finishedAt: { not: null } },
+        orderBy: { finishedAt: 'desc' },
+        select: { finishedAt: true },
       }),
     ]);
     const reason = c.status === 'NEEDS_ATTENTION' ? c.statusReason : null;
@@ -514,53 +516,134 @@ export class IntegrationsReadService {
         !granted.has(p.key),
     );
     const permissionsBad = reason === 'permission_missing' || missing.length > 0;
+    const disconnected = c.status === 'DISCONNECTED';
+    // I-R2-01: what is known comes from a connection test or a finished sync; before either,
+    // nothing is "working" yet.
+    const evidence = [c.lastCheckAt, last?.finishedAt ?? null].filter((d): d is Date => !!d);
+    const checkedAt = evidence.length
+      ? new Date(Math.max(...evidence.map((d) => d.getTime())))
+      : null;
+    const known = checkedAt !== null && !disconnected;
+    type CheckState = 'OK' | 'FAIL' | 'UNKNOWN';
+    const LABEL: Record<IntegrationHealthCheck['key'], Record<CheckState, string>> = {
+      AUTHENTICATION: {
+        OK: 'Authentication valid',
+        FAIL: disconnected ? 'Disconnected' : 'Authentication needs renewing',
+        UNKNOWN: 'Authentication not checked yet',
+      },
+      API: {
+        OK: 'API connection healthy',
+        FAIL: 'The provider is not responding',
+        UNKNOWN: 'API connection not checked yet',
+      },
+      DATA_SYNC: {
+        OK: 'Data syncing as expected',
+        FAIL: 'Data sync is failing',
+        UNKNOWN: 'No sync has finished yet',
+      },
+      RECENT_ERRORS: {
+        OK: 'No recent errors',
+        FAIL: 'Recent errors',
+        UNKNOWN: 'No recent activity to check',
+      },
+      PERMISSIONS: {
+        OK: 'Permissions granted',
+        FAIL: 'A required permission is missing',
+        UNKNOWN: 'Permissions not checked yet',
+      },
+    };
+    const check = (
+      key: IntegrationHealthCheck['key'],
+      state: CheckState,
+      message: string | null,
+    ): IntegrationHealthCheck => ({
+      key,
+      label: LABEL[key][state],
+      ok: state === 'OK',
+      state,
+      message: state === 'FAIL' ? message : null,
+    });
     const checks: IntegrationHealthCheck[] = [
-      {
-        key: 'AUTHENTICATION',
-        label: 'Authentication valid',
-        ok: !authBad && c.status !== 'DISCONNECTED',
-        message: authBad ? 'The authorization needs to be renewed' : null,
-      },
-      {
-        key: 'API',
-        label: 'API connection healthy',
-        ok: !apiBad,
-        message: apiBad ? 'The provider is not responding as expected' : null,
-      },
-      {
-        key: 'DATA_SYNC',
-        label: 'Data syncing as expected',
-        ok: last?.status !== 'FAILED' && reason !== 'sync_failed',
-        message: last?.status === 'FAILED' ? 'The last sync failed' : null,
-      },
-      {
-        key: 'RECENT_ERRORS',
-        label: 'No recent errors',
-        ok: recentFailed === 0,
-        message: recentFailed ? `${recentFailed} failed in the last day` : null,
-      },
-      {
-        key: 'PERMISSIONS',
-        label: 'Permissions granted',
-        ok: !permissionsBad,
-        message: permissionsBad ? 'A required permission is missing' : null,
-      },
+      check(
+        'AUTHENTICATION',
+        disconnected || authBad ? 'FAIL' : known ? 'OK' : 'UNKNOWN',
+        disconnected
+          ? 'Reconnect to authorize Firmivra again'
+          : 'The authorization needs to be renewed',
+      ),
+      check(
+        'API',
+        apiBad ? 'FAIL' : known ? 'OK' : 'UNKNOWN',
+        'The provider is not responding as expected',
+      ),
+      check(
+        'DATA_SYNC',
+        last?.status === 'FAILED' || reason === 'sync_failed'
+          ? 'FAIL'
+          : last && !disconnected
+            ? 'OK'
+            : 'UNKNOWN',
+        'The last sync failed',
+      ),
+      check(
+        'RECENT_ERRORS',
+        recentFailed > 0 ? 'FAIL' : known ? 'OK' : 'UNKNOWN',
+        `${recentFailed} failed in the last day`,
+      ),
+      check(
+        'PERMISSIONS',
+        permissionsBad ? 'FAIL' : known ? 'OK' : 'UNKNOWN',
+        'A required permission is missing',
+      ),
     ];
-    const ok = checks.every((x) => x.ok);
-    const suggestions = [
-      ...(authBad || permissionsBad
-        ? ['Reconnect to renew the authorization and approve every permission.']
-        : []),
-      ...(apiBad ? ['The provider is unavailable. Try again in a moment.'] : []),
-      ...(recentFailed > 0 && !authBad
-        ? ['Open Sync History to see which sync failed, then run Sync Now.']
-        : []),
-    ];
+    const failing = c.status === 'NEEDS_ATTENTION' || checks.some((x) => x.state === 'FAIL');
+    const state = disconnected
+      ? 'DISCONNECTED'
+      : failing
+        ? 'FAILING'
+        : !checkedAt
+          ? 'UNKNOWN'
+          : Date.now() - checkedAt.getTime() > STALE_AFTER_MS
+            ? 'STALE'
+            : 'HEALTHY';
+    const suggestions =
+      state === 'DISCONNECTED'
+        ? ['Reconnect this integration to sync again.']
+        : state === 'UNKNOWN'
+          ? ['Run a connection test to check it.']
+          : state === 'STALE'
+            ? ['Run a connection test to check it again.']
+            : state === 'HEALTHY'
+              ? []
+              : [
+                  ...(authBad || permissionsBad
+                    ? ['Reconnect to renew the authorization and approve every permission.']
+                    : []),
+                  ...(apiBad ? ['The provider is unavailable. Try again in a moment.'] : []),
+                  ...(recentFailed > 0 || last?.status === 'FAILED'
+                    ? ['Open Sync History to see which sync failed, then run Sync Now.']
+                    : []),
+                  ...(authBad ||
+                  permissionsBad ||
+                  apiBad ||
+                  recentFailed > 0 ||
+                  last?.status === 'FAILED'
+                    ? []
+                    : ['Open Sync History, or run a connection test to see what needs attention.']),
+                ];
+    const summary = {
+      HEALTHY: 'Connection is active and working properly.',
+      UNKNOWN: 'No check has run yet: run a connection test to check it.',
+      STALE: `Last checked over a week ago: run a connection test to check it again.`,
+      DISCONNECTED: 'This integration is disconnected. Reconnect it to sync again.',
+      FAILING: reasonInfo(c.statusReason)?.message ?? 'This connection needs attention.',
+    }[state];
     return {
-      ok,
-      summary: ok
-        ? 'Connection is active and working properly.'
-        : (reasonInfo(c.statusReason)?.message ?? 'This connection needs attention.'),
+      ok: state === 'HEALTHY',
+      state,
+      lastSuccessAt: lastOk?.finishedAt?.toISOString() ?? null,
+      lastAttemptAt: last?.finishedAt?.toISOString() ?? null,
+      summary,
       checks,
       suggestions,
       checkedAt: c.lastCheckAt?.toISOString() ?? null,
