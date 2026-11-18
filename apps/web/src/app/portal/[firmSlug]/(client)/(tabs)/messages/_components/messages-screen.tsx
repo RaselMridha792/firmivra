@@ -11,6 +11,7 @@ import { useApiQuery } from '../../../../../../../lib/query';
 import { usePortal } from '../../../../layout';
 import { fromLabel, when } from './message-parts';
 import { NewMessageDialog, ThreadDialog } from './thread-dialogs';
+import { useMessagesAllowed } from '../../../_components/my-contact';
 import styles from './messages-screen.module.css';
 
 type Filter = 'all' | 'from-firm' | 'sent';
@@ -31,6 +32,7 @@ export function MessagesScreen() {
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
+  const canMessage = useMessagesAllowed(slug);
   const term = useDeferredValue(search.trim());
   const list = useApiQuery(['my-messages', slug, 'list', filter, term], () =>
     api.myMessages(slug).list({ filter, search: term || undefined, limit: 100 }),
@@ -100,9 +102,12 @@ export function MessagesScreen() {
               important updates, questions, and next steps.
             </p>
           </div>
-          <Button className={sidebarBlueButton} onClick={() => setComposing(true)}>
-            Send a Message <ArrowRight aria-hidden className="size-5" />
-          </Button>
+          {/* CP-4f: only while the firm takes new messages (the API refuses otherwise). */}
+          {canMessage ? (
+            <Button className={sidebarBlueButton} onClick={() => setComposing(true)}>
+              Send a Message <ArrowRight aria-hidden className="size-5" />
+            </Button>
+          ) : null}
         </header>
         <div className="flex flex-wrap items-end gap-2">
           <div role="group" aria-label="Show" className="flex flex-wrap gap-2">

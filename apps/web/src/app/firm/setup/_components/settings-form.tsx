@@ -11,6 +11,7 @@ import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../lib/query';
 import { FIRM_SETTINGS, SETUP_ERRORS } from './shared';
 import { changedFieldsResolver, changedOnly, type StepForm } from './step-form';
+import { useUnsavedChanges } from '../../../../lib/unsaved';
 
 /** A Settings page (Profile, Branding, Client portal): the setup wizard's fields, saved at once. */
 export function SettingsScreen({
@@ -39,9 +40,12 @@ export function SettingsScreen({
 export function SettingsForm({
   defaults,
   children,
+  cancel = false,
 }: {
   defaults: UpdateFirmSettingsRequest;
   children: (form: StepForm) => ReactNode;
+  /** A Cancel button that puts back the saved values (Client Portal guide 7.1). */
+  cancel?: boolean;
 }) {
   const form = useForm({
     resolver: changedFieldsResolver(defaults),
@@ -49,6 +53,9 @@ export function SettingsForm({
   });
   // Read during render: react-hook-form only tracks dirtyFields once something reads it.
   const { dirtyFields } = form.formState;
+  const dirty = Object.keys(dirtyFields).length > 0;
+  // Leaving the page with unsaved changes asks first (components/leave-guard.tsx).
+  useUnsavedChanges(dirty);
   const [saved, setSaved] = useState(false);
   // In the workspace (not the setup wizard): the header's firm name follows a saved new name.
   const firmArea = use(FirmContext);
@@ -77,10 +84,23 @@ export function SettingsForm({
     <form onSubmit={submit} noValidate>
       <Card className="flex flex-col gap-4">
         {children(form)}
-        <div className="border-t border-border pt-4">
+        <div className="flex flex-wrap gap-2 border-t border-border pt-4">
           <Button type="submit" disabled={save.isPending}>
             {save.isPending ? 'Saving…' : 'Save changes'}
           </Button>
+          {cancel ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!dirty || save.isPending}
+              onClick={() => {
+                setSaved(false);
+                form.reset();
+              }}
+            >
+              Cancel
+            </Button>
+          ) : null}
         </div>
         {saved ? (
           <p role="status" className="text-sm text-success">

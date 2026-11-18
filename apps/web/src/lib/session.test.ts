@@ -121,3 +121,62 @@ describe('the data cache follows its owner (Dashboard Review Two V4)', () => {
     expect(cached(client)).toEqual({ n: 3 });
   });
 });
+
+describe("sessionFetch with the page's first script's answers (Dashboard V8)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setSession(null);
+  });
+
+  /** The page's first script sent this GET and left its answer on the window. */
+  const early = (url: string, response: Promise<Response>) => {
+    response.catch(() => undefined);
+    (window as unknown as { __fvEarly: unknown }).__fvEarly = {
+      at: Date.now(),
+      calls: [{ url, response }],
+    };
+  };
+
+  it('uses the early answer once, without sending the GET again', async () => {
+    signedIn();
+    const fetch = vi.fn().mockResolvedValue(answer(200, { again: true }));
+    vi.stubGlobal('fetch', fetch);
+    early('/api/v1/me', Promise.resolve(answer(200, { early: true })));
+    await expect((await sessionFetch('/api/v1/me')).json()).resolves.toEqual({ early: true });
+    await expect((await sessionFetch('/api/v1/me')).json()).resolves.toEqual({ again: true });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an early 401 as any 401: one refresh, then the GET is sent again', async () => {
+    const page = signedIn();
+    const fetch = vi.fn().mockResolvedValue(answer(200, { fresh: true }));
+    vi.stubGlobal('fetch', fetch);
+    early('/api/v1/business', Promise.resolve(answer(401, { error: { code: 'UNAUTHORIZED' } })));
+    const res = await sessionFetch('/api/v1/business');
+    expect(res.status).toBe(200);
+    expect(page.refresh).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('before the session is known, hands the early 401 to the caller, who asks again', async () => {
+    vi.stubGlobal('window', { location: { replace: vi.fn() } });
+    const fetch = vi.fn().mockResolvedValue(answer(200, {}));
+    vi.stubGlobal('fetch', fetch);
+    early('/api/v1/me', Promise.resolve(answer(401, { error: { code: 'UNAUTHORIZED' } })));
+    expect((await sessionFetch('/api/v1/me')).status).toBe(401);
+    // <SignedIn> then refreshes and asks again: a real request this time.
+    expect((await sessionFetch('/api/v1/me')).status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the GET itself when the early one failed, and never uses one for another method', async () => {
+    signedIn();
+    const fetch = vi.fn().mockResolvedValue(answer(200, { sent: true }));
+    vi.stubGlobal('fetch', fetch);
+    early('/api/v1/me', Promise.reject(new TypeError('Failed to fetch')));
+    await expect((await sessionFetch('/api/v1/me')).json()).resolves.toEqual({ sent: true });
+    early('/api/v1/business', Promise.resolve(answer(200, { early: true })));
+    await sessionFetch('/api/v1/business', { method: 'POST', body: '{}' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});

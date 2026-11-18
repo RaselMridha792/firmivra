@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { dropEarly, takePageCall } from './early';
 
 /**
  * The signed-in site's session, set by <SignedIn>: how to refresh it and where to sign in.
@@ -74,7 +75,13 @@ function endRevoked(current: Session): Promise<void> {
  * A 401 SESSION_REVOKED (SM4) is not refreshed: the browser signs out at once.
  */
 export const sessionFetch: typeof fetch = async (input, init) => {
-  const res = await fetch(input, init);
+  // V8: the page's first script may already have sent this GET (lib/early.ts); a failed one is
+  // sent again here, and its answer goes through the same checks as any other.
+  const early =
+    typeof input === 'string' && (init?.method ?? 'GET') === 'GET'
+      ? takePageCall(input)
+      : undefined;
+  const res = early ? await early.catch(() => fetch(input, init)) : await fetch(input, init);
   if (res.status !== 401 || !session) return res;
   const current = session;
   if (await isSessionRevoked(res)) {
@@ -103,5 +110,6 @@ export function claimCache(client: QueryClient, slot: string, owner: string): vo
 /** On sign-out: empty the cache and forget its owners. */
 export function releaseCache(client: QueryClient): void {
   client.clear();
+  dropEarly();
   owners.clear();
 }

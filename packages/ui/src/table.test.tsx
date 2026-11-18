@@ -42,3 +42,31 @@ describe('Table empty state', () => {
     expect(html).not.toContain('Showing');
   });
 });
+
+describe('Table without a pager (showPagination false)', () => {
+  const rows = Array.from({ length: 12 }, (_, i) => ({
+    id: `row-${String(i + 1).padStart(2, '0')}`,
+  }));
+  const render = (pageSize?: number) =>
+    renderToStaticMarkup(
+      <Table
+        rows={rows}
+        columns={columns}
+        rowKey={(r) => r.id}
+        caption="Types"
+        showPagination={false}
+        {...(pageSize === undefined ? {} : { pageSize })}
+      />,
+    );
+
+  it('shows every row it is given, past the default ten (Manage Appointment Types, Nov 18)', () => {
+    const html = render();
+    for (const r of rows) expect(html).toContain(r.id);
+  });
+
+  it('caps the list only when the caller gives its own pageSize (a "top N" card)', () => {
+    const html = render(5);
+    expect(html).toContain('row-05');
+    expect(html).not.toContain('row-06');
+  });
+});

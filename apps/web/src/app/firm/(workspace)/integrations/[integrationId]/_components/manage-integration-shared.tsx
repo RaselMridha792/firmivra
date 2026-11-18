@@ -39,6 +39,18 @@ export const entityIcons: Record<string, Icon> = {
   employees: IdentificationBadge,
 };
 
+/**
+ * I-R2-06 (Integrations Review Two): why Sync Now is not offered, as the API refuses it
+ * (NOT_CONNECTED): a disconnected connection is reconnected first, one needing attention is
+ * fixed first. Null when it may sync.
+ */
+export function syncBlockedReason(status: IntegrationConnectionStatus | undefined): string | null {
+  if (status === 'DISCONNECTED') return 'Reconnect first: a disconnected integration cannot sync.';
+  if (status === 'NEEDS_ATTENTION')
+    return 'Fix the connection first (see Troubleshooting): it cannot sync until then.';
+  return null;
+}
+
 export function statusLabel(status: IntegrationConnectionStatus) {
   return status.charAt(0) + status.slice(1).toLowerCase().replace('_', ' ');
 }
@@ -122,6 +134,10 @@ export function formatDate(value: string | null) {
 const clock = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 const monthDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 /** "Today, 9:34 AM", "Yesterday, 6:03 AM" or "Oct 14, 7:45 AM" (Recent Sync Activity). */
+/** I-R2-04: when a run actually ran: its start, else (queued, not started yet) when it was made. */
+export const ranAt = (run: { startedAt: string | null; createdAt: string }) =>
+  run.startedAt ?? run.createdAt;
+
 export function shortTime(value: string) {
   const date = new Date(value);
   const days = Math.round(

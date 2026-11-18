@@ -29,6 +29,7 @@ import {
   manageTabs,
   providerDisc,
   relativeTime,
+  syncBlockedReason,
 } from './manage-integration-shared';
 
 /**
@@ -96,6 +97,7 @@ export function ManageHeader({
 }) {
   const router = useRouter();
   const go = (suffix: ManageTab) => () => router.push(`/integrations/${integrationId}${suffix}`);
+  const blocked = syncBlockedReason(detail?.status);
   return (
     <Card className="p-5!" data-testid="integration-header">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
@@ -156,12 +158,18 @@ export function ManageHeader({
             </div>
           </div>
           <div className="flex flex-col gap-2">
+            {blocked ? (
+              <p id="sync-blocked" className="text-sm text-muted" data-testid="sync-blocked">
+                {blocked}
+              </p>
+            ) : null}
             {/* The design's Sync Now and menu share one framed box. */}
             <div className="flex items-stretch rounded-control border border-border">
               <div className="p-2">
                 <Button
                   className="min-w-44"
-                  disabled={!detail?.canManage || detail.syncing || busy}
+                  disabled={!detail?.canManage || detail.syncing || busy || !!blocked}
+                  aria-describedby={blocked ? 'sync-blocked' : undefined}
                   onClick={onSync}
                 >
                   <ArrowsClockwise aria-hidden weight="bold" className="size-5" />

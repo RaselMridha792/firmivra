@@ -1,5 +1,25 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { areaForHost, INTERNAL_PREFIXES } from './lib/hosts';
+import { buildCsp, CSP_HEADER, newNonce } from './lib/csp';
+import { type Area, areaForHost, INTERNAL_PREFIXES } from './lib/hosts';
+
+/**
+ * The page's Content-Security-Policy (lib/csp.ts), with a fresh nonce: on the request, where
+ * Next.js reads the nonce to stamp it on its own scripts, and on the response for the browser.
+ */
+function withCsp(
+  request: NextRequest,
+  area: Area | null,
+  make: (init: { headers: Headers }) => NextResponse,
+) {
+  const nonce = newNonce();
+  const policy = buildCsp({ nonce, area, dev: process.env.NODE_ENV === 'development' });
+  const headers = new Headers(request.headers);
+  headers.set('x-nonce', nonce);
+  headers.set(CSP_HEADER, policy);
+  const response = make({ headers });
+  response.headers.set(CSP_HEADER, policy);
+  return response;
+}
 
 /** A firm slug as the first path segment (slugs are case-insensitive). */
 const PORTAL_SLUG = /^\/[A-Za-z0-9-]{1,63}(\/|$)/;
@@ -20,7 +40,7 @@ export function proxy(request: NextRequest) {
     // Bare host (localhost): only the index page, never an area's internal path.
     return INTERNAL_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
       ? new NextResponse(null, { status: 404 })
-      : NextResponse.next();
+      : withCsp(request, null, (init) => NextResponse.next({ request: init }));
   }
 
   // Portal: the first segment is the firm's slug and must look like one. An encoded "/" or "\"
@@ -31,7 +51,7 @@ export function proxy(request: NextRequest) {
 
   const url = request.nextUrl.clone();
   url.pathname = `/${area}${pathname === '/' ? '' : pathname}`;
-  return NextResponse.rewrite(url);
+  return withCsp(request, area, (init) => NextResponse.rewrite(url, { request: init }));
 }
 
 export const config = {
