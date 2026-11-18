@@ -69,7 +69,7 @@ export const LinkIntake = z
     /** Review Two row 21: the message and redirect once it is sent. */
     completion: IntakeCompletion,
     /** Intake Review 2 23-h: the form's Show progress bar; no upload question while uploads are off. */
-    showProgressBar: z.boolean(),
+    showProgressBar: z.boolean().default(true),
   })
   .superRefine(refuseFullNumbers);
 export type LinkIntake = z.infer<typeof LinkIntake>;
