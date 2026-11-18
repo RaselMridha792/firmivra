@@ -8,6 +8,7 @@ import type {
   TaxReturnWorkflowStatus,
 } from '@firmivra/types';
 import { Badge, Input, Select, Textarea, Timeline } from '@firmivra/ui';
+import { checklistRequests } from './checklist-filter';
 import {
   Check,
   CheckCircle,
@@ -450,12 +451,15 @@ const REQUEST: Record<
   CANCELLED: { label: 'Cancelled', tone: 'neutral' },
 };
 
-/** Document Checklist: the client's document requests, with what came in and when. */
+/**
+ * Document Checklist: this return's document requests (ACC-DOC: and its year's unlinked ones of
+ * the same service), with what came in and when.
+ */
 export function DocumentChecklist({ detail, limit }: { detail: TaxReturnDetail; limit?: number }) {
   const q = useApiQuery([...TR_KEY, 'doc-requests', detail.client.id], () =>
     api.documents.requests(detail.client.id),
   );
-  const all = (q.data ?? []).filter((r) => r.status !== 'CANCELLED');
+  const all = checklistRequests(q.data ?? [], detail);
   const shown = limit ? all.slice(0, limit) : all;
   return (
     <Panel
@@ -476,7 +480,7 @@ export function DocumentChecklist({ detail, limit }: { detail: TaxReturnDetail; 
         </p>
       ) : !shown.length ? (
         <p className={quiet}>
-          {q.isPending ? 'Loading…' : 'No documents requested from this client yet.'}
+          {q.isPending ? 'Loading…' : 'No documents requested for this return yet.'}
         </p>
       ) : (
         <table className="w-full text-left text-sm">
