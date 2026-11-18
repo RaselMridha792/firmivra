@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 
 // R55, Communications and Messaging Review Two, C21 (playwright.mock.config.ts, as an Owner; the
 // mock answers as the API): My Signature, the member's reusable closing, takes an image through
-// the firm's email-image upload (the one the Leads email uses, the only images the API keeps in
-// a signature). An email gets the image from Insert Closing; an SMS gets the words only. A wrong
+// Communications' own upload to the firm's email images (the only images the API keeps in a
+// signature). An email gets the image from Insert Closing; an SMS gets the words only. A wrong
 // type or a file over 2 MB is refused in words. Synthetic data only.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/communications`;

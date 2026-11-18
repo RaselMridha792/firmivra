@@ -25,8 +25,12 @@ export const EMAIL_IMAGE_ERRORS: Record<string, string> = {
   UPLOAD_EXPIRED: 'The upload took too long. Try again.',
 };
 
-/** The image button: picks one file, uploads it, and answers its address (null if it failed). */
-export function useEmailImageUpload() {
+/**
+ * The image button: picks one file, uploads it, and answers its address (null if it failed).
+ * `area` is the screen's own upload route, so the member needs only that area's access (C21: My
+ * Signature in Communications); both store to the same firm email images.
+ */
+export function useEmailImageUpload(area: 'leads' | 'communications' = 'leads') {
   const inputRef = useRef<HTMLInputElement>(null);
   const waitingRef = useRef<((file: File | null) => void) | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -43,8 +47,14 @@ export function useEmailImageUpload() {
       const image = await uploadImage(file, {
         contentTypes: EMAIL_IMAGE_LIMITS.contentTypes,
         maxBytes: EMAIL_IMAGE_LIMITS.maxBytes,
-        start: (body) => api.leadPipeline.createEmailImageUpload(body),
-        finish: (uploadToken) => api.leadPipeline.confirmEmailImageUpload({ uploadToken }),
+        start: (body) =>
+          area === 'communications'
+            ? api.communications.createImageUpload(body)
+            : api.leadPipeline.createEmailImageUpload(body),
+        finish: (uploadToken) =>
+          area === 'communications'
+            ? api.communications.confirmImageUpload({ uploadToken })
+            : api.leadPipeline.confirmEmailImageUpload({ uploadToken }),
       });
       return image.url;
     } catch (error) {

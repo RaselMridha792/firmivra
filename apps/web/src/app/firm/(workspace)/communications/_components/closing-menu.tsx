@@ -125,7 +125,7 @@ function MySignatureDialog({
   onSaved: () => void;
 }) {
   const [html, setHtml] = useState(initial);
-  const images = useEmailImageUpload();
+  const images = useEmailImageUpload('communications');
   const save = useApiMutation((body: string) => api.leadPipeline.saveSignature({ html: body }), {
     invalidate: [...MY_SIGNATURE_KEY],
   });
