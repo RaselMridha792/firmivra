@@ -1207,7 +1207,9 @@ export function createStaffMock(options: Options = {}): StaffClient {
     },
     sessions: async (id) => {
       await g.allowed();
-      return copy(g.find(id).sessions);
+      const m = g.find(id);
+      // SM12: as the API, the signed-in person's own session is marked on their own record.
+      return copy(m.sessions).map((x, i) => ({ ...x, current: m.detail.isYou && i === 0 }));
     },
     revokeSession: async (id, sessionId) => {
       await g.allowed();

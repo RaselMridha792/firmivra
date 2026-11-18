@@ -222,3 +222,32 @@ export function mapStaffDbError(e: unknown): unknown {
 
 export const cellKey = (m: PermissionModule | string, c: PermissionCapability | string) =>
   `${m}:${c}`;
+
+/**
+ * SM12 (Staff Management Review 2): when each member last signed in to this firm, the same in
+ * every place: their newest session's start (every sign-in makes one on its first request here),
+ * else the time kept on their security settings (from before sessions were kept).
+ */
+export async function lastLoginsOf(
+  tx: TxClient,
+  businessId: string,
+  ids: readonly string[],
+): Promise<Map<string, Date>> {
+  const out = new Map<string, Date>();
+  if (!ids.length) return out;
+  const [sessions, saved] = await Promise.all([
+    tx.staffSession.groupBy({
+      by: ['membershipId'],
+      where: { businessId, membershipId: { in: [...ids] } },
+      _max: { createdAt: true },
+    }),
+    tx.staffSecuritySettings.findMany({
+      where: { businessId, membershipId: { in: [...ids] }, lastLoginAt: { not: null } },
+      select: { membershipId: true, lastLoginAt: true },
+    }),
+  ]);
+  for (const s of sessions) if (s._max.createdAt) out.set(s.membershipId, s._max.createdAt);
+  for (const s of saved)
+    if (s.lastLoginAt && !out.has(s.membershipId)) out.set(s.membershipId, s.lastLoginAt);
+  return out;
+}

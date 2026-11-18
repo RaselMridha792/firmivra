@@ -55,3 +55,15 @@ test('SM08: assigning a client past someone’s maximum warns, and still assigns
   await dialog.getByRole('button', { name: 'Assign' }).click();
   await expect(page.getByText('1 client updated.')).toBeVisible();
 });
+
+test('SM12: Active Sessions marks this session on your own record only', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // The mock signs in as its first member, Morgan Avery (the Owner).
+  await page.goto(app('/team/0199c0a0-0a00-7000-8000-000000000001/security/sessions'));
+  const sessions = page.getByTestId('active-sessions');
+  await expect(sessions).toContainText('MacBook Pro / Chrome', { timeout: 60_000 });
+  await expect(sessions.getByText('This session', { exact: true })).toHaveCount(1);
+  await page.goto(app('/team/0199c0a0-0a00-7000-8000-000000000006/security/sessions'));
+  await expect(sessions).toContainText('MacBook Pro / Chrome', { timeout: 60_000 });
+  await expect(sessions.getByText('This session', { exact: true })).toHaveCount(0);
+});
