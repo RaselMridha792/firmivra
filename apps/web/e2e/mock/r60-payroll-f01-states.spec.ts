@@ -3,7 +3,7 @@
 // Gusto has synced (Green Leaf Café), QuickBooks Payroll is authorized with no data yet (Davis
 // Consulting), and OnPay is chosen but not authorized (Jordan Services). Roberts & Co. has no
 // provider and no run, so its Upcoming Payroll Runs show the schedule or what is missing.
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = `http://app.localhost:${port}`;
@@ -67,7 +67,7 @@ test('F01 chosen, not authorized: "Pending setup" everywhere, and only that is a
   await expect(upcoming).not.toContainText('pay frequency');
 });
 
-test('F01 plan: Change Payroll Plan opens on the saved plan, and No plan is an explicit removal', async ({
+test('F01 plan: Change Payroll Plan opens on the saved plan, never clears it untouched, and No plan is an explicit removal', async ({
   page,
 }) => {
   await page.goto(`${app}/payroll`);
@@ -77,23 +77,31 @@ test('F01 plan: Change Payroll Plan opens on the saved plan, and No plan is an e
     await page.getByRole('menuitem', { name: 'Change Payroll Plan/Service' }).click();
     return page.getByRole('dialog', { name: 'Change Payroll Plan / Service' });
   };
+  const checked = (dialog: Locator) =>
+    dialog.getByLabel('Plan or service').locator('option:checked');
+
+  // Green Leaf's plan is saved by name only: shown as saved, never "No plan", and an untouched
+  // Save cannot clear it.
   let dialog = await menu();
   const select = dialog.getByLabel('Plan or service');
   await expect(select).toBeEnabled();
-  const plan = (await select.locator('option').nth(1).innerText()).trim();
-  await select.selectOption({ index: 1 });
+  await expect(checked(dialog)).toContainText('(not in Services & Pricing)');
+  await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+  // A catalog plan, saved; opened again it starts on it.
+  const option = select.locator('option:not([disabled]):not([value=""])').first();
+  const plan = (await option.innerText()).trim();
+  await select.selectOption({ label: plan });
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Plan saved.')).toBeVisible();
-
-  // Opened again: on the saved plan, never "No plan".
   dialog = await menu();
-  await expect(dialog.getByLabel('Plan or service').locator('option:checked')).toHaveText(plan);
+  await expect(checked(dialog)).toHaveText(plan);
+  await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled();
+
   // Choosing No plan removes it, on purpose.
   await dialog.getByLabel('Plan or service').selectOption({ value: '' });
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Plan saved.')).toBeVisible();
   dialog = await menu();
-  await expect(dialog.getByLabel('Plan or service').locator('option:checked')).toHaveText(
-    'No plan',
-  );
+  await expect(checked(dialog)).toHaveText('No plan');
 });

@@ -885,7 +885,7 @@ describe('the workspace and its service actions', () => {
     );
     expect(await both()).toBe('Connected · waiting for first sync');
     // Not authorized for the firm (its Integrations connection is not connected): pending setup.
-    const setConnection = (status: 'CONNECTED' | 'DISCONNECTED') =>
+    const setConnection = (status: 'CONNECTED' | 'PAUSED') =>
       asOwner(ids.firmA, (tx) =>
         tx.integrationConnection.updateMany({
           where: { businessId: ids.firmA, provider: 'gusto' },
@@ -893,7 +893,7 @@ describe('the workspace and its service actions', () => {
         }),
       );
     try {
-      await setConnection('DISCONNECTED');
+      await setConnection('PAUSED');
       expect(await both()).toBe('Pending setup');
     } finally {
       await setConnection('CONNECTED');
@@ -1129,7 +1129,10 @@ describe('the workspace and its service actions', () => {
     expect(
       exact(
         PayrollClientWorkspace,
-        await call('post', `/clients/${pcId}/plan`, people.adminA, { catalogServiceId: null }),
+        await call('post', `/clients/${pcId}/plan`, people.adminA, {
+          catalogServiceId: null,
+          remove: true,
+        }),
       ),
     ).toMatchObject({ plan: null, catalogServiceId: null });
     expectError(

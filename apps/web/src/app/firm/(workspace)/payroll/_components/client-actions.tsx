@@ -329,7 +329,13 @@ function ClientDialog({
               Cancel
             </Button>
             <Button
-              disabled={send.isPending || (needsText && !text.trim()) || (kind === 'plan' && !d)}
+              disabled={
+                send.isPending ||
+                (needsText && !text.trim()) ||
+                // F01: only once the plan has loaded, and only a choice made here (a plan saved
+                // by name only starts as no catalog plan, and is never cleared by an untouched Save).
+                (kind === 'plan' && (!d || plan === null))
+              }
               onClick={() => send.mutate(undefined, { onSuccess: () => onDone(done[kind]) })}
             >
               {kind === 'remove'
