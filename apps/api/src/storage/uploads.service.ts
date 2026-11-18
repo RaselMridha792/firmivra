@@ -244,6 +244,7 @@ export class UploadsService {
             taxYear: claim.taxYear,
             intakeId: claim.intakeId ?? null,
             intakeSlot: claim.intakeSlot ?? null,
+            portalTabId: claim.portalTabId ?? null,
             ...(claim.library
               ? {
                   folderId: claim.library.folderId,

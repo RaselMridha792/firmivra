@@ -2291,6 +2291,7 @@ describe('the overview, meetings, resources, settings and activity', () => {
   });
 
   it('lists the approved resources and sends a client-facing one', async () => {
+    const c1Login = person('c1-login');
     const all = AdvisoryResourceList.parse(ok(await call('get', '/resources', staffA))).items;
     expect(all.length).toBeGreaterThanOrEqual(10);
     expect(
@@ -2308,6 +2309,37 @@ describe('the overview, meetings, resources, settings and activity', () => {
     ).toHaveLength(1);
 
     const key = 'funding-readiness-checklist';
+    // B28: the resource opens in the portal, so a client with no portal login is refused first.
+    expectError(
+      await call('post', `/resources/${key}/send`, staffA, {
+        advisoryClientId: shared.a1,
+        channel: 'PORTAL_MESSAGE',
+      }),
+      409,
+      'NO_PORTAL_LOGIN',
+    );
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: c1Login.id,
+          cognitoSub: c1Login.id,
+          pool: 'CLIENT',
+          email: c1Login.email,
+          name: 'Fake c1 login',
+        },
+      }),
+    );
+    await inFirm('a', (tx) =>
+      tx.clientAccount.create({
+        data: {
+          businessId: firms.a,
+          userId: c1Login.id,
+          clientId: clients.c1,
+          email: c1Login.email,
+          status: 'ACTIVE',
+        },
+      }),
+    );
     expect(
       OkResponse.parse(
         ok(

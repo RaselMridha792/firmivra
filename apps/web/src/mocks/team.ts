@@ -56,6 +56,15 @@ export function teamFixtures(): readonly TeamMember[] {
   return fixtures;
 }
 
+/**
+ * SM08: what the list says each person carries (as GET /business/team): Sam Staff is at the
+ * maximum of 2 active clients, so one more client warns.
+ */
+const workloadOf = (n: number): NonNullable<TeamMember['workload']> =>
+  n === 3
+    ? { activeClients: 2, maxActiveClients: 2, acceptsNewClients: true }
+    : { activeClients: n <= 2 ? 3 : 0, maxActiveClients: null, acceptsNewClients: true };
+
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
@@ -131,7 +140,7 @@ export function createTeamMock(
       await allowed();
       return [...rows]
         .sort((a, b) => order[a.role] - order[b.role] || a.user.name.localeCompare(b.user.name))
-        .map(copy);
+        .map((m) => ({ ...copy(m), workload: workloadOf(Number(m.id.slice(-12))) }));
     },
     changeRole: async (memberId, body) => {
       await allowed();

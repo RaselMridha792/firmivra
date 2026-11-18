@@ -48,6 +48,7 @@ const TONE: Record<string, DonutSegment['tone']> = {
   DRAFT: 'grey',
   IN_REVIEW: 'yellow',
   FINALIZED: 'blue',
+  AWAITING_CLIENT_APPROVAL: 'yellow',
   SENT: 'purple',
   NOT_STARTED: 'grey',
   PLANNING: 'blue',

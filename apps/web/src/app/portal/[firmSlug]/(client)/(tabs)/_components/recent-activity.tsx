@@ -64,15 +64,16 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
       return { glyph: 'invoice', color: 'text-success' };
     case 'tax_return':
       return { glyph: 'return', color: portalIconTones.orange };
-    // 'automation_run', 'project_deadline', 'task', 'task_series' and 'tax_plan' are staff-only (an
-    // automation's notice, a member's deadline, a task reminder, a series that failed): never in
-    // the portal.
+    // 'automation_run', 'project_deadline', 'task', 'task_series', 'tax_plan' and 'advisory_plan' are
+    // staff-only (an automation's notice, a member's deadline, a task reminder, a series that
+    // failed, a client's request or approval of a plan): never in the portal.
     case 'engagement':
     case 'automation_run':
     case 'project_deadline':
     case 'task':
     case 'task_series':
     case 'tax_plan':
+    case 'advisory_plan':
       return { glyph: 'service', color: 'text-firm-text' };
     // 'bookkeeping_client' (BK-CP3: a client's answer to its terms) is the firm's: never here.
     case 'client_account':

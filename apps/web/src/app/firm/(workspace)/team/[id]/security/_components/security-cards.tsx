@@ -293,7 +293,17 @@ export function SessionsCard({
           {
             id: 'device',
             label: 'Device / Browser',
-            cell: (s) => <span className="text-link">{s.device}</span>,
+            cell: (s) => (
+              <span className="inline-flex flex-wrap items-center gap-2">
+                <span className="text-link">{s.device}</span>
+                {/* SM12: the viewer's own sign-in, on their own record. */}
+                {s.current ? (
+                  <Badge tone="success" dot>
+                    This session
+                  </Badge>
+                ) : null}
+              </span>
+            ),
           },
           { id: 'place', label: 'Location', cell: (s) => s.place ?? 'Unknown' },
           { id: 'ip', label: 'IP Address', cell: (s) => s.ip ?? '—' },

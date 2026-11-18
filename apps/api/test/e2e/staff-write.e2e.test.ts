@@ -12,6 +12,7 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   CreateStaffResponse,
+  PermissionCapability,
   StaffActionResult,
   StaffCompensation,
   StaffDetail,
@@ -1022,6 +1023,85 @@ describe("a member's permissions", () => {
     const granted = (p: StaffPermissions) =>
       p.cells.filter((c) => c.granted).map((c) => `${c.module}:${c.capability}`);
     expect(granted(copied)).toEqual(granted(manager));
+  });
+
+  it('SM02: an Admin gives no cell they lack themselves; one the member already has is kept', async () => {
+    const integrations = (mode: 'DENY' | 'INHERIT') =>
+      PermissionCapability.options.map((capability) => ({
+        module: 'INTEGRATIONS',
+        capability,
+        mode,
+      }));
+    const give = { module: 'INTEGRATIONS', capability: 'VIEW', granted: true };
+    const refused = (res: Response) => {
+      expectError(res, 403, 'CANNOT_GRANT');
+      expect((res.body as { error: { details: object[] } }).error.details).toContainEqual(
+        expect.objectContaining({ module: 'INTEGRATIONS', capability: 'VIEW' }),
+      );
+    };
+    // The Owner takes Integrations from this Admin alone.
+    ok(
+      await call('patch', `/staff/${member.adminA}/permissions`, ownerA, {
+        overrides: integrations('DENY'),
+      }),
+    );
+    try {
+      refused(
+        await call('put', `/staff/${member.staffA}/permissions`, adminA, {
+          grants: [give],
+          acknowledgeEscalation: true,
+        }),
+      );
+      refused(
+        await call('patch', `/staff/${member.staffA}/permissions`, adminA, {
+          overrides: [{ module: 'INTEGRATIONS', capability: 'VIEW', mode: 'ALLOW' }],
+          acknowledgeEscalation: true,
+        }),
+      );
+      // Create Staff: refused before anyone is invited.
+      refused(
+        await call('post', '/staff', adminA, {
+          idempotencyKey: randomUUID(),
+          account: account('sm02'),
+          permissions: [give],
+        }),
+      );
+      expect(await membersWith(newEmail('sm02'))).toBe(0);
+      // The Owner gives it; the Admin's later save keeps it: only a cell newly given is checked.
+      ok(
+        await call('put', `/staff/${member.staffA}/permissions`, ownerA, {
+          grants: [give],
+          acknowledgeEscalation: true,
+        }),
+      );
+      const kept = StaffPermissions.parse(
+        ok(
+          await call('put', `/staff/${member.staffA}/permissions`, adminA, {
+            grants: [give, { module: 'TASKS', capability: 'EDIT', granted: false }],
+            acknowledgeEscalation: true,
+          }),
+        ),
+      );
+      const at = (module: string, capability: string) =>
+        kept.cells.find((c) => c.module === module && c.capability === capability)?.granted;
+      expect([at('INTEGRATIONS', 'VIEW'), at('TASKS', 'EDIT')]).toEqual([true, false]);
+    } finally {
+      ok(
+        await call('patch', `/staff/${member.adminA}/permissions`, ownerA, {
+          overrides: integrations('INHERIT'),
+        }),
+      );
+      ok(
+        await call('put', `/staff/${member.staffA}/permissions`, ownerA, {
+          grants: [
+            { ...give, granted: false },
+            { module: 'TASKS', capability: 'EDIT', granted: true },
+          ],
+          // An earlier test's Allow beyond the role is still theirs.
+          acknowledgeEscalation: true,
+        }),
+      );
+    }
   });
 });
 

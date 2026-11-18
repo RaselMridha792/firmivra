@@ -250,6 +250,11 @@ describe('notification links', () => {
     // T-D12: a task's reminder opens the task; never the portal.
     expect(notificationLink(target('task'), firm)).toBe(`/tasks/${id}`);
     expect(notificationLink(target('task'), portal)).toBeNull();
+    // B10: a client's approval of a business plan opens its review step; never the portal.
+    expect(notificationLink(target('advisory_plan', clientId), firm)).toBe(
+      `/business-advisory/plans/${id}/edit/review`,
+    );
+    expect(notificationLink(target('advisory_plan'), portal)).toBeNull();
     expect(notificationLink(target('project_deadline'), portal)).toBeNull();
     expect(notificationLink(target('document'), portal)).toBe('/lvp/documents');
     expect(notificationLink(target('tax_return'), portal)).toBe('/lvp/taxes');

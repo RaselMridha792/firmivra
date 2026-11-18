@@ -30,6 +30,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
+import { mockMyCustomTabs } from './portal-tabs';
 import { engagementFixtures } from './engagements';
 import { mockUploadTicket } from './upload-ticket';
 import { serviceEngagement, serviceMockClient } from './service-engagements';
@@ -704,6 +705,16 @@ export function myDocumentsMock(firmSlug: string): MyDocumentsClient {
   return mock;
 }
 
+/** CP-5d: the custom tab each portal upload came through (the store's rows don't carry it). */
+let tabOfDocumentMap: Map<string, string> | null = null;
+const tabOfDocument = () => (tabOfDocumentMap ??= new Map());
+
+/** A custom document tab the mock client sees, or the API's 404. */
+function documentTab(tabId: string) {
+  const tab = mockMyCustomTabs().find((t) => t.id === tabId);
+  if (!tab || tab.module !== 'DOCUMENTS') throw notFound();
+}
+
 /** An in-memory `api.myDocuments(slug)` for the signed-in portal client (client 1). */
 export function createMyDocumentsMock(): MyDocumentsClient {
   const s = store();
@@ -744,9 +755,10 @@ export function createMyDocumentsMock(): MyDocumentsClient {
     list: async (query = {}) => {
       await mockDelay();
       const q = parseInput(ListMyDocumentsQuery, query);
-      const docs = mine().filter(
-        (d) => (q.source === 'MINE') === (d.direction === 'CLIENT_TO_FIRM'),
-      );
+      if (q.portalTabId) documentTab(q.portalTabId);
+      const docs = mine()
+        .filter((d) => (q.source === 'MINE') === (d.direction === 'CLIENT_TO_FIRM'))
+        .filter((d) => !q.portalTabId || tabOfDocument().get(d.id) === q.portalTabId);
       const found = docs
         .filter((d) => !q.categoryId || d.category?.id === q.categoryId)
         .filter((d) => !q.taxYear || d.taxYear === q.taxYear)
@@ -785,6 +797,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
     createUpload: async (body) => {
       await mockDelay();
       const b = parseInput(CreateMyUploadRequest, body);
+      if (b.portalTabId) documentTab(b.portalTabId);
       s.target(me, b);
       checkDocumentSize(b.sizeBytes);
       return s.ticket(me, b);
@@ -795,6 +808,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
       const d = s.confirm(uploadToken, ({ body: raw }, id) => {
         const b = raw as ReturnType<typeof CreateMyUploadRequest.parse>;
         const e = s.engagement(me, b.serviceId)!;
+        if (b.portalTabId) tabOfDocument().set(id, b.portalTabId);
         return {
           id,
           clientId: me,

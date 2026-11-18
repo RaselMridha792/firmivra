@@ -129,6 +129,8 @@ export class MyDocumentsService {
             source,
             q.categoryId ? { categoryId: q.categoryId } : {},
             q.taxYear ? { taxYear: q.taxYear } : {},
+            // CP-5d: the files of one custom tab (the controller checked the client sees it).
+            q.portalTabId ? { portalTabId: q.portalTabId } : {},
             term ? { fileName: { contains: term, mode: 'insensitive' } } : {},
             q.cursor ? await this.after(tx, source, byName, q.cursor) : {},
           ],
@@ -327,6 +329,7 @@ export class MyDocumentsService {
       engagementId: target.engagement.id,
       requestId: target.request?.id ?? null,
       categoryId: body.categoryId ?? null,
+      ...(body.portalTabId ? { portalTabId: body.portalTabId } : {}),
       direction: 'CLIENT_TO_FIRM',
       // TR-2: a file answering a request made from a tax return takes that return's year.
       taxYear: target.request?.taxYear ?? body.taxYear ?? target.engagement.taxYear,

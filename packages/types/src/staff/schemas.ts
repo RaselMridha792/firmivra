@@ -511,6 +511,8 @@ export const StaffSessionItem = z.object({
   lastActiveAt: DateTime,
   /** Seen in the last 5 minutes: "Active now". */
   activeNow: z.boolean(),
+  /** SM12: the viewer's own session, on their own record: "This session". */
+  current: z.boolean().optional(),
 });
 export type StaffSessionItem = z.infer<typeof StaffSessionItem>;
 
