@@ -12,6 +12,7 @@ import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
 import { exportFailure, saveFile } from '../../../../../lib/save-file';
 import { AuditLogFilters, addressFilters, type AuditFilters } from './audit-filters';
+import { detailLines } from './audit-details';
 import { when } from './audit-time';
 
 /** "System" for the system and signed-out requests; Firmivra Support as it is, never a person. */
@@ -40,21 +41,21 @@ const actionText = (action: string) => {
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
-/** Metadata holds ids and flags only (the API never records secrets or document content). */
-const shown = (value: unknown) =>
-  typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value));
-
+/**
+ * Metadata holds ids, flags and changed values (the API never records secrets or document
+ * content); a change reads "old → new" (R03c).
+ */
 function Details({ entry }: { entry: AuditEntry }) {
-  const metadata = Object.entries(entry.metadata);
+  const metadata = detailLines(entry.metadata);
   return (
     <details className="min-w-0 max-w-full" data-testid="audit-details">
       <summary className="cursor-pointer text-link">Details</summary>
       <dl className="mt-2 grid min-w-0 gap-2 text-xs md:gap-1">
         {metadata.length ? (
-          metadata.map(([key, value]) => (
-            <div key={key} className="grid min-w-0 gap-1 sm:flex sm:flex-wrap">
+          metadata.map(({ key, value }, i) => (
+            <div key={`${key}-${i}`} className="grid min-w-0 gap-1 sm:flex sm:flex-wrap">
               <dt className="wrap-anywhere text-muted">{key}:</dt>
-              <dd className="min-w-0 wrap-anywhere">{shown(value)}</dd>
+              <dd className="min-w-0 wrap-anywhere">{value}</dd>
             </div>
           ))
         ) : (

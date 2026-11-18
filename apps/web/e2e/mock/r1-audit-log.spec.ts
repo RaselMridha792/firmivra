@@ -32,3 +32,15 @@ test('R01: times and the date filter are the firm’s, with its zone shown', asy
   await apply.click();
   await expect(rows).toHaveCount(5);
 });
+
+test('R03c: Details reads each change as old → new, null and empty text apart', async ({
+  page,
+}) => {
+  await page.goto(app('/audit-log'));
+  const first = page.getByRole('table', { name: 'Audit log' }).locator('tbody tr').first();
+  await first.getByText('Details', { exact: true }).click();
+  const details = first.getByTestId('audit-details');
+  await expect(details).toContainText('location:(none) → (empty)');
+  await expect(details).toContainText('reminderSent:true → false');
+  await expect(details).toContainText('bufferMinutes:0 → 15');
+});

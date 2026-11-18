@@ -38,10 +38,18 @@ export function auditFixtures(): readonly AuditEntry[] {
       ...fields,
     });
   fixtures ??= [
+    // A change of each kind of value: null to empty text, true to false, zero to a number.
     entry(1, {
       action: 'appointment.rescheduled',
       entity: { type: 'appointment', id: '0199b6c3-0000-7000-8000-000000000001' },
       actor: { ...mockStaff, kind: 'STAFF' },
+      metadata: {
+        changes: {
+          location: { from: null, to: '' },
+          reminderSent: { from: true, to: false },
+          bufferMinutes: { from: 0, to: 15 },
+        },
+      },
     }),
     entry(2, {
       action: 'client_account.approved',
