@@ -44,7 +44,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { MessagesActivityService } from './messages-activity.service.js';
 import { MessagesService } from './messages.service.js';
 import { OutboundFilesService } from './outbound-files.service.js';
-import { PortalTabRoute } from '../client-portal/portal-tabs.js';
+import { PortalTabRoute, PortalTabsService } from '../client-portal/portal-tabs.js';
 
 const clientPipe = new ZodValidationPipe(ClientId);
 const idPipe = new ZodValidationPipe(MessageThreadId);
@@ -291,6 +291,7 @@ export class MyMessagesController {
   constructor(
     private readonly messages: MessagesService,
     private readonly files: OutboundFilesService,
+    private readonly tabs: PortalTabsService,
   ) {}
 
   @Get()
@@ -307,6 +308,8 @@ export class MyMessagesController {
     @Body(new ZodValidationPipe(CreateMyMessageThreadRequest))
     body: z.output<typeof CreateMyMessageThreadRequest>,
   ): Promise<MyMessageThreadDetail> {
+    // CP-4f: a new conversation only while the firm allows secure messages.
+    await this.tabs.assertNewThreadsOpen(tenant.businessId);
     return this.messages.myCreate(tenant.businessId, accountOf(tenant), body);
   }
 
