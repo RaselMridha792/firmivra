@@ -33,3 +33,44 @@ test('SM04: Create Staff’s permission grid has the Export column, set like any
   await exportClients.check();
   await expect(exportClients).toBeChecked();
 });
+
+const HANA = '0199c0a0-0a00-7000-8000-000000000006';
+
+test('SM18: Edit Staff asks before unsaved changes are lost: Keep Editing, Discard Changes or Save', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app(`/team/${HANA}`));
+  await expect(page.getByLabel('First Name *')).toHaveValue('Hana', { timeout: 60_000 });
+  await page.getByLabel('Job Title *').fill('Synthetic title change');
+  // Cancel asks; Keep Editing stays with the change.
+  await page.getByRole('link', { name: 'Cancel' }).click();
+  const ask = page.getByRole('dialog', { name: 'Unsaved changes' });
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Keep Editing' }).click();
+  await expect(page).toHaveURL(app(`/team/${HANA}`));
+  await expect(page.getByLabel('Job Title *')).toHaveValue('Synthetic title change');
+  // The sidebar asks too; Discard Changes leaves without saving.
+  await page.getByTestId('sidebar-menu').getByRole('link', { name: 'Leads' }).click();
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Discard Changes' }).click();
+  await expect(page).toHaveURL(app('/leads'), { timeout: 60_000 });
+});
+
+test('SM18: Create Staff asks before leaving unsaved work, and Save Draft keeps it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/team/new'));
+  await page.getByLabel('First Name *').fill('Fake');
+  await page.getByLabel('Last Name *').fill('Draftguard');
+  await page.getByRole('link', { name: 'Cancel' }).click();
+  const ask = page.getByRole('dialog', { name: 'Unsaved changes' });
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Save Draft' }).click();
+  await expect(page).toHaveURL(app('/team'), { timeout: 60_000 });
+  // Nothing unsaved: leaving asks nothing.
+  await page.goto(app('/team/new'));
+  await page.getByRole('link', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(app('/team'), { timeout: 60_000 });
+});
