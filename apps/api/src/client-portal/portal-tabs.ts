@@ -129,9 +129,14 @@ export class PortalTabsService {
         where: { id: clientAccountId },
         select: { clientId: true },
       });
-      if (!account?.clientId) return { tabs: await this.read(tx) };
+      if (!account?.clientId) return { tabs: await this.read(tx), businessPortal: false };
       const areas = await this.areasIn(tx, account.clientId);
       const on = (m: PortalModule) => areas[m].firmOn && areas[m].clientOn;
+      // CP-9.3: a Personal portal lists no business-only tab (content.service's rule).
+      const client = await tx.client.findUnique({
+        where: { id: account.clientId },
+        select: { accountType: true },
+      });
       return {
         tabs: Object.fromEntries(PortalTab.options.map((t) => [t, on(t)])) as Tabs,
         more: {
@@ -139,6 +144,7 @@ export class PortalTabsService {
           TASKS_REQUESTS: on('TASKS_REQUESTS'),
           REPORTS: on('REPORTS'),
         },
+        businessPortal: client?.accountType === 'BUSINESS',
       };
     });
   }

@@ -5,6 +5,7 @@ import {
   type PortalTabsClient,
   UpdatePortalTabsRequest,
 } from '@firmivra/types';
+import { mockPortalAccountType } from './portal-account-type';
 
 /** Kept for the browser tab's session, so a reload (or a spec's init script) keeps the switches. */
 const KEY = 'firmivra-mock:portal-tabs';
@@ -51,6 +52,9 @@ export function createPortalTabsMock(
       }
       return { tabs: { ...tabs } };
     },
-    mine: async () => ({ tabs: { ...current() } }),
+    mine: async () => ({
+      tabs: { ...current() },
+      businessPortal: mockPortalAccountType() === 'BUSINESS',
+    }),
   };
 }

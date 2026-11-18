@@ -7,7 +7,7 @@ import { isActive } from '../../../../../components/app-shell/types';
 import { RecentActivity } from './_components/recent-activity';
 import { QuickLinks, RightColumn } from './_components/side-cards';
 import { PortalPageHeader } from '../_components/portal-page-header';
-import { usePortalTabs } from '../_components/portal-tabs';
+import { BUSINESS_PAGE, usePortalTabs } from '../_components/portal-tabs';
 import { usePortal } from '../../layout';
 import { Card } from '@firmivra/ui';
 
@@ -36,7 +36,8 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   const onHome = isActive(pathname, `/${firmSlug}/home`);
   const tabActive = (path: string) =>
     isActive(pathname, `/${firmSlug}/${path}`) || (path === 'intake' && onHome);
-  const hidden = tabs.find(([, path]) => !tabOn(path) && tabActive(path));
+  // A firm's switch, not the portal type: the Business page tells a Personal client itself.
+  const hidden = tabs.find(([, path]) => path !== BUSINESS_PAGE && !tabOn(path) && tabActive(path));
   const intakeActive = tabActive('intake');
   const documentsPage = !hidden && isActive(pathname, `/${firmSlug}/documents`);
   const isMessagesPage = !hidden && isActive(pathname, `/${firmSlug}/messages`);
