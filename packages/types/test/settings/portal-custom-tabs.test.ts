@@ -16,7 +16,7 @@ describe('CreatePortalCustomTab', () => {
     });
   });
 
-  it('takes a tag audience with tags, and a client audience with clients', () => {
+  it('takes a tag audience with tags, a client audience with clients, and either with both', () => {
     const base = { label: 'Resources', module: 'BUSINESS_RESOURCES' };
     expect(
       CreatePortalCustomTab.safeParse({ ...base, audience: 'TAGS', tagIds: [tag] }).success,
@@ -25,6 +25,9 @@ describe('CreatePortalCustomTab', () => {
       CreatePortalCustomTab.safeParse({ ...base, audience: 'CLIENTS', clientIds: [client] })
         .success,
     ).toBe(true);
+    const both = { tagIds: [tag], clientIds: [client] };
+    for (const audience of ['TAGS', 'CLIENTS'])
+      expect(CreatePortalCustomTab.safeParse({ ...base, audience, ...both }).success).toBe(true);
   });
 
   it('refuses targets that disagree with the audience, a built-in module, or another field', () => {
@@ -33,8 +36,9 @@ describe('CreatePortalCustomTab', () => {
       { ...base, audience: 'TAGS' },
       { ...base, audience: 'CLIENTS' },
       { ...base, audience: 'ALL', tagIds: [tag] },
-      { ...base, audience: 'TAGS', tagIds: [tag], clientIds: [client] },
-      { ...base, audience: 'CLIENTS', clientIds: [client], tagIds: [tag] },
+      { ...base, audience: 'ALL', clientIds: [client] },
+      { ...base, audience: 'TAGS', clientIds: [client] },
+      { ...base, audience: 'CLIENTS', tagIds: [tag] },
       { ...base, module: 'MESSAGES' },
       { ...base, label: '' },
       { ...base, label: 'x'.repeat(41) },

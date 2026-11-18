@@ -181,14 +181,13 @@ export function PortalCustomTabs() {
 
 function audienceText(tab: PortalCustomTab): string {
   if (tab.audience === 'ALL') return 'All business clients';
-  if (tab.audience === 'TAGS')
-    return tab.tagIds.length === 1
-      ? 'Clients with 1 tag'
-      : `Clients with ${tab.tagIds.length} tags`;
+  const n = tab.tagIds.length;
   const [first, ...rest] = tab.clients;
-  return rest.length === 0
-    ? (first?.name ?? 'No client')
-    : `${first?.name} and ${rest.length} more`;
+  const parts = [
+    n === 0 ? null : n === 1 ? 'Clients with 1 tag' : `Clients with ${n} tags`,
+    first ? (rest.length === 0 ? first.name : `${first.name} and ${rest.length} more`) : null,
+  ];
+  return parts.filter(Boolean).join('; ');
 }
 
 /** Add Custom Tab or Edit: the name, the function (fixed once added) and who sees it. */

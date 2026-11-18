@@ -66,17 +66,14 @@ function currentCustom(): PortalCustomTab[] {
 
 /**
  * CP-5e: the custom tabs the mock portal client (client 1) sees: only in a business portal, on,
- * and for everyone or chosen for them. The mock client has no tags, so a tag audience hides the
- * tab, as for an untagged client.
+ * and for everyone or chosen by name. The mock client has no tags, so a tab targeted only at tags
+ * stays hidden, as for an untagged client.
  */
 export function mockMyCustomTabs(): MyCustomTab[] {
   if (mockPortalAccountType() !== 'BUSINESS') return [];
   return currentCustom()
     .filter(
-      (t) =>
-        t.enabled &&
-        (t.audience === 'ALL' ||
-          (t.audience === 'CLIENTS' && t.clients.some((c) => c.id === firstClientId))),
+      (t) => t.enabled && (t.audience === 'ALL' || t.clients.some((c) => c.id === firstClientId)),
     )
     .map(({ id, label, module }) => ({ id, label, module }));
 }

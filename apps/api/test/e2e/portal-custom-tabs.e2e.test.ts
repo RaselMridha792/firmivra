@@ -280,6 +280,22 @@ describe('Settings > Client Portal > Features: custom tabs (CP-5d, CP-5e)', () =
     expect(code(await docs(personal, uploads!.id))).toBe('NOT_FOUND');
     expect(code(await docs(chosen, forOne.id))).toBe('NOT_FOUND');
     expect(code(await docs(untagged, randomUUID()))).toBe('NOT_FOUND');
+
+    // A targeted tab may name a tag and a client: it shows to both, and to no one else.
+    const mixed = await created({
+      label: 'Fake mixed',
+      module: 'DOCUMENTS',
+      audience: 'TAGS',
+      tagIds: [ids.tag],
+      clientIds: [ids.untagged],
+    });
+    expect(mixed.clients).toEqual([{ id: ids.untagged, name: 'Fake untagged client' }]);
+    expect(await menuOf(tagged)).toContain('Fake mixed');
+    expect(await menuOf(untagged)).toContain('Fake mixed');
+    expect(await menuOf(chosen)).not.toContain('Fake mixed');
+    expect(await menuOf(personal)).toEqual([]);
+    const off = await send('patch', `${CUSTOM}/${mixed.id}`, owner, { enabled: false });
+    expect(off.status).toBe(200);
   });
 
   it('renames, switches and retargets a tab, audited; a tag or client of another firm is not found', async () => {

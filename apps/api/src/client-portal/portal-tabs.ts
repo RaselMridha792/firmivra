@@ -457,7 +457,7 @@ export class PortalTabsService {
 
   /**
    * CP-5e: the custom tabs a client sees: only in a business portal (guide 9.3), on, live, and
-   * for everyone, for one of the client's tags, or for the client.
+   * for everyone, or targeted (TAGS or CLIENTS) at one of the client's tags or at the client.
    */
   async customFor(tx: TxClient, clientId: string, business: boolean): Promise<MyCustomTab[]> {
     if (!business) return [];
@@ -471,10 +471,12 @@ export class PortalTabsService {
         enabled: true,
         OR: [
           { audience: 'ALL' },
-          { audience: 'CLIENTS', targets: { some: { clientId } } },
-          ...(tags.length
-            ? [{ audience: 'TAGS' as const, targets: { some: { tagId: { in: tags } } } }]
-            : []),
+          {
+            audience: { in: ['TAGS', 'CLIENTS'] },
+            targets: {
+              some: { OR: [{ clientId }, ...(tags.length ? [{ tagId: { in: tags } }] : [])] },
+            },
+          },
         ],
       },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],

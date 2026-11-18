@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { type ApiRequest, parseInput } from '../client.js';
-// Who sees a custom tab, among business clients: all, clients with a tag, or chosen clients.
+// Who sees a custom tab, among business clients: all, or a targeted audience: clients with one of
+// its tags (TAGS) or chosen by name (CLIENTS). A targeted tab may name both kinds; it shows to
+// clients with one of its tags and to its chosen clients.
 import { PortalTabAudience } from '../db-enums.js';
 
 /**
@@ -73,7 +75,7 @@ export const PortalCustomTab = z.object({
   enabled: z.boolean(),
   audience: PortalTabAudience,
   tagIds: z.array(z.uuid()),
-  /** The chosen clients (audience CLIENTS), with their names for the firm's list. */
+  /** The chosen clients, with their names for the firm's list. */
   clients: z.array(z.object({ id: z.uuid(), name: z.string() })),
 });
 export type PortalCustomTab = z.infer<typeof PortalCustomTab>;
@@ -86,13 +88,17 @@ const Targets = {
   tagIds: z.array(z.uuid()).max(50),
   clientIds: z.array(z.uuid()).max(200),
 };
-/** The audience and its targets agree: ALL names none, TAGS at least one tag, CLIENTS a client. */
+/**
+ * The audience and its targets agree: ALL names none, TAGS at least one tag, CLIENTS at least one
+ * client. A targeted audience may also name the other kind (it shows to both).
+ */
 const targetsAgree = (t: { audience?: string; tagIds?: string[]; clientIds?: string[] }) =>
   t.audience === undefined ||
   (t.audience === 'ALL' && !t.tagIds?.length && !t.clientIds?.length) ||
-  (t.audience === 'TAGS' && (t.tagIds?.length ?? 0) > 0 && !t.clientIds?.length) ||
-  (t.audience === 'CLIENTS' && (t.clientIds?.length ?? 0) > 0 && !t.tagIds?.length);
-const TARGETS_MESSAGE = 'Choose at least one tag or client for this audience, and only those';
+  (t.audience === 'TAGS' && (t.tagIds?.length ?? 0) > 0) ||
+  (t.audience === 'CLIENTS' && (t.clientIds?.length ?? 0) > 0);
+const TARGETS_MESSAGE =
+  'Choose at least one tag or client for this audience; all business clients takes neither';
 
 /** POST /business/settings/portal-tabs/custom. Two tabs never share a name (409 DUPLICATE_LABEL). */
 export const CreatePortalCustomTab = z
