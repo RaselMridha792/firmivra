@@ -782,6 +782,11 @@ export const BookMyAppointmentRequest = z.strictObject({
   typeId: AppointmentTypeId,
   startsAt: DateTime,
   locationKind: LocationKind.optional(),
+  /**
+   * S12: booked from a package's page (its Booking type is `typeId`): the firm sees the package
+   * named on the booking, in its staff notes. One that is not live or not of this type is ignored.
+   */
+  packageId: z.uuid().optional(),
 });
 export type BookMyAppointmentRequest = z.input<typeof BookMyAppointmentRequest>;
 

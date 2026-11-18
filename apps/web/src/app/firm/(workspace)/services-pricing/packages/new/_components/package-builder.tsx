@@ -21,6 +21,7 @@ import {
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { BookingTypeSelect } from '../../../_components/booking-type-select';
 import { CATALOG_ERRORS, money } from '../../../_components/catalog-shared';
 import { QuoteRequiredNote, selectedTotal } from '../../../_components/package-parts';
 import {
@@ -60,6 +61,7 @@ export function PackageBuilder() {
       visibleToClients: true,
       allowClientAddOns: true,
       displayOnWebsite: true,
+      appointmentTypeId: null,
       internalNotes: '',
       activate: false,
     },
@@ -483,6 +485,10 @@ export function PackageBuilder() {
                 </span>
               </div>
             ))}
+            <BookingTypeSelect
+              value={value.appointmentTypeId ?? ''}
+              onChange={(typeId) => put('appointmentTypeId', typeId || null)}
+            />
           </Panel>
           {save.error ? (
             <p role="alert" className="text-sm text-danger">

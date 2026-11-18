@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { portalAuth } from '../../../../../../../lib/auth';
-import { bookingPath, keepBooking } from '../../../../../../../lib/booking-intent';
+import { bookingPath, keepBooking, typeIdOf } from '../../../../../../../lib/booking-intent';
 import { errorCode } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { refreshSession } from '../../../../../../../lib/session';
@@ -42,11 +42,13 @@ async function sessionAt(slug: string) {
  * all is refused here with a way to contact the firm. Otherwise the type is kept in this browser
  * (lib/booking-intent.ts): a signed-in client goes straight to booking on it, and anyone else
  * signs in or creates an account and lands on it at their next sign-in. A client the firm has not
- * approved yet is told they can book once it does.
+ * approved yet is told they can book once it does. A package page's Book (S12) adds the package,
+ * which goes along to the booking.
  */
-export function BookLinkScreen({ typeId }: { typeId: string }) {
+export function BookLinkScreen({ typeId, packageId }: { typeId: string; packageId?: string }) {
   const { business } = usePortal();
   const slug = business.slug;
+  const pkg = typeIdOf(packageId);
   const router = useRouter();
   const type = useApiQuery(['public-booking', slug, typeId], () =>
     api.publicBooking(slug).type(typeId),
@@ -57,9 +59,9 @@ export function BookLinkScreen({ typeId }: { typeId: string }) {
 
   useEffect(() => {
     if (!live) return;
-    keepBooking(slug, typeId);
-    if (status === 'ACTIVE') router.replace(bookingPath(slug, typeId));
-  }, [live, status, slug, typeId, router]);
+    keepBooking(slug, typeId, Date.now(), pkg);
+    if (status === 'ACTIVE') router.replace(bookingPath(slug, typeId, pkg));
+  }, [live, status, slug, typeId, pkg, router]);
 
   return (
     <SignUpFrame
@@ -77,7 +79,7 @@ export function BookLinkScreen({ typeId }: { typeId: string }) {
             <Skeleton className="h-24 w-full" />
           </>
         ) : type.data && live ? (
-          <Bookable type={type.data} waiting={status === 'PENDING_APPROVAL'} />
+          <Bookable type={type.data} waiting={status === 'PENDING_APPROVAL'} packageId={pkg} />
         ) : (
           <Refused type={type.data} failed={type.isError && !isGone(type.error)} />
         )}
@@ -108,7 +110,15 @@ function Facts({ type }: { type: PublicBookingType }) {
 }
 
 /** A type that takes bookings, for a visitor who is not signed in, or not approved yet. */
-function Bookable({ type, waiting }: { type: PublicBookingType; waiting: boolean }) {
+function Bookable({
+  type,
+  waiting,
+  packageId,
+}: {
+  type: PublicBookingType;
+  waiting: boolean;
+  packageId: string | null;
+}) {
   const { business, signUpOpen } = usePortal();
   const slug = business.slug;
   if (waiting) {
@@ -137,7 +147,9 @@ function Bookable({ type, waiting }: { type: PublicBookingType; waiting: boolean
         Sign in to your {business.name} client portal to choose a time.
       </StepHeading>
       <Facts type={type} />
-      <ButtonLink href={`/${slug}/sign-in?book=${encodeURIComponent(type.id)}`}>
+      <ButtonLink
+        href={`/${slug}/sign-in?book=${encodeURIComponent(type.id)}${packageId ? `&package=${packageId}` : ''}`}
+      >
         Sign In to Book
       </ButtonLink>
       {signUpOpen ? (

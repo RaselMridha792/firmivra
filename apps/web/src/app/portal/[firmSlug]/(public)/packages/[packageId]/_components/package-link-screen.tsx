@@ -49,7 +49,7 @@ export function PackageLinkScreen({ packageId }: { packageId: string }) {
             <Skeleton className="h-24 w-full" />
           </>
         ) : details ? (
-          <Offered details={details} />
+          <Offered details={details} packageId={packageId} />
         ) : (
           <Refused pkg={pkg.data} failed={pkg.isError && !isGone(pkg.error)} />
         )}
@@ -64,7 +64,7 @@ const isGone = (error: unknown) => {
   return code === 'NOT_FOUND' || code === 'VALIDATION_FAILED';
 };
 
-function Offered({ details }: { details: PublicPackageDetails }) {
+function Offered({ details, packageId }: { details: PublicPackageDetails; packageId: string }) {
   const { business, signUpOpen } = usePortal();
   const slug = business.slug;
   return (
@@ -141,8 +141,18 @@ function Offered({ details }: { details: PublicPackageDetails }) {
           </ul>
         </section>
       ) : null}
-      <ButtonLink href={`/${slug}/sign-in`}>Sign In to Get Started</ButtonLink>
-      {signUpOpen ? (
+      {details.bookingTypeId ? (
+        // S12: the package's Booking type: its booking link, which signs in (or signs up) first
+        // and names this package on the booking.
+        <ButtonLink
+          href={`/${slug}/book/${details.bookingTypeId}?package=${encodeURIComponent(packageId)}`}
+        >
+          Book This Package
+        </ButtonLink>
+      ) : (
+        <ButtonLink href={`/${slug}/sign-in`}>Sign In to Get Started</ButtonLink>
+      )}
+      {signUpOpen && !details.bookingTypeId ? (
         <p data-testid="package-link-sign-up" className="text-center text-text">
           New to {business.name}?{' '}
           <Link className="text-link underline" href={`/${slug}/sign-up`}>

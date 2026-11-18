@@ -676,3 +676,71 @@ describe('the client portal', () => {
     expect(booked.attending).toBe(false);
   });
 });
+
+describe('booking from a package’s page (S12)', () => {
+  /** A package of firm A whose Booking type is the group review type, live or not. */
+  async function packageOf(name: string, live: boolean) {
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      return await runInScope(
+        db,
+        { kind: 'business', businessId: ids.firmA },
+        async (tx) =>
+          (
+            await tx.servicePackage.create({
+              data: {
+                businessId: ids.firmA,
+                name,
+                shortDescription: 'Fake package',
+                status: 'ACTIVE',
+                packagePriceCents: 10_000,
+                visibleToClients: live,
+                displayOnPortal: live,
+                appointmentTypeId: ids.typeA!,
+              },
+            })
+          ).id,
+      );
+    } finally {
+      await db.$disconnect();
+    }
+  }
+  async function notesOf(id: string) {
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      return await runInScope(db, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.appointment.findUniqueOrThrow({ where: { id }, select: { internalNotes: true } }),
+      );
+    } finally {
+      await db.$disconnect();
+    }
+  }
+
+  it('names a live package in the firm’s staff notes, never in what the client gets back', async () => {
+    const live = await packageOf(`Family bundle ${run}`, true);
+    const res = await portal('post', '', people.guest, {
+      typeId: ids.typeA,
+      startsAt: at(freshDay(), '14:00'),
+      packageId: live,
+    });
+    const booked = exact(MyAppointment, res, 201);
+    expect(JSON.stringify(res.body)).not.toContain('Family bundle');
+    expect((await notesOf(booked.id)).internalNotes).toBe(
+      `Booked from the package "Family bundle ${run}".`,
+    );
+  });
+
+  it('books as usual, without a note, for a package that is not live', async () => {
+    const hidden = await packageOf(`Hidden bundle ${run}`, false);
+    const booked = exact(
+      MyAppointment,
+      await portal('post', '', people.guest, {
+        typeId: ids.typeA,
+        startsAt: at(freshDay(), '14:00'),
+        packageId: hidden,
+      }),
+      201,
+    );
+    expect((await notesOf(booked.id)).internalNotes).toBeNull();
+  });
+});

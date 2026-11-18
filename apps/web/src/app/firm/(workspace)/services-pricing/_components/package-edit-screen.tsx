@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { BookingTypeSelect } from './booking-type-select';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
   CATALOG_ERRORS,
@@ -109,6 +110,7 @@ function Builder({
   const [allowAddOns, setAllowAddOns] = useState(pkg?.allowClientAddOns ?? true);
   const [website, setWebsite] = useState(pkg?.displayOnWebsite ?? false);
   const [notes, setNotes] = useState(pkg?.internalNotes ?? '');
+  const [bookingTypeId, setBookingTypeId] = useState(pkg?.bookingType?.id ?? '');
   const [picking, setPicking] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [nextKey, setNextKey] = useState(0);
@@ -183,6 +185,7 @@ function Builder({
     visibleToClients: visible,
     allowClientAddOns: allowAddOns,
     displayOnWebsite: website,
+    appointmentTypeId: bookingTypeId || null,
     internalNotes: notes,
   });
   const options = { invalidate: [...CATALOG_KEY] };
@@ -622,6 +625,13 @@ function Builder({
                 </li>
               ))}
             </ul>
+            <div className="mt-3">
+              <BookingTypeSelect
+                value={bookingTypeId}
+                onChange={setBookingTypeId}
+                saved={pkg?.bookingType}
+              />
+            </div>
           </Panel>
         </aside>
       </div>

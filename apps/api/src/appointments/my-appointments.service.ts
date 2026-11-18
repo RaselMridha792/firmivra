@@ -347,12 +347,29 @@ export class MyAppointmentsService {
       const locationDetails =
         locationKind === 'VIDEO' ? await linkOf(this.links, tx, businessId, staff.userId) : null;
       await lockForBooking(tx, businessId, staff.userId, me.clientId);
+      // S12: booked from a package's page: the firm sees the package named in its staff notes
+      // (never shown to the client). Only a live package whose Booking type this is counts.
+      const pkg = body.packageId
+        ? await tx.servicePackage.findFirst({
+            where: {
+              businessId,
+              id: body.packageId,
+              appointmentTypeId: type.id,
+              status: 'ACTIVE',
+              archivedAt: null,
+              visibleToClients: true,
+              displayOnPortal: true,
+            },
+            select: { name: true },
+          })
+        : null;
       const created = await tx.appointment.create({
         data: {
           businessId,
           clientId: me.clientId,
           staffUserId: staff.userId,
           typeId: type.id,
+          ...(pkg ? { internalNotes: `Booked from the package "${pkg.name}".` } : {}),
           startsAt: new Date(slot.start),
           endsAt: new Date(slot.end),
           locationKind,
