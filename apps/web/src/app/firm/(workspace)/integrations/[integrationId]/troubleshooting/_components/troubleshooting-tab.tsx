@@ -7,6 +7,7 @@ import {
   ArrowsClockwise,
   CheckCircle,
   Play,
+  Question,
   ShieldCheck,
   WarningCircle,
 } from '@phosphor-icons/react';
@@ -28,6 +29,16 @@ import {
  * what to do, runs a test on demand, and offers the fixes the connection's state calls for:
  * Reconnect, Resume, or the failed runs in Sync History.
  */
+
+/** I-R2-01: good only for a healthy connection; bad when failing or disconnected; else neutral. */
+function tone(h: IntegrationConnectionHealth): 'good' | 'bad' | 'neutral' {
+  const state = h.state ?? (h.ok ? 'HEALTHY' : 'FAILING');
+  return state === 'HEALTHY'
+    ? 'good'
+    : state === 'FAILING' || state === 'DISCONNECTED'
+      ? 'bad'
+      : 'neutral';
+}
 
 export function TroubleshootingTab({ integrationId }: { integrationId: string }) {
   return (
@@ -109,28 +120,41 @@ function Troubleshooting({
             <EmptyLine>The health checks show when they load.</EmptyLine>
           ) : (
             <>
+              {/* I-R2-01: the summary, its colour and icon follow the one health state. */}
               <p
-                className={`flex items-center gap-3 rounded-control p-3 text-sm text-heading ${shown.ok ? 'bg-success-soft' : 'bg-danger-soft'}`}
+                data-testid="health-summary"
+                className={`flex items-center gap-3 rounded-control p-3 text-sm text-heading ${tone(shown) === 'good' ? 'bg-success-soft' : tone(shown) === 'bad' ? 'bg-danger-soft' : 'bg-canvas'}`}
               >
-                {shown.ok ? (
+                {tone(shown) === 'good' ? (
                   <CheckCircle aria-hidden weight="fill" className="size-8 shrink-0 text-success" />
-                ) : (
+                ) : tone(shown) === 'bad' ? (
                   <WarningCircle
                     aria-hidden
                     weight="fill"
                     className="size-8 shrink-0 text-danger"
                   />
+                ) : (
+                  <Question aria-hidden weight="fill" className="size-8 shrink-0 text-muted" />
                 )}
                 {shown.summary}
               </p>
+              {shown.lastSuccessAt !== undefined || shown.lastAttemptAt !== undefined ? (
+                <p className="text-sm text-muted" data-testid="health-syncs">
+                  Last successful sync:{' '}
+                  {shown.lastSuccessAt ? formatDate(shown.lastSuccessAt) : 'none yet'} · Last
+                  attempt: {shown.lastAttemptAt ? formatDate(shown.lastAttemptAt) : 'none yet'}
+                </p>
+              ) : null}
               {shown.checks.length ? (
                 <ul className="divide-y divide-divider">
                   {shown.checks.map((check) => (
                     <li key={check.key} className="flex items-start gap-3 py-2.5 text-sm">
-                      {check.ok ? (
+                      {(check.state ?? (check.ok ? 'OK' : 'FAIL')) === 'OK' ? (
                         <CheckCircle aria-hidden weight="fill" className="size-5 text-success" />
-                      ) : (
+                      ) : (check.state ?? 'FAIL') === 'FAIL' ? (
                         <WarningCircle aria-hidden weight="fill" className="size-5 text-danger" />
+                      ) : (
+                        <Question aria-hidden weight="fill" className="size-5 text-muted" />
                       )}
                       <span>
                         <span className="block font-medium text-heading">{check.label}</span>
@@ -159,7 +183,11 @@ function Troubleshooting({
               </ol>
             ) : (
               <EmptyLine>
-                {shown ? 'Nothing needs your attention.' : 'Suggestions show with the checks.'}
+                {!shown
+                  ? 'Suggestions show with the checks.'
+                  : tone(shown) === 'good'
+                    ? 'Nothing needs your attention.'
+                    : 'Run a connection test to see what to do.'}
               </EmptyLine>
             )}
           </Card>

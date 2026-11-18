@@ -140,6 +140,7 @@ describe('connection status', () => {
     syncEveryMinutes: 60,
     connectedAt: new Date('2026-03-12T10:24:00Z'),
     lastSyncAt: null,
+    lastCheckAt: null,
     nextSyncAt: null,
   };
 
