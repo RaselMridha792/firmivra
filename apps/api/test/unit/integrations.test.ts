@@ -86,9 +86,7 @@ describe('the catalog', () => {
     expect(by.get('quickbooks')?.comingSoon).toBe(true);
     expect(new Set(CUSTOM_EVENTS.map((e) => e.key)).size).toBe(CUSTOM_EVENTS.length);
   });
-});
 
-describe('webhook addresses', () => {
   it('refuse private, loopback, link-local, metadata and reserved addresses', () => {
     for (const a of [
       '127.0.0.1',
@@ -162,6 +160,31 @@ describe('connection status', () => {
     expect(reasonInfo('permission_missing')?.action).toBe('FIX_PERMISSIONS');
     expect(reasonInfo('something_new')?.issue).toBe('SYNC_FAILED');
     expect(reasonInfo(null)).toBeNull();
+  });
+
+  it('says for each problem what it stops and what to do next (I-UA04)', () => {
+    expect(toSummary(base)).toMatchObject({ statusImpact: null, statusNextStep: null });
+    for (const reason of [
+      'authorization_expired',
+      'authorization_revoked',
+      'permission_missing',
+      'sync_failed',
+      'provider_outage',
+      'rate_limited',
+      'configuration_incomplete',
+      'something_new',
+    ]) {
+      const info = reasonInfo(reason);
+      expect(info?.impact, reason).toMatch(/\w{3,}/);
+      expect(info?.nextStep, reason).toMatch(/\w{3,}/);
+      expect(info?.impact).not.toBe(info?.message);
+    }
+    expect(
+      toSummary({ ...base, status: 'NEEDS_ATTENTION', statusReason: 'permission_missing' }),
+    ).toMatchObject({
+      statusImpact: 'The objects that need that permission do not sync.',
+      statusNextStep: 'Choose Fix permissions and grant the missing permission at the provider.',
+    });
   });
 
   it('the card shows the most urgent status and the action that goes with it', () => {

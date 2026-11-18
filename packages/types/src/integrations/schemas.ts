@@ -186,6 +186,9 @@ export const IntegrationConnectionSummary = z.object({
   issue: IntegrationIssueCode.nullable(),
   /** Plain words for the card ("Authorization expired"), with the fix in `statusAction`. */
   statusMessage: z.string().nullable(),
+  /** I-UA04: what the problem stops, and what to do next, in plain words (null when healthy). */
+  statusImpact: z.string().nullable().default(null),
+  statusNextStep: z.string().nullable().default(null),
   statusAction: z.enum(['RECONNECT', 'FIX_PERMISSIONS', 'RETRY', 'VIEW_HISTORY']).nullable(),
   accountLabel: z.string().nullable(),
   direction: IntegrationSyncDirection,

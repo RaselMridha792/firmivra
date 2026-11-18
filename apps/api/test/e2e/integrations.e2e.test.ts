@@ -765,6 +765,8 @@ describe('sync, pause, test and health', () => {
       ),
     ).toMatchObject({ status: 'PARTIAL', failedCount: 3 });
     await waitFor(async () => (await connectionOf('quickbooks')).status === 'CONNECTED');
+    // I-UA04: the last sync is the last one that worked; a failed attempt does not move it.
+    const lastWorked = (await connectionOf('quickbooks')).lastSyncAt;
 
     behavior.syncError = new AdapterError('authorization_expired');
     const failing = IntegrationSyncRun.parse(
@@ -791,7 +793,15 @@ describe('sync, pause, test and health', () => {
       issue: 'AUTHORIZATION_EXPIRED',
       statusMessage: 'Authorization expired',
       statusAction: 'RECONNECT',
+      // I-UA04: what it stops and what to do next.
+      statusImpact: 'Nothing syncs until you sign in again. What is already in Firmivra stays.',
+      statusNextStep: 'Choose Reconnect and sign in to the provider again.',
     });
+    expect((await connectionOf('quickbooks')).lastSyncAt).toEqual(lastWorked);
+    expect(summary.health.lastSuccessAt).not.toBeNull();
+    expect(Date.parse(summary.health.lastAttemptAt!)).toBeGreaterThan(
+      Date.parse(summary.health.lastSuccessAt!),
+    );
     const health = IntegrationConnectionHealth.parse(
       ok(await call('get', `/integrations/connections/${c.id}/health`, people.staffA)),
     );

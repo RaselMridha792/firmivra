@@ -177,6 +177,35 @@ test('I-R2-06: a connection needing attention offers no Sync Now, and says what 
     await expect(button).toBeDisabled();
 });
 
+test('I-UA04: a problem says what it affects and what to do; the last success apart from the failed attempt', async ({
+  page,
+}) => {
+  await serve(page, 'attention');
+  await open(page, base);
+  const advice = page.getByTestId('status-advice');
+  await expect(advice).toContainText(
+    'What it affects:The objects that need that permission do not sync.',
+    { timeout: 60_000 },
+  );
+  await expect(advice).toContainText(
+    'What to do:Choose Fix permissions and grant the missing permission at the provider.',
+  );
+  await expect(page.getByTestId('last-success')).toContainText('Last Successful Sync');
+  await expect(page.getByTestId('last-success')).toContainText('3 hours ago');
+  await expect(page.getByTestId('last-attempt')).toContainText('Last Attempt');
+  await expect(page.getByTestId('last-attempt')).toContainText('20 minutes ago');
+});
+
+test('I-UA04: a healthy connection shows its last successful sync and no separate attempt', async ({
+  page,
+}) => {
+  await serve(page);
+  await open(page, base);
+  await expect(page.getByTestId('last-success')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('last-attempt')).toHaveCount(0);
+  await expect(page.getByTestId('status-advice')).toHaveCount(0);
+});
+
 test('sync history filters, pages and opens a failed run with guidance', async ({ page }) => {
   await serve(page);
   await open(page, `${base}/sync-history`);
