@@ -32,7 +32,7 @@ import {
   SoftwareTile,
   StatusPill,
   card,
-  dateTimeText,
+  useFirmDateTime,
   dayText,
   linkBtn,
   money,
@@ -89,6 +89,7 @@ const LINKS: Partial<Record<TabId, (w: BookkeepingClientWorkspace) => string>> =
 
 /** /bookkeeping/clients/[id]: the client's bookkeeping workspace. */
 export function ClientWorkspace({ id }: { id: string }) {
+  const firmTime = useFirmDateTime(); // C05: the firm's time zone
   const router = useRouter();
   const params = useSearchParams();
   const initial = (TABS.find((t) => t.toLowerCase() === params.get('tab')) ?? 'Overview') as TabId;
@@ -323,7 +324,7 @@ export function ClientWorkspace({ id }: { id: string }) {
                     >
                       {swState!.sync.label}
                       {swState!.failedAt && sw.lastSuccessfulSyncAt
-                        ? `. Last good data: ${dateTimeText(sw.lastSuccessfulSyncAt)}`
+                        ? `. Last good data: ${firmTime(sw.lastSuccessfulSyncAt)}`
                         : ''}
                     </p>
                     <button
@@ -552,7 +553,7 @@ export function ClientWorkspace({ id }: { id: string }) {
                       <span className="min-w-0 flex-1 text-heading">{a.summary}</span>
                       <span className="text-xs text-muted">
                         {a.actor ? `${a.actor.name} · ` : ''}
-                        {dateTimeText(a.createdAt)}
+                        {firmTime(a.createdAt)}
                       </span>
                     </li>
                   ))}

@@ -1,6 +1,12 @@
 'use client';
 
-import { type Appointment, appointmentWith, type DashboardSummary, roleCan } from '@firmivra/types';
+import {
+  type Appointment,
+  appointmentWith,
+  type DashboardSummary,
+  type MessageThreadList,
+  roleCan,
+} from '@firmivra/types';
 import { Button, Modal } from '@firmivra/ui';
 import { MapPin, Phone, VideoCamera } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -9,11 +15,12 @@ import { useState } from 'react';
 import { useFirm } from '../../../../components/firm-context';
 import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
-import { useApiMutation, useApiQuery } from '../../../../lib/query';
+import { useApiMutation } from '../../../../lib/query';
 import { type Ask, CloseModal } from '../calendar/[id]/_components/detail-screen';
 import { LOCATION_LABELS } from '../calendar/_components/shared';
 import { RowMenu, type RowMenuItem } from '../team/_components/row-menu';
-import { addDays, toInstant } from '../calendar/_components/time';
+import { addDays } from '../calendar/_components/time';
+import { rowActions } from './appointment-actions';
 import { Widget } from './widget';
 
 const ICONS = { VIDEO: VideoCamera, PHONE: Phone, IN_PERSON: MapPin } as const;
@@ -25,8 +32,16 @@ const initials = (name: string) =>
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
 
-export function RecentMessages({ timeZone, today }: { timeZone: string; today: string }) {
-  const inbox = useApiQuery(['dashboard', 'messages'], () => api.messages.inbox({ limit: 5 }));
+/** `inbox`: started by the dashboard with the page (V8); shown once the time zone is known. */
+export function RecentMessages({
+  timeZone,
+  today,
+  inbox,
+}: {
+  timeZone: string;
+  today: string;
+  inbox: UseQueryResult<MessageThreadList>;
+}) {
   const day = new Intl.DateTimeFormat('en-CA', { timeZone });
   const time = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit' });
   const date = new Intl.DateTimeFormat('en-US', { timeZone, month: 'short', day: 'numeric' });
@@ -103,10 +118,11 @@ export function TasksDue({ summary }: { summary: UseQueryResult<DashboardSummary
       query={summary}
       // T2 (Review 2): the same tasks as the widget, every open one with a due date, soonest first.
       link={{ href: '/tasks?view=all&due=set', label: 'View All' }}
-      isEmpty={(d) => d.tasksDue.length === 0}
+      isEmpty={(d) => !d.tasksDue?.length}
+      denied={(d) => (d.tasksDue ? undefined : 'Tasks')}
       empty="No tasks due"
     >
-      {({ tasksDue, today }) => (
+      {({ tasksDue = [], today }) => (
         <>
           <ul className="flex flex-col divide-y divide-border">
             {done.isError ? (
@@ -194,18 +210,19 @@ const meetingLink = (a: Appointment) =>
     ? a.locationDetails
     : null;
 
-export function UpcomingAppointments({ timeZone, today }: { timeZone: string; today: string }) {
+/** `list`: the next two weeks, started by the dashboard with the page (V8). */
+export function UpcomingAppointments({
+  timeZone,
+  list,
+}: {
+  timeZone: string;
+  today: string;
+  list: UseQueryResult<Awaited<ReturnType<typeof api.appointments.list>>>;
+}) {
   const go = useDashboardNavigate();
   const { role } = useFirm();
-  const canChange = role ? roleCan(role, 'APPOINTMENTS', 'EDIT') : false;
-  const canOpenClient = role ? roleCan(role, 'CLIENTS', 'VIEW') : false;
-  const canOpenLead = role ? roleCan(role, 'LEADS', 'VIEW') : false;
-  const [now] = useState(() => new Date().toISOString());
   const [ask, setAsk] = useState<{ ask: Ask; a: Appointment }>();
   const [message, setMessage] = useState<string>();
-  const list = useApiQuery(['dashboard', 'upcoming', today], () =>
-    api.appointments.list({ from: now, to: toInstant(addDays(today, 14), '00:00', timeZone) }),
-  );
   const remind = useApiMutation((id: string) => api.scheduling.sendReminder(id), {
     invalidate: ['dashboard'],
   });
@@ -217,13 +234,19 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
     part({ hour: 'numeric', minute: '2-digit' }),
   ];
   // Octavia's A3: the actions the member may take, through the calendar's own pages and calls.
-  const menu = (a: Appointment): RowMenuItem[] => [
-    { label: 'View Details', onSelect: () => go(`/calendar/${a.id}`) },
-    ...(canChange
-      ? [
-          { label: 'Edit', onSelect: () => go(`/calendar/${a.id}/edit`) },
-          { label: 'Reschedule', onSelect: () => go(`/calendar/${a.id}/edit`) },
-          {
+  // Octavia's A3: the actions the member may take (appointment-actions.ts), through the calendar's
+  // own pages and calls.
+  const menu = (a: Appointment): RowMenuItem[] =>
+    rowActions(role, a).map((action): RowMenuItem => {
+      switch (action) {
+        case 'view':
+          return { label: 'View Details', onSelect: () => go(`/calendar/${a.id}`) };
+        case 'edit':
+          return { label: 'Edit', onSelect: () => go(`/calendar/${a.id}/edit`) };
+        case 'reschedule':
+          return { label: 'Reschedule', onSelect: () => go(`/calendar/${a.id}/edit`) };
+        case 'remind':
+          return {
             label: 'Send Reminder',
             onSelect: () =>
               remind.mutate(a.id, {
@@ -231,18 +254,17 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
                   setMessage(r.sent ? 'A reminder was sent.' : 'No reminder could be sent.'),
                 onError: (e) => setMessage(`The reminder was not sent: ${errorMessage(e)}`),
               }),
-          },
-          { label: 'Mark Complete', onSelect: () => setAsk({ ask: 'complete', a }) },
-          { label: 'Cancel', danger: true, onSelect: () => setAsk({ ask: 'cancel', a }) },
-        ]
-      : []),
-    // P4-1: a lead's own appointment opens its lead (the lead pages' own rules apply).
-    ...(a.client && canOpenClient
-      ? [{ label: 'Open Client', onSelect: () => go(`/clients/${a.client?.id ?? ''}`) }]
-      : !a.client && a.lead && canOpenLead
-        ? [{ label: 'Open Lead', onSelect: () => go(`/leads/${a.lead?.id ?? ''}`) }]
-        : []),
-  ];
+          };
+        case 'complete':
+          return { label: 'Mark Complete', onSelect: () => setAsk({ ask: 'complete', a }) };
+        case 'cancel':
+          return { label: 'Cancel', danger: true, onSelect: () => setAsk({ ask: 'cancel', a }) };
+        case 'client':
+          return { label: 'Open Client', onSelect: () => go(`/clients/${a.client?.id ?? ''}`) };
+        case 'lead':
+          return { label: 'Open Lead', onSelect: () => go(`/leads/${a.lead?.id ?? ''}`) };
+      }
+    });
   return (
     <Widget
       title="Upcoming Appointments"

@@ -16,6 +16,7 @@ import {
   resolveRange,
   toEntry,
   viewedMetadata,
+  zonedTime,
 } from '../../src/audit-viewer/audit-log.logic.js';
 
 const STAFF_ID = '0199b6a1-0000-7000-8000-000000000001';
@@ -236,5 +237,16 @@ describe('viewedMetadata', () => {
       expect(meta).toMatchObject({ entityIdText: true });
       expect(JSON.stringify(meta)).not.toContain(text);
     }
+  });
+});
+
+describe('zonedTime (Audit Log Review 2, R01c)', () => {
+  it('writes the export time in the firm zone with the zone named, across daylight saving', () => {
+    const at = new Date('2026-11-15T20:50:22.000Z');
+    expect(zonedTime(at, 'America/Chicago')).toBe('2026-11-15 14:50:22 CST');
+    expect(zonedTime(at, 'America/New_York')).toBe('2026-11-15 15:50:22 EST');
+    expect(zonedTime(new Date('2026-07-01T05:00:00.000Z'), 'America/Chicago')).toBe(
+      '2026-07-01 00:00:00 CDT',
+    );
   });
 });

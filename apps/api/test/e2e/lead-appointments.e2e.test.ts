@@ -526,7 +526,7 @@ describe('lists and counts (item 4)', () => {
   it('the dashboard counts a lead’s appointment today, in the calendar’s reach', async () => {
     const count = async (who: Who) =>
       DashboardSummary.parse((await call('get', '/dashboard/summary', who)).body).kpis
-        .appointmentsToday.value;
+        .appointmentsToday!.value; // Owner and Staff may view Appointments (V5)
     const before = {
       owner: await count(people.ownerA),
       staffA: await count(people.staffA),

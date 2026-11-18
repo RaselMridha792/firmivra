@@ -1,12 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { AuditLogPage } from '@firmivra/types';
+import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
 import { csvRow } from '../bookkeeping/bookkeeping.shared.js';
 import { deriveKey, poolSecrets } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
+import { recordNames, type RecordNames } from './audit-log.names.js';
 import {
   actionFilter,
   type AuditLogFilters,
@@ -17,6 +19,7 @@ import {
   resolveRange,
   toEntry,
   viewedMetadata,
+  zonedTime,
 } from './audit-log.logic.js';
 
 /** The most rows one export holds; a wider export narrows its filters. */
@@ -82,7 +85,14 @@ export class AuditLogViewerService {
     const after =
       q.cursor !== undefined ? decodeCursor(q.cursor, this.cursorKey, scope) : undefined;
     const range = resolveRange(q, new Date());
-    const { rows, known } = await this.read(businessId, q, range, q.limit + 1, after, support);
+    const { rows, known, names } = await this.read(
+      businessId,
+      q,
+      range,
+      q.limit + 1,
+      after,
+      support,
+    );
 
     const page = rows.slice(0, q.limit);
     const last = page.at(-1);
@@ -93,7 +103,7 @@ export class AuditLogViewerService {
       await this.audit.log('audit_log.viewed', { type: 'audit_log' }, viewedMetadata(q, range));
     }
     return {
-      items: page.map((row) => toEntry(row, known)),
+      items: page.map((row) => toEntry(row, known, names)),
       nextCursor: rows.length > q.limit && last ? encodeCursor(last, this.cursorKey, scope) : null,
     };
   }
@@ -102,32 +112,41 @@ export class AuditLogViewerService {
    * Export (Octavia's review, Users & Roles section 9): every entry matching the filters as CSV,
    * newest first, at most EXPORT_LIMIT, with the actor as the viewer shows them (Firmivra Support
    * never named). Metadata is what each action recorded (ids, never secrets). The export is
-   * itself logged, after the read, with the filters and the count.
+   * itself logged, after the read, with the filters and the count. Each time is in UTC and in the
+   * firm's time zone, with the zone named (Audit Log Review 2, R01c), as the screen shows it.
    */
   async export(reader: AuditLogReader, q: AuditLogFilters): Promise<string> {
     const range = resolveRange(q, new Date());
-    const { rows, known } = await this.read(reader.businessId, q, range, EXPORT_LIMIT);
+    const { rows, known, names } = await this.read(reader.businessId, q, range, EXPORT_LIMIT);
+    const zone = await this.database.withScope(
+      { kind: 'business', businessId: reader.businessId },
+      (tx) => firmTimeZone(tx, reader.businessId),
+    );
     const lines = [
       csvRow([
-        'Time',
+        'Time (UTC)',
+        `Time (${zone})`,
         'Actor',
         'Actor type',
         'Action',
         'Record type',
         'Record id',
+        'Record',
         'IP',
         'Request id',
         'Details',
       ]),
       ...rows.map((row) => {
-        const e = toEntry(row, known);
+        const e = toEntry(row, known, names);
         return csvRow([
           e.at,
+          zonedTime(row.createdAt, zone),
           e.actor?.name ?? 'System',
           e.actor?.kind ?? 'SYSTEM',
           e.action,
           e.entity.type,
           e.entity.id,
+          e.entity.name,
           e.ip,
           e.requestId,
           Object.keys(e.metadata).length ? JSON.stringify(e.metadata) : null,
@@ -183,6 +202,7 @@ export class AuditLogViewerService {
         return {
           rows: [],
           known: { supportAdmins: new Set(), people: new Map() } as KnownActors,
+          names: new Map() as RecordNames,
         };
       }
       const rows = await tx.auditLog.findMany({
@@ -191,11 +211,18 @@ export class AuditLogViewerService {
         take,
         select: rowSelect,
       });
+      // M01a: the records' current names, for the firm's own reads (a support read keeps ids
+      // only: its scope is not the firm's, and a record it cannot see is not a deleted one).
+      const names: RecordNames = support ? new Map() : await recordNames(tx, businessId, rows);
       const ids = [
         ...new Set(rows.flatMap((r) => (r.actorUserId === null ? [] : [r.actorUserId]))),
       ];
       if (ids.length === 0) {
-        return { rows, known: { supportAdmins: new Set(), people: new Map() } as KnownActors };
+        return {
+          rows,
+          known: { supportAdmins: new Set(), people: new Map() } as KnownActors,
+          names,
+        };
       }
       // Super Admins who asked this firm for support access: the firm sees their requests.
       const grants = await tx.supportAccessGrant.findMany({
@@ -211,7 +238,7 @@ export class AuditLogViewerService {
         supportAdmins: new Set(grants.map((g) => g.adminUserId)),
         people: new Map(people.map((p) => [p.id, { pool: p.pool, name: p.name }])),
       };
-      return { rows, known };
+      return { rows, known, names };
     });
   }
 

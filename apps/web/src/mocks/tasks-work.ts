@@ -988,6 +988,59 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       await mockDelay();
       return copy(touchless(find(id)));
     },
+    // Dashboard Review Two §9, as the API: who reminders reach, when each goes next (a days rule at
+    // its time or 9:00 AM, firm time), and what went out (task 1 has one, read, emailed).
+    notices: async (id) => {
+      await mockDelay();
+      const t = find(id);
+      const zone = 'America/New_York';
+      const at = (date: string, time: string) => {
+        const guess = new Date(`${date}T${time}:00Z`);
+        const local = new Date(guess.toLocaleString('en-US', { timeZone: zone }));
+        const utc = new Date(guess.toLocaleString('en-US', { timeZone: 'UTC' }));
+        return new Date(guess.getTime() + (utc.getTime() - local.getTime())).toISOString();
+      };
+      const back = (date: string, days: number) =>
+        new Date(Date.parse(`${date}T12:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10);
+      const people = [t.assignedTo, ...t.additionalAssignees].filter(
+        (m): m is MemberRef => m !== null,
+      );
+      const open = t.status === 'OPEN' && !t.archivedAt && t.dueOn;
+      const upcoming = open
+        ? t.reminders
+            .filter((r) => r.unit === null)
+            .map((r, n) => ({
+              reminderId: r.id ?? uuid('0a90', n + 1),
+              at: at(back(t.dueOn!, r.daysBefore), r.timeOfDay ?? '09:00'),
+            }))
+            .filter((r) => Date.parse(r.at) + 3_600_000 >= Date.now())
+            .sort((a, b) => a.at.localeCompare(b.at))
+        : [];
+      const earlier = t.dueOn ? back(t.dueOn, 7) : today();
+      const sent =
+        t.id === uuid('0a10', 1) && people[0]
+          ? [
+              {
+                id: uuid('0a91', 1),
+                at: at(back(earlier, 1), '09:00'),
+                dueFor: earlier,
+                recipient: people[0],
+                readAt: at(back(earlier, 1), '09:30'),
+                deliveries: [
+                  {
+                    channel: 'EMAIL' as const,
+                    status: 'SENT' as const,
+                    attempts: 1,
+                    sentAt: at(back(earlier, 1), '09:00'),
+                    providerMessageId: 'mock-0100',
+                    error: null,
+                  },
+                ],
+              },
+            ]
+          : [];
+      return { timeZone: zone, recipients: people, upcoming, sent, emailOnly: [] };
+    },
     create: async (body) => {
       await mockDelay();
       const b = parseInput(CreateTaskDetailRequest, body);

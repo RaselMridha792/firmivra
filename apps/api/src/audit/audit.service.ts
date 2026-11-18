@@ -50,7 +50,13 @@ export class AuditService {
   ): Promise<void> {
     const data = this.row(action, entity, metadata, at);
     const client = data.businessId ? this.db.forBusiness(data.businessId) : this.db.forPlatform();
-    await client.auditLog.create({ data });
+    try {
+      await client.auditLog.create({ data });
+    } catch (error) {
+      // The caller's change has committed; this row is lost unless someone sees this line.
+      this.writeFailed(data, error, false);
+      throw error;
+    }
     const businessId = data.businessId;
     if (businessId && this.copied(data)) {
       // The audit row stands; a feed copy that fails never fails the client's action.
@@ -75,9 +81,42 @@ export class AuditService {
     at: AuditAt = {},
   ): Promise<void> {
     const data = this.row(action, entity, metadata, at);
-    await tx.auditLog.create({ data });
+    try {
+      await tx.auditLog.create({ data });
+    } catch (error) {
+      // In the caller's transaction: its change rolls back with the row unless it catches this.
+      this.writeFailed(data, error, true);
+      throw error;
+    }
     // In the caller's transaction, so the copy commits or rolls back with the action.
     if (this.copied(data)) await this.copy(tx, data);
+  }
+
+  /**
+   * Audit Log Review 2, M04: a row that could not be written leaves one structured line,
+   * `audit_write_failed`, that a log metric and alarm watch (infra). It names the action, the
+   * firm, the record type and the request, and the error's class and database code: never the
+   * metadata, the record id or the error's message, which may quote values (CLAUDE.md rule 4).
+   */
+  private writeFailed(
+    data: ReturnType<AuditService['row']>,
+    error: unknown,
+    inTransaction: boolean,
+  ): void {
+    const name = error instanceof Error ? error.name : '';
+    const code = (error as { code?: unknown } | null)?.code;
+    this.logger.error(
+      JSON.stringify({
+        event: 'audit_write_failed',
+        action: data.action,
+        businessId: data.businessId,
+        entityType: data.entityType,
+        requestId: data.requestId,
+        inTransaction,
+        error: /^[A-Za-z][\w.]{0,63}$/.test(name) ? name : 'Error',
+        ...(typeof code === 'string' && /^P\d{4}$/.test(code) ? { code } : {}),
+      }),
+    );
   }
 
   /** A firm row of a listed action by someone not known to be staff (sign-in has no tenant). */

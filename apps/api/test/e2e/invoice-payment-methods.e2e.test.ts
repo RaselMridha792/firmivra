@@ -175,7 +175,8 @@ describe('Dashboard Review 2: a refund counts on the day it is confirmed, in eve
         )
         .set('x-business-id', t.ids.firmA)
         .set('authorization', `Bearer ${token}`);
-      return DashboardSummary.parse(expectOk(res).body).revenue;
+      // The Owner may view Invoices & Payments, so the revenue is there (V5).
+      return DashboardSummary.parse(expectOk(res).body).revenue!;
     };
     const payments = async (from: string, to: string) =>
       PaymentPage.parse(

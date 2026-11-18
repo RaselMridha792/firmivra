@@ -7,9 +7,15 @@ import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { DocumentViewer } from '../../documents/[id]/_components/document-viewer';
+import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
 
-const day = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const day = (iso: string, timeZone: string | undefined) =>
+  new Date(iso).toLocaleDateString('en-US', {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 const size = (bytes: number) =>
   bytes >= 1_048_576
     ? `${(bytes / 1_048_576).toFixed(1)} MB`
@@ -41,6 +47,7 @@ export function RecentDocuments({
   clientId: string;
   engagementId: string;
 }) {
+  const timeZone = useFirmTimeZone(); // C05: the firm's time zone
   const [open, setOpen] = useState<FirmDocument>();
   const recent = useApiQuery(['bookkeeping', 'recent-documents', clientId, engagementId], () =>
     api.documents.list(clientId, { serviceId: engagementId, limit: 3 }),
@@ -60,7 +67,7 @@ export function RecentDocuments({
           >
             <span className="min-w-0">
               <span className="block truncate font-medium text-heading">{d.fileName}</span>
-              <span className="block text-xs text-muted">{day(d.createdAt)}</span>
+              <span className="block text-xs text-muted">{day(d.createdAt, timeZone)}</span>
             </span>
             <button
               type="button"
@@ -100,6 +107,7 @@ function Preview({ doc, onDownload }: { doc: FirmDocument; onDownload: () => voi
 }
 
 function QuickView({ doc, onClose }: { doc: FirmDocument; onClose: () => void }) {
+  const timeZone = useFirmTimeZone(); // C05: the firm's time zone
   const download = useApiMutation(async () => {
     const link = await api.documents.download(doc.id);
     window.location.assign(link.url);
@@ -108,7 +116,7 @@ function QuickView({ doc, onClose }: { doc: FirmDocument; onClose: () => void })
     ['Service', doc.service.title],
     ['Category', doc.category?.name ?? 'None'],
     ['Source', source(doc)],
-    ['Added', day(doc.createdAt)],
+    ['Added', day(doc.createdAt, timeZone)],
     ['Size', size(doc.sizeBytes)],
     ['Visibility', doc.direction === 'INTERNAL' ? 'Staff only' : 'Shared with the client'],
     ['Check', SCAN[doc.scanStatus]],

@@ -30,7 +30,7 @@ import {
   UpdateClientLinkRequest,
 } from '@firmivra/types';
 import { mockedEmpty } from '../lib/mock';
-import { timelineOf } from './client-timeline';
+import { serviceEntriesOf, timelineOf } from './client-timeline';
 import { mockFirmTags, mockResolveTags } from './tags';
 import { taxStatusFixtures } from './tax-statuses';
 import { teamFixtures } from './team';
@@ -965,6 +965,8 @@ export function createClientsMock(
       // N8-05: as the API, the client's own recorded changes too (here: when it was added).
       const all = [
         ...timelineOf(row.id),
+        // E01a A01: as the API, the client's Bookkeeping Activity too.
+        ...serviceEntriesOf(row.id),
         {
           id: row.id.replace(/^.{8}/, 'ad0000ad'),
           kind: 'OTHER' as const,

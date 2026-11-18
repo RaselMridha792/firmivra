@@ -312,6 +312,28 @@ export const toReconciliation = (
   updatedAt: r.updatedAt.toISOString(),
 });
 
+/** Review 2 (E01a A01): a bookkeeping status in words, never its code. */
+const STATUS_TEXT: Record<string, string> = {
+  ON_TRACK: 'On track',
+  NEEDS_ATTENTION: 'Needs attention',
+  MISSING_DOCUMENTS: 'Missing documents',
+  OVERDUE: 'Overdue',
+  NOT_STARTED: 'Not started',
+};
+
+/** "Status changed from Not started to Overdue". */
+export const statusChangeText = (from: string, to: string) =>
+  `Status changed from ${STATUS_TEXT[from] ?? from} to ${STATUS_TEXT[to] ?? to}`;
+
+/**
+ * An activity line as shown. Lines written before the labels ("Status changed from NOT_STARTED to
+ * OVERDUE") read in words too.
+ */
+export function activityText(summary: string): string {
+  const old = /^Status changed from ([A-Z_]+) to ([A-Z_]+)$/.exec(summary);
+  return old ? statusChangeText(old[1]!, old[2]!) : summary;
+}
+
 export const toActivity = (
   a: {
     id: string;
@@ -324,7 +346,7 @@ export const toActivity = (
 ): BookkeepingActivity => ({
   id: a.id,
   kind: a.kind,
-  summary: a.summary,
+  summary: activityText(a.summary),
   actor: memberRefOf(names, a.actorUserId),
   createdAt: a.createdAt.toISOString(),
 });

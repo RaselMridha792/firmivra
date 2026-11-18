@@ -29,9 +29,22 @@ const people = {
   ownerA: person('owner-a'),
   adminA: person('admin-a'),
   staffA: person('staff-a'),
+  // Dashboard Review Two V5: a Read Only member, and a Staff member whose Invoices view is off.
+  readOnlyA: person('read-only-a'),
+  noBillingA: person('no-billing-a'),
   ownerB: person('owner-b'),
 };
 type Person = (typeof people)[keyof typeof people];
+/**
+ * The summary as a member who may view every module gets it (Owner, Admin, Staff by default):
+ * since Dashboard Review Two V5 the API leaves out what a member may not view.
+ */
+type FullSummary = Omit<DashboardSummary, 'kpis' | 'pipeline' | 'revenue' | 'tasksDue'> & {
+  kpis: Required<DashboardSummary['kpis']>;
+  pipeline: Required<DashboardSummary['pipeline']>;
+  revenue: NonNullable<DashboardSummary['revenue']>;
+  tasksDue: NonNullable<DashboardSummary['tasksDue']>;
+};
 const firms = {} as Record<'a' | 'b', { id: string }>;
 const ids = {} as { bookkeeping: string; tax: string; serviceB: string };
 
@@ -60,7 +73,7 @@ const codeOf = (res: request.Response) => (res.body as { error?: { code?: string
 async function cards(who: Person = people.ownerA, firm: 'a' | 'b' = 'a', query = '') {
   const res = await call('get', `/business/dashboard/summary${query}`, who, firm);
   expect(res.status, JSON.stringify(res.body)).toBe(200);
-  return DashboardSummary.parse(res.body);
+  return DashboardSummary.parse(res.body) as FullSummary;
 }
 /** The total of the list a card opens, read by the same member. */
 async function listTotal(who: Person, card: DashboardServiceCard): Promise<number> {
@@ -95,6 +108,8 @@ beforeAll(async () => {
     ['a', people.ownerA.id, 'OWNER'],
     ['a', people.adminA.id, 'ADMIN'],
     ['a', people.staffA.id, 'STAFF'],
+    ['a', people.readOnlyA.id, 'READ_ONLY'],
+    ['a', people.noBillingA.id, 'STAFF'],
     ['b', people.ownerB.id, 'OWNER'],
   ] as const) {
     await inFirm(k, (tx) =>
@@ -465,6 +480,55 @@ describe('D4: Settings > Dashboard Cards', () => {
         timeout: 15_000,
       })
       .toEqual(['tax-returns']);
+  });
+
+  it('V5: a number whose list the member may not view is not sent at all', async () => {
+    const raw = async (who: Person) => {
+      const res = await call('get', '/business/dashboard/summary', who, 'a');
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      DashboardSummary.parse(res.body);
+      return res.body as {
+        kpis: Record<string, unknown>;
+        pipeline: Record<string, unknown>;
+        revenue?: unknown;
+        tasksDue?: unknown;
+      };
+    };
+    // Read Only views Dashboard, Clients, Appointments and Tasks: those numbers only.
+    const ro = await raw(people.readOnlyA);
+    expect(Object.keys(ro.kpis).sort()).toEqual(['appointmentsToday', 'totalClients']);
+    expect('revenue' in ro).toBe(false);
+    expect(Array.isArray(ro.tasksDue)).toBe(true);
+    for (const stage of ['leads', 'intake', 'inProgress', 'completed'])
+      expect(stage in ro.pipeline, stage).toBe(false);
+    // A Staff member whose Invoices & Payments view is off: no revenue, no outstanding balance.
+    await inFirm('a', async (tx) => {
+      const m = await tx.membership.findFirstOrThrow({
+        where: { businessId: firms.a.id, userId: people.noBillingA.id },
+        select: { id: true },
+      });
+      await tx.memberPermission.create({
+        data: {
+          businessId: firms.a.id,
+          membershipId: m.id,
+          module: 'INVOICES_PAYMENTS',
+          capability: 'VIEW',
+          granted: false,
+        },
+      });
+    });
+    // The grid is cached per member for a moment.
+    await expect
+      .poll(async () => 'revenue' in (await raw(people.noBillingA)), { timeout: 15_000 })
+      .toBe(false);
+    const nb = await raw(people.noBillingA);
+    expect('outstandingInvoicesCents' in nb.kpis).toBe(false);
+    expect(nb.kpis).toHaveProperty('totalClients');
+    expect(nb.kpis).toHaveProperty('newLeads');
+    // The Owner still gets every number.
+    const owner = await raw(people.ownerA);
+    expect(Object.keys(owner.kpis)).toHaveLength(6);
+    expect('revenue' in owner).toBe(true);
   });
 
   it("the preview counts a card for This Month and saves nothing; firm B's own cards are its own", async () => {
