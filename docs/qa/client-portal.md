@@ -58,8 +58,8 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | More menu: Portal Management, Access & Security, View Activity History | #1405 | `r60-client-portal-manage` |
 | Tabs: Overview, Documents, Messages, Appointments, Tax Returns, Invoices & Payments, Intake Forms | #1405, #1410, #1414 | `r60-client-portal`, `r60-client-portal-forms` |
 | Portal Summary: six cards with a Last 7 / 30 / 90 Days range; each card opens its tab | #1375, #1405 | `client-portal-management`, `r60-client-portal` |
-| Recent Activity table and View All Activity | #1370, #1375, #1405, PR pending (live check) | `client-portal-management`, `r60-client-portal`, `r60-client-portal-livefix` "CP-F2-04, F2-15, F1-14…" (a staff preview reads "Portal preview opened by <member> (staff)" on the Activity tab) |
-| Unsaved edits: leaving the client (Switch Client, Back, breadcrumbs, tabs) with an unsaved edit asks first (instructions 13, 27) | #1551, PR pending (live check) | `r56-client-portal-documents` "instructions 19 and 13: Rename in place; leaving with the name unsaved asks first", `r60-client-portal-livefix` "CP-F1-15…" (an unsaved Client Note) |
+| Recent Activity table and View All Activity | #1370, #1375, #1405, #1599 | `client-portal-management`, `r60-client-portal`, `r60-client-portal-livefix` "CP-F2-04, F2-15, F1-14…" (a staff preview reads "Portal preview opened by <member> (staff)" on the Activity tab) |
+| Unsaved edits: leaving the client (Switch Client, Back, breadcrumbs, tabs) with an unsaved edit asks first (instructions 13, 27) | #1551, #1599 | `r56-client-portal-documents` "instructions 19 and 13: Rename in place; leaving with the name unsaved asks first", `r60-client-portal-livefix` "CP-F1-15…" (an unsaved Client Note) |
 
 ## Frame 2: individual-client-portal-management-access-and-visibility.jpg (`/client-portal/{id}`)
 
@@ -68,7 +68,7 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Breadcrumbs: Client Portal > Clients > client > tab | #1405 | `r60-client-portal-manage` |
 | Back to All Clients and Switch Client, on every page | #1405 | `r60-client-portal-manage` |
 | Header: name, portal status, Client ID, email, phone, type | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
-| Status strip: Portal Status, Last Login, Portal Since, Last Activity, MFA, Access Method (Edit) | #1375, #1405, PR pending (live check) | `client-portal-management`, `r60-client-portal-manage`, `client-portal-management` "CP-F2-04: a staff preview is listed as the member's, and never the client's Last Activity"; `r60-client-portal-livefix` (Last Activity is the client's own) |
+| Status strip: Portal Status, Last Login, Portal Since, Last Activity, MFA, Access Method (Edit) | #1375, #1405, #1599 | `client-portal-management`, `r60-client-portal-manage`, `client-portal-management` "CP-F2-04: a staff preview is listed as the member's, and never the client's Last Activity"; `r60-client-portal-livefix` (Last Activity is the client's own) |
 | Tabs: Overview, Access & Security, Portal Content, Documents, Forms & Requests, Communications, Activity | #1405, #1410, #1414 | `r60-client-portal-manage` |
 | Pending Client Actions: documents, intake incomplete or submitted, signature, invoice, appointment, task; each opens its record; overdue flagged | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
 | Portal Content & Visibility: 8 areas per client, on top of the firm's switches; enforced in the portal API and menu; audited | #1400, #1405 | `client-portal-access`, `r60-client-portal-manage` |
@@ -79,7 +79,7 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Quick Actions: View Login History | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
 | Portal Link for This Client, with Copy Link | #1405 | `r60-client-portal-manage` |
 | Client Notes (Internal Only): the canonical staff notes, as the lead decided | #1405 | `r60-client-portal-manage` |
-| Recent Portal Activity with IP address (Owner and Admin only) | #1370, #1375, #1405, PR pending (live check) | `client-portal-management`, `r60-client-portal-manage`, `r60-client-portal-livefix` (the preview row, by the member, with the IP) |
+| Recent Portal Activity with IP address (Owner and Admin only) | #1370, #1375, #1405, #1599 | `client-portal-management`, `r60-client-portal-manage`, `r60-client-portal-livefix` (the preview row, by the member, with the IP) |
 | Access & Security: invitation status and date, MFA Management (Reset MFA), Login History and Security Events | #1375, #1400, #1405 | `client-portal-management`, `client-portal-access`, `r60-client-portal-manage` |
 | Activity tab: type, actor and date filters; load more | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
 | Activity: each row opens its record; a row with no record stays text (instructions 24) | #1546 | `r56-client-portal-gaps` "instructions 24: an activity row opens its record; one with no record stays text" |
