@@ -33,9 +33,16 @@ export function detailLines(metadata: Record<string, unknown>): DetailLine[] {
   const paired = isObject(metadata['from']) && isObject(metadata['to']);
   for (const [key, value] of Object.entries(metadata)) {
     if (paired && (key === 'from' || key === 'to' || key === 'fields')) continue;
-    if (key === 'changes' && isObject(value) && Object.values(value).every(isChange)) {
+    // A free-text change is recorded as "changed", never its text (R03).
+    const entryOf = (v: unknown) =>
+      v === 'changed' ? 'changed' : isChange(v) ? changeText(v) : null;
+    if (
+      key === 'changes' &&
+      isObject(value) &&
+      Object.values(value).every((v) => entryOf(v) !== null)
+    ) {
       for (const [field, change] of Object.entries(value)) {
-        lines.push({ key: field, value: changeText(change as Change) });
+        lines.push({ key: field, value: entryOf(change)! });
       }
       continue;
     }

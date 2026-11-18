@@ -47,6 +47,19 @@ describe('audit entry details', () => {
     ]);
   });
 
+  it('reads a free-text change as "changed" (R03: never its text)', () => {
+    expect(
+      detailLines({
+        fields: ['description', 'name'],
+        changes: { description: 'changed', name: { from: 'A', to: 'B' } },
+      }),
+    ).toEqual([
+      { key: 'fields', value: '["description","name"]' },
+      { key: 'description', value: 'changed' },
+      { key: 'name', value: 'A → B' },
+    ]);
+  });
+
   it('leaves a status `from` that is plain text as it is', () => {
     expect(detailLines({ from: 'OPEN', note: '' })).toEqual([
       { key: 'from', value: 'OPEN' },

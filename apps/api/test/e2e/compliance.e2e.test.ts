@@ -140,6 +140,14 @@ const auditActions = (entityId: string, businessId = ids.firmA) =>
     ),
   );
 
+/** The metadata of a record's rows of one action, oldest first (Audit Log Review 2, R03). */
+const auditMetadata = (entityId: string, action: string, businessId = ids.firmA) =>
+  asOwner(businessId, async (tx) =>
+    (
+      await tx.auditLog.findMany({ where: { entityId, action }, orderBy: { createdAt: 'asc' } })
+    ).map((r) => r.metadata as Record<string, unknown>),
+  );
+
 const DAY = 86_400_000;
 const today = () => new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -2939,6 +2947,20 @@ describe('recurring definitions', () => {
     const other = await mk();
     expectError(await patch({ name: other.name }), 409, 'DUPLICATE');
     expect(await auditActions(r.id)).toContain('compliance.recurrence.updated');
+    // R03a: the first edit's row holds each changed field's old and new value, free text as
+    // "changed", and nothing that did not change.
+    const [first] = await auditMetadata(r.id, 'compliance.recurrence.updated');
+    expect(first).toMatchObject({
+      changes: {
+        name: { from: r.name, to: `Renamed ${run}` },
+        holidayRule: { from: r.holidayRule, to: 'PREVIOUS_BUSINESS_DAY' },
+      },
+    });
+    const changes = first?.['changes'] as Record<string, unknown>;
+    expect(Object.keys(changes)).toEqual(first?.['fields']);
+    expect(changes['frequency']).toBeUndefined();
+    if (r.description) expect(changes['description']).toBe('changed');
+    expect(JSON.stringify(first)).not.toContain(r.description ?? 'no description');
   });
 
   it('pauses, resumes, ends and archives', async () => {
@@ -3279,8 +3301,31 @@ describe('applicability rules and suggestions', () => {
       404,
       'NOT_FOUND',
     );
+    // R03b: the active state's old and new value.
+    exact(ComplianceApplicabilityRule, await patch({ active: false }));
+    exact(ComplianceApplicabilityRule, await patch({ active: true }));
     rule = back;
     expect(await auditActions(rule.id)).toContain('compliance.rule.updated');
+    const rows = await auditMetadata(rule.id, 'compliance.rule.updated');
+    expect(rows).toEqual([
+      expect.objectContaining({
+        fields: ['name'],
+        changes: { name: { from: expect.any(String), to: `Renamed ${run}` } },
+        version: 2,
+      }),
+      // The same states again: nothing changed, nothing listed.
+      expect.objectContaining({ fields: [], changes: {}, version: 2 }),
+      expect.objectContaining({
+        changes: { states: { from: ['GA'], to: ['GA', 'FL'] } },
+        version: 3,
+      }),
+      expect.objectContaining({
+        changes: { states: { from: ['GA', 'FL'], to: ['GA'] } },
+        version: 4,
+      }),
+      expect.objectContaining({ changes: { active: { from: true, to: false } } }),
+      expect.objectContaining({ changes: { active: { from: false, to: true } } }),
+    ]);
   });
 
   it('lists rules with filters', async () => {
