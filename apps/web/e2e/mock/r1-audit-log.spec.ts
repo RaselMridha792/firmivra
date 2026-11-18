@@ -80,3 +80,30 @@ test('T10a: a To date before the From date has its own message', async ({ page }
   await expect(page.getByText('The To date is before the From date')).toBeVisible();
   await expect(page.getByText('Use a range of at most 366 days')).toHaveCount(0);
 });
+
+test('R02a: Export saves the file and says how many entries; a failure says why', async ({
+  page,
+}) => {
+  await page.goto(app('/audit-log'));
+  const result = page.getByTestId('audit-export-result');
+  const saved = page.waitForEvent('download');
+  await page.getByTestId('audit-export').click();
+  expect((await saved).suggestedFilename()).toBe('audit-log.csv');
+  await expect(result).toHaveText('Downloaded 6 entries.');
+
+  // The API refusing (here a 500): the reason, never a false success or a raw error body.
+  await page.evaluate(() => window.sessionStorage.setItem('fv-mock-fail', 'auditLog.export'));
+  await page.getByTestId('audit-export').click();
+  await expect(result).toHaveText(
+    'The export did not download. Something went wrong on our side. Try again in a moment.',
+  );
+  await expect(result).toHaveAttribute('role', 'alert');
+});
+
+test('R02a: the Users export downloads through the session too', async ({ page }) => {
+  await page.goto(app('/settings/users'));
+  const saved = page.waitForEvent('download');
+  await page.getByTestId('users-export').click();
+  expect((await saved).suggestedFilename()).toBe('users.csv');
+  await expect(page.getByTestId('users-result')).toHaveText('The export downloaded.');
+});
