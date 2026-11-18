@@ -670,6 +670,26 @@ export function clientFormIssues(body: ClientFormFields): { path: string[]; mess
   return out;
 }
 
+/**
+ * Clients Review 2 (Edit validation, on the server): of the fields clientFormIssues requires, the
+ * ones a change clears: sent as null or blank, or inside an object sent as null (a responsible
+ * party). A field left out keeps what is stored, so a record saved before these rules (no address
+ * yet) can still change its other fields; a format issue of a value sent is not a clearing. The
+ * Business rules apply when `accountType` (the stored one, or the new one) is BUSINESS.
+ */
+export function clearedFieldIssues(body: ClientFormFields): { path: string[]; message: string }[] {
+  const cleared = (path: string[]): boolean => {
+    let at: unknown = body;
+    for (const key of path) {
+      if (at === null) return true;
+      if (typeof at !== 'object' || !(key in at)) return false;
+      at = (at as Record<string, unknown>)[key];
+    }
+    return at === null || (typeof at === 'string' && !at.trim());
+  };
+  return clientFormIssues(body).filter((issue) => cleared(issue.path));
+}
+
 /** The firm's new-client form (Octavia's D1 and E5): CreateClientRequest plus clientFormIssues. */
 export const NewClientForm = CreateClientRequest.superRefine((body, ctx) => {
   for (const issue of clientFormIssues(body)) ctx.addIssue({ code: 'custom', ...issue });

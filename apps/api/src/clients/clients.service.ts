@@ -9,24 +9,25 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { type Database, Prisma, type TxClient } from '@firmivra/db';
-import type {
-  BulkClientsRequest,
-  BulkClientsResponse,
-  ClientExportLink,
-  ClientListItem,
-  ClientListRow,
-  ClientOverviewSummary,
-  ClientProfile,
-  ClientRecord,
-  ClientServiceRef,
-  ClientsSummary,
-  CreateClientRequest,
-  ExportClientsRequest,
-  ListClientsQuery,
-  ClientSort,
-  ListClientsResponse,
-  UpdateClientProfileRequest,
-  UpdateClientRequest,
+import {
+  clearedFieldIssues,
+  type BulkClientsRequest,
+  type BulkClientsResponse,
+  type ClientExportLink,
+  type ClientListItem,
+  type ClientListRow,
+  type ClientOverviewSummary,
+  type ClientProfile,
+  type ClientRecord,
+  type ClientServiceRef,
+  type ClientsSummary,
+  type CreateClientRequest,
+  type ExportClientsRequest,
+  type ListClientsQuery,
+  type ClientSort,
+  type ListClientsResponse,
+  type UpdateClientProfileRequest,
+  type UpdateClientRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
@@ -313,6 +314,23 @@ function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInpu
     data['country'] = address.country;
   }
   return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+}
+
+/**
+ * Clients Review 2 (Edit validation, on the server): 400 VALIDATION_FAILED naming each required
+ * field the change clears (clearedFieldIssues, the web form's rules), the paths without `prefix`
+ * (the profile route's body is the profile).
+ */
+function refuseCleared(issues: { path: string[]; message: string }[], prefix?: string): void {
+  if (issues.length === 0) return;
+  throw new BadRequestException({
+    code: 'VALIDATION_FAILED',
+    message: 'The request is not valid',
+    details: issues.map((i) => ({
+      path: (i.path[0] === prefix ? i.path.slice(1) : i.path).join('.'),
+      message: i.message,
+    })),
+  });
 }
 
 /**
@@ -1217,6 +1235,8 @@ export class ClientsService {
     body: UpdateBody,
   ): Promise<ClientRecord> {
     if (actor.role === 'STAFF' && body.assignedUserId !== undefined) throw forbidden();
+    // Clients Review 2 (Edit validation): the email and phone are changed, never cleared.
+    refuseCleared(clearedFieldIssues({ email: body.email, phone: body.phone }));
     const { allowDuplicatePhone, ...changes } = body;
     const data = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined));
     const row = await this.write(businessId, async (tx) => {
@@ -1284,6 +1304,12 @@ export class ClientsService {
           ],
         });
       }
+      // Clients Review 2 (Edit validation): the address, and a Business's name, are changed,
+      // never cleared; a part of the address left out keeps what is stored.
+      refuseCleared(
+        clearedFieldIssues({ accountType: current.accountType, profile: body }),
+        'profile',
+      );
       const data = { ...profileData(body), ...secrets };
       await tx.clientProfile.upsert({
         where: { clientId: current.id },
