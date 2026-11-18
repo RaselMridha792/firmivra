@@ -17,6 +17,8 @@ export const PORTAL_MODULE_LABELS: Record<PortalModule, string> = {
   TASKS_REQUESTS: 'Tasks & Requests',
   MESSAGES: 'Messages',
   REPORTS: 'Reports (Client View)',
+  // Client Portal Review One CP-5a (business portals).
+  BUSINESS_RESOURCES: 'Business Documents & Resources',
 };
 
 export const ClientPortalArea = z.object({
