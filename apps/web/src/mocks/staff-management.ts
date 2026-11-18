@@ -1112,6 +1112,20 @@ export function createStaffMock(options: Options = {}): StaffClient {
         if (d.acceptsNewClients !== undefined) p.acceptsNewClients = d.acceptsNewClients;
         if (d.supervisorId !== undefined) {
           const boss = d.supervisorId ? g.find(d.supervisorId) : null;
+          // SM25: as the API, never a loop of reporting lines.
+          for (
+            let up = boss?.detail.profile.supervisor?.id, hops = 0;
+            up && hops < 100;
+            hops += 1
+          ) {
+            if (up === m.detail.id)
+              throw new ApiRequestError(
+                400,
+                'VALIDATION_FAILED',
+                'This member already supervises that person, directly or through others',
+              );
+            up = g.find(up).detail.profile.supervisor?.id;
+          }
           p.supervisor = boss ? ref(boss) : null;
         }
         for (const [field, kind] of [

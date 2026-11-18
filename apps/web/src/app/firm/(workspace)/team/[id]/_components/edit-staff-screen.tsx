@@ -62,6 +62,11 @@ interface Form {
   endDate: string;
   supervisorId: string;
   timeZone: string;
+  /** SM06: a company schedule's name, or the member's own (Custom). */
+  workSchedule: string;
+  /** SM25: the member's primary and backup team. */
+  primaryTeamId: string;
+  backupTeamId: string;
 }
 
 const EMPTY: Form = {
@@ -81,6 +86,9 @@ const EMPTY: Form = {
   endDate: '',
   supervisorId: '',
   timeZone: '',
+  workSchedule: '',
+  primaryTeamId: '',
+  backupTeamId: '',
 };
 
 const FIELD_ERRORS: Record<string, string> = {
@@ -92,6 +100,8 @@ const FIELD_ERRORS: Record<string, string> = {
   jobTitle: 'Enter or choose a job title.',
   role: 'Choose a role.',
 };
+
+const CUSTOM = '__custom__';
 
 function fromMember(m: StaffDetail): Form {
   const p = m.profile;
@@ -113,6 +123,9 @@ function fromMember(m: StaffDetail): Form {
     endDate: p.endDate ?? '',
     supervisorId: p.supervisor?.id ?? '',
     timeZone: p.timeZone ?? '',
+    workSchedule: p.workSchedule ?? '',
+    primaryTeamId: p.primaryTeam?.id ?? '',
+    backupTeamId: p.backupTeam?.id ?? '',
   };
 }
 
@@ -136,6 +149,9 @@ const toDetails = (f: Form) => ({
   endDate: f.endDate || null,
   supervisorId: f.supervisorId || null,
   timeZone: f.timeZone || null,
+  workSchedule: f.workSchedule.trim() || null,
+  primaryTeamId: f.primaryTeamId || null,
+  backupTeamId: f.backupTeamId || null,
 });
 
 /** Only what changed is sent, so Save Changes never overwrites a field nobody touched. */
@@ -335,6 +351,12 @@ function EditForm({
   };
 
   const departments = (o?.departments ?? []).map((d) => ({ value: d.id, label: d.name }));
+  const teamOptions = (o?.teams ?? []).map((t) => ({ value: t.id, label: t.name }));
+  // SM06: a saved schedule that is not one of the company's shows as Custom.
+  const schedules = o?.workSchedules ?? [];
+  const [customChosen, setCustomSchedule] = useState(false);
+  const customSchedule =
+    customChosen || (!!o && !!form.workSchedule && !schedules.includes(form.workSchedule));
   // SM14: the roles you may give this member (Owner only from the Original Owner).
   const givable = new Set(m?.authority.roles ?? []);
   const roles = [
@@ -665,6 +687,48 @@ function EditForm({
             ]}
             value={form.timeZone}
             onChange={(e) => set('timeZone', e.target.value)}
+          />
+          {/* SM06: the company's schedules (Staff Settings), or a custom one for this member. */}
+          <Select
+            label="Work Schedule"
+            disabled={locked}
+            options={[
+              { value: '', label: 'No schedule' },
+              ...schedules.map((name) => ({ value: name, label: name })),
+              { value: CUSTOM, label: 'Custom…' },
+            ]}
+            value={customSchedule ? CUSTOM : form.workSchedule}
+            onChange={(e) => {
+              setCustomSchedule(e.target.value === CUSTOM);
+              set('workSchedule', e.target.value === CUSTOM ? '' : e.target.value);
+            }}
+          />
+          {customSchedule ? (
+            <Input
+              label="Custom work schedule"
+              disabled={locked}
+              maxLength={80}
+              value={form.workSchedule}
+              onChange={(e) => set('workSchedule', e.target.value)}
+            />
+          ) : null}
+          {/* SM25: the member's primary and backup team, kept on the record. */}
+          <Select
+            label="Primary Team"
+            disabled={locked}
+            options={[{ value: '', label: 'No team' }, ...teamOptions]}
+            value={form.primaryTeamId}
+            onChange={(e) => set('primaryTeamId', e.target.value)}
+          />
+          <Select
+            label="Backup Team"
+            disabled={locked}
+            options={[
+              { value: '', label: 'No team' },
+              ...teamOptions.filter((t) => t.value !== form.primaryTeamId),
+            ]}
+            value={form.backupTeamId}
+            onChange={(e) => set('backupTeamId', e.target.value)}
           />
           {/* Create Staff step 4's Hire Date, kept apart from the Start Date above (SM11). */}
           <Input

@@ -337,6 +337,23 @@ export class StaffWriteService {
       if (!boss) throw notFound();
       if (boss.status !== 'ACTIVE')
         throw invalid('details.supervisorId', 'Choose an active member as supervisor');
+      // SM25 (Staff Management Review 2): never a loop of reporting lines. Up the supervisor's own
+      // chain, this member must not appear (a reports to b, b to a).
+      if (membershipId) {
+        let up: string | null = d.supervisorId;
+        for (let hops = 0; up && hops < 100; hops += 1) {
+          const next: { supervisorId: string | null } | null = await tx.staffProfile.findFirst({
+            where: { businessId, membershipId: up },
+            select: { supervisorId: true },
+          });
+          up = next?.supervisorId ?? null;
+          if (up === membershipId)
+            throw invalid(
+              'details.supervisorId',
+              'This member already supervises that person, directly or through others',
+            );
+        }
+      }
     }
     if (d.employeeId) {
       const taken = await tx.staffProfile.findFirst({

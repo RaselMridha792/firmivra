@@ -89,6 +89,26 @@ test('SM16: each Create Staff step says the progress is kept as a draft', async 
   );
 });
 
+test('SM06 and SM25: Edit Staff keeps a custom work schedule and both teams', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app(`/team/${HANA}`));
+  await expect(page.getByLabel('First Name *')).toHaveValue('Hana', { timeout: 60_000 });
+  await page.getByLabel('Work Schedule').selectOption({ label: 'Custom…' });
+  await page.getByLabel('Custom work schedule').fill('Mon-Thu 7-5 (fake)');
+  const primary = page.getByLabel('Primary Team');
+  await primary.selectOption({ index: 1 });
+  const team = (await primary.locator('option:checked').textContent())?.trim() ?? '';
+  await page.getByLabel('Backup Team').selectOption({ index: 1 });
+  const backup =
+    (await page.getByLabel('Backup Team').locator('option:checked').textContent())?.trim() ?? '';
+  expect(backup).not.toBe(team);
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByTestId('edit-saved')).toContainText('Changes saved', { timeout: 60_000 });
+  await expect(page.getByLabel('Custom work schedule')).toHaveValue('Mon-Thu 7-5 (fake)');
+  await expect(page.getByLabel('Primary Team').locator('option:checked')).toHaveText(team);
+  await expect(page.getByLabel('Backup Team').locator('option:checked')).toHaveText(backup);
+});
+
 test.describe('SM38: Staff Management times are in the firm’s time zone', () => {
   // The browser in Dhaka, the firm (mock) in New York: a time in the wrong zone is 10 to 11 hours off.
   test.use({ timezoneId: 'Asia/Dhaka' });

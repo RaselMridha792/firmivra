@@ -568,6 +568,35 @@ describe('Edit Staff', () => {
     );
   });
 
+  it('SM06 and SM25: keeps the work schedule and both teams, and refuses a loop of supervisors', async () => {
+    const detail = async (id: string) =>
+      StaffDetail.parse(ok(await call('get', `/staff/${id}`, ownerA)));
+    const patch = async (id: string, details: object) =>
+      call('patch', `/staff/${id}`, ownerA, { version: (await detail(id)).version, details });
+    const saved = StaffDetail.parse(
+      ok(
+        await patch(member.managerA, {
+          workSchedule: `Mon-Thu 7-5 ${run}`,
+          primaryTeamId: team.evening,
+          backupTeamId: team.morning,
+        }),
+      ),
+    );
+    expect(saved.profile).toMatchObject({
+      workSchedule: `Mon-Thu 7-5 ${run}`,
+      primaryTeam: { id: team.evening },
+      backupTeam: { id: team.morning },
+    });
+    // The manager supervises the staff member; the staff member may not then supervise them.
+    ok(await patch(member.staffA, { supervisorId: member.managerA }));
+    expectError(
+      await patch(member.managerA, { supervisorId: member.staffA }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect((await detail(member.managerA)).profile.supervisor?.id).not.toBe(member.staffA);
+  });
+
   it("keeps the member's phone as the firm's own number, set by the Owner only (Dashboard Review 2, R2 NEW2)", async () => {
     const v = async () =>
       StaffDetail.parse(ok(await call('get', `/staff/${member.staffA}`, ownerA))).version;
