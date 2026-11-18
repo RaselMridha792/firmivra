@@ -17,7 +17,7 @@ import {
   type PortalInfo,
   type PortalOffices,
 } from '@firmivra/types';
-import { timeOfDayFromDb } from '../appointments/calendar.js';
+import { timeOfDayFromDb, usableTimeZone } from '../appointments/calendar.js';
 import { Public } from '../auth/decorators.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -158,6 +158,7 @@ export class PortalInfoService {
           city: true,
           state: true,
           postalCode: true,
+          timezone: true,
         },
       }),
       this.currentVersion(firm.id, 'TERMS'),
@@ -208,6 +209,8 @@ export class PortalInfoService {
       signUpOpen: (settings?.clientSignUpEnabled ?? true) && terms !== null && privacy !== null,
       legal: { terms: shown(terms), privacy: shown(privacy) },
       contact: contactOf(settings, mainOffice),
+      // SM10: the portal header's clock shows the firm's zone, named.
+      timezone: usableTimeZone(settings?.timezone),
     };
   }
 

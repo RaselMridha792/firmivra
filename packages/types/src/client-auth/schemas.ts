@@ -105,6 +105,11 @@ export const PortalInfo = z.object({
    * main office's in Locations, and that office's opening hours. Null or empty: not set.
    */
   contact: PortalContact,
+  /**
+   * SM10: the firm's time zone (an IANA name), which the portal header's clock shows, named, as
+   * the firm workspace's does. The default stands in for an answer from before it existed.
+   */
+  timezone: z.string().default('America/New_York'),
 });
 export type PortalInfo = z.infer<typeof PortalInfo>;
 
