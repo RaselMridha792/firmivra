@@ -1,5 +1,39 @@
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { app, as, portal, settled, shot } from './helpers';
+
+/**
+ * CSP report-only (#1627): the browser logs what the policy would block. While this walks every
+ * menu page and one page under it, those console lines are kept per page in
+ * LIVE_SHOTS_DIR/csp/violations.jsonl and as an annotation. They never fail the test.
+ */
+function watchCsp(page: Page, info: TestInfo, site: string) {
+  const seen: { site: string; path: string; text: string }[] = [];
+  page.on('console', (msg) => {
+    const text = msg.text();
+    if (/Content Security Policy|Content-Security-Policy|\[Report Only\]/i.test(text)) {
+      seen.push({ site, path: new URL(page.url()).pathname, text: text.slice(0, 300) });
+    }
+  });
+  return () => {
+    if (!seen.length) return;
+    const dir = join(process.env['LIVE_SHOTS_DIR'] ?? '.', 'csp');
+    mkdirSync(dir, { recursive: true });
+    const at = new Date().toISOString();
+    for (const v of seen)
+      appendFileSync(
+        join(dir, 'violations.jsonl'),
+        `${JSON.stringify({ at, ...v })}
+`,
+      );
+    const pages = new Set(seen.map((v) => v.path));
+    info.annotations.push({
+      type: 'CSP report-only',
+      description: `${seen.length} console lines on ${pages.size} page(s): ${[...pages].slice(0, 10).join(', ')}`,
+    });
+  };
+}
 
 /**
  * Side menu active state, firm workspace and client portal (lead, Nov 18, after Octavia found My
@@ -64,6 +98,7 @@ async function deeperLink(page: Page, item: Item): Promise<string | null> {
 }
 
 async function checkMenu(page: Page, home: string, info: TestInfo) {
+  const flushCsp = watchCsp(page, info, home.includes('portal') ? 'portal' : 'firm');
   await page.goto(home);
   await settled(page);
   const items = await menuItems(page);
@@ -84,6 +119,7 @@ async function checkMenu(page: Page, home: string, info: TestInfo) {
     }
   }
   info.annotations.push({ type: 'menu items checked', description: report.join(' | ') });
+  flushCsp();
   await shot(page, TAB, `menu-${home.includes('portal') ? 'portal' : 'firm'}`, info);
 }
 
