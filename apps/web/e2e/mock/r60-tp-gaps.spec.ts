@@ -64,3 +64,43 @@ test('C24 and C07: a custom entity type is kept; Cancel and Back on Financial Ov
   await page.waitForURL(/\/edit\/financials$/);
   await expect(wages()).toHaveValue('95000');
 });
+
+test('C21 and C20: Add as Strategy puts a named strategy on the plan; the plan lists the client’s scenarios, and one reopens with its kept result', async ({
+  page,
+}) => {
+  await page.goto(`${base}/calculator`);
+  await page.getByLabel('Client (optional)').selectOption({ label: 'Sarah Mitchell' });
+  await page.getByLabel('Wages & salary').fill('120000');
+  await page.getByLabel('Retirement contribution').fill('10000');
+  await page.getByRole('button', { name: 'Calculate' }).click();
+  await expect(page.getByTestId('saving')).toBeVisible();
+
+  // C21: Add as Strategy, to the client's open plan.
+  const box = page.getByTestId('save-to-plan');
+  await box.getByLabel('Plan').selectOption({ label: `${year} Tax Plan (${year})` });
+  await box.getByRole('button', { name: 'Add as Strategy' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add as Strategy' });
+  await expect(dialog).toContainText(`To ${year} Tax Plan`);
+  await dialog.getByLabel('Strategy name').fill('Fake C21 strategy');
+  await dialog.getByRole('button', { name: 'Add Strategy' }).click();
+  await expect(page.getByText('Fake C21 strategy added to the plan.')).toBeVisible();
+
+  // C20: a saved scenario for the client.
+  await page.getByLabel('Scenario name (optional)').fill('Fake C20 scenario');
+  await page.getByRole('button', { name: 'Save Scenario' }).click();
+  await expect(page.getByText('Scenario saved.')).toBeVisible();
+
+  // The plan has the strategy, and lists the client's scenario where the plan is worked on.
+  await openPlanStep(page, 'Sarah', `${year} Tax Plan`, 'Goals & Strategies');
+  await expect(
+    page.getByTestId('plan-strategy').filter({ hasText: 'Fake C21 strategy' }),
+  ).toHaveCount(1);
+  const scenarios = page.getByTestId('plan-scenarios');
+  const link = scenarios.getByTestId('scenario-link').filter({ hasText: 'Fake C20 scenario' });
+  await expect(link).toHaveCount(1);
+  await link.click();
+  await expect(page).toHaveURL(/\/tax-planning\/calculator\?scenario=[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('kept-result')).toContainText(
+    'This is the result kept then; Calculate again to work it out with today',
+  );
+});
