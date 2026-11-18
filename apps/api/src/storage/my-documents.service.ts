@@ -24,6 +24,7 @@ import {
   encodeNameCursor,
   findTarget,
   forbidden,
+  LIVE_DOCUMENT,
   lockClient,
   notFound,
   OPEN_REQUEST,
@@ -46,14 +47,15 @@ const isTax = (kind: string) => (TAX_SERVICE_KINDS as readonly string[]).include
 const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 
 /**
- * The documents this login may see in a source; null when it may see none there. Never INTERNAL
- * and never another client's. Household logins (Rasel, q12): PRIMARY and SPOUSE see every upload
+ * The documents this login may see in a source; null when it may see none there. Never INTERNAL,
+ * never another client's, and only live ones (CP-PT-03: never one the firm trashed or archived,
+ * and a superseded one only as its current version). Household logins (Rasel, q12): PRIMARY and SPOUSE see every upload
  * of the household (MINE) and the firm's shared files (FIRM); an AUTHORIZED login sees only its
  * own uploads, and FIRM is empty for it.
  */
 export function visible(login: PortalLogin, source: Source): Prisma.DocumentWhereInput | null {
   if (!login.clientId) return null;
-  const theirs = { businessId: login.businessId, clientId: login.clientId };
+  const theirs = { businessId: login.businessId, clientId: login.clientId, ...LIVE_DOCUMENT };
   if (source === 'FIRM') return login.household ? { ...theirs, direction: 'FIRM_TO_CLIENT' } : null;
   return login.household
     ? { ...theirs, direction: 'CLIENT_TO_FIRM' }

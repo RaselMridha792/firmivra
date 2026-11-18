@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { databaseErrorCode, type Database, type Prisma, type TxClient } from '@firmivra/db';
+import { isLiveDocument } from '../storage/document-records.js';
 import {
   type ClientMessagePreference,
   filesOnlyBody,
@@ -99,6 +100,9 @@ const messageSelect = {
           scanStatus: true,
           direction: true,
           uploadedByUserId: true,
+          trashedAt: true,
+          archivedAt: true,
+          supersededAt: true,
         },
       },
     },
@@ -1062,6 +1066,8 @@ export class MessagesService {
       attachments: [
         ...m.attachments
           .map((a) => a.document)
+          // CP-PT-03: never a file the firm trashed, archived or replaced (LIVE_DOCUMENT).
+          .filter(isLiveDocument)
           .filter((d) =>
             d.direction === 'FIRM_TO_CLIENT'
               ? household

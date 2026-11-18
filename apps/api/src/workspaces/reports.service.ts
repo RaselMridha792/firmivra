@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
+import { isLiveDocument } from '../storage/document-records.js';
 import {
   type MyReport,
   type MyReportList,
@@ -401,7 +402,9 @@ export class ReportsService {
           data: true,
           documentId: true,
           publishedAt: true,
-          document: { select: { direction: true } },
+          document: {
+            select: { direction: true, trashedAt: true, archivedAt: true, supersededAt: true },
+          },
         },
       });
       return { rows, clientId: account.clientId, serviceId: engagement.id };
@@ -421,7 +424,11 @@ export class ReportsService {
         periodLabel: row.periodLabel,
         data: readReportData(row.data),
         // Never reachable (attach and publish refuse one), but a firm-only file never shows.
-        documentId: row.document?.direction === 'INTERNAL' ? null : row.documentId,
+        // CP-PT-03: nor one the firm trashed, archived or replaced.
+        documentId:
+          !row.document || row.document.direction === 'INTERNAL' || !isLiveDocument(row.document)
+            ? null
+            : row.documentId,
         publishedAt: row.publishedAt?.toISOString() ?? null,
       })),
       nextCursor:
