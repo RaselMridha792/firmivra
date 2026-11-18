@@ -8,6 +8,16 @@ import { crossSiteGuard } from './auth/cross-site.middleware.js';
 import { ApiExceptionFilter } from './common/api-exception.filter.js';
 import { requestContextMiddleware } from './common/request-context.js';
 import type { Env } from './config/env.js';
+import { DeniedAccessLog } from './audit/denied-access.js';
+
+/** M02b: the app's DeniedAccessLog, if this app has the audit module (every real one does). */
+function deniedLog(app: NestExpressApplication): DeniedAccessLog | undefined {
+  try {
+    return app.get(DeniedAccessLog, { strict: false });
+  } catch {
+    return undefined;
+  }
+}
 
 /** CloudFront and the ALB. */
 export const TRUSTED_PROXY_HOPS = 2;
@@ -69,7 +79,7 @@ export function configureApp(app: NestExpressApplication, env: Env): void {
   app.use(crossSiteGuard(env));
   app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
   app.setGlobalPrefix('api/v1');
-  app.useGlobalFilters(new ApiExceptionFilter());
+  app.useGlobalFilters(new ApiExceptionFilter(deniedLog(app)));
   app.enableShutdownHooks();
 
   if (env.NODE_ENV !== 'production') {

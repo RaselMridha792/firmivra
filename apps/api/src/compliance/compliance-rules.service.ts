@@ -52,6 +52,7 @@ import {
   todayOf,
   toDay,
 } from './compliance.shared.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 const ruleInclude = {
   calendarEntry: { select: { id: true, name: true } },
@@ -305,10 +306,7 @@ export class ComplianceRulesService {
   ): Promise<ComplianceApplicabilityRule> {
     try {
       const row = await inFirm(this.database, businessId, async (tx) => {
-        const found = await tx.complianceApplicabilityRule.findFirst({
-          where: { businessId, id },
-          select: { id: true },
-        });
+        const found = await tx.complianceApplicabilityRule.findFirst({ where: { businessId, id } });
         if (!found) throw errors.notFound();
         // The database raises the rule's version when anything that decides a match changes.
         const updated = await tx.complianceApplicabilityRule.update({
@@ -324,7 +322,11 @@ export class ComplianceRulesService {
           tx,
           'compliance.rule.updated',
           { type: 'compliance_rule', id },
-          { fields: Object.keys(body).sort(), version: updated.version },
+          // R03b: each changed field's old and new value, and the rule's version.
+          {
+            ...auditChanges(found, updated, { fields: Object.keys(body) }),
+            version: updated.version,
+          },
         );
         return updated;
       });

@@ -35,6 +35,7 @@ import type {
   UpdateDepartmentBody,
   UpdateTeamBody,
 } from './departments-input.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -427,7 +428,8 @@ export class DepartmentsService {
         { type: 'department', id: d.id },
         {
           departmentId: d.id,
-          fields: Object.keys(body).filter((k) => k !== 'moveTo'),
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          ...auditChanges(d, saved, { fields: Object.keys(body), skip: ['moveTo'] }),
           moved: leaving && body.moveTo !== undefined,
           actorUserId: userId,
         },
@@ -545,7 +547,12 @@ export class DepartmentsService {
         tx,
         'team.updated',
         { type: 'team', id: t.id },
-        { teamId: t.id, fields: Object.keys(body), actorUserId: userId },
+        {
+          teamId: t.id,
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          ...auditChanges(t, saved, { fields: Object.keys(body) }),
+          actorUserId: userId,
+        },
       );
       return (await this.teamRows(tx, businessId, [saved]))[0] as StaffTeam;
     });

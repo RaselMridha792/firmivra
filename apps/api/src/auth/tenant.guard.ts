@@ -6,6 +6,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
@@ -15,6 +16,7 @@ import { type AuthContext, requestContext, type TenantContext } from '../common/
 import { DATABASE } from '../database/database.module.js';
 import { businessStatusesFor, isPublic, rolesFor, TENANT_ROLES } from './decorators.js';
 import { StaffSessions } from './staff-sessions.js';
+import { DeniedAccessLog } from '../audit/denied-access.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Client portal routes: /api/v1/portal/:firmSlug/... (any case, like routing). */
@@ -37,6 +39,7 @@ export class TenantGuard implements CanActivate {
     private readonly reflector: Reflector,
     @Inject(DATABASE) private readonly db: Database,
     private readonly sessions: StaffSessions,
+    @Optional() private readonly denied?: DeniedAccessLog,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -56,7 +59,11 @@ export class TenantGuard implements CanActivate {
     if (!business) throw notFound();
 
     const found = await this.membership(auth, business.id);
-    if (!found) throw notFound();
+    if (!found) {
+      // M02b: a signed-in person asking for a firm they are not in (the platform's log).
+      void this.denied?.crossFirm(req, business.id).catch(() => undefined);
+      throw notFound();
+    }
     const { tenant, membershipId } = found;
     // Only after the membership check, so the status of someone else's firm never shows.
     if (!businessStatusesFor(this.reflector, ctx).includes(business.status)) {

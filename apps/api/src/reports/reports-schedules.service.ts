@@ -19,6 +19,7 @@ import { type Ctx, ReportsService } from './reports.service.js';
 import { type ScheduleShape, scheduleInclude, toScheduleRows } from './schedule-rows.js';
 import { describeSchedule, nextRun } from './schedule-math.js';
 import { sourceOf } from './sources.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Query = z.output<typeof SchedulesQuery>;
 type Create = z.output<typeof CreateScheduleBody>;
@@ -310,25 +311,28 @@ export class ReportsSchedulesService {
         await tx.reportScheduleRecipient.deleteMany({ where: { businessId, scheduleId: id } });
         await this.setRecipients(tx, businessId, id, userIds, emails);
       }
-      await tx.reportSchedule.update({
-        where: { id },
-        data: {
-          ...(body.name ? { name: body.name.replace(/<[^>]*>/g, '').trim() } : {}),
-          frequency,
-          ...clean,
-          runTime: asTime(rule.runTime),
-          ...(body.datePreset ? { datePreset: body.datePreset } : {}),
-          ...(body.formats ? { formats: body.formats } : {}),
-          deliverEmail,
-          deliverInApp,
-          nextRunAt: cur.active ? nextRun({ ...rule, ...clean }, cur.timezone) : null,
-        },
-      });
+      const data = {
+        ...(body.name ? { name: body.name.replace(/<[^>]*>/g, '').trim() } : {}),
+        frequency,
+        ...clean,
+        runTime: asTime(rule.runTime),
+        ...(body.datePreset ? { datePreset: body.datePreset } : {}),
+        ...(body.formats ? { formats: body.formats } : {}),
+        deliverEmail,
+        deliverInApp,
+        nextRunAt: cur.active ? nextRun({ ...rule, ...clean }, cur.timezone) : null,
+      };
+      await tx.reportSchedule.update({ where: { id }, data });
+      // Audit Log Review 2, R03: each changed field's old and new value; recipients by name only.
+      const recipients = body.recipientUserIds !== undefined || body.recipientEmails !== undefined;
       await this.audit.logIn(
         tx,
         'report_schedule.updated',
         { type: ENTITY, id },
-        { fields: Object.keys(body) },
+        {
+          ...auditChanges(cur, data, { fields: Object.keys(data), skip: ['nextRunAt'] }),
+          ...(recipients ? { listsChanged: ['recipients'] } : {}),
+        },
         { businessId, actorUserId: userId },
       );
     });
