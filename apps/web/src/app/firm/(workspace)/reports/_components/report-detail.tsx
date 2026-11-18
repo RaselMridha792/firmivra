@@ -37,7 +37,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
+import { ORIGIN_PARAM, originLabel, safeOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
 import { type FilterDraft, type FilterField, conditionsOf } from './filter-rules';
 import { CustomRangeDialog } from './report-date-controls';
@@ -151,10 +151,24 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     : preset
       ? ({ rule: 'ROLLING', preset } as const)
       : undefined;
+  const sources = useApiQuery([...RP_KEY, 'sources'], () => api.reports.sources());
+  // C18 (Tax Planning Review 2): a system report whose data cannot be compared (Tax Planning's
+  // plans) runs without a comparison, as its export already does; its first run waits until the
+  // catalog and the sources say which.
+  const catalog = useApiQuery([...RP_KEY, 'catalog'], () => api.reports.catalog());
+  const systemSource =
+    target.kind === 'SYSTEM'
+      ? catalog.data?.categories.flatMap((c) => c.reports).find((i) => i.key === target.key)
+          ?.dataSource
+      : undefined;
+  const comparable =
+    target.kind !== 'SYSTEM' ||
+    (!!systemSource && !!sources.data?.find((s) => s.key === systemSource)?.supportsComparison);
+  const known = target.kind !== 'SYSTEM' || (!catalog.isPending && !sources.isPending);
   const req = {
     target,
     ...(date ? { date: date as never } : {}),
-    ...(compare ? { compareTo: compare as never } : {}),
+    ...(compare && comparable ? { compareTo: compare as never } : {}),
     ...(clientType !== 'ALL' ? { quick: { clientType: clientType as never } } : {}),
     ...(service
       ? {
@@ -198,11 +212,11 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       }
     },
     placeholderData: keepPreviousData,
+    enabled: known,
   });
   const services = useApiQuery([...RP_KEY, 'services'], () =>
     api.reports.lookups({ kind: 'SERVICE_CATEGORY' }),
   );
-  const sources = useApiQuery([...RP_KEY, 'sources'], () => api.reports.sources());
   // RP-F13: a saved report's owner (or an Owner or Admin) may save changes on it.
   const savedOne = useApiQuery([...RP_KEY, 'saved-one', reportId], () =>
     target.kind === 'SAVED' ? api.reports.savedReport(reportId) : Promise.resolve(null),
@@ -513,9 +527,18 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             ))}
           </div>
         </div>
-        {/* RP-F01: back to the overview as it was (its range and comparison), when it opened this. */}
-        <Link href={from && /^\/reports(\?|$)/.test(from) ? from : '/reports'} className={outlined}>
-          ← Back to Reports
+        {/* RP-F01: back to the overview as it was (its range and comparison), when it opened this;
+            SM01: or to the page that opened it (Staff Management's Reports tile). */}
+        <Link
+          href={
+            from && (/^\/reports(\?|$)/.test(from) || !from.startsWith('/reports'))
+              ? from
+              : '/reports'
+          }
+          className={outlined}
+          data-testid="report-back"
+        >
+          ← Back to {from && !from.startsWith('/reports') ? originLabel(from) : 'Reports'}
         </Link>
       </header>
       {message ? (

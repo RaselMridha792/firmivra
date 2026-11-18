@@ -5,7 +5,7 @@ import type {
   IntegrationSyncDirection,
   SaveIntegrationMappingsRequest,
 } from '@firmivra/types';
-import { Button, Card, Select } from '@firmivra/ui';
+import { Button, Card, HelpTip, Select } from '@firmivra/ui';
 import { ArrowsHorizontal, PencilSimple, Plus, Trash } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
@@ -73,24 +73,35 @@ function Mappings({
   if (!scopes.length)
     return (
       <Card data-testid="mapping-scope" className="p-5!">
-        <CardTitle>Data Mapping</CardTitle>
+        <CardTitle help={{ topic: 'Data mapping', text: MAPPING_HELP }}>Data Mapping</CardTitle>
         <EmptyLine>This provider has no fields to map.</EmptyLine>
       </Card>
     );
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
-      {scopes.map((scope) => (
-        <ScopeCard
-          key={scope.scope}
-          integrationId={integrationId}
-          scope={scope}
-          canManage={canManage}
-          providerName={providerName}
-        />
-      ))}
+    <div className="flex flex-col gap-3">
+      {/* I-UA01: what mapping does and when a change applies. */}
+      <div className="flex items-center gap-2 text-sm text-muted">
+        <span>Field pairs for each area this provider syncs.</span>
+        <HelpTip topic="Data mapping">{MAPPING_HELP}</HelpTip>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {scopes.map((scope) => (
+          <ScopeCard
+            key={scope.scope}
+            integrationId={integrationId}
+            scope={scope}
+            canManage={canManage}
+            providerName={providerName}
+          />
+        ))}
+      </div>
     </div>
   );
 }
+
+/** I-UA01: the Data Mapping tab's Help. */
+const MAPPING_HELP =
+  'Each pair says which Firmivra field fills which provider field. Save Mapping applies it from the next sync; records already synced do not change.';
 
 function ScopeCard({
   integrationId,
@@ -146,8 +157,14 @@ function ScopeCard({
           <p className="text-sm text-muted">
             {saved.length} {saved.length === 1 ? 'field' : 'fields'} mapped
           </p>
+          {scope.readOnly ? (
+            <p className="text-sm text-muted" data-testid="mapping-read-only">
+              Saved for an area this provider no longer offers: kept and shown here, but it cannot
+              be changed.
+            </p>
+          ) : null}
         </div>
-        {editing ? null : (
+        {editing || scope.readOnly ? null : (
           <Button
             variant="secondary"
             className="border-action! text-action!"

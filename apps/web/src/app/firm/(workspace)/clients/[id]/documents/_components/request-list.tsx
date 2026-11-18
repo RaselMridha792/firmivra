@@ -9,7 +9,6 @@ import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { dateText } from '../../../_components/client-parts';
 import { MarkMissingForm } from './mark-missing-form';
-import { RequestDocumentForm } from './request-document-form';
 const labels = {
   REQUESTED: 'Requested',
   SUBMITTED: 'Received',
@@ -47,7 +46,6 @@ export function RequestList({ clientId }: { clientId: string }) {
   const requests = useApiQuery(['document-requests', clientId], () =>
     api.documents.requests(clientId),
   );
-  const [creating, setCreating] = useState(false);
   const [missing, setMissing] = useState<string>();
   const [viewing, setViewing] = useState<FirmDocumentRequest>();
   const accept = useApiMutation((id: string) => api.documents.acceptRequest(id), {
@@ -135,12 +133,8 @@ export function RequestList({ clientId }: { clientId: string }) {
   ];
   return (
     <section className="min-w-0 space-y-4" data-testid="document-requests">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold text-heading">Document requests</h2>
-        <Button onClick={() => setCreating(true)} data-testid="request-document-open">
-          Request a document
-        </Button>
-      </div>
+      {/* A section of the tab, under its title; Request a document is the tab's primary (P4-7). */}
+      <h3 className="text-lg font-semibold text-heading">Document requests</h3>
       {accept.error || cancel.error ? (
         <p role="alert" className="text-sm text-danger" data-testid="request-accept-error">
           {errorMessage(accept.error ?? cancel.error, DOCUMENT_ERRORS)}
@@ -180,9 +174,6 @@ export function RequestList({ clientId }: { clientId: string }) {
           </>
         )}
       </PageState>
-      {creating ? (
-        <RequestDocumentForm clientId={clientId} onClose={() => setCreating(false)} />
-      ) : null}
       {missing ? (
         <MarkMissingForm
           clientId={clientId}

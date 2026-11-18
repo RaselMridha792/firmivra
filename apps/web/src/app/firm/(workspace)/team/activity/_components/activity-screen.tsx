@@ -16,21 +16,13 @@ import { type ReactNode, createElement, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { NOT_LOADED } from '../../_components/quiet-card';
+import { FirmDateTime } from '../../[id]/_components/firm-time';
 
 const PERIODS = [
   { value: '7', label: 'Last 7 days' },
   { value: '30', label: 'Last 30 days' },
   { value: '90', label: 'Last 90 days' },
 ];
-
-const when = (iso: string) =>
-  new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 
 const WORDS: Record<string, string> = {
   // SM4: a staff session's first request in this firm.
@@ -157,7 +149,7 @@ export function ActivityScreen() {
     );
   };
   const loginColumns: Column<AuditEntry>[] = [
-    { id: 'at', label: 'Date & Time', cell: (e) => when(e.at) },
+    { id: 'at', label: 'Date & Time', cell: (e) => <FirmDateTime iso={e.at} /> },
     { id: 'who', label: 'Staff Member', cell: staff },
     {
       id: 'status',
@@ -176,7 +168,7 @@ export function ActivityScreen() {
     { id: 'ip', label: 'IP Address', cell: (e) => e.ip ?? '—' },
   ];
   const actionColumns: Column<AuditEntry>[] = [
-    { id: 'at', label: 'Date & Time', cell: (e) => when(e.at) },
+    { id: 'at', label: 'Date & Time', cell: (e) => <FirmDateTime iso={e.at} /> },
     { id: 'who', label: 'Staff Member', cell: staff },
     {
       id: 'label',

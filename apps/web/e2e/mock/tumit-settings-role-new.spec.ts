@@ -67,7 +67,7 @@ test('checks the name, then Set Permissions saves the role with its grid', async
 
 test('starts from the template chosen on Users & Roles', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`http://app.localhost:${port}/settings/users/roles/new?from=TAX_PREPARER`);
+  await page.goto(`http://app.localhost:${port}/settings/users/roles/new?template=TAX_PREPARER`);
   await expect(page.getByLabel('Start From *')).toHaveValue('TAX_PREPARER', { timeout: 60_000 });
   const templates = page.getByTestId('role-templates');
   await expect(templates.getByRole('button', { name: 'Tax Preparer' })).toHaveAttribute(
@@ -77,6 +77,6 @@ test('starts from the template chosen on Users & Roles', async ({ page }) => {
   await templates.getByRole('button', { name: 'Client Support' }).click();
   await expect(page.getByLabel('Start From *')).toHaveValue('CLIENT_SUPPORT');
   // The Owner role is never a starting point.
-  await page.goto(`http://app.localhost:${port}/settings/users/roles/new?from=OWNER`);
+  await page.goto(`http://app.localhost:${port}/settings/users/roles/new?template=OWNER`);
   await expect(page.getByLabel('Start From *')).toHaveValue('STAFF', { timeout: 60_000 });
 });

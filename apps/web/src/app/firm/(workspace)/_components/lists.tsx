@@ -10,17 +10,27 @@ import {
 import { Button, Modal } from '@firmivra/ui';
 import { MapPin, Phone, VideoCamera } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { DashboardLink as Link, useDashboardNavigate } from './dashboard-link';
 import { useState } from 'react';
 import { useFirm } from '../../../../components/firm-context';
 import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation } from '../../../../lib/query';
-import { type Ask, CloseModal } from '../calendar/[id]/_components/detail-screen';
+import type { Ask } from '../calendar/[id]/_components/detail-screen';
 import { LOCATION_LABELS } from '../calendar/_components/shared';
 import { RowMenu, type RowMenuItem } from '../team/_components/row-menu';
 import { addDays } from '../calendar/_components/time';
+import { rowActions } from './appointment-actions';
 import { Widget } from './widget';
+
+/**
+ * V8: Mark Complete and Cancel ask in the appointment's own dialog, loaded when first asked, so
+ * the dashboard's first load does not carry the appointment screen's code.
+ */
+const CloseModal = dynamic(() =>
+  import('../calendar/[id]/_components/detail-screen').then((m) => m.CloseModal),
+);
 
 const ICONS = { VIDEO: VideoCamera, PHONE: Phone, IN_PERSON: MapPin } as const;
 const BARS = { VIDEO: 'bg-info', PHONE: 'bg-success', IN_PERSON: 'bg-gold' } as const;
@@ -220,9 +230,6 @@ export function UpcomingAppointments({
 }) {
   const go = useDashboardNavigate();
   const { role } = useFirm();
-  const canChange = role ? roleCan(role, 'APPOINTMENTS', 'EDIT') : false;
-  const canOpenClient = role ? roleCan(role, 'CLIENTS', 'VIEW') : false;
-  const canOpenLead = role ? roleCan(role, 'LEADS', 'VIEW') : false;
   const [ask, setAsk] = useState<{ ask: Ask; a: Appointment }>();
   const [message, setMessage] = useState<string>();
   const remind = useApiMutation((id: string) => api.scheduling.sendReminder(id), {
@@ -236,13 +243,19 @@ export function UpcomingAppointments({
     part({ hour: 'numeric', minute: '2-digit' }),
   ];
   // Octavia's A3: the actions the member may take, through the calendar's own pages and calls.
-  const menu = (a: Appointment): RowMenuItem[] => [
-    { label: 'View Details', onSelect: () => go(`/calendar/${a.id}`) },
-    ...(canChange
-      ? [
-          { label: 'Edit', onSelect: () => go(`/calendar/${a.id}/edit`) },
-          { label: 'Reschedule', onSelect: () => go(`/calendar/${a.id}/edit`) },
-          {
+  // Octavia's A3: the actions the member may take (appointment-actions.ts), through the calendar's
+  // own pages and calls.
+  const menu = (a: Appointment): RowMenuItem[] =>
+    rowActions(role, a).map((action): RowMenuItem => {
+      switch (action) {
+        case 'view':
+          return { label: 'View Details', onSelect: () => go(`/calendar/${a.id}`) };
+        case 'edit':
+          return { label: 'Edit', onSelect: () => go(`/calendar/${a.id}/edit`) };
+        case 'reschedule':
+          return { label: 'Reschedule', onSelect: () => go(`/calendar/${a.id}/edit`) };
+        case 'remind':
+          return {
             label: 'Send Reminder',
             onSelect: () =>
               remind.mutate(a.id, {
@@ -250,18 +263,17 @@ export function UpcomingAppointments({
                   setMessage(r.sent ? 'A reminder was sent.' : 'No reminder could be sent.'),
                 onError: (e) => setMessage(`The reminder was not sent: ${errorMessage(e)}`),
               }),
-          },
-          { label: 'Mark Complete', onSelect: () => setAsk({ ask: 'complete', a }) },
-          { label: 'Cancel', danger: true, onSelect: () => setAsk({ ask: 'cancel', a }) },
-        ]
-      : []),
-    // P4-1: a lead's own appointment opens its lead (the lead pages' own rules apply).
-    ...(a.client && canOpenClient
-      ? [{ label: 'Open Client', onSelect: () => go(`/clients/${a.client?.id ?? ''}`) }]
-      : !a.client && a.lead && canOpenLead
-        ? [{ label: 'Open Lead', onSelect: () => go(`/leads/${a.lead?.id ?? ''}`) }]
-        : []),
-  ];
+          };
+        case 'complete':
+          return { label: 'Mark Complete', onSelect: () => setAsk({ ask: 'complete', a }) };
+        case 'cancel':
+          return { label: 'Cancel', danger: true, onSelect: () => setAsk({ ask: 'cancel', a }) };
+        case 'client':
+          return { label: 'Open Client', onSelect: () => go(`/clients/${a.client?.id ?? ''}`) };
+        case 'lead':
+          return { label: 'Open Lead', onSelect: () => go(`/leads/${a.lead?.id ?? ''}`) };
+      }
+    });
   return (
     <Widget
       title="Upcoming Appointments"
@@ -340,6 +352,10 @@ export function UpcomingAppointments({
               id={ask.a.id}
               ask={ask.ask}
               name={appointmentWith(ask.a)}
+              // P4-2: a lead's own appointment (no client yet) records an outcome.
+              leadId={ask.a.client ? null : (ask.a.lead?.id ?? null)}
+              canConvert={ask.a.lead?.reach === true}
+              timeZone={timeZone}
               onClose={() => setAsk(undefined)}
               onDone={(text) => {
                 setAsk(undefined);

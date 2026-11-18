@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { NOT_LOADED } from '../../../_components/quiet-card';
-import { MEMBER_ERRORS, dateTime } from '../../_components/staff-parts';
+import { MEMBER_ERRORS } from '../../_components/staff-parts';
+import { FirmDateTime } from '../../_components/firm-time';
 import { useMember } from '../../_components/use-member';
 import { Panel } from './panel';
 import { SecurityShell } from './security-shell';
@@ -65,7 +66,7 @@ export function ActivityTab({ id }: { id: string }) {
                 : 'Sign-ins, changes and actions show here as they happen.'
           }
           columns={[
-            { id: 'at', label: 'Date & Time', cell: (a) => dateTime(a.at) },
+            { id: 'at', label: 'Date & Time', cell: (a) => <FirmDateTime iso={a.at} /> },
             {
               id: 'label',
               label: 'Activity',

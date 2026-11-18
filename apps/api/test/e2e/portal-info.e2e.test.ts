@@ -48,6 +48,8 @@ beforeAll(async () => {
         portalName: 'R3 Portal',
         portalHeader: 'Welcome to R3',
         welcomeMessage: 'Your documents, in one place.',
+        // CP-1g: the landing page's button text (the other keeps its default).
+        portalSignInLabel: 'Log In',
         contactPhone: '(555) 010-0001',
         contactEmail: 'front@r3.example.test',
         addressLine1: '1 Profile Way',
@@ -55,6 +57,8 @@ beforeAll(async () => {
         city: 'Testville',
         state: 'GA',
         postalCode: '30011',
+        // SM10: the portal header's clock shows the firm's zone.
+        timezone: 'America/Chicago',
       },
     });
     // Company Profile wins over the main office, whose hours are the portal's.
@@ -175,6 +179,8 @@ describe('GET /portal/{firmSlug}/info', () => {
           portalName: 'R3 Portal',
           header: 'Welcome to R3',
           welcomeMessage: 'Your documents, in one place.',
+          signInLabel: 'Log In',
+          signUpLabel: null,
           // Intake Review 2 23-g: no intake settings yet, so the forms carry the firm's branding.
           formBranding: true,
         },
@@ -193,6 +199,7 @@ describe('GET /portal/{firmSlug}/info', () => {
             { weekday: 2, opensAt: '13:00', closesAt: '17:00' },
           ],
         },
+        timezone: 'America/Chicago',
       });
       // Nothing beyond the contract, such as the documents' ids.
       expect(Object.keys((res.body as { legal: { terms: object } }).legal.terms).sort()).toEqual([

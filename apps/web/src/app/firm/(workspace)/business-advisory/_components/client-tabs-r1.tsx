@@ -257,7 +257,6 @@ export function ClientFinancialsTab({ advisoryClientId }: { advisoryClientId: st
           caption="Financial figures"
           dense
           noun="periods"
-          pageSize={50}
           showPagination={false}
           loading={Boolean(c?.canViewFinancials) && q.isPending}
           emptyTitle={

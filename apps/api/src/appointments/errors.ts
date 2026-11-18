@@ -100,6 +100,12 @@ export const errors = {
    * P4-1: a lead's own appointment (no client yet) on a path that needs a client (the portal, the
    * waitlist, invoices, a client's own list): refused, never skipped.
    */
+  /** P4-2: Convert to New client by a member who does not reach the lead (403). */
+  leadOwnerConverts: () =>
+    new ForbiddenException({
+      code: 'FORBIDDEN',
+      message: "The lead's owner can convert this lead.",
+    }),
   leadAppointment: () =>
     conflict(
       'LEAD_APPOINTMENT',

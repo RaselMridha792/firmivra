@@ -50,6 +50,11 @@ import { CommunicationProviders } from './communications-provider.js';
 import { FIRMIVRA_MAIL, FIRMIVRA_MAIL_LABEL, holdNoteOf } from './firmivra-mail.js';
 import { type SegCtx, CommunicationSegmentsService } from './communications-segments.service.js';
 import { auditChanges } from '../audit/audit-changes.js';
+import { announcementSettingsIn } from '../client-portal/portal-announcement-settings.js';
+
+/** CP-3c: the composer's note while the firm keeps announcements out of the portal. */
+const ANNOUNCEMENTS_OFF =
+  "Announcements are turned off in Settings > Client Portal, so clients won't see this one until you turn them on.";
 
 type Out<S extends z.ZodType> = z.output<S>;
 type Row = Prisma.CommunicationGetPayload<object>;
@@ -264,8 +269,18 @@ export class CommunicationsService {
         senderCount: 0,
         note: null,
       };
-    if (channel === 'ANNOUNCEMENT')
-      return { channel, ready: true, reason: null, route: null, senderCount: 0, note: null };
+    if (channel === 'ANNOUNCEMENT') {
+      // CP-3c: the firm can turn announcements off in the portal; one can still be made.
+      const portal = await announcementSettingsIn(ctx.tx, ctx.businessId);
+      return {
+        channel,
+        ready: true,
+        reason: null,
+        route: null,
+        senderCount: 0,
+        note: portal.enabled ? null : ANNOUNCEMENTS_OFF,
+      };
+    }
     const all = await this.connections(ctx, channel);
     const healthy = all.filter(
       (c) => (HEALTHY as string[]).includes(c.status) && this.providers.has(c.provider),

@@ -14,6 +14,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   BulkClientsResponse,
   ClientExportLink,
+  ClientOverviewSummary,
   ClientsSummary,
   ClientTimelinePage,
   ListClientsResponse,
@@ -68,6 +69,18 @@ const nyDay = (offset: number) => {
 };
 /** 16:00 UTC on that New York day: 11:00 or 12:00 there, so never on another calendar day. */
 const onDay = (offset: number) => new Date(`${nyDay(offset)}T16:00:00.000Z`);
+/**
+ * A fixture appointment's start: a slot of its own on that New York day (06:00 UTC, then every 90
+ * minutes, all within the day there), so the hour-long fixtures of one staff member never overlap
+ * (appointments_no_double_booking_staff), whatever the time of day the suite runs. A start taken
+ * from `Date.now()` could land on another test's fixed one.
+ */
+const slotsTaken = new Map<number, number>();
+const slotOn = (offset: number) => {
+  const n = slotsTaken.get(offset) ?? 0;
+  slotsTaken.set(offset, n + 1);
+  return new Date(Date.parse(`${nyDay(offset)}T06:00:00.000Z`) + n * 90 * 60_000);
+};
 
 let app: INestApplication;
 const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
@@ -253,9 +266,9 @@ beforeAll(async () => {
           cancelledAt: status === 'CANCELLED' ? new Date() : null,
         },
       });
-    await visit(ago(5));
-    await visit(new Date(Date.now() + 2 * DAY), 'CANCELLED');
-    await visit(new Date(Date.now() + 4 * DAY));
+    await visit(slotOn(-5));
+    await visit(slotOn(2), 'CANCELLED');
+    await visit(slotOn(4));
   });
 
   // Firm B: one client with an open Personal Tax engagement and a balance.
@@ -730,8 +743,8 @@ describe("E2: a client's Last Activity is its latest event", () => {
       await note(e.both, onDay(-6));
       await message(e.both, onDay(-2));
       // None of these is activity: a canceled visit, one still to come, an open task, a draft.
-      await visit(e.none, onDay(-1), 'CANCELLED');
-      await visit(e.none, onDay(9), 'SCHEDULED');
+      await visit(e.none, slotOn(-1), 'CANCELLED');
+      await visit(e.none, slotOn(9), 'SCHEDULED');
       await tx.task.create({ data: { businessId, clientId: e.none, title: 'Fake open task' } });
       await tx.invoice.create({
         data: { businessId, clientId: e.none, number: `INV-${randomUUID()}` },
@@ -923,14 +936,14 @@ describe('More Filters and Added Last 30 Days (E2 additions)', () => {
         });
       await deadline(f.b, 'UPCOMING');
       await deadline(f.c, 'COMPLETED');
-      const visit = (clientId: string, status: 'SCHEDULED' | 'CANCELLED') =>
+      const visit = (clientId: string, status: 'SCHEDULED' | 'CANCELLED', startsAt = slotOn(3)) =>
         tx.appointment.create({
           data: {
             businessId,
             clientId,
             staffUserId: people.adminA.id,
-            startsAt: onDay(3),
-            endsAt: new Date(onDay(3).getTime() + 3_600_000),
+            startsAt,
+            endsAt: new Date(startsAt.getTime() + 3_600_000),
             locationKind: 'PHONE',
             status,
             cancelledAt: status === 'CANCELLED' ? new Date() : null,
@@ -1252,5 +1265,266 @@ describe('linked profiles (Clients Review 2, G9)', () => {
       'client.link_removed',
     ]);
     expect(JSON.stringify(rows)).not.toContain('signs for the bakery');
+  });
+});
+
+describe('GET /business/clients/{id}/summary: the Overview summaries (Clients Review 2 N8-12)', () => {
+  /** A client of Staff's with some of everything, made here so no other test's counts move. */
+  async function summaryClient() {
+    // The client's own portal login: a client's message comes from it.
+    const login = { id: randomUUID(), email: `r1w-summary-${randomUUID().slice(0, 8)}@r1w.test` };
+    await runInScope(db, { kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { ...login, cognitoSub: login.id, pool: 'CLIENT', name: 'Fake R1W summary' },
+      }),
+    );
+    return inFirm('a', async (tx) => {
+      const businessId = firms.a.id;
+      const owner = people.ownerA.id;
+      const c = await tx.client.create({
+        data: {
+          businessId,
+          displayName: `Summary ${randomUUID().slice(0, 6)} (fake)`,
+          assignedUserId: people.staffA.id,
+        },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId,
+          userId: login.id,
+          email: login.email,
+          clientId: c.id,
+          status: 'ACTIVE',
+        },
+      });
+      const open = await tx.engagement.create({
+        data: { businessId, clientId: c.id, serviceId: ids.personal, title: 'Fake summary return' },
+      });
+      // Requested (pending) counts as the card lists it; a completed one does not.
+      const requested = await tx.engagement.create({
+        data: {
+          businessId,
+          clientId: c.id,
+          serviceId: ids.books,
+          title: 'Fake requested books',
+          status: 'PENDING',
+        },
+      });
+      await tx.engagement.create({
+        data: {
+          businessId,
+          clientId: c.id,
+          serviceId: ids.books,
+          title: 'Fake old books',
+          status: 'COMPLETED',
+          completedAt: new Date(),
+        },
+      });
+      for (const status of ['REQUESTED', 'REJECTED', 'REQUESTED', 'ACCEPTED'] as const) {
+        await tx.documentRequest.create({
+          data: {
+            businessId,
+            clientId: c.id,
+            engagementId: open.id,
+            title: `Fake ${status}`,
+            status,
+            statusNote: status === 'REJECTED' ? 'Fake: unreadable' : null,
+          },
+        });
+      }
+      // Two OPEN invoices still owing (125.00 and 40.00), one paid in full.
+      for (const [cents, paid] of [
+        [20_000, 7_500],
+        [4_000, 0],
+        [9_000, 9_000],
+      ] as const) {
+        const { id } = await tx.invoice.create({
+          data: { businessId, clientId: c.id, number: `INV-${randomUUID()}` },
+        });
+        await tx.invoiceLine.create({
+          data: { businessId, invoiceId: id, description: 'Fake', unitAmountCents: cents },
+        });
+        await tx.invoice.update({ where: { id }, data: { status: 'OPEN', issuedAt: new Date() } });
+        if (paid > 0) {
+          await tx.offlinePayment.create({
+            data: {
+              businessId,
+              invoiceId: id,
+              recordedByUserId: owner,
+              method: 'CASH',
+              amountCents: paid,
+              receivedOn: new Date(`${nyDay(0)}T00:00:00.000Z`),
+              idempotencyKey: randomUUID(),
+            },
+          });
+        }
+      }
+      // Two unread client messages; a read one and the firm's own are not counted.
+      const thread = await tx.messageThread.create({
+        data: { businessId, clientId: c.id, subject: 'Fake summary thread' },
+      });
+      for (const [direction, read] of [
+        ['CLIENT_TO_FIRM', false],
+        ['CLIENT_TO_FIRM', false],
+        ['CLIENT_TO_FIRM', true],
+        ['FIRM_TO_CLIENT', false],
+      ] as const) {
+        const m = await tx.message.create({
+          data: {
+            businessId,
+            threadId: thread.id,
+            senderUserId: direction === 'CLIENT_TO_FIRM' ? login.id : owner,
+            direction,
+            body: 'Fake message',
+          },
+        });
+        // A new message starts unread; the firm then reads this one.
+        if (read) await tx.message.update({ where: { id: m.id }, data: { readAt: new Date() } });
+      }
+      // Intake forms: two open (sent, in progress), one completed.
+      const formFor = async (serviceId: string) =>
+        (await tx.intakeForm.findFirst({ where: { businessId, serviceId } })) ??
+        tx.intakeForm.create({
+          data: {
+            businessId,
+            serviceId,
+            version: 1,
+            title: 'Fake summary intake',
+            status: 'PUBLISHED',
+            publishedAt: new Date(),
+          },
+        });
+      const forms = { personal: await formFor(ids.personal), books: await formFor(ids.books) };
+      for (const status of ['SENT', 'IN_PROGRESS', 'COMPLETED'] as const) {
+        const books = status === 'IN_PROGRESS';
+        const intake = await tx.intake.create({
+          data: {
+            businessId,
+            formId: books ? forms.books.id : forms.personal.id,
+            engagementId: books ? requested.id : open.id,
+          },
+        });
+        if (status !== 'SENT') {
+          await tx.intake.update({ where: { id: intake.id }, data: { status } });
+        }
+      }
+      // The next scheduled appointment is in 6 days; a cancelled sooner one and a past one aren't.
+      // Each in a slot of its own (slotOn): the staff member is the same for every client.
+      const visit = (at: Date, status: 'SCHEDULED' | 'CANCELLED' = 'SCHEDULED') =>
+        tx.appointment.create({
+          data: {
+            businessId,
+            clientId: c.id,
+            staffUserId: owner,
+            startsAt: at,
+            endsAt: new Date(at.getTime() + 3_600_000),
+            locationKind: 'PHONE',
+            status,
+            cancelledAt: status === 'CANCELLED' ? new Date() : null,
+          },
+          select: { id: true },
+        });
+      await visit(slotOn(-3));
+      await visit(slotOn(2), 'CANCELLED');
+      const next = await visit(slotOn(6));
+      await visit(slotOn(9));
+      return { id: c.id, name: c.displayName, next: next.id };
+    });
+  }
+  const summaryOf = async (id: string, who: Person = people.ownerA) => {
+    const res = await call('get', `/${id}/summary`, who);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const parsed = ClientOverviewSummary.parse(res.body);
+    expect(parsed).toEqual(res.body);
+    return parsed;
+  };
+
+  it('each figure matches its source: the list row, the services, intake forms and messages', async () => {
+    const c = await summaryClient();
+    const s = await summaryOf(c.id);
+    expect(s).toMatchObject({
+      balanceDueCents: 16_500,
+      openInvoices: 2,
+      missingDocuments: 3,
+      unreadMessages: 2,
+      openIntakeForms: 2,
+      activeServices: 2,
+      nextAppointment: { id: c.next },
+      timeZone: 'America/New_York',
+    });
+
+    // The clients list counts the same balance, documents and next appointment.
+    const row = (await list(`?search=${encodeURIComponent(c.name)}`)).items.find(
+      (r) => r.id === c.id,
+    );
+    expect(row).toMatchObject({
+      balanceDueCents: s.balanceDueCents,
+      missingDocuments: s.missingDocuments,
+      nextAppointmentAt: s.nextAppointment?.startsAt,
+    });
+    // The Overview's Active Services lists what the card counts (Pending or Active).
+    const services = (await call('get', `/${c.id}/services`, people.ownerA)).body as {
+      items: { status: string }[];
+    };
+    expect(services.items.filter((i) => ['PENDING', 'ACTIVE'].includes(i.status))).toHaveLength(
+      s.activeServices,
+    );
+    // The Intake Forms tab lists the open ones with their status.
+    const intakes = (await call('get', `/${c.id}/intakes`, people.ownerA)).body as {
+      items: { status: string }[];
+    };
+    expect(intakes.items.map((i) => i.status).sort()).toEqual(['COMPLETED', 'IN_PROGRESS', 'SENT']);
+    // The Messages tab: the unread counts of the client's threads add up to the figure.
+    const threads = (await call('get', `/${c.id}/message-threads`, people.ownerA)).body as {
+      items: { unreadCount: number }[];
+    };
+    expect(threads.items.reduce((n, t) => n + t.unreadCount, 0)).toBe(s.unreadMessages);
+
+    // Audited as a view of the client, with no figures.
+    const audit = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, entityId: c.id, action: 'client.viewed' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit.map((a) => a.metadata)).toContainEqual({ view: 'summary' });
+  });
+
+  it('a client with nothing open reads zeros and no appointment', async () => {
+    const bare = await inFirm('a', (tx) =>
+      tx.client.create({ data: { businessId: firms.a.id, displayName: 'Summary bare (fake)' } }),
+    );
+    expect(await summaryOf(bare.id)).toEqual({
+      balanceDueCents: 0,
+      openInvoices: 0,
+      missingDocuments: 0,
+      unreadMessages: 0,
+      openIntakeForms: 0,
+      activeServices: 0,
+      nextAppointment: null,
+      timeZone: 'America/New_York',
+    });
+  });
+
+  it('Staff reach their own client only; another firm and a client login never do', async () => {
+    const c = await summaryClient();
+    expect((await summaryOf(c.id, people.staffA)).missingDocuments).toBe(3);
+    const others = await inFirm('a', (tx) =>
+      tx.client.create({ data: { businessId: firms.a.id, displayName: 'Summary others (fake)' } }),
+    );
+    const notTheirs = await call('get', `/${others.id}/summary`, people.staffA);
+    expect([notTheirs.status, codeOf(notTheirs.body)]).toEqual([404, 'NOT_FOUND']);
+    const otherFirm = await call('get', `/${c.id}/summary`, people.ownerB, 'b');
+    expect([otherFirm.status, codeOf(otherFirm.body)]).toEqual([404, 'NOT_FOUND']);
+    const portal = await call(
+      'get',
+      `/${ids.w1}/summary`,
+      people.clientA,
+      'a',
+      undefined,
+      'CLIENT',
+    );
+    expect(portal.status).toBe(403);
+    expect((await call('get', '/not-a-uuid/summary', people.ownerA)).status).toBe(400);
   });
 });

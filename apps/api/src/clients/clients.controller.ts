@@ -17,6 +17,7 @@ import {
   type BulkClientsResponse,
   type ClientExportLink,
   ClientId,
+  type ClientOverviewSummary,
   type ClientProfile,
   type ClientRecord,
   type ClientsSummary,
@@ -142,6 +143,17 @@ export class ClientsController {
       });
     }
     return this.clients.exportList(tenant.businessId, actorOf(auth, tenant), body);
+  }
+
+  /** N8-12: the client's Overview summaries (Staff: their own clients; 404 otherwise). */
+  @Get(':id/summary')
+  @Roles(...FIRM_STAFF)
+  overview(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<ClientOverviewSummary> {
+    return this.clients.overview(tenant.businessId, actorOf(auth, tenant), id);
   }
 
   @Get(':id')

@@ -1,18 +1,22 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
-import type {
-  AdvisoryKpi,
-  AdvisoryMeetingPage,
-  AdvisoryMeetingRow,
-  AdvisoryOverview,
-  AdvisoryResource,
-  AdvisoryServiceOption,
-  AdvisorySettingsView,
-  OkResponse,
+import {
+  ADVISORY_RESOURCE_FORMAT_LABELS,
+  type AdvisoryKpi,
+  type AdvisoryMeetingPage,
+  type AdvisoryMeetingRow,
+  type AdvisoryOverview,
+  type AdvisoryResource,
+  type AdvisoryResourcePreview,
+  type AdvisoryServiceOption,
+  type AdvisorySettingsView,
+  type OkResponse,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { memberNames, memberRef, notAMember, notFound } from '../workspaces/common.js';
@@ -39,7 +43,14 @@ type Out<S extends z.ZodType> = z.output<S>;
 const DAY = 86_400_000;
 const delta = (now: number, before: number): number | null =>
   before > 0 ? Math.round(((now - before) / before) * 100) : null;
-const ACTIVE_PLAN_STATUSES = ['DRAFT', 'IN_REVIEW', 'FINALIZED', 'SENT', 'IN_PROGRESS'] as const;
+const ACTIVE_PLAN_STATUSES = [
+  'DRAFT',
+  'IN_REVIEW',
+  'FINALIZED',
+  'AWAITING_CLIENT_APPROVAL',
+  'SENT',
+  'IN_PROGRESS',
+] as const;
 
 /** The overview, services, meetings, resources and the firm's advisory settings. */
 @Injectable()
@@ -49,6 +60,7 @@ export class AdvisoryOverviewService {
     private readonly read: AdvisoryReadService,
     private readonly audit: AuditService,
     private readonly messages: MessagesService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   private run<T>(
@@ -315,6 +327,83 @@ export class AdvisoryOverviewService {
     ).map(toResource);
   }
 
+  /**
+   * B28 (Business Advisory review §18): what the client would receive, and every check that
+   * refuses it, in the order Send answers them: the client archived, a staff-only resource, a
+   * format the resource doesn't offer, no active portal login (both formats open in the portal
+   * after sign-in, and the email goes to the login's address).
+   */
+  private async compose(ctx: AdvisoryCtx, key: string, body: Out<typeof SendResourceBody>) {
+    if (!ctx.perms.send) throw advErrors.forbidden();
+    const resource = resourceOf(key);
+    if (!resource) throw notFound();
+    const c = await this.read.loadClient(ctx, body.advisoryClientId);
+    const format = body.format ?? 'SECURE_LINK';
+    const [login, firm] = await Promise.all([
+      ctx.tx.clientAccount.findFirst({
+        where: {
+          businessId: ctx.businessId,
+          clientId: c.clientId,
+          status: 'ACTIVE',
+          portalRole: 'PRIMARY',
+        },
+        select: { email: true },
+      }),
+      ctx.tx.business.findFirst({ where: { id: ctx.businessId }, select: { slug: true } }),
+    ]);
+    const name = c.client.displayName;
+    const problems: AdvisoryResourcePreview['problems'] = [];
+    if (c.archivedAt)
+      problems.push({ code: 'CLIENT_ARCHIVED', message: 'Restore the advisory client first.' });
+    if (!resource.clientFacing)
+      problems.push({
+        code: 'RESOURCE_NOT_CLIENT_FACING',
+        message: 'This resource is for staff and cannot be sent.',
+      });
+    if (!resource.formats.includes(format))
+      problems.push({
+        code: 'FORMAT_NOT_AVAILABLE',
+        message: `This resource can't be sent as ${ADVISORY_RESOURCE_FORMAT_LABELS[format]}: choose ${resource.formats.map((f) => ADVISORY_RESOURCE_FORMAT_LABELS[f]).join(' or ')}.`,
+      });
+    if (!login)
+      problems.push({
+        code: 'NO_PORTAL_LOGIN',
+        message: `${name} has no active portal login yet, so the resource would not reach them: it opens only after they sign in to the portal. Send them a portal invitation first.`,
+      });
+    const link = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm?.slug ?? ''}/services/advisory#${key}`;
+    const text = [
+      resource.summary,
+      '',
+      format === 'PDF'
+        ? `A PDF copy is ready to download in your portal (sign in first): ${link}`
+        : `Open it in your portal (sign in first): ${link}`,
+      ...(body.message ? ['', body.message] : []),
+    ].join('\n');
+    return { resource, client: c, format, login, problems, subject: resource.title, text };
+  }
+
+  /** B28: the preview of a send; nothing is sent, so nothing is audited. */
+  previewResource(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    key: string,
+    body: Out<typeof SendResourceBody>,
+  ): Promise<AdvisoryResourcePreview> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      const m = await this.compose(ctx, key, body);
+      return {
+        channel: body.channel,
+        format: m.format,
+        to: { name: m.client.client.displayName, email: m.login?.email ?? null },
+        subject: m.subject,
+        body: m.text,
+        eligible: m.problems.length === 0,
+        problems: m.problems,
+      };
+    });
+  }
+
   sendResource(
     businessId: string,
     tenant: TenantContext,
@@ -323,22 +412,29 @@ export class AdvisoryOverviewService {
     body: Out<typeof SendResourceBody>,
   ): Promise<OkResponse> {
     return this.run(businessId, tenant, userId, async (ctx) => {
-      if (!ctx.perms.send) throw advErrors.forbidden();
-      const resource = resourceOf(key);
-      if (!resource) throw notFound();
-      const c = await this.read.loadClient(ctx, body.advisoryClientId);
-      if (c.archivedAt) throw advErrors.clientArchived();
-      if (!resource.clientFacing) throw advErrors.notClientFacing();
-      await this.messages.create(businessId, ctx.actor, c.clientId, {
-        subject: resource.title,
-        body: [resource.summary, ...(body.message ? ['', body.message] : [])].join('\n'),
+      const m = await this.compose(ctx, key, body);
+      const first = m.problems[0];
+      if (first?.code === 'CLIENT_ARCHIVED') throw advErrors.clientArchived();
+      if (first?.code === 'RESOURCE_NOT_CLIENT_FACING') throw advErrors.notClientFacing();
+      if (first?.code === 'FORMAT_NOT_AVAILABLE') throw advErrors.formatNotAvailable(first.message);
+      if (first) throw advErrors.noPortalLogin(first.message);
+      await this.messages.create(businessId, ctx.actor, m.client.clientId, {
+        subject: m.subject,
+        body: m.text,
         repliesEnabled: true,
+        // B28: by email, the email carries the text (where the platform allows message text).
+        ...(body.channel === 'EMAIL' ? { delivery: { emailIncludesBody: true } } : {}),
       });
       await this.audit.logIn(
         ctx.tx,
         'advisory_resource.sent',
-        { type: 'advisory_client', id: c.id },
-        { advisoryClientId: c.id, resourceKey: key, channel: body.channel },
+        { type: 'advisory_client', id: m.client.id },
+        {
+          advisoryClientId: m.client.id,
+          resourceKey: key,
+          channel: body.channel,
+          format: m.format,
+        },
       );
       return { ok: true };
     });

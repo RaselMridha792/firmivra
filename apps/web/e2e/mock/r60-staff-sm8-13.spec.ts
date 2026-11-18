@@ -86,7 +86,7 @@ test('Additional Details: a custom work schedule and the workload in active clie
   await page.getByLabel('Custom schedule').fill('Mon-Thu, 10-hour days');
   await expect(page.getByText('A custom schedule stays on this staff record.')).toBeVisible();
   await expect(page.getByLabel('Maximum Active Clients (Optional)')).toBeVisible();
-  await expect(page.getByText('Client assignment does not check it yet.')).toBeVisible();
+  await expect(page.getByText('shows a warning and still assigns')).toBeVisible();
 });
 
 test('the header shows the date and time with its time zone, on every page', async ({ page }) => {

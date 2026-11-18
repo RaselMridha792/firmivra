@@ -10,6 +10,12 @@ import { useMe } from '../../../../../../components/signed-in';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
+import Link from 'next/link';
+import {
+  REQUEST_STATUS_LABELS,
+  requestDay,
+  requestReference,
+} from '../../_components/requests-shared';
 import { categoryOptions } from './marketplace-shared';
 
 export function RequestIntegrationModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -42,6 +48,11 @@ export function RequestIntegrationModal({ open, onClose }: { open: boolean; onCl
     if (create.isSuccess) {
       form.reset();
       create.reset();
+    } else {
+      // I-R2-08: a kept draft comes back without the last attempt's errors (they show again only
+      // when it is submitted).
+      form.clearErrors();
+      if (create.isError) create.reset();
     }
   }
   function cancel() {
@@ -70,10 +81,35 @@ export function RequestIntegrationModal({ open, onClose }: { open: boolean; onCl
           <p className="text-sm text-text">
             Your request for {create.data.providerName} has been saved for review.
           </p>
+          {/* I-UA03: a reference to quote, the day it was sent and where it stands. */}
+          <dl data-testid="request-receipt" className="grid gap-1 rounded-lg bg-subtle p-3 text-sm">
+            <div className="flex gap-1">
+              <dt className="font-semibold text-heading">Reference:</dt>
+              <dd className="font-mono">{requestReference(create.data.id)}</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt className="font-semibold text-heading">Sent:</dt>
+              <dd>{requestDay(create.data.createdAt)}</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt className="font-semibold text-heading">Status:</dt>
+              <dd>{REQUEST_STATUS_LABELS[create.data.status]}</dd>
+            </div>
+          </dl>
           <p className="text-sm text-muted">
-            You can keep working while the team reviews your request.
+            You can keep working while the team reviews your request, and follow it under My
+            requests.
           </p>
-          <Button onClick={close}>Done</Button>
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={close}>Done</Button>
+            <Link
+              href="/integrations/requests"
+              onClick={close}
+              className="inline-flex min-h-10 items-center rounded-control border border-border px-4 text-sm font-semibold text-heading hover:bg-accent-soft"
+            >
+              View my requests
+            </Link>
+          </div>
         </div>
       ) : (
         <form

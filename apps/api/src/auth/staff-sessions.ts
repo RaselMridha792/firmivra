@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
-import type { Database } from '@firmivra/db';
+import type { Database, TxClient } from '@firmivra/db';
 import { deviceOf } from '../admin-audit/classify.js';
 import { AuditService } from '../audit/audit.service.js';
 import { canonicalIp } from '../common/network.js';
@@ -9,6 +9,8 @@ import { DATABASE } from '../database/database.module.js';
 
 /** Login History's row: the first request of a staff session in this firm (SM4). */
 export const FIRM_SESSION_STARTED = 'auth.firm_session_started';
+/** SM12: a new sign-in went over the member's limit and their oldest sessions here ended. */
+export const SESSION_LIMIT_SIGNED_OUT = 'staff.session_limit_signed_out';
 
 /** lastActiveAt moves at most once a minute. */
 const TOUCH_MS = 60_000;
@@ -28,6 +30,16 @@ export const BACKGROUND_HEADER = 'x-firmivra-background';
  */
 export const sessionKey = (businessId: string, session: string) =>
   createHash('sha256').update(`${businessId}:${session}`).digest('hex');
+
+/**
+ * SM12: a session that can still be used: not signed out, active in the last 15 minutes and
+ * under 8 hours old (SEC-4). The session limit counts these.
+ */
+export const usableSessions = (now: number) => ({
+  revokedAt: null,
+  lastActiveAt: { gt: new Date(now - IDLE_MS) },
+  createdAt: { gt: new Date(now - MAX_SESSION_MS) },
+});
 
 /** "Chrome on macOS", up to 100 characters. */
 export function deviceLabel(userAgent: string | undefined): string {
@@ -164,8 +176,8 @@ export class StaffSessions {
         },
         select: { id: true },
       });
-      // The directory's Last Login. Only an existing row: a new one would take the defaults
-      // (require a password change) that Create Staff sets on purpose.
+      // Kept on an existing row only: a new one would take the defaults (require a password
+      // change) that Create Staff sets on purpose. Last Login reads this session's start (SM12).
       await tx.staffSecuritySettings.updateMany({
         where: { businessId, membershipId },
         data: { lastLoginAt: new Date() },
@@ -177,6 +189,47 @@ export class StaffSessions {
         { membershipId, device },
         { businessId },
       );
+      await this.keepToLimit(tx, businessId, membershipId, id);
     });
+  }
+
+  /**
+   * SM12 (Staff Management Review 2, decision 8a): a sign-in over the member's limit (Max
+   * Concurrent Sessions, or one with "Sign out other sessions on new sign-in") ends their oldest
+   * sessions here that could still be used, audited as "Signed out: session limit". The limit is
+   * the one saved on their security settings; a member with none saved has no limit yet.
+   */
+  private async keepToLimit(
+    tx: TxClient,
+    businessId: string,
+    membershipId: string,
+    newId: string,
+  ): Promise<void> {
+    const saved = await tx.staffSecuritySettings.findUnique({
+      where: { businessId_membershipId: { businessId, membershipId } },
+      select: { maxConcurrentSessions: true, signOutOtherSessions: true },
+    });
+    if (!saved) return;
+    const limit = saved.signOutOtherSessions ? 1 : Math.max(1, saved.maxConcurrentSessions);
+    const now = Date.now();
+    const others = await tx.staffSession.findMany({
+      where: { businessId, membershipId, id: { not: newId }, ...usableSessions(now) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    // The new session is one of the limit: the newest others keep the rest.
+    const ending = others.slice(limit - 1).map((s) => s.id);
+    if (!ending.length) return;
+    const { count } = await tx.staffSession.updateMany({
+      where: { businessId, id: { in: ending }, revokedAt: null },
+      data: { revokedAt: new Date(now) },
+    });
+    await this.audit.logIn(
+      tx,
+      SESSION_LIMIT_SIGNED_OUT,
+      { type: 'membership', id: membershipId },
+      { sessionsRevoked: count, limit },
+      { businessId },
+    );
   }
 }

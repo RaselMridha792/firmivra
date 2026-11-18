@@ -119,6 +119,8 @@ function KpiFilter({
 
 function lastLogin(u: FirmUser): ReactNode {
   if (u.status === 'INVITED' && u.invite) {
+    // SM21: "Invited" only once the email went out.
+    if (!u.invite.sentAt) return 'Account created · invitation not sent';
     return (
       <>
         Invited <span className="whitespace-nowrap">{day(u.invite.sentAt)}</span>
@@ -671,7 +673,9 @@ export function UsersScreen({ initialRole }: { initialRole?: string }) {
             custom={roles.data?.custom}
             loading={roles.isPending}
             canChange={manages}
-            onUse={(r) => router.push(`/settings/users/roles/new?from=${encodeURIComponent(r)}`)}
+            onUse={(r) =>
+              router.push(`/settings/users/roles/new?template=${encodeURIComponent(r)}`)
+            }
             onCreate={() => router.push('/settings/users/roles/new')}
           />
         </aside>

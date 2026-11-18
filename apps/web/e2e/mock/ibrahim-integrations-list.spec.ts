@@ -96,9 +96,10 @@ test('catalog, tabs, search, categories, mode and insight panels', async ({ page
     page.getByRole('dialog').getByText('QuickBooks Online sync completed'),
   ).toBeVisible();
   await page.keyboard.press('Escape');
+  // I-UA02: the overview is on Test here, so the marketplace opens on Test too.
   await expect(page.getByRole('link', { name: 'View Integration Marketplace' })).toHaveAttribute(
     'href',
-    '/integrations/marketplace',
+    '/integrations/marketplace?environment=TEST',
   );
   await page.setViewportSize({ width: 375, height: 812 });
   await expectFrames(page);

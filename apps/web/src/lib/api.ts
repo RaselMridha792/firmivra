@@ -49,6 +49,8 @@ import {
   createPublicCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyTasksClient,
+  createPublicPackagesClient,
   createMyIntakesClient,
   createIntakeLinkClient,
   createLeadRoutingClient,
@@ -63,12 +65,15 @@ import {
   createMyReportsClient,
   createMyServicesClient,
   createMySignaturesClient,
+  createMyAdvisoryClient,
+  createMyTaxPlansClient,
   createSigningClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
   createStaffPhoneClient,
   createPaymentsSetupClient,
   createFirmBillingClient,
+  createPortalAnnouncementSettingsClient,
   createPortalContactClient,
   createPortalTabsClient,
   createPaymentPreferencesClient,
@@ -148,6 +153,8 @@ import {
   MOCK_ESIGN_ROLE,
   mySignaturesMock,
 } from '../mocks/esign';
+import { myTaxPlansMock } from '../mocks/my-tax-plans';
+import { myAdvisoryMock } from '../mocks/my-advisory';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { intakeLinkMock } from '../mocks/intake-link';
@@ -178,6 +185,7 @@ import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
 import { createProfileChangesMock } from '../mocks/profile-changes';
 import { createSupportMessagesMock } from '../mocks/support-messages';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
+import { createPortalAnnouncementSettingsMock } from '../mocks/portal-announcement-settings';
 import { createPortalContactMock } from '../mocks/portal-contact';
 import { createPortalTabsMock } from '../mocks/portal-tabs';
 import { createSettingsMock } from '../mocks/settings';
@@ -308,6 +316,11 @@ export const api = {
       ? createPortalTabsMock({ role: MOCK_ROLE })
       : createPortalTabsClient(request),
   /** Client Portal > Contact Information (PRT-3), and the portal's contact card (`mine`). */
+  /** Settings > Client Portal > Announcements (CP-3c, CP-3d, CP-3i): Owner and Admin. */
+  portalAnnouncementSettings:
+    dev && mocked('portalAnnouncementSettings')
+      ? createPortalAnnouncementSettingsMock({ role: MOCK_ROLE })
+      : createPortalAnnouncementSettingsClient(request),
   portalContact:
     dev && mocked('portalContact')
       ? createPortalContactMock({ role: MOCK_ROLE })
@@ -502,6 +515,10 @@ export const api = {
     dev && mocked('myDocuments')
       ? myDocumentsMock(firmSlug)
       : createMyDocumentsClient(request, firmSlug),
+  /** Client Portal Review One SP-1: a package's public page, read without signing in. */
+  publicPackages: (firmSlug: string) => createPublicPackagesClient(request, firmSlug),
+  /** Client Portal Review One T16: the tasks the firm shows this client (portal Requests area). */
+  myTasks: (firmSlug: string) => createMyTasksClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   // Dashboard Review Two V6: completing a task can be made to fail (`fv-mock-fail`).
   tasks:
@@ -753,6 +770,16 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** P4-8: the signed-in client's tax plans (portal Tax Plans). */
+  myTaxPlans: (firmSlug: string) =>
+    dev && mocked('myTaxPlans')
+      ? myTaxPlansMock(firmSlug)
+      : createMyTaxPlansClient(request, firmSlug),
+  /** BA-CP: the signed-in client's Business Advisory under My Services (portal). */
+  myAdvisory: (firmSlug: string) =>
+    dev && mocked('myAdvisory')
+      ? myAdvisoryMock(firmSlug)
+      : createMyAdvisoryClient(request, firmSlug),
   /** The signed-out invitation page at /{slug}/invitation (Business Advisory B3). */
   portalInvitation: (firmSlug: string) =>
     dev && mocked('portalInvitation')

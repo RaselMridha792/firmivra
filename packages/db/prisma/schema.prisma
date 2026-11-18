@@ -832,6 +832,9 @@ enum NotificationCategory {
   MESSAGES
   APPOINTMENTS
   BILLING
+  /// Client Portal Review One CP-3d: the firm's general announcements, by email or text as the
+  /// firm's channel policy allows (client_portal_settings.announcement_*_policy).
+  ANNOUNCEMENTS
 }
 
 enum DeliveryChannel {
@@ -998,6 +1001,8 @@ model Business {
   messageSettings      MessageSettings?
   outboundMessages     OutboundMessage[]
   portalVisibility     PortalModuleVisibility[]
+  portalTabs           PortalTab[]
+  portalTabTargets     PortalTabTarget[]
   brandProfile         BusinessBrandProfile?
   brandVersions        BusinessBrandVersion[]
   departments          Department[]
@@ -1088,6 +1093,8 @@ model User {
   clientAccount            ClientAccount?
   platformAdmin            PlatformAdmin?
   platformLegalAcceptances PlatformLegalAcceptance[]
+  /// B10: the advisory plans this client login approved in the portal.
+  advisoryPlansApproved    AdvisoryPlan[]            @relation("AdvisoryPlanClientApprovedBy")
 
   @@index([email])
   @@map("users")
@@ -1221,6 +1228,7 @@ model Membership {
   outboundCreated              OutboundMessage[]             @relation("OutboundCreatedBy")
   outboundFiles                OutboundMessageFile[]
   portalVisibilityChanged      PortalModuleVisibility[]
+  portalTabsUpdated            PortalTab[]                   @relation("PortalTabUpdatedBy")
   portalLocks                  ClientPortalLock[]
   portalActivity               ClientPortalActivity[]
   portalRecentClients          PortalRecentClient[]
@@ -2948,6 +2956,9 @@ model BusinessSettings {
   portalName          String?   @map("portal_name")
   portalHeader        String?   @map("portal_header")
   welcomeMessage      String?   @map("welcome_message")
+  /// CP-1g: the portal landing page's button text; null shows "Sign in" / "Create an account".
+  portalSignInLabel   String?   @map("portal_sign_in_label")
+  portalSignUpLabel   String?   @map("portal_sign_up_label")
   /// Setup wizard steps done so far, e.g. { "profile": true }.
   setupProgress       Json      @default("{}") @map("setup_progress")
   setupCompletedAt    DateTime? @map("setup_completed_at") @db.Timestamptz(3)
@@ -3072,6 +3083,8 @@ model Invite {
   /// Set by the database: true for an invite inserted in platform scope with no inviting member
   /// (the owner's activation link from Firmivra). Never set or changed by a request.
   sentByPlatform  Boolean   @default(false) @map("sent_by_platform")
+  /// SM21: when the invitation email actually went out (each real send); null while it never did.
+  emailedAt       DateTime? @map("emailed_at") @db.Timestamptz(3)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   business      Business             @relation(fields: [businessId], references: [id])
@@ -3147,6 +3160,7 @@ model Client {
   promotionRedemptions           PromotionRedemption[]
   outboundRecipients             OutboundMessageRecipient[]
   portalVisibility               PortalModuleVisibility[]
+  portalTabTargets               PortalTabTarget[]
   portalLock                     ClientPortalLock?
   portalActivity                 ClientPortalActivity[]
   portalRecent                   PortalRecentClient[]
@@ -3685,6 +3699,8 @@ model Document {
   clientId         String            @map("client_id") @db.Uuid
   engagementId     String            @map("engagement_id") @db.Uuid
   categoryId       String?           @map("category_id") @db.Uuid
+  /// CP-5d: the custom portal tab the client uploaded this through; a rename never moves it.
+  portalTabId      String?           @map("portal_tab_id") @db.Uuid
   /// The request this upload answers, from the same engagement.
   requestId        String?           @map("request_id") @db.Uuid
   /// Set when the document was carried over from a Begin Online upload at lead conversion: it
@@ -3727,6 +3743,7 @@ model Document {
   request                      DocumentRequest?              @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
   leadUpload                   LeadUpload?                   @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
   intake                       Intake?                       @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  portalTab                    PortalTab?                    @relation(fields: [businessId, portalTabId], references: [businessId, id], onDelete: Restrict)
   reports                      EngagementReport[]
   messageAttachments           MessageAttachment[]
   invoiceAttachments           InvoiceAttachment[]
@@ -3790,6 +3807,7 @@ model Document {
   // Lets reports require that their document belongs to the same engagement.
   @@unique([businessId, engagementId, id])
   @@unique([businessId, replacesId])
+  @@index([businessId, portalTabId])
   // R37: the firm-wide library, its filters and the duplicate warning.
   @@index([businessId, clientId, createdAt])
   @@index([businessId, requestId])
@@ -7000,6 +7018,34 @@ enum PortalModule {
   TASKS_REQUESTS
   MESSAGES
   REPORTS
+  /// Client Portal Review One CP-5a: the Business Documents & Resources tab (business portals).
+  BUSINESS_RESOURCES
+}
+
+/// CP-3d: what a client may do with an optional announcement channel. SMS is never REQUIRED (it
+/// needs the client's consent; CHECK on client_portal_settings).
+enum PortalChannelPolicy {
+  CLIENT_CHOICE
+  REQUIRED
+  OFF
+}
+
+/// CP-5b to CP-5d: a portal tab of the firm's navigation.
+enum PortalTabKind {
+  /// One of the built-in tabs: the firm's label and position (its on/off stays in
+  /// portal_module_visibility).
+  BUILT_IN
+  /// A tab the firm added: a label, a position, on or off, reusing one existing function.
+  CUSTOM
+}
+
+/// CP-5e: who sees a custom tab, among the clients whose portal shows custom tabs (Business).
+enum PortalTabAudience {
+  ALL
+  /// Clients with one of the tab's tags (portal_tab_targets.tag_id).
+  TAGS
+  /// The tab's chosen clients (portal_tab_targets.client_id).
+  CLIENTS
 }
 
 enum BrandTheme {
@@ -7068,6 +7114,55 @@ model PortalModuleVisibility {
 
   @@index([businessId, clientId])
   @@map("portal_module_visibility")
+}
+
+/// Client Portal Review One CP-5b to CP-5e: the firm's portal tabs. A BUILT_IN row gives a built-in
+/// tab the firm's label (null: its default name) and position; its on/off stays in
+/// portal_module_visibility. A CUSTOM row is a tab the firm added: a label, a position, on or off,
+/// who sees it, and the one existing function it reuses (`module`: DOCUMENTS or BUSINESS_RESOURCES).
+/// Custom tabs show only in Business portals (guide 9.3). Nothing is deleted: a custom tab the firm
+/// removes is archived, and its files stay with their client (documents.portal_tab_id).
+model PortalTab {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
+  kind            PortalTabKind
+  module          PortalModule
+  /// 1 to 40 characters, one line; unique among the firm's live tabs, ignoring case.
+  label           String?
+  sortOrder       Int               @map("sort_order")
+  enabled         Boolean           @default(true)
+  audience        PortalTabAudience @default(ALL)
+  archivedAt      DateTime?         @map("archived_at") @db.Timestamptz(3)
+  updatedByUserId String?           @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business          @relation(fields: [businessId], references: [id])
+  updatedBy Membership?       @relation("PortalTabUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  targets   PortalTabTarget[]
+  documents Document[]
+
+  @@unique([businessId, id])
+  @@index([businessId, sortOrder])
+  @@map("portal_tabs")
+}
+
+/// CP-5e: who sees a custom tab with audience TAGS or CLIENTS: one tag or one client per row.
+model PortalTabTarget {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  portalTabId String   @map("portal_tab_id") @db.Uuid
+  clientId    String?  @map("client_id") @db.Uuid
+  tagId       String?  @map("tag_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business  Business  @relation(fields: [businessId], references: [id])
+  portalTab PortalTab @relation(fields: [businessId, portalTabId], references: [businessId, id], onDelete: Restrict)
+  client    Client?   @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  tag       Tag?      @relation(fields: [businessId, tagId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, portalTabId])
+  @@map("portal_tab_targets")
 }
 
 /// A client's portal is locked (Lock Portal Access): their logins cannot sign in while the row
@@ -8715,6 +8810,8 @@ enum AdvisoryPlanStatus {
   DRAFT
   IN_REVIEW
   FINALIZED
+  /// B10: sent to the client for approval in the portal; a Modify Plan revision asks again.
+  AWAITING_CLIENT_APPROVAL
   SENT
   IN_PROGRESS
   COMPLETED
@@ -8730,33 +8827,39 @@ enum AdvisoryPlanStatus {
 /// recommendations and action items are their own tables. Finalizing or sending adds an
 /// immutable advisory_plan_versions row. Archived, never deleted.
 model AdvisoryPlan {
-  id               String             @id @default(uuid(7)) @db.Uuid
-  businessId       String             @map("business_id") @db.Uuid
-  advisoryClientId String             @map("advisory_client_id") @db.Uuid
-  name             String
-  targetYear       Int                @map("target_year")
+  id                     String             @id @default(uuid(7)) @db.Uuid
+  businessId             String             @map("business_id") @db.Uuid
+  advisoryClientId       String             @map("advisory_client_id") @db.Uuid
+  name                   String
+  targetYear             Int                @map("target_year")
   /// "growth", "startup", "funding"...: the firm's own plan types.
-  planType         String?            @map("plan_type")
-  status           AdvisoryPlanStatus @default(DRAFT)
+  planType               String?            @map("plan_type")
+  status                 AdvisoryPlanStatus @default(DRAFT)
   /// The wizard step the author is on, 1 to 5.
-  step             Int                @default(1)
+  step                   Int                @default(1)
   /// The newest finalized version; 0 until the first.
-  currentVersion   Int                @default(0) @map("current_version")
-  profile          Json               @default("{}")
-  assessment       Json               @default("{}")
-  strategy         Json               @default("{}")
-  finalizedAt      DateTime?          @map("finalized_at") @db.Timestamptz(3)
-  sentAt           DateTime?          @map("sent_at") @db.Timestamptz(3)
-  sentByUserId     String?            @map("sent_by_user_id") @db.Uuid
-  createdByUserId  String             @map("created_by_user_id") @db.Uuid
-  updatedByUserId  String?            @map("updated_by_user_id") @db.Uuid
-  archivedAt       DateTime?          @map("archived_at") @db.Timestamptz(3)
-  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  currentVersion         Int                @default(0) @map("current_version")
+  profile                Json               @default("{}")
+  assessment             Json               @default("{}")
+  strategy               Json               @default("{}")
+  finalizedAt            DateTime?          @map("finalized_at") @db.Timestamptz(3)
+  /// B10: the client approved this version in the portal (all three or none; a Modify Plan
+  /// revision starts with them empty).
+  clientApprovedAt       DateTime?          @map("client_approved_at") @db.Timestamptz(3)
+  clientApprovedByUserId String?            @map("client_approved_by_user_id") @db.Uuid
+  clientApprovedVersion  Int?               @map("client_approved_version")
+  sentAt                 DateTime?          @map("sent_at") @db.Timestamptz(3)
+  sentByUserId           String?            @map("sent_by_user_id") @db.Uuid
+  createdByUserId        String             @map("created_by_user_id") @db.Uuid
+  updatedByUserId        String?            @map("updated_by_user_id") @db.Uuid
+  archivedAt             DateTime?          @map("archived_at") @db.Timestamptz(3)
+  createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  advisoryClient AdvisoryClient        @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
-  versions       AdvisoryPlanVersion[]
-  goals          AdvisoryGoal[]
+  advisoryClient   AdvisoryClient        @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
+  clientApprovedBy User?                 @relation("AdvisoryPlanClientApprovedBy", fields: [clientApprovedByUserId], references: [id], onDelete: Restrict)
+  versions         AdvisoryPlanVersion[]
+  goals            AdvisoryGoal[]
 
   recs    AdvisoryRecommendation[]
   actions AdvisoryActionItem[]
@@ -9164,6 +9267,9 @@ enum StaffPayFrequency {
 model StaffProfile {
   membershipId      String               @map("membership_id") @db.Uuid
   businessId        String               @map("business_id") @db.Uuid
+  /// SM20: the first and last name kept apart (users.name stays, kept in sync by the API).
+  firstName         String?              @map("first_name")
+  lastName          String?              @map("last_name")
   employmentType    StaffEmploymentType? @map("employment_type")
   /// Company-defined or custom ("Full-Time", "Mon-Thu"), up to 80 characters.
   workSchedule      String?              @map("work_schedule")
@@ -12379,18 +12485,25 @@ model FirmOffice {
 /// (clients.office_id) only when switched on, and offers only the contact methods allowed here; the
 /// details themselves come from the firm and office profiles, never from this row.
 model ClientPortalSettings {
-  businessId           String   @id @map("business_id") @db.Uuid
-  showCorporateOffice  Boolean  @default(true) @map("show_corporate_office")
-  showLocalOffice      Boolean  @default(true) @map("show_local_office")
-  allowPhone           Boolean  @default(true) @map("allow_phone")
+  businessId               String              @id @map("business_id") @db.Uuid
+  showCorporateOffice      Boolean             @default(true) @map("show_corporate_office")
+  showLocalOffice          Boolean             @default(true) @map("show_local_office")
+  allowPhone               Boolean             @default(true) @map("allow_phone")
   /// Still only to a client who agreed to texts.
-  allowSms             Boolean  @default(false) @map("allow_sms")
-  allowEmail           Boolean  @default(true) @map("allow_email")
-  allowSecureMessage   Boolean  @default(true) @map("allow_secure_message")
-  allowAppointmentLink Boolean  @default(false) @map("allow_appointment_link")
-  updatedByUserId      String?  @map("updated_by_user_id") @db.Uuid
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  allowSms                 Boolean             @default(false) @map("allow_sms")
+  allowEmail               Boolean             @default(true) @map("allow_email")
+  allowSecureMessage       Boolean             @default(true) @map("allow_secure_message")
+  allowAppointmentLink     Boolean             @default(false) @map("allow_appointment_link")
+  /// CP-3c: the firm's announcements show in the portal; off hides them and deletes none.
+  announcementsEnabled     Boolean             @default(true) @map("announcements_enabled")
+  /// CP-3d: what clients may do with the email and text copies of an announcement.
+  announcementEmailPolicy  PortalChannelPolicy @default(CLIENT_CHOICE) @map("announcement_email_policy")
+  announcementSmsPolicy    PortalChannelPolicy @default(CLIENT_CHOICE) @map("announcement_sms_policy")
+  /// CP-3i: live announcements on the client's portal dashboard.
+  announcementsOnDashboard Boolean             @default(true) @map("announcements_on_dashboard")
+  updatedByUserId          String?             @map("updated_by_user_id") @db.Uuid
+  createdAt                DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id])
 
@@ -12641,10 +12754,11 @@ model Tag {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business  Business    @relation(fields: [businessId], references: [id])
-  createdBy Membership? @relation("TagCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
-  clients   ClientTag[]
-  leads     LeadTag[]
+  business         Business          @relation(fields: [businessId], references: [id])
+  createdBy        Membership?       @relation("TagCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  clients          ClientTag[]
+  leads            LeadTag[]
+  portalTabTargets PortalTabTarget[]
 
   @@unique([businessId, id])
   @@map("tags")

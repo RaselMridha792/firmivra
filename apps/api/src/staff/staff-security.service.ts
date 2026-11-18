@@ -10,7 +10,11 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from '../auth/identity/identity-provider.js';
-import { FIRM_SESSION_STARTED } from '../auth/staff-sessions.js';
+import {
+  FIRM_SESSION_STARTED,
+  SESSION_LIMIT_SIGNED_OUT,
+  sessionKey,
+} from '../auth/staff-sessions.js';
 import { DATABASE } from '../database/database.module.js';
 import { day, notFound } from '../workspaces/common.js';
 import type { StaffAccessBody, StaffCursorQ } from './staff-input.js';
@@ -18,6 +22,7 @@ import { mfaOf } from './staff-read.service.js';
 import { StaffWriteService } from './staff-write.service.js';
 import {
   assertActsOn,
+  lastLoginsOf,
   lockTarget,
   mapStaffDbError,
   requireManager,
@@ -48,7 +53,9 @@ const LABELS: Record<string, string> = {
   'auth.signed_in': 'Logged in',
   'auth.sign_in_failed': 'Failed sign-in',
   'auth.signed_out': 'Logged out',
-  'membership.invited': 'Invited',
+  // SM21: the invitation is made before its email goes out; "emailed" only once it did.
+  'membership.invited': 'Invitation created',
+  'membership.invite_emailed': 'Invitation emailed',
   'membership.role_changed': 'Role changed',
   'membership.deactivated': 'Account deactivated',
   'membership.invite_revoked': 'Invitation revoked',
@@ -60,6 +67,8 @@ const LABELS: Record<string, string> = {
   'staff.permissions_saved': 'Permissions changed',
   'staff.security_saved': 'Security settings changed',
   'staff.sessions_revoked': 'Signed out of sessions',
+  // SM12: a new sign-in over the member's limit ended their oldest sessions.
+  [SESSION_LIMIT_SIGNED_OUT]: 'Signed out: session limit',
   'staff.password_reset_sent': 'Password reset sent',
   'staff.mfa_reset': 'MFA reset',
   'staff.note_saved': 'Notes updated',
@@ -121,7 +130,7 @@ export class StaffSecurityService {
     const { businessId } = actor;
     return this.inFirm(actor, async (tx) => {
       const m = await this.find(tx, businessId, id);
-      const [s, profile, lastSession] = await Promise.all([
+      const [s, profile, lastSession, logins] = await Promise.all([
         tx.staffSecuritySettings.findUnique({
           where: { businessId_membershipId: { businessId, membershipId: id } },
         }),
@@ -134,14 +143,17 @@ export class StaffSecurityService {
           orderBy: { createdAt: 'desc' },
           select: { device: true, place: true },
         }),
+        lastLoginsOf(tx, businessId, [id]),
       ]);
+      // SM12: the newest sign-in, as the directory says.
+      const lastLoginAt = logins.get(id);
       return {
         status: m.status,
         accessLevel: profile?.accessLevel ?? 'STANDARD_USER',
         role: m.role,
-        lastLogin: s?.lastLoginAt
+        lastLogin: lastLoginAt
           ? {
-              at: s.lastLoginAt.toISOString(),
+              at: lastLoginAt.toISOString(),
               device: lastSession?.device ?? null,
               place: lastSession?.place ?? null,
             }
@@ -228,8 +240,10 @@ export class StaffSecurityService {
     return this.get(actor, id);
   }
 
-  sessions(actor: StaffActor, id: string): Promise<StaffSessionItem[]> {
+  /** `session`: the viewer's own sign-in, marked "This session" on their own record (SM12). */
+  sessions(actor: StaffActor, id: string, session?: string): Promise<StaffSessionItem[]> {
     const { businessId } = actor;
+    const mine = session ? sessionKey(businessId, session) : null;
     return this.inFirm(actor, async (tx) => {
       await this.find(tx, businessId, id);
       const since = new Date(Date.now() - SESSION_DAYS * 86_400_000);
@@ -246,6 +260,7 @@ export class StaffSecurityService {
         createdAt: r.createdAt.toISOString(),
         lastActiveAt: r.lastActiveAt.toISOString(),
         activeNow: Date.now() - r.lastActiveAt.getTime() < ACTIVE_NOW_MS,
+        current: r.tokenHash === mine,
       }));
     });
   }

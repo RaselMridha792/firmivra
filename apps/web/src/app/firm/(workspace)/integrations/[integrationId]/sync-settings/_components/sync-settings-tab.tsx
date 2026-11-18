@@ -20,6 +20,7 @@ import {
   formatFrequency,
 } from '../../_components/manage-integration-shared';
 import { integrationError, ManageShell, Notice } from '../../_components/manage-shell';
+import { type SetupFacts, SetupReview } from '../../_components/setup-review';
 import { CustomSetup } from './custom-setup';
 
 /**
@@ -110,6 +111,29 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
     provider.directions.includes(direction) &&
     enabled.every((e) => e.directions.includes(direction));
   const changes = changesOf(saved, draft);
+  // I-UA06: Save first shows what will change and what the next sync does.
+  const [reviewing, setReviewing] = useState(false);
+  const labelsOf = (keys: string[]) =>
+    provider.entities.filter((e) => keys.includes(e.key)).map((e) => e.label);
+  const facts: SetupFacts = {
+    environment: detail.environment,
+    destination: detail.accountLabel ? `${provider.name}: ${detail.accountLabel}` : provider.name,
+    objects: labelsOf(draft.entities),
+    direction: formatDirection(draft.direction),
+    schedule:
+      draft.syncMode === 'AUTO' ? formatFrequency(draft.syncEveryMinutes) : 'Manual (Sync Now)',
+    firstRun:
+      draft.syncMode === 'AUTO'
+        ? 'Saving changes no data. The next automatic sync, or Sync Now, uses these settings.'
+        : 'Saving changes no data. The next Sync Now uses these settings.',
+  };
+  const changed: (keyof SetupFacts)[] = [
+    ...(changes?.entities ? (['objects'] as const) : []),
+    ...(changes?.direction ? (['direction'] as const) : []),
+    ...(changes && ('syncMode' in changes || 'syncEveryMinutes' in changes)
+      ? (['schedule'] as const)
+      : []),
+  ];
 
   function submit() {
     if (!changes) return;
@@ -121,7 +145,7 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
       setProblem('Choose how often to sync automatically.');
       return;
     }
-    save.mutate(changes);
+    setReviewing(true);
   }
 
   return (
@@ -135,7 +159,14 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card data-testid="sync-schedule" className="p-5!">
-          <CardTitle>Sync Schedule</CardTitle>
+          <CardTitle
+            help={{
+              topic: 'Sync schedule',
+              text: 'Manual syncs only when you choose Sync Now. Automatic syncs on the interval you pick, and the header shows the next time. Saving a change syncs no data.',
+            }}
+          >
+            Sync Schedule
+          </CardTitle>
           <fieldset className="flex flex-col gap-1" disabled={!canEdit}>
             <legend className="text-sm font-medium text-heading">Sync mode</legend>
             <Radio
@@ -195,7 +226,14 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
         </Card>
 
         <Card data-testid="sync-objects" className="p-5!">
-          <CardTitle>Data to Sync</CardTitle>
+          <CardTitle
+            help={{
+              topic: 'Data to sync',
+              text: 'Only the ticked objects sync, in the direction chosen. Turning one off stops its future syncs; what is already in Firmivra stays.',
+            }}
+          >
+            Data to Sync
+          </CardTitle>
           {provider.entities.length ? (
             <ul className="flex flex-col divide-y divide-divider border-y border-divider">
               {provider.entities.map((entity) => {
@@ -234,7 +272,14 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
         </Card>
 
         <Card data-testid="provider-options" className="p-5!">
-          <CardTitle>Provider Options</CardTitle>
+          <CardTitle
+            help={{
+              topic: 'Provider options',
+              text: 'This provider’s own settings for the connection. They apply from the next sync.',
+            }}
+          >
+            Provider Options
+          </CardTitle>
           {provider.options.length ? (
             <div className="flex flex-col gap-4">
               {provider.options.map((option) => (
@@ -273,6 +318,19 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
           {save.isPending ? 'Saving…' : 'Save Sync Settings'}
         </Button>
       </div>
+      <SetupReview
+        open={reviewing}
+        title="Review sync settings"
+        facts={facts}
+        changed={changed}
+        confirmLabel="Confirm and save"
+        busy={save.isPending}
+        onBack={() => setReviewing(false)}
+        onConfirm={() => {
+          if (!changes || save.isPending) return;
+          save.mutate(changes, { onSettled: () => setReviewing(false) });
+        }}
+      />
     </div>
   );
 }

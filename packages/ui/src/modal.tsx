@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { X } from '@phosphor-icons/react';
 import { Button } from './button';
+import { dialogStops, focusStop, sameStop, wrapStop } from './dialog-focus';
 
 /** Native modal supplies focus trap, Escape, inert background and focus restoration. */
 interface ModalProps {
@@ -48,11 +49,16 @@ export function Modal({ open, title, subtitle, footer, children, onClose }: Moda
         onClose();
       }}
       onKeyDown={(event) => {
-        if (
-          event.key === 'Tab' &&
-          event.currentTarget.querySelectorAll(':enabled, a[href], [tabindex="0"]').length === 1
-        )
-          event.preventDefault();
+        // I-R2-09: Tab from the last control goes back to the first, Shift+Tab from the first to
+        // the last (dialog-focus.ts); a control that handles Tab itself has already said so.
+        if (event.key !== 'Tab' || event.defaultPrevented) return;
+        const stops = dialogStops(event.currentTarget);
+        const active =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const to = wrapStop(stops, active, event.shiftKey, sameStop);
+        if (!to) return;
+        event.preventDefault();
+        focusStop(to, stops);
       }}
       className="ui-dialog m-auto overflow-auto rounded-xl border border-border bg-surface p-6 text-text shadow-lg"
     >

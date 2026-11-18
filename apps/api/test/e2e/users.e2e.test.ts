@@ -144,6 +144,8 @@ beforeAll(async () => {
         tokenHash: createHash('sha256').update(token).digest('hex'),
         email: people.invitedA.email,
         expiresAt: new Date(Date.now() + 86_400_000),
+        // SM21: an invite whose email went out (the list says "Invited" only then).
+        emailedAt: new Date(),
       },
     }),
   );

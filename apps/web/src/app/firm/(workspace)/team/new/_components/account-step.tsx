@@ -26,6 +26,8 @@ import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { UnsavedDialog, useUnsavedGuard } from '../../../tasks/_components/unsaved-guard';
+
 import { MultiPick } from './multi-pick';
 import { SectionCard } from './section-card';
 import { WizardHeader } from './wizard-header';
@@ -224,6 +226,8 @@ function AccountForm({
     { invalidate: ['staff'] },
   );
   const pending = saveDraft.isPending || create.isPending;
+  // SM18: leaving with unsaved changes asks Keep Editing, Discard Changes or Save Draft.
+  const guard = useUnsavedGuard(form);
 
   const draft = (then: (id: string) => void) =>
     saveDraft.mutate(toDraft(form, base), {
@@ -234,7 +238,10 @@ function AccountForm({
       },
     });
   const onSaveDraft = () =>
-    draft((id) => router.replace(stepHref('account', id), { scroll: false }));
+    draft((id) => {
+      guard.rebase();
+      router.replace(stepHref('account', id), { scroll: false });
+    });
   const onNext = () => {
     const found = check(form);
     setErrors(found);
@@ -602,7 +609,14 @@ function AccountForm({
               <span role="status" className="text-sm text-success" data-testid="draft-saved">
                 Draft saved
               </span>
-            ) : null}
+            ) : (
+              // SM16: Next keeps the progress as a draft before step 2 opens.
+              <span className="text-xs text-muted" data-testid="autosave-note">
+                {draftId
+                  ? 'Progress saved as a draft. Next saves this step too.'
+                  : 'Next saves your progress as a draft.'}
+              </span>
+            )}
             <div className="ml-auto flex flex-wrap gap-3">
               <Button variant="secondary" disabled={pending} onClick={onSaveDraft}>
                 Save as Draft
@@ -617,6 +631,18 @@ function AccountForm({
             </div>
           </div>
         </form>
+        <UnsavedDialog
+          guard={guard}
+          saveLabel="Save Draft"
+          saving={pending}
+          onSave={() => {
+            const to = guard.pending;
+            draft(() => {
+              guard.allow();
+              if (to) router.push(to);
+            });
+          }}
+        />
 
         <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
           <AccountPreview

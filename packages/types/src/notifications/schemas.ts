@@ -28,6 +28,8 @@ export const NOTIFICATION_CATEGORY_LABELS = {
   MESSAGES: 'Messages and notes',
   APPOINTMENTS: 'Appointments',
   BILLING: 'Invoices and payments',
+  // Client Portal Review One CP-3d: the firm's general announcements.
+  ANNOUNCEMENTS: 'Announcements',
 } as const satisfies Record<NotificationCategory, string>;
 
 /**
@@ -65,6 +67,10 @@ export const NotificationTargetKind = z.enum([
   'task',
   /** A recurring task series (T-D15): the firm site only, its overview. */
   'task_series',
+  /** A tax plan (P4-8): the firm site only, the plan itself. */
+  'tax_plan',
+  /** A business plan (Business Advisory B10): the firm site only, the plan's review step. */
+  'advisory_plan',
 ]);
 export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
 
@@ -107,6 +113,12 @@ export const NOTIFICATION_EVENTS = {
   'intake.submitted': { category: 'INTAKE', kind: 'intake', to: 'staff' },
   // ----- Services and tax returns (R10, R12) -----
   'engagement.status-changed': { category: 'SERVICES', kind: 'engagement', to: 'both' },
+  /**
+   * BK-CP2 (Client Portal Review One): the firm published a Bookkeeping report for the first time.
+   * A bell item, and an email when the client's Report Delivery allows email; it names the service,
+   * never the report's figures or file. It opens the portal's My Services, where the report is.
+   */
+  'report.published': { category: 'SERVICES', kind: 'engagement', to: 'client' },
   'tax-return.status-changed': { category: 'SERVICES', kind: 'tax_return', to: 'client' },
   /** A client finished signing up and waits for the firm (R3's queue; Owner and Admin). */
   'client.signup-submitted': { category: 'SERVICES', kind: 'client_account', to: 'staff' },
@@ -172,6 +184,18 @@ export const NOTIFICATION_EVENTS = {
    * the outbox), to its assignees, ACTIVE members only. It opens the task.
    */
   'task.reminder': { category: 'SERVICES', kind: 'task', to: 'staff' },
+  /**
+   * P4-8 (Tax Planning Review 2): the client asked a question, requested a revision or a meeting,
+   * or approved the plan in the portal. To the plan's assigned staff (the caller names them).
+   */
+  'tax-plan.client-request': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
+  'tax-plan.client-approved': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
+  /**
+   * Business Advisory B10 (Client Portal Review One): the client approved the business plan sent
+   * for their approval, in the portal. To the advisory client's advisor and the member who sent
+   * it (the caller names them).
+   */
+  'advisory-plan.client-approved': { category: 'SERVICES', kind: 'advisory_plan', to: 'staff' },
   /**
    * Tasks Review Two T-D15: an occurrence of a recurring series could not be made after its
    * retries (FAILED). Owners and Admins only (the series is the record, not the client's). It

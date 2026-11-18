@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
 import { firmTimeZone } from '../appointments/calendar-data.js';
+import { REMINDER_EARLY_MINUTES } from '../appointments/notice-words.js';
 import {
   addDays,
   minutesOf,
@@ -38,6 +39,11 @@ export const JOB_INTERVAL_MS = 60_000;
 export const APPOINTMENT_REMINDER_AHEAD_MS = 24 * 60 * 60_000;
 /** No reminder this soon after the booking or change email (it just told the client). */
 export const APPOINTMENT_REMINDER_QUIET_MS = 2 * 60 * 60_000;
+/**
+ * A7: a configured reminder goes out up to one run early, so one "at the start" (0 minutes
+ * before) still goes before the appointment starts.
+ */
+export const APPOINTMENT_REMINDER_EARLY_MS = REMINDER_EARLY_MINUTES * 60_000;
 /** An email copy is tried at most this often (the first try is inline, when it is written). */
 export const EMAIL_MAX_ATTEMPTS = 5;
 /** A failed copy waits this long before its next try; a QUEUED one this long before it is taken. */
@@ -188,26 +194,40 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
     return rows.map((r) => r.id);
   }
 
+  /**
+   * A7: first each configured reminder whose time has come (`configuredReminders`), then the
+   * automatic one within APPOINTMENT_REMINDER_AHEAD_MS. An appointment with configured reminders
+   * gets its client's reminders from them only: its automatic reminder then reaches the firm's
+   * side alone (the staff's bell item), so the client never gets the automatic one on top. One
+   * with none keeps the automatic reminder on both sides, as before.
+   */
   private async appointmentReminders(options: JobRunOptions): Promise<number> {
     const now = options.now ?? new Date();
     const quietSince = new Date(now.getTime() - APPOINTMENT_REMINDER_QUIET_MS);
     const deadline = Date.now() + BUDGET_MS;
     const backingOff = this.backingOff('appointment-reminders', now);
+    // Configured reminders back off by row ("row:<id>"), the automatic one by appointment.
+    const rowsBackingOff = new Set(
+      backingOff.filter((k) => k.startsWith('row:')).map((k) => k.slice(4)),
+    );
+    const appointmentsBackingOff = backingOff.filter((k) => !k.startsWith('row:'));
     let sent = 0;
     for (const businessId of await this.firms(options)) {
+      if (Date.now() > deadline) break;
+      sent += await this.configuredReminders(businessId, now, deadline, rowsBackingOff);
       if (Date.now() > deadline) break;
       const db = this.database.forBusiness(businessId);
       const due = await db.appointment.findMany({
         where: {
           businessId,
-          id: { notIn: backingOff },
+          id: { notIn: appointmentsBackingOff },
           status: 'SCHEDULED',
           reminderSentAt: null,
           startsAt: { gt: now, lte: new Date(now.getTime() + APPOINTMENT_REMINDER_AHEAD_MS) },
           createdAt: { lte: quietSince },
           OR: [{ rescheduledAt: null }, { rescheduledAt: { lte: quietSince } }],
         },
-        select: { id: true, startsAt: true },
+        select: { id: true, startsAt: true, _count: { select: { reminders: true } } },
         orderBy: { startsAt: 'asc' },
         take: BATCH,
       });
@@ -217,7 +237,8 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
           businessId,
           event: 'appointment.reminder',
           recordId: a.id,
-          audience: 'both',
+          // A7: the client's reminders are the configured ones when it has any.
+          audience: a._count.reminders > 0 ? 'staff' : 'both',
           eventKey: `appointment.reminder:${a.id}:${a.startsAt.toISOString()}`,
         });
         if (result.failed) {
@@ -231,6 +252,132 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
         });
         sent += count;
       }
+    }
+    return sent;
+  }
+
+  /**
+   * A7: each configured reminder (`appointment_reminders`) whose time has come (`due_at`, up to
+   * APPOINTMENT_REMINDER_EARLY_MS early, so one "at the start" still goes before it starts), for
+   * an appointment still SCHEDULED and not started, goes out once on its channel through the
+   * Notifier, to the client's side only:
+   * - EMAIL: a portal bell item and its email copy through the outbox (with the reminder's note);
+   * - PORTAL: the portal bell item alone;
+   * - SMS: a text (the client's primary login's phone), only when the firm sends texts and the
+   *   client agreed to appointment texts (NotifyService), never to a lead (the API refuses one).
+   * The reminders of one appointment due at the same offset go in one call, so a client with an
+   * EMAIL and a PORTAL reminder at once gets one bell item. A lead's own appointment (no client)
+   * reaches its lead by email only, without the portal link (P4-1, `leadNotice`).
+   * Once: each row is claimed (`sent_at` set while still empty) before it is sent, so two runs
+   * that overlap never send it twice; a send the Notifier could not write is given back (and backs
+   * off REMINDER_BACKOFF_MS). A reschedule clears `sent_at` (the database), so the new time gets
+   * its own. A reminder whose time had already passed when it was set, or when the appointment was
+   * booked or last moved, is never sent: the booking or change notice just told the client, and
+   * Send Reminder is there for "now".
+   */
+  private async configuredReminders(
+    businessId: string,
+    now: Date,
+    deadline: number,
+    backingOff: ReadonlySet<string>,
+  ): Promise<number> {
+    const soon = new Date(now.getTime() + APPOINTMENT_REMINDER_EARLY_MS);
+    // The firm's scope keeps RLS on; the times are compared in SQL.
+    const found = await this.database.withScope(
+      { kind: 'business', businessId },
+      (tx) =>
+        tx.$queryRaw<
+          {
+            id: string;
+            appointment_id: string;
+            offset_minutes: number;
+            starts_at: Date;
+          }[]
+        >`
+        SELECT r.id::text AS id, r.appointment_id::text AS appointment_id, r.offset_minutes,
+               a.starts_at
+        FROM appointment_reminders r
+        JOIN appointments a ON a.business_id = r.business_id AND a.id = r.appointment_id
+        WHERE r.business_id = ${businessId}::uuid
+          AND r.sent_at IS NULL
+          AND r.due_at <= ${soon}
+          AND r.due_at > r.created_at
+          AND r.due_at > a.created_at
+          AND (a.rescheduled_at IS NULL OR r.due_at > a.rescheduled_at)
+          AND a.status = 'SCHEDULED'
+          AND a.starts_at > ${now}
+        ORDER BY r.due_at, r.appointment_id, r.offset_minutes, r.id
+        LIMIT ${3 * BATCH + backingOff.size}`,
+    );
+    // One call per appointment and offset (its channels together), up to BATCH calls a run.
+    const groups = new Map<
+      string,
+      { appointmentId: string; offsetMinutes: number; startsAt: Date; ids: string[] }
+    >();
+    for (const r of found) {
+      if (backingOff.has(r.id)) continue;
+      const key = `${r.appointment_id}:${r.offset_minutes}`;
+      const group = groups.get(key);
+      if (group) group.ids.push(r.id);
+      else if (groups.size < BATCH) {
+        groups.set(key, {
+          appointmentId: r.appointment_id,
+          offsetMinutes: r.offset_minutes,
+          startsAt: r.starts_at,
+          ids: [r.id],
+        });
+      }
+    }
+    const db = this.database.forBusiness(businessId);
+    let sent = 0;
+    for (const g of groups.values()) {
+      if (Date.now() > deadline) break;
+      // Claimed for this run (still unsent, and for the same time), so another run skips them.
+      const claimed = await db.appointmentReminder.updateManyAndReturn({
+        where: {
+          businessId,
+          id: { in: g.ids },
+          sentAt: null,
+          appointment: { startsAt: g.startsAt, status: 'SCHEDULED' },
+        },
+        data: { sentAt: now },
+        select: { id: true, channel: true },
+      });
+      if (claimed.length === 0) continue;
+      const channels = new Set(claimed.map((r) => r.channel));
+      let failed: boolean;
+      try {
+        const result = await this.notifier.notify({
+          businessId,
+          event: 'appointment.reminder',
+          recordId: g.appointmentId,
+          audience: 'client',
+          eventKey: `appointment.reminder:${g.appointmentId}:${g.offsetMinutes}:${g.startsAt.toISOString()}`,
+          channels: {
+            inApp: channels.has('EMAIL') || channels.has('PORTAL'),
+            email: channels.has('EMAIL'),
+            sms: channels.has('SMS'),
+          },
+        });
+        failed = result.failed === true;
+      } catch (error) {
+        this.logger.warn(
+          `appointment reminder for appointment ${g.appointmentId} failed (${error instanceof Error ? error.name : 'Error'})`,
+        );
+        failed = true;
+      }
+      if (failed) {
+        // Given back for a later run (only while this claim stands; a reschedule cleared it).
+        await db.appointmentReminder.updateMany({
+          where: { businessId, id: { in: claimed.map((r) => r.id) }, sentAt: now },
+          data: { sentAt: null },
+        });
+        for (const r of claimed) {
+          this.failedAt.set(`appointment-reminders:row:${r.id}`, now.getTime());
+        }
+        continue;
+      }
+      sent += claimed.length;
     }
     return sent;
   }

@@ -187,10 +187,24 @@ export interface NotifyTemplates {
     link: string;
   };
 
+  // ----- Workspaces (BK-CP2) -----
+  /**
+   * The firm published a Bookkeeping report: the service's name (the firm's own words) and the
+   * portal link to My Services. Never the report's title, figures or file.
+   */
+  'report.published': IgnoredFirmName & { name: string; title: string; link: string };
+
   // ----- Appointments (R12) -----
   'appointment.booked': AppointmentData;
   'appointment.changed': AppointmentData;
   'appointment.reminder': AppointmentData;
+  /**
+   * A7: a configured Text reminder, to a client who agreed to appointment texts, when the firm
+   * sends texts. The time and the portal link, the reminder's own note, and the client
+   * instructions only when the appointment shows them in texts (B9).
+   */
+  'appointment.reminder-sms': IgnoredFirmName &
+    Pick<AppointmentData, 'title' | 'startsAt' | 'timeZone' | 'link' | 'message' | 'instructions'>;
   /**
    * P4-1: a lead's own appointment (no client yet), to the lead's email: the booking's
    * confirmation and its reminder only. No portal (a lead has none): no link and no ask to confirm.
@@ -368,9 +382,11 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'firm-application.declined': 'email',
   'document.requested': 'email',
   'document.requested-sms': 'sms',
+  'report.published': 'email',
   'appointment.booked': 'email',
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
+  'appointment.reminder-sms': 'sms',
   'appointment.lead-booked': 'email',
   'appointment.lead-reminder': 'email',
   'appointment.cancelled': 'email',
@@ -429,9 +445,11 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'firm-application.declined': 'platform',
   'document.requested': 'firm',
   'document.requested-sms': 'firm',
+  'report.published': 'firm',
   'appointment.booked': 'firm',
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
+  'appointment.reminder-sms': 'firm',
   'appointment.lead-booked': 'firm',
   'appointment.lead-reminder': 'firm',
   'appointment.cancelled': 'firm',
@@ -526,9 +544,11 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'firm-application.declined': 'ACCOUNT',
   'document.requested': 'DOCUMENTS',
   'document.requested-sms': 'DOCUMENTS',
+  'report.published': 'SERVICES',
   'appointment.booked': 'APPOINTMENTS',
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',
+  'appointment.reminder-sms': 'APPOINTMENTS',
   'appointment.lead-booked': 'APPOINTMENTS',
   'appointment.lead-reminder': 'APPOINTMENTS',
   'appointment.cancelled': 'APPOINTMENTS',

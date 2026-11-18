@@ -143,6 +143,26 @@ export const IntegrationMappingScope = z.object({
 });
 export type IntegrationMappingScope = z.infer<typeof IntegrationMappingScope>;
 
+/**
+ * I-UA05 (Integrations Review Two): how close a provider is to Connect. READY: connect it now.
+ * SUPPORTED_NOT_ENABLED: Firmivra supports it and only has to turn it on. SETUP_PENDING: Firmivra's
+ * developer setup with the provider is not finished. UNAVAILABLE: not offered as one system yet.
+ */
+export const IntegrationReadiness = z.enum([
+  'READY',
+  'SUPPORTED_NOT_ENABLED',
+  'SETUP_PENDING',
+  'UNAVAILABLE',
+]);
+export type IntegrationReadiness = z.infer<typeof IntegrationReadiness>;
+
+/** I-UA05: who acts next before the provider can be connected, and what they do first. */
+export const IntegrationNextStep = z.object({
+  who: z.enum(['FIRMIVRA', 'FIRM', 'PROVIDER']),
+  what: z.string(),
+});
+export type IntegrationNextStep = z.infer<typeof IntegrationNextStep>;
+
 /** One provider of the catalog (the marketplace card and the setup's definition). */
 export const IntegrationProvider = z.object({
   provider: IntegrationProviderKey,
@@ -171,6 +191,9 @@ export const IntegrationProvider = z.object({
   multipleConnections: z.boolean(),
   /** The provider's API is not live for this firm yet: the card says "Coming soon". */
   comingSoon: z.boolean(),
+  /** I-UA05: how close it is to Connect, and who acts next (the API always sends both). */
+  readiness: IntegrationReadiness.optional(),
+  nextStep: IntegrationNextStep.optional(),
   learnMoreUrl: z.url().nullable(),
 });
 export type IntegrationProvider = z.infer<typeof IntegrationProvider>;
@@ -186,6 +209,9 @@ export const IntegrationConnectionSummary = z.object({
   issue: IntegrationIssueCode.nullable(),
   /** Plain words for the card ("Authorization expired"), with the fix in `statusAction`. */
   statusMessage: z.string().nullable(),
+  /** I-UA04: what the problem stops, and what to do next, in plain words (null when healthy). */
+  statusImpact: z.string().nullable().default(null),
+  statusNextStep: z.string().nullable().default(null),
   statusAction: z.enum(['RECONNECT', 'FIX_PERMISSIONS', 'RETRY', 'VIEW_HISTORY']).nullable(),
   accountLabel: z.string().nullable(),
   direction: IntegrationSyncDirection,
@@ -209,6 +235,8 @@ export const IntegrationCard = z.object({
     badge: true,
     popularity: true,
     comingSoon: true,
+    readiness: true,
+    nextStep: true,
     multipleConnections: true,
   }),
   status: IntegrationCardStatus,
@@ -317,6 +345,11 @@ export const IntegrationSort = z.enum(['popular', 'name', 'category']);
 
 /** GET /business/integrations/marketplace: Add Integration, with the category list and counts. */
 export const IntegrationMarketplaceQuery = z.strictObject({
+  /**
+   * I-R2-02 (Integrations Review Two): the environment whose connections the cards show (Live
+   * unless asked), as the overview's switch: never a Test connection on a Live card.
+   */
+  environment: IntegrationEnvironment.optional().default('LIVE'),
   category: IntegrationCategory.optional(),
   search: SearchText.optional(),
   sort: IntegrationSort.optional().default('popular'),
@@ -409,7 +442,16 @@ export type IntegrationMappingPair = z.infer<typeof IntegrationMappingPair>;
 
 /** GET .../mappings: the saved pairs, and the provider's fields to choose from, per scope. */
 export const IntegrationMappings = z.object({
-  scopes: z.array(IntegrationMappingScope.extend({ pairs: z.array(IntegrationMappingPair) })),
+  scopes: z.array(
+    IntegrationMappingScope.extend({
+      pairs: z.array(IntegrationMappingPair),
+      /**
+       * I-R2-03 (Integrations Review Two): pairs saved in a scope the provider no longer lists
+       * are shown, never dropped, in a scope of their own that cannot be edited (no fields).
+       */
+      readOnly: z.boolean().default(false),
+    }),
+  ),
 });
 export type IntegrationMappings = z.infer<typeof IntegrationMappings>;
 
@@ -435,8 +477,11 @@ export type SaveIntegrationMappingsRequest = z.input<typeof SaveIntegrationMappi
 
 export const IntegrationHealthCheck = z.object({
   key: z.enum(['AUTHENTICATION', 'API', 'DATA_SYNC', 'RECENT_ERRORS', 'PERMISSIONS']),
+  /** Says what the check found ("Data sync is failing"), never a healthy line for a failure. */
   label: z.string(),
   ok: z.boolean(),
+  /** I-R2-01: OK, FAIL, or UNKNOWN (nothing has shown it yet); `ok` is OK. */
+  state: z.enum(['OK', 'FAIL', 'UNKNOWN']).optional(),
   message: z.string().nullable(),
 });
 export type IntegrationHealthCheck = z.infer<typeof IntegrationHealthCheck>;
@@ -444,6 +489,15 @@ export type IntegrationHealthCheck = z.infer<typeof IntegrationHealthCheck>;
 /** Connection Health, and Troubleshooting (the checks, what to do, and the last check). */
 export const IntegrationConnectionHealth = z.object({
   ok: z.boolean(),
+  /**
+   * I-R2-01 and I-F03 (Integrations Review Two): the one state the summary, the checks and the
+   * advice follow. UNKNOWN: no check or sync has shown anything yet; STALE: the last one is older
+   * than a week; FAILING: a check fails; DISCONNECTED; HEALTHY only with a check or sync behind it.
+   */
+  state: z.enum(['UNKNOWN', 'HEALTHY', 'FAILING', 'DISCONNECTED', 'STALE']).optional(),
+  /** The last sync that succeeded, apart from the last attempt (which may have failed). */
+  lastSuccessAt: DateTime.nullable().optional(),
+  lastAttemptAt: DateTime.nullable().optional(),
   summary: z.string(),
   checks: z.array(IntegrationHealthCheck),
   /** Plain steps a person can take ("Reconnect to renew the authorization"). */
@@ -487,6 +541,12 @@ export type IntegrationHistoryQuery = z.input<typeof IntegrationHistoryQuery>;
 export const IntegrationHistoryPage = z.object({
   items: z.array(IntegrationSyncRun).max(100),
   ...Page,
+  /**
+   * I-R2-05 (Integrations Review Two): every object the connection's runs have, whatever the
+   * filters, with its label; one the provider no longer lists still filters (connection tests
+   * and webhooks are left out: they have their own choices).
+   */
+  entities: z.array(z.object({ key: z.string(), label: z.string() })).default([]),
 });
 export type IntegrationHistoryPage = z.infer<typeof IntegrationHistoryPage>;
 

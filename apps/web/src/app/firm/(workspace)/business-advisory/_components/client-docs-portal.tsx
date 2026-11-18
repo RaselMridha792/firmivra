@@ -415,7 +415,6 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
           caption="Document requests"
           dense
           noun="requests"
-          pageSize={20}
           showPagination={false}
           loading={Boolean(firmClientId) && requests.isPending}
           emptyTitle={

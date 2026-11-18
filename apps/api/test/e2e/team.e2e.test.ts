@@ -229,6 +229,47 @@ describe('GET /business/team', () => {
     );
   });
 
+  it('SM08: says what each person carries: active clients, their maximum, and new clients or not', async () => {
+    const businessId = firms.a.id;
+    await asOwner(businessId, async (tx) => {
+      await tx.staffProfile.create({
+        data: {
+          businessId,
+          membershipId: ids[people.staffA.id] as string,
+          maxWorkload: 2,
+          acceptsNewClients: false,
+        },
+      });
+      // Active: any status but Inactive, not archived.
+      for (const [n, extra] of [
+        [1, {}],
+        [2, { status: 'ON_HOLD' }],
+        [3, { status: 'INACTIVE' }],
+        [4, { archivedAt: new Date() }],
+      ] as const)
+        await tx.client.create({
+          data: {
+            businessId,
+            displayName: `Fake SM08 client ${n}`,
+            assignedUserId: people.staffA.id,
+            ...extra,
+          },
+        });
+    });
+    const items = await list();
+    const of = (email: string) => items.find((m) => m.user.email === email)?.workload;
+    expect(of(people.staffA.email)).toEqual({
+      activeClients: 2,
+      maxActiveClients: 2,
+      acceptsNewClients: false,
+    });
+    expect(of(people.staffA2.email)).toEqual({
+      activeClients: 0,
+      maxActiveClients: null,
+      acceptsNewClients: true,
+    });
+  });
+
   it('works while the firm is Pending Setup (the wizard’s Team step)', async () => {
     const items = await list(people.ownerPending, firms.pending);
     expect(items.map((m) => m.user.email)).toEqual([people.ownerPending.email]);

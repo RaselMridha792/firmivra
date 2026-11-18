@@ -1,31 +1,34 @@
-import { isActive, publicPath } from '../../../../../components/app-shell/types';
+import { isActive } from '../../../../../components/app-shell/types';
 
 /** How a menu line looks on the current page: lit (the page's own line), softly lit, or plain. */
 export type MenuState = 'active' | 'related' | undefined;
 
 /**
- * "My Client Portal" pages that light Home (docs/mockups/client-portal): the Intake Form,
- * Business Documents & Resources, My Uploaded Documents and Tax Returns tabs (Intake form tab.png,
- * Business Tab.png, My docs tab.png, Taxes tab.png), and the business resource pages under
- * /resources (Business Startup Guide, External links, Tax Deductions, Record Keeping, Payroll).
+ * "My Client Portal" tab pages that have no menu line of their own (docs/mockups/client-portal):
+ * Business Documents & Resources, Tax Returns and the business resource pages under /resources.
+ * Home stays lit on them, as their way back.
  */
-const HOME_PAGES = ['intake', 'business', 'documents', 'taxes', 'resources'];
+const HOME_PAGES = ['business', 'taxes', 'resources'];
+
+/** Pages that belong to another line: a document request's packet is part of My Documents. */
+const PART_OF: Record<string, string> = { requests: 'documents' };
 
 /**
- * The menu line lit on each portal page, as the designs draw it (R61, Oct 19):
- * - Home on the "My Client Portal" pages above, so My Documents and Intake Forms open their tab
- *   while Home stays lit;
- * - on the Receipts & Invoices tab (invoices tab.png) Home is lit and Invoices & Payments softly;
- * - Messages on the Messages and Notes tab (Messages and notes.png), not Home;
- * - every other page lights its own line: My Profile (My profile.png), and, with no design,
- *   Appointments, an invoice's detail page (Invoices & Payments), My Services, Signatures and
- *   Tax Calculators. The notification center has no menu line and lights none.
+ * The menu line lit on each portal page (Octavia's Client Portal review, Nov 18): the line of the
+ * page itself, and on its sub-pages too (My Documents on /documents/123, Intake Forms on
+ * /intake/xyz, Tax Plans on /tax-plans/id), so exactly one line is lit. Home is lit on Home and on
+ * the tab pages above. The notification center has no menu line and lights none. Desktop and
+ * the mobile drawer use this one rule.
  */
 export function menuState(pathname: string, slug: string, href: string): MenuState {
   const page = (name: string) => `/${slug}/${name}`;
-  const invoicesTab = publicPath(pathname) === page('invoices');
-  const homePage = invoicesTab || HOME_PAGES.some((name) => isActive(pathname, page(name)));
-  if (href === page('home')) return homePage ? 'active' : undefined;
-  if (homePage) return invoicesTab && href === page('invoices') ? 'related' : undefined;
-  return isActive(pathname, href) ? 'active' : undefined;
+  if (href === page('home'))
+    return [page('home'), ...HOME_PAGES.map(page)].some((p) => isActive(pathname, p))
+      ? 'active'
+      : undefined;
+  if (isActive(pathname, href)) return 'active';
+  const lit = Object.entries(PART_OF).some(
+    ([part, owner]) => href === page(owner) && isActive(pathname, page(part)),
+  );
+  return lit ? 'active' : undefined;
 }

@@ -81,6 +81,15 @@ type DialogProps = {
 function AssignDialog({ row, onClose, notify }: DialogProps) {
   const team = useApiQuery(['team'], () => api.team.list());
   const [who, setWho] = useState(row.assignedTo?.userId ?? '');
+  // USABILITY-03: only those who can take the form: the Owner and Admins, the client's or lead's
+  // own staff member, and whoever has it now.
+  const eligible = (team.data ?? []).filter(
+    (m) =>
+      m.status === 'ACTIVE' &&
+      (m.role !== 'STAFF' ||
+        m.user.id === row.recipient.assignedUserId ||
+        m.user.id === row.assignedTo?.userId),
+  );
   const save = useApiMutation(
     () => api.intakeForms.update(row.id, { assignedUserId: who || null }),
     { invalidate: KEYS },
@@ -120,9 +129,12 @@ function AssignDialog({ row, onClose, notify }: DialogProps) {
           onChange={(e) => setWho(e.target.value)}
           options={[
             { value: '', label: 'Not assigned' },
-            ...(team.data ?? []).map((m) => ({ value: m.user.id, label: m.user.name })),
+            ...eligible.map((m) => ({ value: m.user.id, label: m.user.name })),
           ]}
         />
+        <p className="mt-2 text-sm text-muted" data-testid="assign-hint">
+          Only staff who work with this client can be assigned.
+        </p>
       </div>
     </Modal>
   );

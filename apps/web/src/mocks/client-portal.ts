@@ -10,6 +10,7 @@ import {
   parseInput,
   type PendingClientAction,
   type ClientPortalVisibility,
+  PORTAL_AREAS,
   PortalModule,
   RECENT_PORTAL_CLIENTS,
   UpdateClientPortalVisibilityRequest,
@@ -36,7 +37,7 @@ export function createClientPortalMock(): ClientPortalClient {
   const areas = (clientId: string): ClientPortalVisibility => {
     const off = hidden.get(clientId) ?? new Set();
     return {
-      areas: PortalModule.options.map((module) => ({
+      areas: PORTAL_AREAS.map((module) => ({
         module,
         firmOn: true,
         clientOn: !off.has(module),

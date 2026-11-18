@@ -59,8 +59,12 @@ export type NamedRef = z.infer<typeof NamedRef>;
 export const StaffMfaState = z.enum(['ENABLED', 'DISABLED', 'PENDING']);
 export type StaffMfaState = z.infer<typeof StaffMfaState>;
 
-/** An open invite: shown as "Invited Sep 25, 2026"; expired ones offer Resend. */
-export const StaffInvite = z.object({ sentAt: DateTime, expiresAt: DateTime });
+/**
+ * An open invite: shown as "Invited Sep 25, 2026"; expired ones offer Resend. SM21 (Staff
+ * Management Review 2): `sentAt` is when its email actually went out, null while it never did
+ * (Send Welcome Email off, or a failed send): "Invitation not sent".
+ */
+export const StaffInvite = z.object({ sentAt: DateTime.nullable(), expiresAt: DateTime });
 export type StaffInvite = z.infer<typeof StaffInvite>;
 
 // ---------- Directory (Staff Management page) ----------
@@ -507,6 +511,8 @@ export const StaffSessionItem = z.object({
   lastActiveAt: DateTime,
   /** Seen in the last 5 minutes: "Active now". */
   activeNow: z.boolean(),
+  /** SM12: the viewer's own session, on their own record: "This session". */
+  current: z.boolean().optional(),
 });
 export type StaffSessionItem = z.infer<typeof StaffSessionItem>;
 

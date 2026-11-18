@@ -387,6 +387,24 @@ describe('the main page and marketplace', () => {
     expect(m.items[0]?.provider.popularity).toBeGreaterThanOrEqual(
       m.items.at(-1)?.provider.popularity ?? 0,
     );
+    // I-UA05: each provider says how close it is to Connect and who acts next.
+    const provider = (key: string) => m.items.find((i) => i.provider.provider === key)?.provider;
+    expect(provider('website_forms')).toMatchObject({
+      readiness: 'READY',
+      nextStep: { who: 'FIRM' },
+    });
+    expect(provider('xero')).toMatchObject({
+      readiness: 'SETUP_PENDING',
+      nextStep: { who: 'FIRMIVRA' },
+    });
+    // This suite registers a QuickBooks adapter: that makes it Ready.
+    expect(provider('quickbooks')).toMatchObject({ readiness: 'READY', nextStep: { who: 'FIRM' } });
+    expect(m.items.every((i) => i.provider.readiness && i.provider.nextStep?.what)).toBe(true);
+    // The overview's cards carry them too.
+    const cards = IntegrationsOverview.parse(ok(await call('get', '/integrations', people.staffA)));
+    expect(cards.items.find((i) => i.provider.provider === 'xero')?.provider.readiness).toBe(
+      'SETUP_PENDING',
+    );
     const byName = IntegrationMarketplace.parse(
       ok(await call('get', '/integrations/marketplace?sort=name&category=PAYMENTS', people.ownerA)),
     );
@@ -765,6 +783,8 @@ describe('sync, pause, test and health', () => {
       ),
     ).toMatchObject({ status: 'PARTIAL', failedCount: 3 });
     await waitFor(async () => (await connectionOf('quickbooks')).status === 'CONNECTED');
+    // I-UA04: the last sync is the last one that worked; a failed attempt does not move it.
+    const lastWorked = (await connectionOf('quickbooks')).lastSyncAt;
 
     behavior.syncError = new AdapterError('authorization_expired');
     const failing = IntegrationSyncRun.parse(
@@ -791,7 +811,15 @@ describe('sync, pause, test and health', () => {
       issue: 'AUTHORIZATION_EXPIRED',
       statusMessage: 'Authorization expired',
       statusAction: 'RECONNECT',
+      // I-UA04: what it stops and what to do next.
+      statusImpact: 'Nothing syncs until you sign in again. What is already in Firmivra stays.',
+      statusNextStep: 'Choose Reconnect and sign in to the provider again.',
     });
+    expect((await connectionOf('quickbooks')).lastSyncAt).toEqual(lastWorked);
+    expect(summary.health.lastSuccessAt).not.toBeNull();
+    expect(Date.parse(summary.health.lastAttemptAt!)).toBeGreaterThan(
+      Date.parse(summary.health.lastSuccessAt!),
+    );
     const health = IntegrationConnectionHealth.parse(
       ok(await call('get', `/integrations/connections/${c.id}/health`, people.staffA)),
     );
@@ -1315,5 +1343,240 @@ describe('who may connect, configure and disconnect (IN-Y20)', () => {
       404,
       'NOT_FOUND',
     );
+  });
+});
+
+describe('the sync history (Integrations Review Two)', () => {
+  it('I-R2-04: runs are listed by when they ran, not when the row was written', async () => {
+    const c = await connectionOf('quickbooks');
+    const run = (startedAt: string) =>
+      inFirm('a', (tx) =>
+        tx.integrationSyncRun.create({
+          data: {
+            businessId: firms.a,
+            connectionId: c.id,
+            entity: 'customers',
+            status: 'SUCCEEDED',
+            startedAt: new Date(startedAt),
+            finishedAt: new Date(new Date(startedAt).getTime() + 60_000),
+          },
+          select: { id: true },
+        }),
+      );
+    // Both rows are written now; the earlier one ran later.
+    const ranLater = await run('2026-01-05T10:00:00.000Z');
+    const ranEarlier = await run('2026-01-02T10:00:00.000Z');
+    const page = ok(
+      await call('get', `/integrations/connections/${c.id}/history?pageSize=100`, people.ownerA),
+    ) as { items: { id: string; startedAt: string | null }[] };
+    const mine = page.items.filter((i) => [ranLater.id, ranEarlier.id].includes(i.id));
+    expect(mine.map((i) => i.id)).toEqual([ranLater.id, ranEarlier.id]);
+    expect(mine[0]!.startedAt).toBe('2026-01-05T10:00:00.000Z');
+  });
+
+  it('I-R2-05: an object the runs have stays a filter choice, even one the provider no longer lists', async () => {
+    const c = await connectionOf('quickbooks');
+    const legacy = await inFirm('a', (tx) =>
+      tx.integrationSyncRun.create({
+        data: {
+          businessId: firms.a,
+          connectionId: c.id,
+          entity: 'legacy_items',
+          status: 'FAILED',
+          startedAt: new Date('2026-01-03T10:00:00.000Z'),
+          finishedAt: new Date('2026-01-03T10:01:00.000Z'),
+        },
+        select: { id: true },
+      }),
+    );
+    const history = async (query: string) =>
+      ok(
+        await call('get', `/integrations/connections/${c.id}/history?${query}`, people.ownerA),
+      ) as { items: { id: string }[]; entities: { key: string; label: string }[] };
+    // Whatever the filter, the choices list every object the runs have (not tests or webhooks).
+    const filtered = await history('status=SUCCEEDED');
+    expect(filtered.entities).toEqual(
+      expect.arrayContaining([{ key: 'legacy_items', label: 'Legacy_items' }]),
+    );
+    expect(filtered.entities.map((e) => e.key)).not.toContain('test');
+    // Choosing it finds its run.
+    expect((await history('entity=legacy_items')).items.map((i) => i.id)).toEqual([legacy.id]);
+  });
+
+  it('I-R2-03: a mapping saved in an area the provider no longer offers is shown read-only', async () => {
+    const c = await connectionOf('quickbooks');
+    await inFirm('a', (tx) =>
+      tx.integrationFieldMapping.create({
+        data: {
+          businessId: firms.a,
+          connectionId: c.id,
+          scope: 'legacy_projects',
+          localField: 'title',
+          externalField: 'Name',
+        },
+      }),
+    );
+    const mappings = ok(
+      await call('get', `/integrations/connections/${c.id}/mappings`, people.ownerA),
+    ) as {
+      scopes: {
+        scope: string;
+        label: string;
+        readOnly: boolean;
+        pairs: { localField: string }[];
+      }[];
+    };
+    const legacy = mappings.scopes.find((s) => s.scope === 'legacy_projects');
+    expect(legacy).toMatchObject({ label: 'Legacy projects', readOnly: true });
+    expect(legacy!.pairs.map((p) => p.localField)).toEqual(['title']);
+    // The provider's own scopes stay editable.
+    expect(
+      mappings.scopes.filter((s) => s.scope !== 'legacy_projects').every((s) => !s.readOnly),
+    ).toBe(true);
+  });
+});
+
+describe('connection health, one state for the label, the checks and the advice (Integrations Review Two I-R2-01, I-F03)', () => {
+  type Health = {
+    ok: boolean;
+    state: string;
+    summary: string;
+    checks: { key: string; label: string; state: string }[];
+    suggestions: string[];
+    lastSuccessAt: string | null;
+    lastAttemptAt: string | null;
+  };
+  const DAY_MS = 86_400_000;
+  const make = (
+    provider: string,
+    data: {
+      status?: 'CONNECTED' | 'NEEDS_ATTENTION' | 'DISCONNECTED';
+      statusReason?: string;
+      lastCheckAt?: Date;
+      disconnectedAt?: Date;
+    },
+    runs: { status: 'SUCCEEDED' | 'FAILED'; at: Date }[] = [],
+  ) =>
+    inFirm('b', async (tx) => {
+      const c = await tx.integrationConnection.create({
+        data: {
+          businessId: firms.b,
+          provider,
+          environment: 'LIVE',
+          entities: ['contacts'],
+          ...data,
+        },
+        select: { id: true },
+      });
+      for (const r of runs)
+        await tx.integrationSyncRun.create({
+          data: {
+            businessId: firms.b,
+            connectionId: c.id,
+            entity: 'contacts',
+            status: r.status,
+            startedAt: r.at,
+            finishedAt: r.at,
+            createdAt: r.at,
+          },
+        });
+      return c.id;
+    });
+  const health = async (id: string) =>
+    ok(
+      await call('get', `/integrations/connections/${id}/health`, people.ownerB, undefined, 'b'),
+    ) as Health;
+  const checkOf = (h: Health, key: string) => h.checks.find((c) => c.key === key)!;
+
+  it('never calls a connection working before a check or a sync, and says what to do in each state', async () => {
+    const now = Date.now();
+    const unknown = await health(await make('xero', {}));
+    expect([unknown.state, unknown.ok]).toEqual(['UNKNOWN', false]);
+    expect(unknown.summary).toMatch(/No check has run yet/);
+    expect(unknown.checks.map((c) => c.state)).not.toContain('OK');
+    expect(unknown.suggestions).toEqual(['Run a connection test to check it.']);
+
+    const failing = await health(
+      await make('hubspot', { status: 'NEEDS_ATTENTION', statusReason: 'sync_failed' }, [
+        { status: 'SUCCEEDED', at: new Date(now - 3 * DAY_MS) },
+        { status: 'FAILED', at: new Date(now - DAY_MS / 2) },
+      ]),
+    );
+    expect([failing.state, failing.ok]).toEqual(['FAILING', false]);
+    // The failing sync reads as failing, never "Data syncing as expected".
+    expect(checkOf(failing, 'DATA_SYNC')).toMatchObject({
+      state: 'FAIL',
+      label: 'Data sync is failing',
+    });
+    expect(failing.suggestions.length).toBeGreaterThan(0);
+    // The last success is told apart from the last (failed) attempt.
+    expect(Date.parse(failing.lastSuccessAt!)).toBeLessThan(Date.parse(failing.lastAttemptAt!));
+
+    const off = await health(
+      await make('mailchimp', { status: 'DISCONNECTED', disconnectedAt: new Date() }),
+    );
+    expect([off.state, off.ok]).toEqual(['DISCONNECTED', false]);
+    expect(checkOf(off, 'AUTHENTICATION')).toMatchObject({ state: 'FAIL', label: 'Disconnected' });
+    expect(off.suggestions).toEqual(['Reconnect this integration to sync again.']);
+
+    const stale = await health(await make('stripe', { lastCheckAt: new Date(now - 10 * DAY_MS) }));
+    expect([stale.state, stale.ok]).toEqual(['STALE', false]);
+    expect(stale.suggestions).toEqual(['Run a connection test to check it again.']);
+
+    const healthy = await health(
+      await make('plaid', { lastCheckAt: new Date(now - 60_000) }, [
+        { status: 'SUCCEEDED', at: new Date(now - 120_000) },
+      ]),
+    );
+    expect([healthy.state, healthy.ok]).toEqual(['HEALTHY', true]);
+    expect(healthy.summary).toBe('Connection is active and working properly.');
+    expect(healthy.checks.every((c) => c.state === 'OK')).toBe(true);
+    expect(healthy.suggestions).toEqual([]);
+  });
+});
+
+describe('one environment at a time (Integrations Review Two I-R2-02)', () => {
+  it("counts, checks and lists only the chosen environment's connections, on the overview and the marketplace", async () => {
+    // A Test connection for a provider that offers Live only: no Test card shows it.
+    await inFirm('b', (tx) =>
+      tx.integrationConnection.create({
+        data: {
+          businessId: firms.b,
+          provider: 'hubspot',
+          environment: 'TEST',
+          status: 'CONNECTED',
+          lastSyncAt: new Date(),
+        },
+      }),
+    );
+    type Overview = {
+      summary: { connected: number; lastCheckAt: string | null };
+      items: { provider: { provider: string } }[];
+      health: { operational: number };
+    };
+    const test = ok(
+      await call('get', '/integrations?environment=TEST', people.ownerB, undefined, 'b'),
+    ) as Overview;
+    expect(test.items.map((i) => i.provider.provider)).not.toContain('hubspot');
+    // The health card counts what the cards count, and the last check is of a shown one.
+    expect(test.health.operational).toBe(test.summary.connected);
+    expect(test.summary.lastCheckAt).toBeNull();
+    // The marketplace shows Live connections unless asked for Test.
+    type Market = { items: { provider: { provider: string }; status: string }[] };
+    const card = (m: Market) => m.items.find((i) => i.provider.provider === 'hubspot')!;
+    const live = ok(
+      await call('get', '/integrations/marketplace', people.ownerB, undefined, 'b'),
+    ) as Market;
+    expect(card(live).status).toBe('NEEDS_ATTENTION');
+    const sandbox = ok(
+      await call(
+        'get',
+        '/integrations/marketplace?environment=TEST',
+        people.ownerB,
+        undefined,
+        'b',
+      ),
+    ) as Market;
+    expect(card(sandbox).status).toBe('CONNECTED');
   });
 });

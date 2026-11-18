@@ -14,6 +14,7 @@ import { useForm } from 'react-hook-form';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { MY_TASK_LABELS, MY_TASK_TONES, taskDue } from '../../../_components/my-task-shared';
 
 const STATUS: Record<
   MyDocumentRequest['status'],
@@ -52,7 +53,8 @@ const open = (r: MyDocumentRequest) => r.status === 'REQUESTED' || r.status === 
 
 /**
  * "Your Next Steps": the documents the firm asked for. An open one can be uploaded (it opens the
- * pop-up for that service and request) or answered with "I don't have this".
+ * pop-up for that service and request) or answered with "I don't have this". T16: the tasks the
+ * firm shows the client are here too, each opening its own page.
  */
 export function DocumentRequests({
   slug,
@@ -68,9 +70,12 @@ export function DocumentRequests({
   const packets = useApiQuery(['my-documents', slug, 'packets'], () =>
     api.myDocuments(slug).packets(),
   );
+  // Client Portal Review One T16: the tasks the firm marks visible to this client.
+  const tasks = useApiQuery(['my-tasks', slug], () => api.myTasks(slug).list());
   const items = (requests.data ?? []).filter((r) => !r.packet);
   const sent = packets.data ?? [];
-  if (items.length === 0 && sent.length === 0) return null;
+  const work = tasks.data ?? [];
+  if (items.length === 0 && sent.length === 0 && work.length === 0) return null;
   return (
     <section aria-labelledby="next-steps" className="grid gap-2">
       <h2 id="next-steps" className="font-display text-2xl font-bold text-heading">
@@ -103,6 +108,32 @@ export function DocumentRequests({
             <RequestRow slug={slug} request={r} onUpload={() => onUpload(r)} />
           </li>
         ))}
+        {work.map((t) => {
+          const due = taskDue(t);
+          return (
+            <li key={t.id} className="rounded-card border border-border p-4" data-testid="task-row">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-heading">{t.title}</p>
+                  <p className="text-sm text-muted">
+                    Task from your firm
+                    {t.checklist.total
+                      ? ` · ${t.checklist.done} of ${t.checklist.total} steps done`
+                      : ''}
+                    {due ? ` · due ${due}` : ''}
+                  </p>
+                </div>
+                <Badge tone={MY_TASK_TONES[t.status]}>{MY_TASK_LABELS[t.status]}</Badge>
+                <Link
+                  href={`/${slug}/requests/tasks/${t.id}`}
+                  className="inline-flex h-9 items-center rounded-lg border border-action px-3 text-sm font-semibold text-action"
+                >
+                  View task
+                </Link>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

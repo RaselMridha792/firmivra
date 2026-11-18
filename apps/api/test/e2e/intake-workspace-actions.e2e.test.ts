@@ -644,6 +644,187 @@ describe('send a form', () => {
       'NOT_FOUND',
     );
   });
+
+  it("A9 on booking: the type's required form goes to the client's portal, linked to the appointment, once; a reschedule never sends it again; a lead's own appointment gets none", async () => {
+    const bo = { id: randomUUID(), email: `r55s-bo-${run}@r55.test` };
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: bo.id, cognitoSub: bo.id, pool: 'CLIENT', email: bo.email, name: 'Fake Bo' },
+      }),
+    );
+    const made = await inFirm('a', async (tx) => {
+      const businessId = firms.a;
+      const client = await tx.client.create({
+        data: { businessId, displayName: 'Bo Booked (fake)', email: `bo-${run}@client.test` },
+        select: { id: true },
+      });
+      await tx.engagement.create({
+        data: { businessId, clientId: client.id, serviceId: ids.service!, title: 'Bo tax' },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId,
+          userId: bo.id,
+          clientId: client.id,
+          email: bo.email,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      const type = await tx.appointmentType.create({
+        data: {
+          businessId,
+          name: `Fake A9 booked ${run}`,
+          durationMinutes: 30,
+          clientBookable: true,
+          requiredIntakeTemplateId: ids.template,
+        },
+        select: { id: true },
+      });
+      const lead = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: ids.service!,
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          firstName: 'Lia',
+          lastName: 'Booked (fake)',
+          email: `lia-${run}@lead.test`,
+        },
+        select: { id: true },
+      });
+      return { client: client.id, type: type.id, lead: lead.id };
+    });
+    // Days in 2031 no other test of this file books at these hours.
+    const base = 400 + Math.floor(Math.random() * 300);
+    const on = (n: number, time: string) =>
+      zonedInstant(addDays('2031-01-01', base + n), time, NY).toISOString();
+    const schedule = (contact: object, n: number) =>
+      call('post', '/appointments/schedule', ownerA, {
+        idempotencyKey: randomUUID(),
+        contact,
+        typeId: made.type,
+        startsAt: on(n, '18:00'),
+        endsAt: on(n, '18:30'),
+        method: 'VIDEO',
+        staffUserIds: [ownerA.id],
+        overrideConflicts: { reason: 'Fake: outside working hours' },
+      });
+    const intakesOf = (appointmentId: string) =>
+      inFirm('a', (tx) =>
+        tx.intake.findMany({
+          where: { businessId: firms.a, appointmentId },
+          select: { id: true, status: true, deliveryChannel: true, createdByUserId: true },
+        }),
+      );
+    const notSent = (appointmentId: string) =>
+      inFirm('a', (tx) =>
+        tx.auditLog.findMany({
+          where: {
+            businessId: firms.a,
+            action: 'appointment.intake_not_sent',
+            entityType: 'appointment',
+            entityId: appointmentId,
+          },
+          select: { metadata: true },
+        }),
+      );
+    const bell = (intakeId: string) =>
+      inFirm('a', (tx) =>
+        tx.notification.count({ where: { entityId: intakeId, recipientUserId: bo.id } }),
+      );
+
+    // The firm books it: the form goes in the portal, linked, and the record shows it waiting.
+    const booked = AppointmentRecord.parse(
+      ok(await schedule({ kind: 'CLIENT', id: made.client }, 1)),
+    );
+    const [sent, ...more] = await intakesOf(booked.id);
+    expect(more).toEqual([]);
+    expect(sent).toMatchObject({
+      status: 'SENT',
+      deliveryChannel: 'PORTAL',
+      createdByUserId: ownerA.id,
+    });
+    expect(booked.related.intakeForm).toEqual({
+      id: sent!.id,
+      name: 'Annual Tax Intake',
+      completed: false,
+    });
+    expect(await bell(sent!.id)).toBe(1);
+    expect(
+      await inFirm('a', (tx) =>
+        tx.auditLog.findFirst({
+          where: { businessId: firms.a, action: 'intake.sent', entityId: sent!.id },
+          select: { metadata: true },
+        }),
+      ),
+    ).toMatchObject({
+      metadata: { channel: 'PORTAL', appointmentId: booked.id, via: 'appointment' },
+    });
+
+    // A reschedule sends nothing more.
+    ok(
+      await call('post', `/appointments/${booked.id}/reschedule`, ownerA, {
+        startsAt: on(2, '18:00'),
+      }),
+    );
+    expect((await intakesOf(booked.id)).map((i) => i.id)).toEqual([sent!.id]);
+
+    // Another booking while the client still has the form open: no second copy, and why.
+    const again = AppointmentRecord.parse(
+      ok(await schedule({ kind: 'CLIENT', id: made.client }, 3)),
+    );
+    expect(again.related.intakeForm).toBeNull();
+    expect(await notSent(again.id)).toEqual([{ metadata: { reason: 'FORM_ALREADY_OPEN' } }]);
+
+    // Completed: the appointment records it.
+    await inFirm('a', (tx) =>
+      tx.intake.update({ where: { id: sent!.id }, data: { status: 'COMPLETED' } }),
+    );
+    const record = AppointmentRecord.parse(
+      ok(await call('get', `/appointments/${booked.id}/record`, ownerA)),
+    );
+    expect(record.related.intakeForm).toMatchObject({ id: sent!.id, completed: true });
+
+    // The client books in the portal: a new form for that appointment, with its portal notice.
+    ok(
+      await call('put', `/availability/${otherStaffA.id}/working-hours`, ownerA, {
+        hours: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+          weekday,
+          startsAt: '09:00',
+          endsAt: '12:00',
+        })),
+      }),
+    );
+    const mine = await request(app.getHttpServer())
+      .post(`/api/v1/portal/${slugs.a}/me/appointments`)
+      .set('authorization', `Bearer ${await tokenFor(bo.email)}`)
+      .set('x-forwarded-for', viewer())
+      .send({ typeId: made.type, startsAt: on(4, '10:00') });
+    expect(mine.status, JSON.stringify(mine.body)).toBe(201);
+    const portalId = (mine.body as { id: string }).id;
+    const [fromPortal, ...extra] = await intakesOf(portalId);
+    expect(extra).toEqual([]);
+    expect(fromPortal).toMatchObject({
+      status: 'SENT',
+      deliveryChannel: 'PORTAL',
+      createdByUserId: null,
+    });
+    // The client who booked still gets the portal notice of the form.
+    expect(await bell(fromPortal!.id)).toBe(1);
+
+    // A lead's own appointment: no form (a lead has no portal), and why.
+    const forLead = AppointmentRecord.parse(ok(await schedule({ kind: 'LEAD', id: made.lead }, 5)));
+    expect(await intakesOf(forLead.id)).toEqual([]);
+    expect(await notSent(forLead.id)).toEqual([{ metadata: { reason: 'LEAD_APPOINTMENT' } }]);
+
+    // Another firm reaches none of it.
+    expectError(
+      await call('get', `/appointments/${booked.id}/record`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+  });
 });
 
 describe('send drafts', () => {
@@ -813,6 +994,19 @@ describe('one form', () => {
       409,
       'NOT_A_MEMBER',
     );
+    // USABILITY-03: the row names the client's own staff member, the one Staff who can take it;
+    // any other Staff member is 409 CLIENT_NOT_ASSIGNED.
+    expect(r.recipient.assignedUserId).toBe(staffA.id);
+    expectError(
+      await call('patch', `/intakes/${ids.sent}`, ownerA, { assignedUserId: otherStaffA.id }),
+      409,
+      'CLIENT_NOT_ASSIGNED',
+    );
+    expect(
+      AssignedFormRecord.parse(
+        ok(await call('patch', `/intakes/${ids.sent}`, ownerA, { assignedUserId: staffA.id })),
+      ).assignedTo?.userId,
+    ).toBe(staffA.id);
     expect((await call('patch', `/intakes/${ids.sent}`, ownerA, {})).status).toBe(400);
     const reopened = AssignedFormRecord.parse(
       ok(await call('patch', `/intakes/${ids.expired}`, ownerA, { expiresOn: future(7) })),

@@ -43,10 +43,11 @@ test('Meetings: upcoming with Join and Reschedule, past in a table, Schedule Mee
     'href',
     /\/calendar\/.+\/edit$/,
   );
-  // Octavia's B4 (R56): the client, their advisory engagement and the way back.
+  // Octavia's B4 (R56): the client, their advisory engagement and the way back; A-11 (#1586):
+  // the advisory service kind, so the form preselects the advisory meeting.
   await expect(upcoming.getByRole('link', { name: 'Schedule Meeting' })).toHaveAttribute(
     'href',
-    /^\/calendar\/new\?clientId=[0-9a-f-]{36}&engagementId=[0-9a-f-]{36}&from=%2Fbusiness-advisory%2Fclients%2F[0-9a-f-]{36}%2Fmeetings$/,
+    /^\/calendar\/new\?clientId=[0-9a-f-]{36}&engagementId=[0-9a-f-]{36}&serviceKind=BUSINESS_DEVELOPMENT&from=%2Fbusiness-advisory%2Fclients%2F[0-9a-f-]{36}%2Fmeetings$/,
   );
   const past = page.getByRole('table', { name: 'Past meetings' });
   await expect(past.getByRole('row')).toHaveCount(3);

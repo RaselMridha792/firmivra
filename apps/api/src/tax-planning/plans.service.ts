@@ -11,6 +11,8 @@ import {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { likeEscape } from '../clients/clients.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
@@ -203,7 +205,17 @@ export class TaxPlansService {
     private readonly read: TaxPlanReadService,
     private readonly audit: AuditService,
     private readonly messages: MessagesService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
+
+  /** P4-8: the plan's page in the client's portal (`{PORTAL_BASE_URL}/{slug}/tax-plans/{id}`). */
+  private async portalPlanLink(ctx: TaxCtx, id: string): Promise<string> {
+    const firm = await ctx.tx.business.findFirst({
+      where: { id: ctx.businessId },
+      select: { slug: true },
+    });
+    return `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm?.slug ?? ''}/tax-plans/${id}`;
+  }
 
   private run<T>(
     businessId: string,
@@ -1211,6 +1223,7 @@ export class TaxPlansService {
       });
       const total = kept.snapshot.projectedSavingsCents;
       const delivery = body.purpose === 'DELIVERY';
+      const link = await this.portalPlanLink(ctx, id);
       const message = [
         delivery
           ? `Here is your approved ${plan.planYear} tax plan, ${plan.name}.`
@@ -1221,9 +1234,11 @@ export class TaxPlansService {
         ...lines,
         ...(total !== null ? ['', `Total estimated savings: about ${money(total)}.`] : []),
         ...(body.message ? ['', body.message] : []),
-        ...(delivery
-          ? []
-          : ['', 'Please reply to approve it, or with any question or change you would like.']),
+        // P4-8: the plan's own page in the portal, where the client approves it or asks.
+        '',
+        delivery
+          ? `View your plan: ${link}`
+          : `View the plan to approve it, ask a question, request a revision or request a meeting: ${link}`,
         '',
         DISCLAIMER,
       ].join('\n');

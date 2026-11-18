@@ -24,9 +24,11 @@ import {
   Play,
   Plus,
   SealCheck,
+  UserCheck,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
@@ -68,7 +70,10 @@ export function BusinessPlans() {
   const [advisor, setAdvisor] = useState('');
   const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
-  const [dialog, setDialog] = useState<{ kind: 'versions' | 'send'; plan: AdvisoryPlanRow }>();
+  const [dialog, setDialog] = useState<{
+    kind: 'versions' | 'send' | 'approval';
+    plan: AdvisoryPlanRow;
+  }>();
   const term = useDeferredValue(search.trim());
   const q = useApiQuery(
     [...BA_KEY, 'plans', term, status, year, type, advisor, archived, page],
@@ -143,15 +148,20 @@ export function BusinessPlans() {
         ),
       ];
     // Octavia's B9: a finalized or sent plan is locked; Modify Plan starts its next draft
-    // revision, and every finalized version stays as it was.
-    const locked = p.status === 'FINALIZED' || p.status === 'SENT';
+    // revision, and every finalized version stays as it was. B10: a plan waiting for the client's
+    // approval is locked too; Modify Plan withdraws the request, and the revision needs approving
+    // again.
+    const awaiting = p.status === 'AWAITING_CLIENT_APPROVAL';
+    const locked = p.status === 'FINALIZED' || p.status === 'SENT' || awaiting;
     const list: ActionMenuItem[] = [
       locked
         ? item('Modify Plan', PencilSimple, () =>
             ask(
               {
                 title: 'Modify this plan?',
-                message: `${p.name} becomes a new draft revision; version ${p.currentVersion} stays as it was.`,
+                message: awaiting
+                  ? `${p.name} goes back to a draft revision and the client's approval request is withdrawn. A revision needs their approval again.`
+                  : `${p.name} becomes a new draft revision; version ${p.currentVersion} stays as it was.${p.clientApproval ? " The client's approval is cleared: a revision needs approving again." : ''}`,
                 confirm: 'Modify Plan',
               },
               async () => {
@@ -174,9 +184,17 @@ export function BusinessPlans() {
       list.push(
         item('Back to Draft', ArrowCounterClockwise, () => move(p, 'DRAFT', 'Plan back to draft.')),
       );
-    if (p.status === 'DRAFT' || p.status === 'IN_REVIEW')
+    // B10 (the lead's decision B): for a client with a portal login, staff review and then the
+    // client's approval, which finalizes the plan: Send for Client Approval in place of Finalize.
+    // Without a login, Finalize works as before.
+    const approvalFirst = p.clientApprovalRequired && !p.clientApproval;
+    if (canSend && p.status === 'IN_REVIEW' && p.clientApprovalRequired)
+      list.push(
+        item('Send for Client Approval', UserCheck, () => setDialog({ kind: 'approval', plan: p })),
+      );
+    if ((p.status === 'DRAFT' || p.status === 'IN_REVIEW') && !approvalFirst)
       list.push(item('Finalize Plan', SealCheck, () => finalize(p)));
-    if (canSend && p.currentVersion > 0)
+    if (canSend && p.currentVersion > 0 && !awaiting)
       list.push(item('Send to Client', PaperPlaneTilt, () => setDialog({ kind: 'send', plan: p })));
     if (p.status === 'FINALIZED' || p.status === 'SENT')
       list.push(
@@ -380,6 +398,16 @@ export function BusinessPlans() {
           }}
         />
       ) : null}
+      {dialog?.kind === 'approval' ? (
+        <RequestApprovalDialog
+          plan={dialog.plan}
+          onClose={() => setDialog(undefined)}
+          onSent={() => {
+            setDialog(undefined);
+            say(`${dialog.plan.name} sent to ${dialog.plan.client.name} for approval.`);
+          }}
+        />
+      ) : null}
     </BaShell>
   );
 }
@@ -467,6 +495,81 @@ export function VersionsDialog({ plan, onClose }: { plan: AdvisoryPlanRow; onClo
             )}
           </section>
         ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * B10 (Business Advisory review §16): staff review, then the client's approval BEFORE
+ * finalization. Sends a plan in review to the client's portal for approval: the version they read
+ * is kept, the plan waits (locked) and their Approve finalizes it. Refused (and said why) when the
+ * plan isn't ready or the client has no portal login.
+ */
+export function RequestApprovalDialog({
+  plan,
+  onClose,
+  onSent,
+}: {
+  plan: AdvisoryPlanRow;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const qc = useQueryClient();
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  return (
+    <Modal
+      open
+      title="Send for Client Approval"
+      subtitle={`${plan.name} for ${plan.client.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={saving}
+            data-testid="send-for-approval"
+            onClick={async () => {
+              setSaving(true);
+              setError(undefined);
+              try {
+                const d = await api.advisory.plan(plan.id);
+                await api.advisory.requestPlanApproval(plan.id, {
+                  etag: d.etag,
+                  ...(message.trim() ? { message: message.trim() } : {}),
+                });
+                await qc.invalidateQueries({ queryKey: [...BA_KEY] });
+                onSent();
+              } catch (e) {
+                setError(errorText(e));
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            Send for Approval
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3" data-testid="request-approval">
+        <ErrorLine text={error} />
+        <p className="text-sm text-text">
+          The client reads this version in their portal (My Services, Business Advisory) and
+          approves it there. Their approval finalizes the plan. Until then the plan is locked;
+          Modify Plan withdraws the request, and a revision needs their approval again.
+        </p>
+        <Textarea
+          label="Message to the client (optional)"
+          rows={3}
+          maxLength={2000}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
       </div>
     </Modal>
   );

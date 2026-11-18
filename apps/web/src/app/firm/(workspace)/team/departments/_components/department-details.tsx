@@ -18,6 +18,7 @@ import {
 } from '../../_components/groups-shared';
 import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { RowMenu } from '../../_components/row-menu';
+import { staffCountText } from '../../_components/staff-counts';
 
 /**
  * The chosen department: Department Details (head with Change, counts, created, description) and
@@ -110,8 +111,8 @@ export function DepartmentDetails({
             <dd className="min-w-0 flex-1">{d.teamCount}</dd>
           </div>
           <div className={fact}>
-            <dt className={term}>Total Staff</dt>
-            <dd className="min-w-0 flex-1">{d.staffCount}</dd>
+            <dt className={term}>Staff</dt>
+            <dd className="min-w-0 flex-1">{staffCountText(d.staffCount, d.assignedCount)}</dd>
           </div>
           <div className={fact}>
             <dt className={term}>Created</dt>
@@ -171,7 +172,7 @@ export function DepartmentDetails({
                   <td className="px-2 py-1">
                     <span className="inline-flex items-center gap-1.5 text-text">
                       <UsersThree aria-hidden weight="fill" className="size-4 text-heading" />
-                      {t.memberCount}
+                      {staffCountText(t.memberCount, t.assignedCount)}
                     </span>
                   </td>
                   <td className="px-2 py-1 text-right">

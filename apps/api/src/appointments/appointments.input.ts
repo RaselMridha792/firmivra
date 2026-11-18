@@ -6,6 +6,7 @@ import {
   BookMyAppointmentRequest,
   CancelAppointmentRequest,
   CancelMyAppointmentRequest,
+  CompleteAppointmentRequest,
   CreateAppointmentTypeRequest,
   CreateBlockedTimeRequest,
   MySlotsQuery,
@@ -115,6 +116,8 @@ export const RescheduleBody = RescheduleAppointmentRequest.superRefine(
 export const UpdateBody = UpdateAppointmentRequest.superRefine(refine());
 /** POST /business/appointments/{id}/cancel */
 export const CancelBody = CancelAppointmentRequest.superRefine(refine()).transform(lowerIds);
+/** POST /business/appointments/{id}/complete: P4-2, a lead's own appointment's outcome. */
+export const CompleteBody = CompleteAppointmentRequest.superRefine(refine(['followUpOn']));
 
 // ---------- Portal routes ----------
 /** GET /portal/{firmSlug}/me/appointments/slots */

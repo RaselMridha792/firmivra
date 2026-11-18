@@ -46,7 +46,6 @@ import { useOriginNavigate } from '../../../../../components/origin-link';
 import { type ReactNode, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { NewThreadDialog } from '../../clients/[id]/messages/_components/thread-dialogs';
 import {
@@ -55,7 +54,7 @@ import {
   FILING_STATUS_LABEL,
   STATUS_LABEL,
   STATUS_ORDER,
-  TR_ERRORS,
+  trErrorMessage,
   TR_KEY,
   dateTimeText,
   jurisdiction,
@@ -79,7 +78,8 @@ export function useAct(onNotice: Notice) {
       onNotice(done, 'success');
       return result;
     } catch (e) {
-      onNotice(errorMessage(e, TR_ERRORS), 'error');
+      // F20b: the API's reason and its blockers, not only the code's generic line.
+      onNotice(trErrorMessage(e), 'error');
       return undefined;
     }
   };

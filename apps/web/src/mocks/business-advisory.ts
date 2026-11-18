@@ -23,6 +23,9 @@ import {
   CreateAdvisoryRecommendationRequest,
   FinalizeAdvisoryPlanRequest,
   ReorderAdvisoryMilestonesRequest,
+  RequestAdvisoryPlanApprovalRequest,
+  ADVISORY_RESOURCE_FORMAT_LABELS,
+  type AdvisoryResourcePreview,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
@@ -159,6 +162,26 @@ const serviceOptions = (): AdvisoryServiceOption[] =>
     referralOnly: name === 'Legal & Insurance Referral',
   }));
 
+/**
+ * B10, B28: the advisory clients with no active portal login, so the portal cannot reach them
+ * (the API answers 409 NO_PORTAL_LOGIN), and Finalize works without the client's approval (B10,
+ * the lead's decision B). Synthetic.
+ */
+const NO_PORTAL_LOGIN: readonly string[] = ['Omar Haddad', 'Kevin Martin', 'Sandra Lewis'];
+
+/** The library's words for a resource (apps/api/src/advisory/catalog.ts `summary`). */
+const RESOURCE_SUMMARY: Record<string, string> = {
+  'business-formation-checklist': 'The steps to form your business and get your EIN.',
+  'brand-basics-guide': 'Name, logo and voice: the basics of a brand that fits your business.',
+  'website-launch-checklist': 'What to have ready before your website goes live.',
+  'business-banking-checklist': 'What a bank asks for when you open a business account.',
+  'funding-readiness-checklist': 'What lenders and investors look for before they say yes.',
+  'business-plan-template': 'A simple outline for a business plan you can fill in.',
+  'market-research-guide': 'How to learn who your customers are and what they will pay.',
+  'cash-flow-basics': 'How to read and forecast your cash flow.',
+  'growth-operations-playbook': 'Systems that help a growing business stay organized.',
+};
+
 /** As the API's catalog (apps/api/src/advisory/catalog.ts). */
 const resourceLibrary = (): AdvisoryResource[] =>
   (
@@ -199,6 +222,8 @@ const resourceLibrary = (): AdvisoryResource[] =>
     kind,
     clientFacing,
     url: null,
+    // B28, as the API's catalog: documents go as a Secure Link or a PDF.
+    formats: ['SECURE_LINK', 'PDF'] as AdvisoryResource['formats'],
   }));
 
 /** The API's factors and default weights (apps/api/src/advisory/health.ts). */
@@ -458,6 +483,8 @@ interface PlanState {
   step: number;
   finalizedAt: string | null;
   sentAt: string | null;
+  /** B10: the client's approval in the portal (cleared by Modify Plan). */
+  clientApproval: AdvisoryPlanRow['clientApproval'];
   updatedAt: string;
   createdAt: string;
   profile: AdvisoryPlanProfile;
@@ -651,6 +678,7 @@ export function createAdvisoryMock({
         advisor: cl.advisor,
         finalizedAt: null,
         sentAt: null,
+        clientApproval: null,
         updatedAt: at(-3 - n),
         createdAt: at(-40 - n * 5),
         profile: {
@@ -1317,6 +1345,9 @@ export function createAdvisoryMock({
     currentVersion: p.versions.length,
     finalizedAt: p.finalizedAt,
     sentAt: p.sentAt,
+    clientApproval: p.clientApproval,
+    // B10 (the lead's decision B): a client with a portal login approves before finalization.
+    clientApprovalRequired: !NO_PORTAL_LOGIN.includes(clientOf(p.advisoryClientId).name),
     archived: p.status === 'ARCHIVED',
     updatedAt: p.updatedAt,
   });
@@ -1430,6 +1461,77 @@ export function createAdvisoryMock({
         'SAVE_CONFLICT',
         'Someone saved this after you opened it. Reload to see their changes.',
       );
+  };
+  /** B28, as the API: what the client would receive, and the checks in Send's order. */
+  const composeResource = (
+    key: string,
+    req: ReturnType<typeof SendAdvisoryResourceRequest.parse>,
+  ): AdvisoryResourcePreview => {
+    if (!canSend) throw forbidden();
+    const r = RESOURCES.find((x) => x.key === key);
+    if (!r) throw notFound();
+    const c = findClient(req.advisoryClientId);
+    const format = req.format ?? 'SECURE_LINK';
+    const name = c.client.name;
+    const problems: AdvisoryResourcePreview['problems'] = [];
+    if (c.archived)
+      problems.push({ code: 'CLIENT_ARCHIVED', message: 'Restore the advisory client first.' });
+    if (!r.clientFacing)
+      problems.push({
+        code: 'RESOURCE_NOT_CLIENT_FACING',
+        message: 'This resource is for staff and cannot be sent.',
+      });
+    if (!r.formats.includes(format))
+      problems.push({
+        code: 'FORMAT_NOT_AVAILABLE',
+        message: `This resource can't be sent as ${ADVISORY_RESOURCE_FORMAT_LABELS[format]}.`,
+      });
+    const login = !NO_PORTAL_LOGIN.includes(name);
+    if (!login)
+      problems.push({
+        code: 'NO_PORTAL_LOGIN',
+        message: `${name} has no active portal login yet, so the resource would not reach them: it opens only after they sign in to the portal. Send them a portal invitation first.`,
+      });
+    const link = `http://portal.localhost:3000/lvp/services/advisory#${key}`;
+    return {
+      channel: req.channel,
+      format,
+      to: { name, email: login ? c.client.email : null },
+      subject: r.title,
+      body: [
+        RESOURCE_SUMMARY[key] ?? r.title,
+        '',
+        format === 'PDF'
+          ? `A PDF copy is ready to download in your portal (sign in first): ${link}`
+          : `Open it in your portal (sign in first): ${link}`,
+        ...(req.message ? ['', req.message] : []),
+      ].join('\n'),
+      eligible: problems.length === 0,
+      problems,
+    };
+  };
+  /** B10: 409 while the plan waits for the client's approval (Modify Plan withdraws it). */
+  const awaitingClient = () =>
+    fail(
+      409,
+      'INVALID_STATUS',
+      "The plan is waiting for the client's approval in their portal. Modify Plan to change it first",
+    );
+  /** What finalizing (and B10's request for approval) still needs, in the API's words. */
+  const readinessOf = (p: PlanState) => {
+    const f = liveFinancials(p.advisoryClientId);
+    return [
+      !p.profile.businessName && 'Add the business name (stage 1)',
+      // B13: the plan type, the summary and an explicit focus choice.
+      !p.planType && 'Choose the plan type (stage 1)',
+      !p.strategy.summary && 'Add the strategy summary (stage 3)',
+      !p.strategy.areas?.length &&
+        p.strategy.noFocusArea !== true &&
+        'Choose a focus area, or None / Not Applicable (stage 3)',
+      !goals.some((g) => g.planId === p.id && !g.archived) && 'Add at least one goal to the plan',
+      !f.length && 'Add the financial figures',
+      f[0]?.stale && 'The financial figures are out of date; add current ones',
+    ].filter((m): m is string => typeof m === 'string');
   };
   /** The plan, goal and workstream must be the client's own. */
   const ownedBy = (
@@ -1762,6 +1864,7 @@ export function createAdvisoryMock({
           assessment: {},
           strategy: {},
           versions: [],
+          clientApproval: null,
           version: 1,
         };
         plans.push(p);
@@ -1775,9 +1878,12 @@ export function createAdvisoryMock({
         const p = findPlan(planId);
         if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
         checkEtag(req.etag, p.version);
-        // B9, as the API: a finalized or sent plan is locked; only the wizard's place moves.
+        // B9, as the API: a finalized or sent plan is locked, and one awaiting the client's
+        // approval (B10); only the wizard's place moves.
         if (
-          (p.status === 'FINALIZED' || p.status === 'SENT') &&
+          (p.status === 'FINALIZED' ||
+            p.status === 'SENT' ||
+            p.status === 'AWAITING_CLIENT_APPROVAL') &&
           Object.entries(req).some(([k, v]) => v !== undefined && k !== 'etag' && k !== 'step')
         )
           throw fail(
@@ -1812,6 +1918,8 @@ export function createAdvisoryMock({
           // B9: Modify Plan takes a finalized or sent plan back to DRAFT (the next revision).
           FINALIZED: ['IN_PROGRESS', 'DRAFT'],
           SENT: ['IN_PROGRESS', 'DRAFT'],
+          // B10: Modify Plan withdraws the request for the client's approval.
+          AWAITING_CLIENT_APPROVAL: ['DRAFT'],
           IN_PROGRESS: ['COMPLETED'],
           COMPLETED: ['IN_PROGRESS'],
         };
@@ -1821,6 +1929,11 @@ export function createAdvisoryMock({
             'INVALID_STATUS',
             `A ${p.status.toLowerCase().replace('_', ' ')} plan can't move to that status`,
           );
+        // B10: a revision (Modify Plan) starts with no client approval: it needs approving again.
+        if (req.status === 'DRAFT' && p.status !== 'IN_REVIEW') {
+          p.clientApproval = null;
+          p.finalizedAt = null;
+        }
         p.status = req.status;
         p.version++;
         p.updatedAt = nowIso();
@@ -1837,22 +1950,19 @@ export function createAdvisoryMock({
         const p = findPlan(planId);
         if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
         checkEtag(req.etag, p.version);
-        const f = liveFinancials(p.advisoryClientId);
+        // B10: the client is reading it to approve it; their Approve finalizes it.
+        if (p.status === 'AWAITING_CLIENT_APPROVAL') throw awaitingClient();
         // The API's wording (apps/api/src/advisory/advisory-plans.service.ts).
-        const missing = [
-          !p.profile.businessName && 'Add the business name (stage 1)',
-          // B13: the plan type, the summary and an explicit focus choice.
-          !p.planType && 'Choose the plan type (stage 1)',
-          !p.strategy.summary && 'Add the strategy summary (stage 3)',
-          !p.strategy.areas?.length &&
-            p.strategy.noFocusArea !== true &&
-            'Choose a focus area, or None / Not Applicable (stage 3)',
-          !goals.some((g) => g.planId === p.id && !g.archived) &&
-            'Add at least one goal to the plan',
-          !f.length && 'Add the financial figures',
-          f[0]?.stale && 'The financial figures are out of date; add current ones',
-        ].filter((m): m is string => typeof m === 'string');
+        const missing = readinessOf(p);
         if (missing.length) throw notReady(missing);
+        // B10, as the API: with a portal login, the client's approval finalizes the plan.
+        const c = clients.find((x) => x.id === p.advisoryClientId)!;
+        if (!NO_PORTAL_LOGIN.includes(c.client.name) && !p.clientApproval)
+          throw fail(
+            409,
+            'CLIENT_APPROVAL_REQUIRED',
+            'The client approves this plan first. Send it for approval; their approval finalizes it.',
+          );
         const versionNo = p.versions.length + 1;
         p.versions.push(snapshot(p, versionNo, signedIn, nowIso()));
         p.status = 'FINALIZED';
@@ -1869,6 +1979,7 @@ export function createAdvisoryMock({
         const p = findPlan(planId);
         if (!canSend) throw forbidden();
         if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
+        if (p.status === 'AWAITING_CLIENT_APPROVAL') throw awaitingClient();
         const v = req.version
           ? p.versions.find((x) => x.versionNo === req.version)
           : p.versions.at(-1);
@@ -1882,6 +1993,48 @@ export function createAdvisoryMock({
         p.version++;
         p.updatedAt = nowIso();
         log(p.advisoryClientId, 'advisory.plan_sent', `Plan sent (${req.channel.toLowerCase()})`);
+        return planDetail(p);
+      }),
+    // B10, as the API: a plan in staff review goes to the client's portal for approval.
+    requestPlanApproval: (planId, body) =>
+      run(() => {
+        const req = parseInput(RequestAdvisoryPlanApprovalRequest, body);
+        const p = findPlan(planId);
+        if (!canSend) throw forbidden();
+        if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
+        checkEtag(req.etag, p.version);
+        if (p.status !== 'IN_REVIEW')
+          throw fail(
+            409,
+            'INVALID_STATUS',
+            p.status === 'DRAFT'
+              ? 'Submit the plan for staff review first: a plan goes to the client for approval from review'
+              : 'This plan cannot be sent for approval',
+          );
+        const missing = readinessOf(p);
+        if (missing.length) throw notReady(missing);
+        const c = clients.find((x) => x.id === p.advisoryClientId)!;
+        if (NO_PORTAL_LOGIN.includes(c.client.name))
+          throw fail(
+            409,
+            'NO_PORTAL_LOGIN',
+            `${c.client.name} has no active portal login, so they cannot approve the plan in the portal. Send them a portal invitation first.`,
+          );
+        const v = snapshot(p, p.versions.length + 1, signedIn, nowIso());
+        v.deliveredAt = nowIso();
+        v.deliveredChannel = 'portal';
+        v.deliveredBy = signedIn;
+        p.versions.push(v);
+        p.status = 'AWAITING_CLIENT_APPROVAL';
+        p.sentAt = nowIso();
+        p.clientApproval = null;
+        p.version++;
+        p.updatedAt = nowIso();
+        log(
+          p.advisoryClientId,
+          'advisory_plan.approval_requested',
+          'Plan sent for client approval',
+        );
         return planDetail(p);
       }),
     archivePlan: (planId) =>
@@ -2558,20 +2711,20 @@ export function createAdvisoryMock({
             (query.clientFacing === undefined || r.clientFacing === query.clientFacing),
         );
       }),
+    previewResource: (key, body) =>
+      run(() => {
+        parseInput(AdvisoryResourceKey, key);
+        return composeResource(key, parseInput(SendAdvisoryResourceRequest, body));
+      }),
     sendResource: (key, body) =>
       run(() => {
         parseInput(AdvisoryResourceKey, key);
         const req = parseInput(SendAdvisoryResourceRequest, body);
-        if (!canSend) throw forbidden();
-        const r = RESOURCES.find((x) => x.key === key);
-        if (!r) throw notFound();
-        if (!r.clientFacing)
-          throw fail(
-            409,
-            'RESOURCE_NOT_CLIENT_FACING',
-            'This resource is for staff and cannot be sent',
-          );
+        const view = composeResource(key, req);
+        const first = view.problems[0];
+        if (first) throw fail(409, first.code, first.message);
         const c = findClient(req.advisoryClientId);
+        const r = RESOURCES.find((x) => x.key === key)!;
         log(c.id, 'advisory.resource_sent', `Resource sent: ${r.title}`);
         return { ok: true as const };
       }),

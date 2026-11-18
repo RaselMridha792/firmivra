@@ -1,4 +1,5 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
+import { PublicLink } from '../public-links/schemas.js';
 import { OkResponse } from '../schemas.js';
 import {
   CatalogService,
@@ -124,6 +125,9 @@ export function createServicesPricingClient(request: ApiRequest) {
         )
       ).items,
     package: async (id: string): Promise<ServicePackage> => request(ServicePackage, pkg(id)),
+    /** SP-1: the package's public link and button code; everyone at the firm reads it. */
+    packagePublicLink: async (id: string): Promise<PublicLink> =>
+      request(PublicLink, `${pkg(id)}/public-link`),
     createPackage: async (body: CreateServicePackageRequest): Promise<ServicePackage> =>
       request(
         ServicePackage,

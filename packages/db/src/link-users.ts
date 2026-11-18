@@ -235,15 +235,26 @@ export interface LinkClientResult {
 }
 
 const CLIENT_KEYS = ['sub', 'firmSlug', 'accountEmail'];
+
+/**
+ * The live-check harness's own Test Firm B portal client (lead, Nov 18): an SES mailbox simulator
+ * address, so whatever the portal sends it never reaches a person. The harness stops using a
+ * reviewer's login. Its client is made through the firm's own Clients screen or API first; the
+ * link then creates its portal account, as for the QA fixture clients.
+ */
+export const HARNESS_PORTAL_CLIENT_EMAIL = 'success+qa-perf-client-b@simulator.amazonses.com';
+
 /**
  * The firms whose seeded clients may get a real login, and their synthetic email domain (a real
  * client's account never matches): the demo firm's seeded accounts (Oct 18), and Test Firm B's QA
- * fixture clients, whose account the link creates (Nov 14).
+ * fixture clients, whose account the link creates (Nov 14). `exact`: single further addresses the
+ * firm takes, here only the harness's own client (Nov 18).
  */
-const CLIENT_FIRMS: Record<string, { domain: string; create: boolean }> = {
-  demo: { domain: '@demo.test', create: false },
-  'test-firm-b': { domain: '@example.test', create: true },
-};
+const CLIENT_FIRMS: Record<string, { domain: string; create: boolean; exact?: readonly string[] }> =
+  {
+    demo: { domain: '@demo.test', create: false },
+    'test-firm-b': { domain: '@example.test', create: true, exact: [HARNESS_PORTAL_CLIENT_EMAIL] },
+  };
 
 export function parseLinkClient(json: string): LinkClientEntry {
   let data: unknown;
@@ -272,8 +283,12 @@ export function parseLinkClient(json: string): LinkClientEntry {
     );
   }
   const email = typeof accountEmail === 'string' ? accountEmail.trim().toLowerCase() : '';
-  if (!EMAIL.test(email) || !email.endsWith(rule.domain)) {
-    throw new Error(`LINK_CLIENT_ACCOUNT.accountEmail must be a seeded ${rule.domain} address`);
+  const allowed = email.endsWith(rule.domain) || (rule.exact ?? []).includes(email);
+  if (!EMAIL.test(email) || !allowed) {
+    const also = rule.exact?.length ? ` or ${rule.exact.join(', ')}` : '';
+    throw new Error(
+      `LINK_CLIENT_ACCOUNT.accountEmail must be a seeded ${rule.domain} address${also}`,
+    );
   }
   return { sub, firmSlug, accountEmail: email, ...(rule.create ? { createForClient: true } : {}) };
 }

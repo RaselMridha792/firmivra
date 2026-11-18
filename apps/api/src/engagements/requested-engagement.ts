@@ -13,7 +13,8 @@ export async function requestedEngagement(
   audit: AuditService,
   input: {
     businessId: string;
-    userId: string;
+    /** The member it is made for; null for A9's form sent on a client's own booking. */
+    userId: string | null;
     clientId: string;
     serviceId: string;
     title: string;

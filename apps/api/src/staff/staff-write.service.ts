@@ -15,6 +15,7 @@ import { notFound, toDay } from '../workspaces/common.js';
 import type { CreateStaffBody, UpdateStaffBody } from './staff-input.js';
 import { writeMemberGrid } from './staff-permissions.service.js';
 import { StaffReadService } from './staff-read.service.js';
+import { namesOf } from './staff-names.js';
 import { type NewAccountSecurity, newAccountSecurity } from './staff-security-defaults.service.js';
 import {
   assertActsOn,
@@ -64,6 +65,10 @@ function profileData(
   details: Details | undefined,
 ): Prisma.StaffProfileUncheckedUpdateInput {
   const data: Prisma.StaffProfileUncheckedUpdateInput = {};
+  // SM20 (Staff Management Review 2): the first and last name as typed, kept apart (users.name
+  // holds them joined), so a compound first name survives import and edit.
+  if (account?.firstName !== undefined) data.firstName = account.firstName.trim() || null;
+  if (account?.lastName !== undefined) data.lastName = account.lastName.trim() || null;
   if (account?.serviceAreas !== undefined) data.serviceAreas = account.serviceAreas;
   if (account?.accessLevel !== undefined) data.accessLevel = account.accessLevel;
   if (account?.accessStartsOn !== undefined)
@@ -150,6 +155,7 @@ export class StaffWriteService {
             acknowledged: true,
             updatedById: by,
             fresh: true,
+            grantedBy: actor,
           };
           // Checked before the invite commits: a refused grid leaves no member behind.
           if (body.permissions?.length)
@@ -337,6 +343,23 @@ export class StaffWriteService {
       if (!boss) throw notFound();
       if (boss.status !== 'ACTIVE')
         throw invalid('details.supervisorId', 'Choose an active member as supervisor');
+      // SM25 (Staff Management Review 2): never a loop of reporting lines. Up the supervisor's own
+      // chain, this member must not appear (a reports to b, b to a).
+      if (membershipId) {
+        let up: string | null = d.supervisorId;
+        for (let hops = 0; up && hops < 100; hops += 1) {
+          const next: { supervisorId: string | null } | null = await tx.staffProfile.findFirst({
+            where: { businessId, membershipId: up },
+            select: { supervisorId: true },
+          });
+          up = next?.supervisorId ?? null;
+          if (up === membershipId)
+            throw invalid(
+              'details.supervisorId',
+              'This member already supervises that person, directly or through others',
+            );
+        }
+      }
     }
     if (d.employeeId) {
       const taken = await tx.staffProfile.findFirst({
@@ -479,10 +502,15 @@ export class StaffWriteService {
             where: { id: target.userId },
             select: { name: true, email: true },
           });
-          const [first = '', ...rest] = (user?.name ?? '').trim().split(/\s+/);
-          if (a.firstName !== undefined && a.firstName !== first)
+          // SM20: the names as kept (or, before they were kept apart, as users.name splits).
+          const kept = await tx.staffProfile.findUnique({
+            where: { businessId_membershipId: { businessId, membershipId: id } },
+            select: { firstName: true, lastName: true },
+          });
+          const { firstName: first, lastName: last } = namesOf(user?.name ?? '', kept);
+          if (a.firstName !== undefined && a.firstName.trim() !== first)
             throw invalid('account.firstName', 'Only the person can change their name');
-          if (a.lastName !== undefined && a.lastName !== rest.join(' '))
+          if (a.lastName !== undefined && a.lastName.trim() !== last)
             throw invalid('account.lastName', 'Only the person can change their name');
           if (a.email !== undefined && a.email.toLowerCase() !== user?.email.toLowerCase())
             throw invalid(

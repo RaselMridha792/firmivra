@@ -73,7 +73,7 @@ test('signs a user out from the row menu and edits a role grid', async ({ page }
 
   // A role template starts Create Custom Role from that role.
   await page.getByTestId('role-templates').getByRole('button', { name: 'Bookkeeper' }).click();
-  await expect(page).toHaveURL(/\/settings\/users\/roles\/new\?from=BOOKKEEPER$/);
+  await expect(page).toHaveURL(/\/settings\/users\/roles\/new\?template=BOOKKEEPER$/);
 });
 
 test('Reset User Passwords and Deactivate User find any user, whatever the table shows', async ({
@@ -170,7 +170,7 @@ test('Custom roles: give one with Change Role, filter by it, and archive only wh
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`http://app.localhost:${port}/settings/users/roles/new?from=STAFF`);
+  await page.goto(`http://app.localhost:${port}/settings/users/roles/new?template=STAFF`);
   await page.getByLabel('Role Name *').fill('Front Desk');
   await page.getByRole('button', { name: 'Next: Set Permissions' }).click();
   await page.getByTestId('set-permissions').getByRole('button', { name: 'Save Role' }).click();

@@ -137,6 +137,11 @@ const TEXT: Record<NotificationEvent, Writer> = {
     const line = [text(p, 'title') ?? 'A service', status].filter(Boolean).join(': ');
     return { title: 'Service updated', body: side === 'staff' ? forClient(p, line) : line };
   },
+  // BK-CP2: the service's name only, never the report's figures or file.
+  'report.published': (p) => ({
+    title: 'New report',
+    body: `A new report is ready${text(p, 'title') ? ` for ${text(p, 'title')}` : ''}. Open the service to see it.`,
+  }),
   'tax-return.status-changed': (p) => {
     const year = p['taxYear'];
     const form = text(p, 'formType');
@@ -220,6 +225,23 @@ const TEXT: Record<NotificationEvent, Writer> = {
     const title = text(p, 'title') ?? 'A task';
     return { title: 'Task reminder', body: at ? `${title}, due ${at}` : withDue(p, 'A task') };
   },
+  // P4-8: the plan's name and its client, never what the client wrote (the plan shows it).
+  'tax-plan.client-request': (p) => ({
+    title: 'Client request on a tax plan',
+    body: forClient(
+      p,
+      `${text(p, 'title') ?? 'A tax plan'}: a question or request from the portal.`,
+    ),
+  }),
+  'tax-plan.client-approved': (p) => ({
+    title: 'Tax plan approved',
+    body: forClient(p, `${text(p, 'title') ?? 'A tax plan'} was approved in the portal.`),
+  }),
+  // B10: the business plan's name and its client.
+  'advisory-plan.client-approved': (p) => ({
+    title: 'Business plan approved',
+    body: forClient(p, `${text(p, 'title') ?? 'A business plan'} was approved in the portal.`),
+  }),
   // Tasks T-D15: the series' title; the series page says which occurrence and why.
   'task.series-failed': (p) => ({
     title: 'Recurring task not created',

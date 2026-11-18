@@ -11,7 +11,12 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { MyPortalContact, PortalContactSettings } from '@firmivra/types';
+import {
+  MyPortalContact,
+  PORTAL_ANNOUNCEMENT_DEFAULTS,
+  PortalAnnouncementSettings,
+  PortalContactSettings,
+} from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -146,7 +151,12 @@ async function tokenOf(email: string): Promise<string> {
   }
   return token;
 }
-async function send(method: 'get' | 'put', path: string, who: { email: string }, body?: object) {
+async function send(
+  method: 'get' | 'put' | 'post',
+  path: string,
+  who: { email: string },
+  body?: object,
+) {
   const token = await tokenOf(who.email);
   const req = request(app.getHttpServer())
     [method](`/api/v1${path}`)
@@ -268,6 +278,49 @@ describe('GET /portal/{slug}/me/contact', () => {
     await send('put', '/business/settings/portal-tabs', owner, { tabs: { MESSAGES: true } });
     await save({ allowSms: false });
     expect((await mine()).methods.sms).toBe(false);
+  });
+
+  it('CP-4f: with Allow Secure Messages off, a client cannot start a conversation by API either', async () => {
+    const start = () =>
+      send('post', `/portal/${slugA}/me/messages`, client, {
+        subject: 'Fake question',
+        body: 'Fake body',
+      });
+    await save({ allowSecureMessage: false });
+    const refused = await start();
+    expect([refused.status, code(refused)]).toEqual([403, 'MESSAGES_CLOSED']);
+    await save({ allowSecureMessage: true });
+    expect((await start()).status).toBe(201);
+  });
+
+  it('CP-3c, CP-3d, CP-3i: the announcement settings: defaults, changes audited, texts never required', async () => {
+    const PATH = '/business/settings/portal-announcements';
+    const start = PortalAnnouncementSettings.parse((await send('get', PATH, owner)).body);
+    expect(start).toMatchObject(PORTAL_ANNOUNCEMENT_DEFAULTS);
+    const saved = await send('put', PATH, owner, { emailPolicy: 'REQUIRED', onDashboard: false });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(PortalAnnouncementSettings.parse(saved.body)).toMatchObject({
+      enabled: true,
+      onDashboard: false,
+      emailPolicy: 'REQUIRED',
+      smsPolicy: 'CLIENT_CHOICE',
+    });
+    const refused = await send('put', PATH, owner, { smsPolicy: 'REQUIRED' });
+    expect([refused.status, code(refused)]).toEqual([400, 'VALIDATION_FAILED']);
+    for (const who of [staff, client]) {
+      expect((await send('put', PATH, who, { enabled: false })).status).toBe(403);
+    }
+    const audit = await runInScope(db, { kind: 'business', businessId: firms.a }, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a, action: 'client_portal.announcements_updated' },
+      }),
+    );
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.metadata).toMatchObject({
+      fields: ['onDashboard', 'emailPolicy'],
+      changes: { emailPolicy: { from: 'CLIENT_CHOICE', to: 'REQUIRED' } },
+    });
+    await send('put', PATH, owner, { emailPolicy: 'CLIENT_CHOICE', onDashboard: true });
   });
 
   it('follows the switches: each office hides on its own', async () => {

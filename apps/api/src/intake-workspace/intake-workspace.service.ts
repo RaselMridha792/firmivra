@@ -19,9 +19,22 @@ export const rowInclude = {
     },
   },
   engagement: {
-    select: { client: { select: { id: true, displayName: true, email: true, phone: true } } },
+    select: {
+      client: {
+        select: { id: true, displayName: true, email: true, phone: true, assignedUserId: true },
+      },
+    },
   },
-  lead: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+  lead: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: true,
+      assignedUserId: true,
+    },
+  },
   assignedMember: { select: { userId: true, user: { select: { name: true } } } },
 } satisfies Prisma.IntakeInclude;
 export type RowSource = Prisma.IntakeGetPayload<{ include: typeof rowInclude }>;
@@ -35,6 +48,7 @@ export function toRow(i: RowSource): AssignedFormRow {
         name: i.engagement.client.displayName,
         email: i.engagement.client.email,
         phone: i.engagement.client.phone,
+        assignedUserId: i.engagement.client.assignedUserId,
       }
     : {
         kind: 'LEAD' as const,
@@ -42,6 +56,7 @@ export function toRow(i: RowSource): AssignedFormRow {
         name: `${i.lead?.firstName ?? ''} ${i.lead?.lastName ?? ''}`.trim(),
         email: i.lead?.email ?? null,
         phone: i.lead?.phone ?? null,
+        assignedUserId: i.lead?.assignedUserId ?? null,
       };
   return {
     id: i.id,

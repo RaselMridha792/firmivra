@@ -34,6 +34,18 @@ export function withClient<T extends { clientId?: string | null; client?: object
   return row as unknown as WithClient<T>;
 }
 
+/**
+ * P4-2 (N8-18; the lead's answer, Nov 18): whether the member reaches the appointment's lead by the
+ * lead pages' rule (Owner and Admin every lead; Staff the leads assigned to them). Only they may
+ * choose Convert to New client (the lead's Convert page is theirs); the appointment's own staff
+ * member records Keep as Lead and Follow Up through the appointment's reach.
+ */
+export function reachesLead(actor: FirmActor, lead: { assignedUserId: string | null }): boolean {
+  return (
+    actor.role !== 'STAFF' || lead.assignedUserId?.toLowerCase() === actor.userId.toLowerCase()
+  );
+}
+
 /** P4-1: the lead behind a LEAD contact of the booking forms. */
 export interface BookableLead {
   id: string;

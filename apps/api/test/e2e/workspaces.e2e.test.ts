@@ -1250,3 +1250,111 @@ describe('#109 review', () => {
     expect([res.status, await deleting], JSON.stringify(res.body)).toEqual([200, 'refused']);
   });
 });
+
+describe('BK-CP2: a Bookkeeping report published for the first time tells the client', () => {
+  /** The notices of one report's first publish, with their email rows. */
+  const notices = (reportId: string, firm: 'a' | 'b' = 'a') =>
+    asOwner({ kind: 'business', businessId: firms[firm].id }, (tx) =>
+      tx.notification.findMany({
+        // The test's owner login sees past row-level security, so the firm is named.
+        where: { businessId: firms[firm].id, eventKey: `report.published:${reportId}` },
+        select: {
+          recipientUserId: true,
+          entityType: true,
+          entityId: true,
+          payload: true,
+          deliveries: { select: { channel: true } },
+        },
+      }),
+    );
+  const told = (reportId: string) =>
+    inA((tx) =>
+      tx.auditLog.findMany({
+        where: { action: 'report.client_notified', entityType: 'report', entityId: reportId },
+        select: { metadata: true },
+      }),
+    );
+  const schedule = (delivery: 'PORTAL' | 'EMAIL' | 'PORTAL_AND_EMAIL') => [
+    { report: 'PROFIT_LOSS', cadence: 'MONTHLY', dueDay: 10, delivery },
+  ];
+
+  it("in the portal, and by email only when the client's Report Delivery allows it; a re-publish tells no one again", async () => {
+    // No Report Delivery set anywhere: the portal only.
+    const quiet = await draft(eng.bk1, 'REPORT', `BK-CP2 secret title ${run}`);
+    await act(quiet.id, 'publish');
+    const first = await notices(quiet.id);
+    // The client's primary login only (never the spouse's), about the service, no email row.
+    expect(first.map((n) => [n.recipientUserId, n.entityType, n.entityId, n.deliveries])).toEqual([
+      [people.clientA.id, 'engagement', eng.bk1, []],
+    ]);
+    // Never the report's own title or figures: the service's name only.
+    expect(JSON.stringify(first[0]!.payload)).not.toContain('secret title');
+    expect(await told(quiet.id)).toEqual([
+      {
+        metadata: {
+          engagementId: eng.bk1,
+          clientId: clients.c1,
+          channels: ['PORTAL'],
+          written: 1,
+        },
+      },
+    ]);
+    // Unpublished and published again: nobody is told again.
+    await act(quiet.id, 'unpublish');
+    await act(quiet.id, 'publish');
+    expect(await notices(quiet.id)).toHaveLength(1);
+    expect(await told(quiet.id)).toHaveLength(1);
+
+    // The firm delivers reports by email too: the email copy goes through the outbox.
+    await inA((tx) =>
+      tx.bookkeepingSettings.upsert({
+        where: { businessId: firms.a.id },
+        create: { businessId: firms.a.id, reportSchedule: schedule('PORTAL_AND_EMAIL') },
+        update: { reportSchedule: schedule('PORTAL_AND_EMAIL') },
+      }),
+    );
+    const mailed = await draft(eng.bk1, 'REPORT', `BK-CP2 mailed ${run}`);
+    await act(mailed.id, 'publish');
+    expect((await notices(mailed.id)).map((n) => n.deliveries)).toEqual([[{ channel: 'EMAIL' }]]);
+    expect((await told(mailed.id))[0]!.metadata).toMatchObject({ channels: ['EMAIL', 'PORTAL'] });
+
+    // The client's own Report Delivery wins over the firm's: the portal only for them.
+    await inA((tx) =>
+      tx.bookkeepingProfile.upsert({
+        where: { businessId_engagementId: { businessId: firms.a.id, engagementId: eng.bk1 } },
+        create: {
+          businessId: firms.a.id,
+          engagementId: eng.bk1,
+          reportSchedule: schedule('PORTAL'),
+        },
+        update: { reportSchedule: schedule('PORTAL') },
+      }),
+    );
+    const own = await draft(eng.bk1, 'RECONCILIATION', `BK-CP2 own ${run}`);
+    await act(own.id, 'publish');
+    expect((await notices(own.id)).map((n) => n.deliveries)).toEqual([[]]);
+  });
+
+  it("a Tax Planning report tells no one; another firm's publish reaches only its own client", async () => {
+    const plan = await draft(eng.tp1, 'ESTIMATE', `BK-CP2 plan ${run}`);
+    await act(plan.id, 'publish');
+    expect(await notices(plan.id)).toEqual([]);
+    expect(await told(plan.id)).toEqual([]);
+
+    const theirs = Report.parse(
+      ok(
+        await call('post', `/workspaces/${eng.bkB}/reports`, people.ownerB, 'b', {
+          kind: 'REPORT',
+          title: `BK-CP2 firm B ${run}`,
+        }),
+        201,
+      ).body,
+    );
+    ok(await reportCall(theirs.id, 'publish', people.ownerB, undefined, 'b'));
+    expect((await notices(theirs.id, 'b')).map((n) => n.recipientUserId)).toEqual([
+      people.clientB.id,
+    ]);
+    // Firm A's database scope sees nothing of it.
+    expect(await notices(theirs.id)).toEqual([]);
+  });
+});

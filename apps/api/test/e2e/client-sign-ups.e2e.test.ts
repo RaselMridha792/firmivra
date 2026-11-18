@@ -50,6 +50,7 @@ const signUps = {} as Record<
   | 'sam'
   | 'race'
   | 'decline'
+  | 'quiet'
   | 'unverified'
   | 'declined'
   | 'ofY'
@@ -675,6 +676,22 @@ describe('decline', () => {
     for (const again of [await decline(signUps.decline), await approve(signUps.decline)]) {
       expect([again.status, codeOf(again)]).toEqual([409, 'NOT_PENDING']);
     }
+  });
+
+  it('SU-D3b: with notify unticked, a decline closes the login and emails nobody', async () => {
+    await signUp('quiet', firmX, 59);
+    const sent = outbox.length;
+    const res = await decline(signUps.quiet, { notify: false }, staff.adminX);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(await account(signUps.quiet)).toMatchObject({ status: 'DECLINED' });
+    expect(outbox.slice(sent)).toEqual([]);
+    const audit = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { entityId: signUps.quiet.accountId, action: 'client_account.declined' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit.metadata).toMatchObject({ notified: false });
   });
 });
 

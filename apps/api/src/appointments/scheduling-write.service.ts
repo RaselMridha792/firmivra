@@ -3,6 +3,7 @@ import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { AppointmentRecord, MemberRef } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { returnReassignAuthority } from '../tax-returns/return-authority.js';
 import { DATABASE } from '../database/database.module.js';
@@ -116,6 +117,7 @@ export class SchedulingWriteService {
     private readonly notices: AppointmentNotices,
     @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
     private readonly grants: PermissionGrantsService,
+    private readonly intakes: IntakeSendService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -222,6 +224,12 @@ export class SchedulingWriteService {
     }
     if (body.sendConfirmation) {
       await this.notices.send('appointment.booked', businessId, created.firstId);
+    }
+    // A9: the type's required intake form goes to the client (the first of a series only; the
+    // others would find it open), and the record then shows it.
+    const form = await this.intakes.sendForAppointment(businessId, created.firstId, actor.userId);
+    if (form && 'intakeId' in form) {
+      return this.inFirm(businessId, (tx) => this.recordIn(tx, businessId, actor, created.firstId));
     }
     return created.record;
   }

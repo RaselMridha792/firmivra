@@ -37,6 +37,7 @@ import {
   AdvisoryRecommendationsQuery,
   AdvisoryResourceKey,
   AdvisoryResourceList,
+  AdvisoryResourcePreview,
   AdvisoryResourcesQuery,
   AdvisoryServiceOptionList,
   AdvisorySettingsView,
@@ -55,6 +56,7 @@ import {
   CreateAdvisoryRecommendationRequest,
   FinalizeAdvisoryPlanRequest,
   ReorderAdvisoryMilestonesRequest,
+  RequestAdvisoryPlanApprovalRequest,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
@@ -208,6 +210,19 @@ export function createAdvisoryClient(request: ApiRequest) {
         `${plan(id)}/send`,
         post(parseInput(SendAdvisoryPlanRequest, body)),
       ),
+    /**
+     * B10: sends a plan in staff review to the client for approval in the portal. 409
+     * INVALID_STATUS, PLAN_NOT_READY or NO_PORTAL_LOGIN; 403 without "Send plans".
+     */
+    requestPlanApproval: async (
+      id: string,
+      body: RequestAdvisoryPlanApprovalRequest,
+    ): Promise<AdvisoryPlanDetail> =>
+      request(
+        AdvisoryPlanDetail,
+        `${plan(id)}/request-approval`,
+        post(parseInput(RequestAdvisoryPlanApprovalRequest, body)),
+      ),
     archivePlan: async (id: string): Promise<AdvisoryPlanDetail> =>
       request(AdvisoryPlanDetail, `${plan(id)}/archive`, post()),
     restorePlan: async (id: string): Promise<AdvisoryPlanDetail> =>
@@ -352,6 +367,16 @@ export function createAdvisoryClient(request: ApiRequest) {
       request(
         OkResponse,
         `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/send`,
+        post(parseInput(SendAdvisoryResourceRequest, body)),
+      ),
+    /** B28: what the client would receive and the eligibility checks; nothing is sent. */
+    previewResource: async (
+      key: string,
+      body: SendAdvisoryResourceRequest,
+    ): Promise<AdvisoryResourcePreview> =>
+      request(
+        AdvisoryResourcePreview,
+        `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/preview`,
         post(parseInput(SendAdvisoryResourceRequest, body)),
       ),
     settings: async (): Promise<AdvisorySettingsView> =>

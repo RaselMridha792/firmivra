@@ -41,11 +41,16 @@ import { CAPABILITY_ORDER, MODULE_LOOKS, NEEDS_VIEW } from '../../../roles/_comp
 import { MultiPick } from '../../_components/multi-pick';
 import { SectionCard } from '../../_components/section-card';
 import { StepActions, WithDraft, useDraftSaver } from '../../_components/with-draft';
+import { UnsavedDialog, useUnsavedGuard } from '../../../../tasks/_components/unsaved-guard';
+
 import { WizardHeader } from '../../_components/wizard-header';
 import { STAFF_ERRORS, stepHref } from '../../_components/wizard-parts';
 
-/** Create Staff's grid has the design's six columns; Export follows the role's default. */
-const COLUMNS: PermissionCapability[] = CAPABILITY_ORDER.filter((c) => c !== 'EXPORT');
+/**
+ * Create Staff's grid: every capability, Export too (SM04, Staff Management Review 2), as Edit
+ * Staff's Permissions tab and Roles show it; the new member keeps it.
+ */
+const COLUMNS: PermissionCapability[] = CAPABILITY_ORDER;
 
 const toValue = (cells: readonly { module: string; capability: string; granted: boolean }[]) => {
   const value: Record<string, string[]> = {};
@@ -107,6 +112,8 @@ function PermissionsForm({
     role ? api.roles.permissions(role) : Promise.resolve(null),
   );
   const draft = useDraftSaver(startDraft, 2);
+  // SM18: leaving with unsaved changes asks Keep Editing, Discard Changes or Save Draft.
+  const guard = useUnsavedGuard({ role, departmentIds, jobTitle, grid });
   const value = grid ?? (defaults.data ? toValue(defaults.data.cells) : {});
   const change = (next: PermissionValue | null) => {
     setGrid(next);
@@ -263,11 +270,24 @@ function PermissionsForm({
             error={draft.error}
             onBack={() => go('account', false)}
             onSave={() =>
-              draft.save(data(), (id) =>
-                router.replace(stepHref('permissions', id), { scroll: false }),
-              )
+              draft.save(data(), (id) => {
+                guard.rebase();
+                router.replace(stepHref('permissions', id), { scroll: false });
+              })
             }
             onNext={() => go('security', true)}
+          />
+          <UnsavedDialog
+            guard={guard}
+            saveLabel="Save Draft"
+            saving={draft.pending}
+            onSave={() => {
+              const to = guard.pending;
+              draft.save(data(), () => {
+                guard.allow();
+                if (to) router.push(to);
+              });
+            }}
           />
         </div>
 

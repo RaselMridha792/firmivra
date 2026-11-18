@@ -11,13 +11,15 @@ test('Settings > Client Portal turns a tab off after a warning, and Cancel resto
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`http://app.localhost:${port}/settings/portal`);
+  // CP-1: the Features panel by its address.
+  await page.goto(`http://app.localhost:${port}/settings/portal?panel=features`);
   await expect(page.getByText('Turning portal features on and off')).toHaveCount(0);
   const table = page.getByRole('table', { name: 'Default portal tabs' });
   await expect(table.getByRole('row')).toHaveCount(7);
-  await expect(table.getByRole('row', { name: /Business Documents & Resources/ })).toContainText(
-    'Always shown',
-  );
+  // CP-5a: Business Documents & Resources has its own switch now (on until the firm turns it off).
+  await expect(
+    table.getByRole('switch', { name: 'Show Business Documents & Resources' }),
+  ).toBeChecked();
   const save = page.getByRole('button', { name: 'Save changes' }).last();
   await expect(save).toBeDisabled();
 

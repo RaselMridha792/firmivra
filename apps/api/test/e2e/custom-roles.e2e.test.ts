@@ -15,6 +15,7 @@ import {
   CustomRole,
   CustomRoleDetail,
   FirmUserList,
+  PermissionCapability,
   RoleList,
   StaffDetail,
   StaffFormOptions,
@@ -454,5 +455,63 @@ describe('Another firm', () => {
     const b = RoleList.parse(ok(await call('get', '/roles', ownerB, undefined, 'b')));
     expect(b.custom).toEqual([]);
     expect((await call('get', '/roles/custom/nope', ownerA)).status).toBe(400);
+  });
+});
+
+describe('SM02: only what the granter has', () => {
+  it("an Admin gives no cell they lack themselves, in a custom role or a role's grid; the Owner still does", async () => {
+    const integrations = (mode: 'DENY' | 'INHERIT') =>
+      PermissionCapability.options.map((capability) => ({
+        module: 'INTEGRATIONS',
+        capability,
+        mode,
+      }));
+    const refused = (res: Response) => {
+      expectError(res, 403, 'CANNOT_GRANT');
+      expect((res.body as { error: { details: object[] } }).error.details).toContainEqual(
+        expect.objectContaining({ module: 'INTEGRATIONS', capability: 'VIEW' }),
+      );
+    };
+    const give = { grants: [cell('INTEGRATIONS', 'VIEW', true)], acknowledgeEscalation: true };
+    const integrator = { name: 'Integrator', basedOn: 'STAFF', ...give };
+    // The Owner takes Integrations from this Admin alone.
+    ok(
+      await call('patch', `/staff/${member.adminA}/permissions`, ownerA, {
+        overrides: integrations('DENY'),
+      }),
+    );
+    try {
+      refused(await call('post', '/roles/custom', adminA, integrator));
+      expect(
+        await inFirm('a', (tx) =>
+          tx.customRole.count({ where: { businessId: firms.a, name: 'Integrator' } }),
+        ),
+      ).toBe(0);
+      refused(await call('patch', `/roles/custom/${roles.senior}`, adminA, give));
+      refused(await call('put', '/roles/MANAGER/permissions', adminA, give));
+      const manager = (await call('get', '/roles/MANAGER/permissions', ownerA)).body as {
+        cells: { module: string; capability: string; granted: boolean }[];
+      };
+      expect(
+        manager.cells.find((c) => c.module === 'INTEGRATIONS' && c.capability === 'VIEW')?.granted,
+      ).toBe(false);
+      // What the Admin has, they still give; the Owner gives anything.
+      ok(
+        await call('post', '/roles/custom', adminA, {
+          name: 'Reporting Desk',
+          basedOn: 'STAFF',
+          grants: [cell('REPORTS', 'VIEW', true)],
+          acknowledgeEscalation: true,
+        }),
+        201,
+      );
+      ok(await call('post', '/roles/custom', ownerA, integrator), 201);
+    } finally {
+      ok(
+        await call('patch', `/staff/${member.adminA}/permissions`, ownerA, {
+          overrides: integrations('INHERIT'),
+        }),
+      );
+    }
   });
 });
