@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { statesForZip, zipStateWarning } from './zip-state';
+import { statesForZip, zipStateCheck, zipStateWarning } from '../../src/index.js';
 
-// Clients Review 2 (G10): the ZIP prefix table, a soft warning on a mismatch, and "can't verify"
-// kept apart from an invalid ZIP. Synthetic addresses only.
+// Clients Review 2 (G10; P4-6 moved it here so the web forms and the API share it): the ZIP prefix
+// table, a soft warning on a mismatch, and "can't verify" kept apart from an invalid ZIP.
+// Synthetic addresses only.
 describe('statesForZip', () => {
   it('names the state for a prefix, edge prefixes included', () => {
     expect(statesForZip('30043')).toEqual(['GA']);
@@ -43,5 +44,18 @@ describe('zipStateWarning', () => {
     expect(zipStateWarning('42801', 'KY')).toBe(
       "We can't verify ZIP code 42801. Check it before saving.",
     );
+  });
+});
+
+describe('zipStateCheck (P4-6: the API answers it as a warning)', () => {
+  it('names the kind of warning beside its words', () => {
+    expect(zipStateCheck('30043', 'GA')).toBeUndefined();
+    expect(zipStateCheck('10001', 'ga')).toEqual({
+      code: 'ZIP_STATE_MISMATCH',
+      message:
+        'ZIP code 10001 is usually in NY, not GA. Check the state and ZIP code; you can still save.',
+    });
+    expect(zipStateCheck('42801', 'KY')?.code).toBe('ZIP_UNVERIFIED');
+    expect(zipStateCheck('abc', 'GA')).toBeUndefined();
   });
 });

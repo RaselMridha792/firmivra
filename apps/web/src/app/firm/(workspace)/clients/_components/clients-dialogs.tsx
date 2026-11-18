@@ -10,6 +10,7 @@ import {
   type DuplicatePhoneDetails,
   NewClientForm,
   US_STATES,
+  zipStateWarning,
 } from '@firmivra/types';
 import { Button, Input, Modal, Select } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
@@ -20,7 +21,6 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ACCOUNT_TYPES, CLIENT_ERRORS, CLIENTS, clientKey } from './client-parts';
 import { DuplicatePhoneDialog, duplicateOf } from './duplicate-phone';
-import { zipStateWarning } from './zip-state';
 import { bulkSummary, STAGE_ORDER, STAGES } from './list-parts';
 
 type Field =

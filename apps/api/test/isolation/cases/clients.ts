@@ -113,6 +113,8 @@ export const cases: CaseModule['cases'] = {
     expect: 503,
   },
   'GET /api/v1/business/clients/:id': { params: { id: 'client' } },
+  // Clients Review 2 N8-12: the client's Overview summaries.
+  'GET /api/v1/business/clients/:id/summary': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tax-years': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tags': { params: { id: 'client' } },
   // MSG-F16: the client's Activity timeline.

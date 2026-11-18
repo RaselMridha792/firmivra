@@ -603,6 +603,53 @@ export const CancelAppointmentRequest = z.strictObject({ reason: Reason });
 export type CancelAppointmentRequest = z.input<typeof CancelAppointmentRequest>;
 
 /**
+ * P4-2 (Clients Review 2 N8-18): what came of a completed appointment with a lead. A meeting alone
+ * never converts or activates anyone: KEEP_LEAD (undecided, no service chosen) and
+ * KEEP_LEAD_FOLLOW_UP (with the date of the lead's next follow-up) leave the lead as it is;
+ * CONVERT_NEW (a service was chosen) sends staff on to the lead's Convert flow, which makes a New
+ * client.
+ */
+export const LeadAppointmentOutcome = z.enum(['KEEP_LEAD', 'KEEP_LEAD_FOLLOW_UP', 'CONVERT_NEW']);
+export type LeadAppointmentOutcome = z.infer<typeof LeadAppointmentOutcome>;
+export const LEAD_APPOINTMENT_OUTCOME_LABELS: Record<LeadAppointmentOutcome, string> = {
+  KEEP_LEAD: 'Keep as Lead',
+  KEEP_LEAD_FOLLOW_UP: 'Keep as Lead and Follow Up',
+  CONVERT_NEW: 'Convert to New client',
+};
+
+/**
+ * POST /business/appointments/{id}/complete. A lead's own appointment (a lead, no client yet)
+ * needs its `outcome` and `notes` (400 VALIDATION_FAILED at `outcome`); KEEP_LEAD_FOLLOW_UP needs
+ * `followUpOn`, today or later in the firm's time zone, and sets the lead's next follow-up that day
+ * at 10:00. A client's appointment takes none of them (400 at `outcome`): no body, or `{}`.
+ */
+export const CompleteAppointmentRequest = z
+  .strictObject({
+    outcome: LeadAppointmentOutcome.optional(),
+    notes: text(2000, 'many', 'Add notes about the appointment').optional(),
+    followUpOn: CalendarDate.optional(),
+  })
+  .superRefine((b, ctx) => {
+    if (b.outcome && b.notes === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['notes'], message: 'Add notes about the appointment' });
+    }
+    if (!b.outcome && b.notes !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['outcome'], message: 'Choose the outcome' });
+    }
+    if (b.outcome === 'KEEP_LEAD_FOLLOW_UP' && b.followUpOn === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['followUpOn'], message: 'Choose the follow-up date' });
+    }
+    if (b.outcome !== 'KEEP_LEAD_FOLLOW_UP' && b.followUpOn !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['followUpOn'],
+        message: 'Only Keep as Lead and Follow Up takes a follow-up date',
+      });
+    }
+  });
+export type CompleteAppointmentRequest = z.input<typeof CompleteAppointmentRequest>;
+
+/**
  * PATCH /business/appointments/{id}: changes where it happens; send at least one field. Staff:
  * only appointments they see in full (404 otherwise); a final one is 409 APPOINTMENT_CLOSED. When
  * the result is VIDEO and `locationDetails` is left out, the staff member's link is filled in;

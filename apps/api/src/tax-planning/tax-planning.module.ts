@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { MessagesModule } from '../messages/messages.module.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { TaxCalculatorService } from './calculator.service.js';
+import { MyTaxPlansController } from './my-tax-plans.controller.js';
+import { MyTaxPlansService } from './my-tax-plans.service.js';
 import { TaxOpportunitiesService } from './opportunities.service.js';
 import { TaxOverviewService } from './overview.service.js';
 import { TaxPlanReadService } from './plan-read.service.js';
@@ -19,8 +22,9 @@ import { TaxPlanningController } from './tax-planning.controller.js';
  * screening rules and resource catalog live in code (docs/work/R55-tax-planning.md).
  */
 @Module({
-  imports: [MessagesModule],
-  controllers: [TaxPlanningController, ProjectDeadlinesController],
+  imports: [MessagesModule, NotificationsModule],
+  // P4-8: the client's own plans in the portal.
+  controllers: [TaxPlanningController, ProjectDeadlinesController, MyTaxPlansController],
   providers: [
     TaxPlanReadService,
     TaxPlansService,
@@ -30,6 +34,7 @@ import { TaxPlanningController } from './tax-planning.controller.js';
     TaxCalculatorService,
     TaxOverviewService,
     ProjectDeadlinesService,
+    MyTaxPlansService,
   ],
 })
 export class TaxPlanningModule {}

@@ -220,6 +220,18 @@ const TEXT: Record<NotificationEvent, Writer> = {
     const title = text(p, 'title') ?? 'A task';
     return { title: 'Task reminder', body: at ? `${title}, due ${at}` : withDue(p, 'A task') };
   },
+  // P4-8: the plan's name and its client, never what the client wrote (the plan shows it).
+  'tax-plan.client-request': (p) => ({
+    title: 'Client request on a tax plan',
+    body: forClient(
+      p,
+      `${text(p, 'title') ?? 'A tax plan'}: a question or request from the portal.`,
+    ),
+  }),
+  'tax-plan.client-approved': (p) => ({
+    title: 'Tax plan approved',
+    body: forClient(p, `${text(p, 'title') ?? 'A tax plan'} was approved in the portal.`),
+  }),
   // Tasks T-D15: the series' title; the series page says which occurrence and why.
   'task.series-failed': (p) => ({
     title: 'Recurring task not created',
