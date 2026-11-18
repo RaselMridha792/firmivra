@@ -127,13 +127,16 @@ describe('shapes', () => {
     });
   });
 
-  it('the client sees no client or engagement id, and the PDF only when CLEAN and shared', () => {
+  it('the client sees no client or engagement id, and the PDF only when CLEAN, shared and live', () => {
     const doc = {
       id: docId,
       fileName: 'Fake.pdf',
       clientId,
       direction: 'FIRM_TO_CLIENT',
       scanStatus: 'CLEAN',
+      trashedAt: null,
+      archivedAt: null,
+      supersededAt: null,
     };
     const mine = toMyTaxReturn({ ...row, document: doc }, clientId);
     expect(Object.keys(mine).sort()).toEqual(
@@ -159,6 +162,10 @@ describe('shapes', () => {
       { ...doc, scanStatus: 'FAILED' },
       { ...doc, direction: 'INTERNAL' },
       { ...doc, clientId: otherClientId },
+      // CP-PT-03: never one the firm trashed, archived or replaced.
+      { ...doc, trashedAt: new Date() },
+      { ...doc, archivedAt: new Date() },
+      { ...doc, supersededAt: new Date() },
     ]) {
       expect(visibleDocument(hidden, clientId), JSON.stringify(hidden)).toBeNull();
     }
