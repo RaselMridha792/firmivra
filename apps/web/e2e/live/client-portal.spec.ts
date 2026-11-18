@@ -931,7 +931,9 @@ test.describe('the portal as the client', () => {
  * restored, shared, taken through trash, archive and restore, then hidden and trashed again. No
  * new record, and no send: sharing by visibility writes no notice, and nothing here emails.
  */
-test.describe('CP-PT-03b shared document: trash, archive, restore, seen by the client', () => {
+// Disabled (lead, Nov 18): since #1574 sharing by visibility tells the client (tellShared), and
+// Client 1's login is not a simulator address. Being rebuilt on the lead's choice.
+test.describe.skip('CP-PT-03b shared document: trash, archive, restore, seen by the client', () => {
   test.describe.configure({ mode: 'serial' });
   const firmPath = (id: string, action = '') =>
     `business/documents/${id}${action ? `/${action}` : ''}`;
