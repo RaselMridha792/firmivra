@@ -27,6 +27,7 @@ import type {
   TaxReturnPage,
   TaxReturnSummary,
   TaxValidationIssueList,
+  DownloadLink,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
@@ -538,6 +539,17 @@ export class TaxReturnWorkspaceController {
     @Param('id', idPipe) id: string,
   ): Promise<TaxReturnDocumentList> {
     return { items: await this.review.documents(tenant, auth.userId, id) };
+  }
+
+  /** F18: a document linked to the return, by the return's own reach. */
+  @Get(':id/documents/:documentId/download')
+  documentDownload(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('documentId', idPipe) documentId: string,
+  ): Promise<DownloadLink> {
+    return this.review.documentDownload(tenant, auth.userId, id, documentId);
   }
 
   @Post(':id/documents')

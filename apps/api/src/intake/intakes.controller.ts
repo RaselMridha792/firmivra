@@ -391,9 +391,9 @@ export class IntakesController {
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
-    @Body(new ZodValidationPipe(NoteBody)) _body: z.output<typeof NoteBody>,
+    @Body(new ZodValidationPipe(NoteBody)) body: z.output<typeof NoteBody>,
   ): Promise<FormNote> {
-    return this.records.addNote(tenant, auth.userId, id);
+    return this.records.addNote(tenant, auth.userId, id, body.text);
   }
 
   @Patch(':id')

@@ -1093,7 +1093,8 @@ describe('the settings', () => {
         }),
       ),
     );
-    expect(kept.general.requireSignature).toBe(false);
+    // Intake Review 2 23-h (lead, Nov 17): Require e-signature is always on; a false sent stays on.
+    expect(kept.general.requireSignature).toBe(true);
     expect(kept.security).toMatchObject({ maxFileSizeMb: 25, consentRequired: false });
     const still = IntakeSettings.parse(
       ok(
