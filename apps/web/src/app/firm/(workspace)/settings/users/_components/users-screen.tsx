@@ -671,7 +671,9 @@ export function UsersScreen({ initialRole }: { initialRole?: string }) {
             custom={roles.data?.custom}
             loading={roles.isPending}
             canChange={manages}
-            onUse={(r) => router.push(`/settings/users/roles/new?from=${encodeURIComponent(r)}`)}
+            onUse={(r) =>
+              router.push(`/settings/users/roles/new?template=${encodeURIComponent(r)}`)
+            }
             onCreate={() => router.push('/settings/users/roles/new')}
           />
         </aside>
