@@ -15,6 +15,7 @@ import type {
   UpdateCategoryBody,
 } from './template-input.js';
 import { templateErrors, toCategory, visibleTo } from './templates.common.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Query = z.output<typeof CategoriesQuery>;
 type Create = z.output<typeof CreateCategoryBody>;
@@ -125,25 +126,21 @@ export class TemplateCategoriesService {
       if (name.toLowerCase() !== cur.name.toLowerCase()) {
         await this.uniqueName(tx, businessId, cur.kind, name, id);
       }
-      await tx.templateCategory.update({
-        where: { id },
-        data: {
-          name,
-          ...(body.description === undefined
-            ? {}
-            : { description: body.description ? stripTags(body.description).trim() : null }),
-        },
-      });
-      return this.one(tx, businessId, actor, id);
+      const data = {
+        name,
+        ...(body.description === undefined
+          ? {}
+          : { description: body.description ? stripTags(body.description).trim() : null }),
+      };
+      await tx.templateCategory.update({ where: { id }, data });
+      // Audit Log Review 2, R03: each changed field's old and new value (text as "changed").
+      return {
+        row: await this.one(tx, businessId, actor, id),
+        changes: auditChanges(cur, data, { fields: Object.keys(body) }),
+      };
     });
-    await this.audit.log(
-      'template_category.updated',
-      { type: ENTITY, id },
-      {
-        fields: Object.keys(body),
-      },
-    );
-    return category;
+    await this.audit.log('template_category.updated', { type: ENTITY, id }, category.changes);
+    return category.row;
   }
 
   /** The ids of one kind in their new order; categories not listed keep their order after them. */

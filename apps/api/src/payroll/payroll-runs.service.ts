@@ -52,6 +52,7 @@ import {
   type LineAmounts,
   type TaxInputs,
 } from './payroll.shared.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type RunsQuery = z.output<typeof PayrollRunsQuery>;
 type LinesQuery = z.output<typeof PayrollLinesQuery>;
@@ -480,7 +481,18 @@ export class PayrollRunsService {
         {
           payrollClientId: run.payrollClientId,
           clientId: run.payrollClient.clientId,
-          fields: Object.keys(body).sort(),
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          ...auditChanges(
+            run,
+            {
+              ...taxes,
+              includeContractors,
+              step: body.step,
+              frequency: body.frequency,
+              payDate: body.payDate === undefined ? undefined : toDay(body.payDate),
+            },
+            { fields: Object.keys(body) },
+          ),
         },
       );
     }).catch(mapPayrollDbError);

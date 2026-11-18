@@ -57,10 +57,13 @@ const same = (a: unknown, b: unknown) =>
   JSON.stringify(plain(a) ?? a) === JSON.stringify(plain(b) ?? b);
 
 export function auditChanges(
-  before: Readonly<Record<string, unknown>>,
-  after: Readonly<Record<string, unknown>>,
+  beforeRow: object,
+  afterRow: object,
   options: AuditChangesOptions = {},
 ): AuditChanges {
+  // Any record: a database row, a settings object, the values written.
+  const before = beforeRow as Readonly<Record<string, unknown>>;
+  const after = afterRow as Readonly<Record<string, unknown>>;
   const skip = new Set(options.skip ?? []);
   const text = new Set(options.text ?? []);
   const fields = [...new Set(options.fields ?? Object.keys(after))]

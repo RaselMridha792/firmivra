@@ -27,6 +27,7 @@ import {
   type Target,
   targetSelect,
 } from './staff.common.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -190,7 +191,6 @@ export class StaffSecurityService {
         await assertActsOn(tx, actor, target, 'edit');
         const now = await tx.staffSecuritySettings.findUnique({
           where: { businessId_membershipId: { businessId, membershipId: id } },
-          select: { accessLocation: true, allowedIps: true, allowedCountries: true },
         });
         const location = body.accessLocation ?? now?.accessLocation ?? 'ANYWHERE';
         if (location === 'ALLOWED_IPS' && !(body.allowedIps ?? now?.allowedIps ?? []).length)
@@ -213,11 +213,8 @@ export class StaffSecurityService {
           tx,
           'staff.security_saved',
           { type: 'membership', id },
-          {
-            fields: Object.keys(body)
-              .filter((k) => (body as Record<string, unknown>)[k] !== undefined)
-              .sort(),
-          },
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          auditChanges(now ?? {}, body, { fields: Object.keys(body) }),
           { businessId },
         );
       });

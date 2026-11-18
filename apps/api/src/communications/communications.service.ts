@@ -49,6 +49,7 @@ import type {
 import { CommunicationProviders } from './communications-provider.js';
 import { FIRMIVRA_MAIL, FIRMIVRA_MAIL_LABEL, holdNoteOf } from './firmivra-mail.js';
 import { type SegCtx, CommunicationSegmentsService } from './communications-segments.service.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 type Row = Prisma.CommunicationGetPayload<object>;
@@ -897,10 +898,9 @@ export class CommunicationsService {
         ctx.tx,
         'communication.updated',
         { type: 'communication', id: c.id },
-        {
-          communicationId: c.id,
-          fields: Object.keys(body).filter((k) => k !== 'etag' && k !== 'confirmStripContent'),
-        },
+        // Audit Log Review 2, R03: each changed field's old and new value (the message's text
+        // as "changed").
+        { communicationId: c.id, ...auditChanges(c, saved, { fields: Object.keys(data) }) },
       );
       return this.detail(ctx, saved);
     });

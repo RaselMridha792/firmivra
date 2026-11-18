@@ -22,6 +22,7 @@ import {
   type StaffActor,
   tiersOf,
 } from './staff.common.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -164,16 +165,16 @@ export class StaffRecordsService {
           await requireManager(tx, actor);
           const target = await lockTarget(tx, businessId, id);
           await assertActsOn(tx, actor, target, 'edit');
+          const before = await tx.staffCompensation.findUnique({
+            where: { businessId_membershipId: { businessId, membershipId: id } },
+          });
           await this.write.writePay(tx, businessId, id, body);
           await this.audit.logIn(
             tx,
             'staff.compensation_saved',
             { type: 'membership', id },
-            {
-              fields: Object.keys(body).filter(
-                (k) => (body as Record<string, unknown>)[k] !== undefined,
-              ),
-            },
+            // Audit Log Review 2, R03: each changed field's old and new value.
+            auditChanges(before ?? {}, body, { fields: Object.keys(body) }),
             { businessId },
           );
         },

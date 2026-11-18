@@ -45,6 +45,7 @@ import {
 } from './provider-adapter.js';
 import { ProviderRegistry } from './provider-registry.js';
 import { SECRET_STORE, type SecretStore, secretRefOf } from './secret-store.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Connect = z.output<typeof ConnectBody>;
 type Reconnect = z.output<typeof ReconnectBody>;
@@ -559,7 +560,13 @@ export class IntegrationsService {
         tx,
         'integration.settings_changed',
         { type: ENTITY, id },
-        { provider: c.provider, fields: Object.keys(body) },
+        // Audit Log Review 2, R03: each changed setting's old and new value.
+        {
+          provider: c.provider,
+          ...auditChanges({ ...c, options: previous['options'] }, merged, {
+            fields: Object.keys(body),
+          }),
+        },
         { businessId, actorUserId: userId },
       );
     });

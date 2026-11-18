@@ -32,6 +32,7 @@ import { RESOURCES, resourceOf, toResource } from './catalog.js';
 import { advErrors, clientRef, clientRefSelect, DISCLAIMER, iso } from './advisory.common.js';
 import { FACTORS, FACTOR_KEYS } from './health.js';
 import { withClient } from '../appointments/appointment-party.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -416,16 +417,18 @@ export class AdvisoryOverviewService {
           : {}),
         updatedByUserId: userId,
       };
-      await tx.advisorySettings.upsert({
+      const before = await tx.advisorySettings.findUnique({ where: { businessId } });
+      const after = await tx.advisorySettings.upsert({
         where: { businessId },
         create: { businessId, ...data },
         update: data,
       });
+      // Audit Log Review 2, R03: each changed setting's old and new value.
       await this.audit.logIn(
         tx,
         'advisory_settings.updated',
         { type: 'advisory_settings' },
-        { fields: Object.keys(body).sort() },
+        auditChanges(before ?? {}, after, { fields: Object.keys(data), skip: ['updatedByUserId'] }),
       );
       return this.settingsView(await this.read.ctx(tx, businessId, tenant, userId));
     });
