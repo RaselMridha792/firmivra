@@ -323,6 +323,32 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  // SM33: an Owner reset the member's two-factor sign-in; no link, no code.
+  'staff.mfa-reset': (d, b) => ({
+    channel: 'email',
+    subject: `Your ${b.name} two-factor sign-in was reset`,
+    blocks: [
+      hello(d),
+      text(
+        `Your two-factor sign-in at ${b.name} was reset. You will set it up again when you next sign in.`,
+      ),
+      small(
+        "If you didn't expect this, contact your firm right away. Nobody will ask for your codes.",
+      ),
+    ],
+  }),
+
+  // SM33: the member set up two-factor sign-in (Firmivra's own notice).
+  'platform.mfa-enrolled': (d) => ({
+    channel: 'email',
+    subject: 'Two-factor sign-in set up',
+    blocks: [
+      hello(d),
+      text('Two-factor sign-in was set up on your Firmivra account.'),
+      small("If this wasn't you, contact your firm right away. Nobody will ask for your codes."),
+    ],
+  }),
+
   'staff.phone-code': (d, b) => ({
     channel: 'sms',
     text: `${code(d)} is your ${b.name} code to verify your mobile number. Never share it.`,

@@ -268,8 +268,8 @@ function LoginForm({
               {(
                 [
                   ['ANYWHERE', 'Anywhere (recommended)'],
-                  ['ALLOWED_IPS', 'Specific IP Addresses Only'],
-                  ['ALLOWED_COUNTRIES', 'Specific Countries/Regions Only'],
+                  ['ALLOWED_IPS', 'Specific IP Addresses Only (not active yet)'],
+                  ['ALLOWED_COUNTRIES', 'Specific Countries/Regions Only (not active yet)'],
                 ] as const
               ).map(([value, label]) => (
                 <Radio
@@ -303,14 +303,15 @@ function LoginForm({
                   onChange={(e) => set('allowedCountries', e.target.value)}
                 />
               ) : null}
+              {/* SM33: the lists are kept, but sign-in does not check them yet (decision 9a). */}
+              {form.accessLocation !== 'ANYWHERE' ? (
+                <p className="text-xs text-muted" data-testid="location-not-active">
+                  Not active yet: sign-in does not check IP addresses or countries yet. What you
+                  enter is saved for when it does.
+                </p>
+              ) : null}
             </fieldset>
-            <Checkbox
-              label="Restrict login to known devices"
-              disabled={off}
-              checked={form.restrictDevices}
-              onChange={(e) => set('restrictDevices', e.target.checked)}
-              className="text-sm"
-            />
+            {/* SM33: no device list exists yet, so device restriction is not offered (kept as saved). */}
             <div className="grid grid-cols-[1fr_auto] items-center gap-2">
               <Checkbox
                 label="Disable account on"

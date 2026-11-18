@@ -7,8 +7,10 @@ import { StaffCountryCode, StaffIpOrNetwork, StaffSecurityNotices } from './sche
 // Create Staff's step 3 starts from them, and an account created without step 3 (Bulk Upload
 // Staff) gets them. Changing them changes no existing account: each keeps its own settings
 // (Access & Security). Two-factor sign-in is always required and passwords are never set by
-// anyone (secure setup links), so neither is a setting. Sign-in does not enforce these settings
-// for anyone yet (docs/work/R60-settings-checks.md, check 6). Owner and Admin.
+// anyone (secure setup links), so neither is a setting. Each request checks an account's automatic
+// logout and "Disable account on" date, and a sign-in its session limit (SM12, SM33); the IP and
+// country lists are kept but not checked yet, and device restriction is not offered (no device
+// list). Apply to Existing Accounts (SM05) copies them onto existing accounts. Owner and Admin.
 
 const DateTime = z.iso.datetime({ offset: true });
 

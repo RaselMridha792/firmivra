@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   StaffActionResult,
@@ -16,6 +16,8 @@ import {
   sessionKey,
 } from '../auth/staff-sessions.js';
 import { DATABASE } from '../database/database.module.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { day, notFound } from '../workspaces/common.js';
 import type { StaffAccessBody, StaffCursorQ } from './staff-input.js';
 import { mfaOf } from './staff-read.service.js';
@@ -102,11 +104,15 @@ const before = (c: { at: Date; id: string } | undefined): Prisma.AuditLogWhereIn
  */
 @Injectable()
 export class StaffSecurityService {
+  private readonly logger = new Logger(StaffSecurityService.name);
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(IDENTITY_PROVIDER) private readonly identity: IdentityProvider,
     private readonly audit: AuditService,
     private readonly write: StaffWriteService,
+    private readonly notifier: Notifier,
+    @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
   ) {}
 
   private inFirm<T>(actor: StaffActor, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -390,7 +396,40 @@ export class StaffSecurityService {
         return n;
       },
     );
+    await this.tellMfaReset(actor.businessId, target.userId);
     return { ok: true, status: target.status, sessionsRevoked, invitation: null };
+  }
+
+  /**
+   * SM33 (Staff Management Review 2, decision 10a): the member is told their two-factor sign-in
+   * was reset: a bell item (while their account is active here) and an email in the firm's name.
+   * Never fails the reset; a failure is logged with ids only.
+   */
+  private async tellMfaReset(businessId: string, userId: string): Promise<void> {
+    try {
+      await this.notifier.notify({
+        businessId,
+        event: 'account.mfa-reset',
+        recordId: userId,
+        audience: 'staff',
+      });
+      const m = await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+        tx.membership.findFirst({
+          where: { businessId, userId },
+          select: { user: { select: { name: true, email: true } } },
+        }),
+      );
+      if (m)
+        await this.notify.send({
+          template: 'staff.mfa-reset',
+          to: m.user.email,
+          businessId,
+          recipient: { userId },
+          data: { name: m.user.name },
+        });
+    } catch (e) {
+      this.logger.warn(`MFA reset notice for user ${userId} not sent (${errorName(e)})`);
+    }
   }
 
   /**

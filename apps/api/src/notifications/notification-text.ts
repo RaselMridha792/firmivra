@@ -210,6 +210,15 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'Password changed',
     body: "Your password was changed. If this wasn't you, contact your firm right away.",
   }),
+  // SM33: two-factor sign-in reset by an Owner, or set up by the member.
+  'account.mfa-reset': () => ({
+    title: 'Two-factor sign-in reset',
+    body: "Your two-factor sign-in was reset. Set it up again when you next sign in. If you didn't expect this, contact your firm right away.",
+  }),
+  'account.mfa-enrolled': () => ({
+    title: 'Two-factor sign-in set up',
+    body: "Two-factor sign-in was set up on your account. If this wasn't you, contact your firm right away.",
+  }),
   'staff.joined': (p) => ({
     title: 'New team member',
     body: `${text(p, 'name') ?? 'A new member'} joined the team.`,

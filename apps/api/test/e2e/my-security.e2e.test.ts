@@ -24,6 +24,16 @@ import { AppModule } from '../../src/app.module.js';
 import { LOCAL_MFA_CODE, LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
+
+/** The emails the API sends (SM33's MFA notice among them), never a real address. */
+const mails: NotifyMessage[] = [];
+const fakeNotify = {
+  send: (m: NotifyMessage) => {
+    mails.push(m);
+    return Promise.resolve();
+  },
+};
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -154,7 +164,10 @@ beforeAll(async () => {
     DATABASE_URL_APP: fx.appUrl,
   });
   appOrigin = new URL(env.APP_BASE_URL).origin;
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue(fakeNotify)
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -266,6 +279,50 @@ describe('the session limit, Last Login and this session (SM12)', () => {
       ok(await as(owner, 'get', `/staff/${member.limitedA}/sessions`)),
     );
     expect(theirs.items.some((s) => s.current)).toBe(false);
+  });
+});
+
+describe('two-factor sign-in set up (SM33)', () => {
+  it('tells the member: a bell item in each of their firms and one email', async () => {
+    // The local identity asks a person to set up their authenticator at their first sign-in.
+    const email = person('enrol');
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: email.id,
+          cognitoSub: email.id,
+          pool: 'STAFF',
+          email: email.email,
+          name: 'Fake enrol',
+        },
+      }),
+    );
+    for (const firm of ['a', 'b'] as const)
+      await asOwner({ kind: 'business', businessId: firms[firm] }, (tx) =>
+        tx.membership.create({
+          data: { businessId: firms[firm], userId: email.id, role: 'STAFF', status: 'ACTIVE' },
+        }),
+      );
+    await signIn(email.email);
+    for (const firm of ['a', 'b'] as const) {
+      const bell = await asOwner({ kind: 'business', businessId: firms[firm] }, (tx) =>
+        tx.notification.findMany({
+          where: {
+            businessId: firms[firm],
+            recipientUserId: email.id,
+            type: 'account.mfa_enrolled',
+          },
+          select: { entityId: true },
+        }),
+      );
+      expect(bell).toEqual([{ entityId: email.id }]);
+    }
+    expect(
+      mails.filter((m) => m.template === 'platform.mfa-enrolled' && m.to === email.email),
+    ).toEqual([expect.objectContaining({ businessId: null, data: { name: 'Fake enrol' } })]);
+    // A later sign-in with the authenticator already set up tells nobody again.
+    await signIn(email.email);
+    expect(mails.filter((m) => m.to === email.email)).toHaveLength(1);
   });
 });
 
