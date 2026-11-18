@@ -55,6 +55,11 @@ export type IntakeSummary = z.infer<typeof IntakeSummary>;
 
 /** One intake with its form and answers, as the firm reviews it (a full SSN or EIN fails to parse). */
 export const IntakeView = IntakeSummary.extend({
+  /**
+   * Intake Review 2 18d: null for a form sent to a lead, which has no engagement yet (`service`
+   * is then the form's service).
+   */
+  engagement: IntakeSummary.shape.engagement.nullable(),
   definition: IntakeFormDefinition,
   answers: IntakeAnswers,
   /** The steps saved at least once in this version: the stepper's ticks. */

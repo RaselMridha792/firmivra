@@ -813,6 +813,19 @@ describe('one form', () => {
       409,
       'NOT_A_MEMBER',
     );
+    // USABILITY-03: the row names the client's own staff member, the one Staff who can take it;
+    // any other Staff member is 409 CLIENT_NOT_ASSIGNED.
+    expect(r.recipient.assignedUserId).toBe(staffA.id);
+    expectError(
+      await call('patch', `/intakes/${ids.sent}`, ownerA, { assignedUserId: otherStaffA.id }),
+      409,
+      'CLIENT_NOT_ASSIGNED',
+    );
+    expect(
+      AssignedFormRecord.parse(
+        ok(await call('patch', `/intakes/${ids.sent}`, ownerA, { assignedUserId: staffA.id })),
+      ).assignedTo?.userId,
+    ).toBe(staffA.id);
     expect((await call('patch', `/intakes/${ids.sent}`, ownerA, {})).status).toBe(400);
     const reopened = AssignedFormRecord.parse(
       ok(await call('patch', `/intakes/${ids.expired}`, ownerA, { expiresOn: future(7) })),
