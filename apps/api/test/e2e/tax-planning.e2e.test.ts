@@ -1568,6 +1568,21 @@ describe('opportunity reasoning (Review 2 C10)', () => {
     );
     expect(edited.whyExplanation).toBe('Edited reasoning (fake).');
     expect(edited.eligibility).toHaveLength(2);
+    // C10 (test gap): Client Data Used and the recommended actions are edited the same way.
+    const data = TaxOpportunityDetail.parse(
+      ok(
+        await call('patch', `/opportunities/${created.id}`, ownerA, {
+          clientDataUsed: [{ label: '2026 W-2 wages (projected)', amountCents: 9_500_000 }],
+          recommendedActions: ['Raise the deferral', 'Add a catch-up contribution'],
+          etag: edited.etag,
+        }),
+      ),
+    );
+    expect(data.clientDataUsed).toEqual([
+      { label: '2026 W-2 wages (projected)', amountCents: 9_500_000, text: null },
+    ]);
+    expect(data.recommendedActions).toEqual(['Raise the deferral', 'Add a catch-up contribution']);
+    expect((await opp(created.id)).recommendedActions).toEqual(data.recommendedActions);
     expect(edited.documentsNeeded.map((d) => [d.label, d.received])).toEqual([
       ['Latest pay stub', true],
       ['Beneficiary form', false],
