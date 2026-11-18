@@ -6,6 +6,7 @@ import { DotsThreeVertical } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useId } from 'react';
 import { useFromHere } from '../../_components/integrations-origin';
+import { nextStepLine } from '../../_components/readiness';
 import { actionLink, categoryLabel } from './marketplace-shared';
 
 /**
@@ -74,6 +75,11 @@ export function MarketplaceCard({
         </span>
         <div className="min-w-0">
           <h3 className="text-xs font-bold text-heading">{item.provider.name}</h3>
+          {item.connections.some((c) => c.environment === 'TEST') ? (
+            <span data-testid="test-badge" className="ml-1">
+              <Badge tone="warning">Test</Badge>
+            </span>
+          ) : null}
           <p className="mt-0.5 text-xs text-muted">{categoryLabel(item.provider.category)}</p>
         </div>
       </div>
@@ -119,7 +125,7 @@ export function MarketplaceAction({
   const reason = viaIntakeForms(item)
     ? null
     : item.provider.comingSoon && !connected
-      ? 'Not available to connect yet.'
+      ? nextStepLine(item.provider)
       : !canManage && !connected
         ? 'Ask your administrator to connect.'
         : null;

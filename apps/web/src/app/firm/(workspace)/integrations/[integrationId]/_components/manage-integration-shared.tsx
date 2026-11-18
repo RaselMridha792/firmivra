@@ -3,7 +3,7 @@ import type {
   IntegrationConnectionStatus,
   IntegrationSyncDirection,
 } from '@firmivra/types';
-import { Badge, discTones } from '@firmivra/ui';
+import { Badge, discTones, HelpTip } from '@firmivra/ui';
 import {
   ArrowsLeftRight,
   CheckCircle,
@@ -180,10 +180,22 @@ export function DirectionIcon() {
 }
 
 /** The design's card heading on every Manage tab: bold, larger than the kit Card's title. */
-export function CardTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
+/** A card's heading; `help` (I-UA01) adds a Help icon that says what the area does and needs. */
+export function CardTitle({
+  children,
+  action,
+  help,
+}: {
+  children: ReactNode;
+  action?: ReactNode;
+  help?: { topic: string; text: string };
+}) {
   return (
     <div className="mb-3 flex items-center justify-between gap-3">
-      <h2 className="text-xl font-bold text-heading">{children}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-xl font-bold text-heading">{children}</h2>
+        {help ? <HelpTip topic={help.topic}>{help.text}</HelpTip> : null}
+      </div>
       {action}
     </div>
   );
