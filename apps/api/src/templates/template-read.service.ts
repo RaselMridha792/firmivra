@@ -7,6 +7,7 @@ import type {
   TemplateVersion,
   TemplateVersionRow,
 } from '@firmivra/types';
+import { TemplateUsePurpose } from '@firmivra/types';
 import type { z } from 'zod';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
@@ -208,6 +209,18 @@ export class TemplateReadService {
       where: { businessId, templateId: t.id },
       _max: { usedAt: true },
     });
+    // Y04/Y09: the latest uses, with the version that went out and who sent it.
+    const uses = await tx.messageTemplateUse.findMany({
+      where: { businessId, templateId: t.id },
+      orderBy: [{ usedAt: 'desc' }, { id: 'desc' }],
+      take: 10,
+      select: { version: true, purpose: true, usedByUserId: true, usedAt: true },
+    });
+    const users = await memberNames(
+      tx,
+      businessId,
+      uses.flatMap((u) => (u.usedByUserId ? [u.usedByUserId] : [])),
+    );
     return {
       ...toRow(t, names),
       previewText: t.previewText,
@@ -226,6 +239,18 @@ export class TemplateReadService {
       },
       automationCount: await automationCount(tx, businessId, t.id),
       lastUsedAt: lastUse._max.usedAt?.toISOString() ?? null,
+      recentUses: uses.flatMap((u) => {
+        const purpose = TemplateUsePurpose.safeParse(u.purpose);
+        if (!purpose.success) return [];
+        return [
+          {
+            version: u.version,
+            purpose: purpose.data,
+            usedBy: u.usedByUserId ? ownerRef(users, u.usedByUserId) : null,
+            usedAt: u.usedAt.toISOString(),
+          },
+        ];
+      }),
       createdAt: t.createdAt.toISOString(),
       etag: etagOf(t),
       // TP-F08: what a structured kind stands for, or its own structure.

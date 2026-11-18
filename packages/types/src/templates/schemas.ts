@@ -194,6 +194,19 @@ export const LinkedModuleTemplate = z.object({
 });
 export type LinkedModuleTemplate = z.infer<typeof LinkedModuleTemplate>;
 
+/** Templates Review Two Y04/Y09: what a use of a template was for. */
+export const TemplateUsePurpose = z.enum(['COMMUNICATION', 'MESSAGE', 'AUTOMATION']);
+export type TemplateUsePurpose = z.infer<typeof TemplateUsePurpose>;
+
+/** One use: the version that went out, for what, by whom (null: a background step) and when. */
+export const TemplateUse = z.object({
+  version: z.number().int(),
+  purpose: TemplateUsePurpose,
+  usedBy: MemberRef.nullable(),
+  usedAt: DateTime,
+});
+export type TemplateUse = z.infer<typeof TemplateUse>;
+
 export const MessageTemplateDetail = MessageTemplateRow.extend({
   previewText: z.string().nullable(),
   body: z.string(),
@@ -205,6 +218,8 @@ export const MessageTemplateDetail = MessageTemplateRow.extend({
   /** Active automations that use it: warn before a disruptive change or an archive. */
   automationCount: z.number().int(),
   lastUsedAt: DateTime.nullable(),
+  /** Y04/Y09: the latest uses (up to 10), newest first; `useCount` counts them all. */
+  recentUses: z.array(TemplateUse).default([]),
   createdAt: DateTime,
   /** Send the version back on a save: 409 SAVE_CONFLICT when someone saved after it was loaded. */
   etag: z.string(),
