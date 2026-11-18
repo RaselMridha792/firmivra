@@ -1806,9 +1806,11 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
     documentDownload: async (id, documentId) => {
       await mockDelay();
       const r = find(id);
-      if (!r.documents.some((x) => x.document.id === documentId)) throw notFound();
+      const linked = r.documents.find((x) => x.document.id === documentId);
+      if (!linked) throw notFound();
+      // As the documents mock: a data link the browser does not open as a page.
       return {
-        url: `/mock-download/${documentId}`,
+        url: `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock file: ${linked.document.fileName}`)}`,
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
       };
     },
