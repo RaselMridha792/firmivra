@@ -146,7 +146,12 @@ async function tokenOf(email: string): Promise<string> {
   }
   return token;
 }
-async function send(method: 'get' | 'put', path: string, who: { email: string }, body?: object) {
+async function send(
+  method: 'get' | 'put' | 'post',
+  path: string,
+  who: { email: string },
+  body?: object,
+) {
   const token = await tokenOf(who.email);
   const req = request(app.getHttpServer())
     [method](`/api/v1${path}`)

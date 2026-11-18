@@ -303,7 +303,7 @@ export class MyMessagesController {
   }
 
   @Post()
-  create(
+  async create(
     @CurrentTenant() tenant: TenantContext,
     @Body(new ZodValidationPipe(CreateMyMessageThreadRequest))
     body: z.output<typeof CreateMyMessageThreadRequest>,
