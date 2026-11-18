@@ -38,6 +38,7 @@ import {
   TaxWorkflowStructure,
   TemplateStructureOptionsQuery,
   SetLinkedTemplateRequest,
+  smsSegments,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -945,10 +946,7 @@ export function createTemplatesMock({
           sample: true,
           sms:
             r.d.kind === 'SMS'
-              ? {
-                  characters: plainText.length,
-                  parts: Math.max(1, Math.ceil(plainText.length / 160)),
-                }
+              ? (({ characters, parts }) => ({ characters, parts }))(smsSegments(plainText))
               : null,
         };
       }),

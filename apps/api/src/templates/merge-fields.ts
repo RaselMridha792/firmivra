@@ -1,4 +1,4 @@
-import type { MergeFieldGroup } from '@firmivra/types';
+import { type MergeFieldGroup, smsSegments } from '@firmivra/types';
 
 // Merge fields: `[Client First Name]` tokens in a template's subject and body, filled from live
 // records at use time. The master template is never rewritten with one client's data. These are
@@ -110,15 +110,12 @@ export function fill(
   return { text, unresolved: [...unresolved] };
 }
 
-const GSM =
-  /^[A-Za-z0-9 \r\n@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./:;<=>?¡ÄÖÑÜ§¿äöñüà^{}\\[\]~|€]*$/;
-
-/** An SMS: its characters and how many parts it takes (160 or 153 per part; 70 or 67 for Unicode). */
+/**
+ * An SMS: its characters and how many parts it takes, as carriers count them (Templates Review
+ * Two R02: GSM-7 septets with extension characters as two, else UTF-16 units; smsSegments in
+ * packages/types, shared with the screens).
+ */
 export function smsLength(text: string): { characters: number; parts: number } {
-  const characters = [...text].length;
-  if (characters === 0) return { characters, parts: 0 };
-  const gsm = GSM.test(text);
-  const single = gsm ? 160 : 70;
-  const multi = gsm ? 153 : 67;
-  return { characters, parts: characters <= single ? 1 : Math.ceil(characters / multi) };
+  const { characters, parts } = smsSegments(text);
+  return { characters, parts };
 }

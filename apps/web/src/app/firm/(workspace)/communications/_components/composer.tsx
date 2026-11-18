@@ -7,6 +7,7 @@ import {
   TEMPLATE_ATTACHMENT_MAX_BYTES,
   type CommunicationDetail,
   type CommunicationRow,
+  smsCountText,
 } from '@firmivra/types';
 import {
   Button,
@@ -714,9 +715,9 @@ function ComposerForm({
                 disabled={readOnly}
                 onChange={(e) => set({ body: e.target.value })}
               />
+              {/* Templates Review Two R02: parts as carriers count them, shared with the API. */}
               <p className="mt-1 text-xs text-muted" data-testid="sms-count">
-                {form.body.length} characters · {Math.max(1, Math.ceil(form.body.length / 160))}{' '}
-                text part(s). Plain text only.
+                {smsCountText(form.body)}. Plain text only.
               </p>
             </div>
           ) : (

@@ -8,6 +8,7 @@ import {
   type MergeField,
   TEMPLATE_ATTACHMENT_MAX_BYTES,
   TEMPLATE_ATTACHMENT_ACCEPT,
+  smsCountText,
 } from '@firmivra/types';
 import {
   Button,
@@ -502,9 +503,9 @@ function Editor({
                   onFocus={() => setTarget('body')}
                   {...(errors.body ? { error: errors.body } : {})}
                 />
-                <p className="mt-1 text-xs text-muted">
-                  {form.body.length} characters · {Math.max(1, Math.ceil(form.body.length / 160))}{' '}
-                  text part(s). Plain text only.
+                {/* R02: parts as carriers count them (GSM-7 or Unicode), not length / 160. */}
+                <p className="mt-1 text-xs text-muted" data-testid="sms-count">
+                  {smsCountText(form.body)}. Plain text only.
                 </p>
               </div>
             ) : (

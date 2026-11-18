@@ -74,3 +74,30 @@ test('an SMS stays plain text: no formatting tools (TP-F07)', async ({ page }) =
   await expect(page.getByRole('button', { name: 'Insert button' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Align centre' })).toHaveCount(0);
 });
+
+test('the SMS counter counts parts as carriers do: GSM-7, extension characters and Unicode (R02)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/new?kind=SMS`);
+  const body = page.getByLabel('Message *');
+  const count = page.getByTestId('sms-count');
+  const parts = async (text: string, expected: string) => {
+    await body.fill(text);
+    await expect(count).toContainText(expected);
+  };
+  await expect(body).toBeVisible({ timeout: 60_000 });
+  // Standard characters: 160 one text, 161 two, 306 two, 307 three.
+  await parts('A'.repeat(160), '160 characters · 1 text part (standard characters');
+  await parts('A'.repeat(161), '161 characters · 2 text parts');
+  await parts('A'.repeat(306), '306 characters · 2 text parts');
+  await parts('A'.repeat(307), '307 characters · 3 text parts');
+  // An extension character is two: 80 carets fit one text, 81 do not.
+  await parts('^'.repeat(80), '80 characters · 1 text part');
+  await parts('^'.repeat(81), '81 characters · 2 text parts');
+  // Unicode: 70 one text, 71 two; an emoji counts twice, so 36 take two parts.
+  await parts('漢'.repeat(70), '70 characters · 1 text part (special characters');
+  await parts('漢'.repeat(71), '71 characters · 2 text parts');
+  await parts(String.fromCodePoint(0x1f600).repeat(35), '35 characters · 1 text part');
+  await parts(String.fromCodePoint(0x1f600).repeat(36), '36 characters · 2 text parts');
+});
