@@ -12,6 +12,7 @@ import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { DashboardSummary, INTAKE_FORMS, addDays, seasonOf } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { zonedInstant } from '../../src/appointments/calendar.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -633,5 +634,32 @@ describe('GET /business/dashboard/summary', () => {
     );
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.metadata === null)).toBe(true);
+  });
+});
+
+describe('Outstanding Invoices and Appointments Today against their lists (Dashboard Review Two V1)', () => {
+  it('give the same money and the same appointments as the lists they open, for the Owner and Staff', async () => {
+    for (const who of [people.ownerA, people.staffA]) {
+      const s = await read(who, 'a');
+      // Outstanding Invoices opens the unpaid invoices: their balances due add up to the card.
+      const invoices = await bodyOf<{ items: { status: string; balanceDueCents: number }[] }>(
+        who,
+        '/business/invoices?status=OPEN&archived=include&limit=100',
+      );
+      expect(invoices.items.reduce((sum, i) => sum + i.balanceDueCents, 0)).toBe(
+        s.kpis.outstandingInvoicesCents.value,
+      );
+      // Appointments Today opens the firm's today on the calendar: its scheduled ones.
+      const tz = s.timeZone!;
+      const from = new Date(zonedInstant(tz, s.today, 0)).toISOString();
+      const to = new Date(zonedInstant(tz, addDays(s.today, 1), 0)).toISOString();
+      const day = await bodyOf<{ items: { status: string; restricted?: boolean }[] }>(
+        who,
+        `/business/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      expect(day.items.filter((a) => a.status === 'SCHEDULED' && !a.restricted)).toHaveLength(
+        s.kpis.appointmentsToday.value,
+      );
+    }
   });
 });
