@@ -67,13 +67,16 @@ const METHODS: {
   {
     key: 'allowSecureMessage',
     title: 'Allow Secure Messages',
-    does: 'Let clients send messages through their portal (recommended). Messages must be on in Portal Features too.',
+    // CP-4f: off, the API refuses a client's new conversation too; replies still go through.
+    does: 'Let clients start conversations through their portal (recommended). Off, they can only reply to yours. Messages must be on in Portal Features too.',
     icon: MessageSquare,
   },
   {
     key: 'allowAppointmentLink',
     title: 'Allow Appointments',
-    does: 'Show a button to book an appointment in the client portal.',
+    // CP-4f (the lead, Nov 18): only the contact card's button; booking itself follows each
+    // client's Appointments switch in the Client Portal module, which the API enforces.
+    does: "Show Book Appointment on the portal's contact card. Whether a client can book at all follows their Appointments switch in Client Portal.",
     icon: CalendarDays,
   },
 ];
