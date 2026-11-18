@@ -6,6 +6,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../../../lib/unsaved';
 import { clientKey } from '../../../_components/client-parts';
 import { textareaClass, when } from './parts';
 
@@ -24,6 +25,8 @@ export function NotesCard({
     invalidate: key,
   });
   const [body, setBody] = useState('');
+  // CP-F1-15: a typed, unsaved note is unsaved work, so leaving the page asks first.
+  useUnsavedChanges(body.trim() !== '');
   // Clients Review 2: an archived client's notes are read-only (the API says 409 CLIENT_ARCHIVED).
   const record = useApiQuery(clientKey(clientId), () => api.clients.get(clientId));
   const archived = Boolean(record.data?.archivedAt);

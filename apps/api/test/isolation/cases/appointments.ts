@@ -183,11 +183,13 @@ export const cases: CaseModule['cases'] = {
     params: {},
     bodyIds: { appointmentIds: 'appointment' },
   },
+  // P4-1: the form's contact is a lead here (the check resolves it by the lead pages' rule); the
+  // client contact is swapped on Schedule Appointment and the drafts.
   'POST /api/v1/business/appointments/conflicts': {
     params: {},
     bodyIds: {
       staffUserIds: 'staffUser',
-      'contact.id': 'client',
+      'contact.id': 'lead',
       roomId: 'firmRoom',
       equipmentIds: 'firmEquipment',
       excludeAppointmentId: 'appointment',
@@ -196,7 +198,7 @@ export const cases: CaseModule['cases'] = {
       // A1: the other attendees, each checked for another appointment then.
       attendeeClientIds: 'attendeeClient',
     },
-    body: { ...inOneHour(), contact: { kind: 'CLIENT', id: '' } },
+    body: { ...inOneHour(), contact: { kind: 'LEAD', id: '' } },
   },
   'GET /api/v1/business/availability/:userId/rules': { params: { userId: 'staffUser' } },
   'PUT /api/v1/business/availability/:userId/rules': {
