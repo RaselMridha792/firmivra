@@ -85,10 +85,22 @@ export const CHECK_RANK: Record<string, number> = { VALID: 0, INFO: 1, WARNING: 
 export const isBackward = (from: TaxReturnWorkflowStatus, to: TaxReturnWorkflowStatus) =>
   STEP[from] !== undefined && STEP[to] !== undefined && STEP[to]! < STEP[from]!;
 
-/** Staff reach the returns of the clients assigned to them; Owner and Admin every one. */
+/**
+ * Staff reach the returns of the clients assigned to them, and (F18, DECISIONS Nov 17) a return
+ * they are the assigned preparer or reviewer of: that return only, never its client, because
+ * Create and Assign offer every member as preparer. Owner and Admin reach every one.
+ */
 export function returnReach(tenant: TenantContext, userId: string): Prisma.TaxReturnWhereInput {
   const role = legacyFirmRole(tenant.role as Parameters<typeof legacyFirmRole>[0]);
-  return role === 'STAFF' ? { client: { assignedUserId: userId } } : {};
+  return role === 'STAFF'
+    ? {
+        OR: [
+          { client: { assignedUserId: userId } },
+          { preparerUserId: userId },
+          { reviewerUserId: userId },
+        ],
+      }
+    : {};
 }
 
 export const rowSelect = {

@@ -280,7 +280,11 @@ export function ReturnDocumentsPanel({
   const all = (q.data ?? []).filter((d) => !kinds || kinds.includes(d.kind));
   const shown = limit ? all.slice(0, limit) : all;
   const download = async (id: string) => {
-    const link = await act(() => api.documents.download(id), 'Download ready.');
+    // F18: through the return, so its preparer or reviewer gets it without the client.
+    const link = await act(
+      () => api.taxReturnWorkspace.documentDownload(detail.id, id),
+      'Download ready.',
+    );
     if (link) window.location.assign(link.url);
   };
   return (

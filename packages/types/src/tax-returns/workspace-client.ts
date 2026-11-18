@@ -1,6 +1,6 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { OkResponse } from '../schemas.js';
-import { DocumentId } from '../documents/schemas.js';
+import { DocumentId, DownloadLink } from '../documents/schemas.js';
 import { TaxReturnId } from './schemas.js';
 import {
   AmendTaxReturnRequest,
@@ -381,6 +381,12 @@ export function createTaxReturnWorkspaceClient(request: ApiRequest) {
           post(parseInput(LinkTaxReturnDocumentRequest, body)),
         )
       ).items,
+    /**
+     * F18: a 5-minute link to a document linked to the return, by the return's reach (its
+     * preparer or reviewer too). 409 SCAN_PENDING or FILE_BLOCKED.
+     */
+    documentDownload: async (id: string, documentId: string): Promise<DownloadLink> =>
+      request(DownloadLink, `${sub(id, 'documents', documentId, DocumentId)}/download`),
     /** 409 DOCUMENT_LOCKED for a filed return or an acknowledgment. */
     unlinkDocument: async (id: string, documentId: string): Promise<OkResponse> =>
       request(OkResponse, sub(id, 'documents', documentId, DocumentId), { method: 'DELETE' }),

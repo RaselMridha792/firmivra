@@ -1802,6 +1802,16 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       touch(r, 'DOCUMENT', 'Document linked');
       return copy(r.documents);
     },
+    // F18, as the API: only a document linked to this return (404 otherwise).
+    documentDownload: async (id, documentId) => {
+      await mockDelay();
+      const r = find(id);
+      if (!r.documents.some((x) => x.document.id === documentId)) throw notFound();
+      return {
+        url: `/mock-download/${documentId}`,
+        expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      };
+    },
     unlinkDocument: async (id, documentId) => {
       await mockDelay();
       const r = find(id);
