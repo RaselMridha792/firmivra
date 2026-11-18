@@ -137,6 +137,11 @@ const TEXT: Record<NotificationEvent, Writer> = {
     const line = [text(p, 'title') ?? 'A service', status].filter(Boolean).join(': ');
     return { title: 'Service updated', body: side === 'staff' ? forClient(p, line) : line };
   },
+  // BK-CP2: the service's name only, never the report's figures or file.
+  'report.published': (p) => ({
+    title: 'New report',
+    body: `A new report is ready${text(p, 'title') ? ` for ${text(p, 'title')}` : ''}. Open the service to see it.`,
+  }),
   'tax-return.status-changed': (p) => {
     const year = p['taxYear'];
     const form = text(p, 'formType');
