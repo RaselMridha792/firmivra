@@ -100,7 +100,8 @@ test('T1, B07: a message preview opens that client’s conversation, with Back t
     timeout: 60_000,
   });
   await preview.click();
-  await expect(page).toHaveURL(/\/clients\/[^/?]+\/messages\?from=%2F/);
+  // The first visit compiles the page in dev mode: give it time.
+  await expect(page).toHaveURL(/\/clients\/[^/?]+\/messages\?from=%2F/, { timeout: 60_000 });
   await page.getByTestId('back-to-origin').click();
   await expect(page.getByTestId('firm-dashboard')).toBeVisible();
 });
