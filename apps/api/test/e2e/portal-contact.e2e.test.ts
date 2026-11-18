@@ -146,7 +146,12 @@ async function tokenOf(email: string): Promise<string> {
   }
   return token;
 }
-async function send(method: 'get' | 'put', path: string, who: { email: string }, body?: object) {
+async function send(
+  method: 'get' | 'put' | 'post',
+  path: string,
+  who: { email: string },
+  body?: object,
+) {
   const token = await tokenOf(who.email);
   const req = request(app.getHttpServer())
     [method](`/api/v1${path}`)
@@ -268,6 +273,19 @@ describe('GET /portal/{slug}/me/contact', () => {
     await send('put', '/business/settings/portal-tabs', owner, { tabs: { MESSAGES: true } });
     await save({ allowSms: false });
     expect((await mine()).methods.sms).toBe(false);
+  });
+
+  it('CP-4f: with Allow Secure Messages off, a client cannot start a conversation by API either', async () => {
+    const start = () =>
+      send('post', `/portal/${slugA}/me/messages`, client, {
+        subject: 'Fake question',
+        body: 'Fake body',
+      });
+    await save({ allowSecureMessage: false });
+    const refused = await start();
+    expect([refused.status, code(refused)]).toEqual([403, 'MESSAGES_CLOSED']);
+    await save({ allowSecureMessage: true });
+    expect((await start()).status).toBe(201);
   });
 
   it('follows the switches: each office hides on its own', async () => {

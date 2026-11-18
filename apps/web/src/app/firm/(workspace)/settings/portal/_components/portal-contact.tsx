@@ -21,13 +21,14 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { PortalContactDetails } from '../../../../../../components/portal-contact-card';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { phoneLabel } from '../../../../../../lib/firm-contact';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../../lib/unsaved';
 
 const QUERY = ['portal-contact'];
 const KEYS: (keyof PortalContactSwitches)[] = [
@@ -67,13 +68,16 @@ const METHODS: {
   {
     key: 'allowSecureMessage',
     title: 'Allow Secure Messages',
-    does: 'Let clients send messages through their portal (recommended). Messages must be on in Portal Features too.',
+    // CP-4f: off, the API refuses a client's new conversation too; replies still go through.
+    does: 'Let clients start conversations through their portal (recommended). Off, they can only reply to yours. Messages must be on in Portal Features too.',
     icon: MessageSquare,
   },
   {
     key: 'allowAppointmentLink',
     title: 'Allow Appointments',
-    does: 'Show a button to book an appointment in the client portal.',
+    // CP-4f (the lead, Nov 18): only the contact card's button; booking itself follows each
+    // client's Appointments switch in the Client Portal module, which the API enforces.
+    does: "Show Book Appointment on the portal's contact card. Whether a client can book at all follows their Appointments switch in Client Portal.",
     icon: CalendarDays,
   },
 ];
@@ -180,13 +184,8 @@ function ContactForm({ saved }: { saved: PortalContactSettings }) {
   );
   const changed = KEYS.filter((k) => switches[k] !== saved.switches[k]);
   const dirty = changed.length > 0;
-  // Leaving with unsaved switches asks first (guide 7.1).
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  // Leaving with unsaved switches asks first, by a link too (guide 7.1, CP-7.1).
+  useUnsavedChanges(dirty);
   const set = (key: keyof PortalContactSwitches, on: boolean) => {
     setDone(false);
     setSwitches({ ...switches, [key]: on });

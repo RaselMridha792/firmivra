@@ -12,6 +12,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import type { MockFirmRole } from './clients';
+import { mockPortalAccountType } from './portal-account-type';
 
 /**
  * Mock data for `api.content` and `api.myContent(slug)` (R12). The external links are the eight
@@ -254,7 +255,7 @@ export function createContentMock(options: { role?: MockFirmRole } = {}): Conten
 export function createMyContentMock(
   options: { accountType?: 'INDIVIDUAL' | 'BUSINESS' } = {},
 ): MyContentClient {
-  const business = (options.accountType ?? 'BUSINESS') === 'BUSINESS';
+  const business = (options.accountType ?? mockPortalAccountType()) === 'BUSINESS';
   return {
     list: async (query = {}) => {
       await mockDelay();

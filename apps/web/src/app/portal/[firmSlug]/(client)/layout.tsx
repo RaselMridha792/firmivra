@@ -151,7 +151,7 @@ function ClientArea({ slug, children }: { slug: string; children: ReactNode }) {
  * on the left (a drawer below 768 px), and a full-width footer.
  */
 function PortalShell({ children, slug }: { children: ReactNode; slug: string }) {
-  const { business, branding } = usePortal();
+  const { business, branding, timezone } = usePortal();
   const { me, signOut } = useMe();
   const pathname = usePathname();
   // The first name in the greeting: the firm's button blue on the Business, My Uploaded Documents,
@@ -258,6 +258,9 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
           <Header
             roleLabel="Client"
             hideRole
+            // SM10: the date, time and the firm's time zone, as on every firm page.
+            clock
+            clockZone={timezone}
             onOpenMenu={() => setDrawer(true)}
             bell={<PortalBell slug={slug} />}
             greeting={

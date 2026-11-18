@@ -130,6 +130,50 @@ describe('Settings > Client Portal > Features (portal tabs)', () => {
     expect(PortalTabs.parse(menu.body).tabs).toEqual(ALL_ON);
   });
 
+  it('CP-9.3: a Personal portal lists no business-only tab; a Business portal does', async () => {
+    const people = { personal: person('personal'), business: person('business') };
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    await runInScope(db, { kind: 'platform' }, async (tx) => {
+      for (const u of Object.values(people)) {
+        await tx.user.create({
+          data: {
+            id: u.id,
+            cognitoSub: u.id,
+            pool: 'CLIENT',
+            email: u.email,
+            name: 'Fake R1 type',
+          },
+        });
+      }
+    });
+    await runInScope(db, { kind: 'business', businessId: firmId }, async (tx) => {
+      for (const [key, accountType] of [
+        ['personal', 'INDIVIDUAL'],
+        ['business', 'BUSINESS'],
+      ] as const) {
+        const c = await tx.client.create({
+          data: { businessId: firmId, displayName: `Fake ${key} client`, accountType },
+        });
+        await tx.clientAccount.create({
+          data: {
+            businessId: firmId,
+            userId: people[key].id,
+            clientId: c.id,
+            email: people[key].email,
+            status: 'ACTIVE',
+          },
+        });
+      }
+    });
+    await db.$disconnect();
+    const menu = async (who: { email: string }) =>
+      PortalTabs.parse((await send('get', `/portal/${slug}/me/tabs`, who)).body);
+    expect((await menu(people.personal)).businessPortal).toBe(false);
+    expect((await menu(people.business)).businessPortal).toBe(true);
+    // A login with no client record counts as Personal, as the resources do.
+    expect((await menu(client)).businessPortal).toBe(false);
+  });
+
   it('lets Owner and Admin switch tabs, audited by tab, and never Staff or a client', async () => {
     expect((await save(staff, { TAX_RETURNS: false })).status).toBe(403);
     expect((await send('get', SETTINGS, staff)).status).toBe(403);

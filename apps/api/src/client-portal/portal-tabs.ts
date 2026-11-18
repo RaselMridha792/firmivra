@@ -43,6 +43,17 @@ export const tabOff = (area: PortalModule) =>
     message: `${(PORTAL_TAB_LABELS as Partial<Record<PortalModule, string>>)[area] ?? PORTAL_MODULE_LABELS[area]} is turned off in this portal.`,
   });
 
+/**
+ * CP-4f (lead decision 1b): Settings > Client Portal > Contact Information's Allow Secure Messages
+ * is a rule, not only a button: off, a client cannot start a conversation (403 MESSAGES_CLOSED);
+ * a reply in a thread the firm started still goes through.
+ */
+export const messagesClosed = () =>
+  new ForbiddenException({
+    code: 'MESSAGES_CLOSED',
+    message: "Your firm doesn't take new messages through the portal. Please call or email them.",
+  });
+
 type Tabs = Record<PortalTab, boolean>;
 /** Each portal area: the firm's switch (on where it has none) and this client's own. */
 export type ClientAreas = Record<PortalModule, { firmOn: boolean; clientOn: boolean }>;
@@ -58,6 +69,17 @@ export class PortalTabsService {
   /** Every tab, on unless the firm switched it off. */
   async tabs(businessId: string): Promise<Tabs> {
     return this.db.withScope({ kind: 'business', businessId }, (tx) => this.read(tx));
+  }
+
+  /** CP-4f: 403 MESSAGES_CLOSED when the firm turned Allow Secure Messages off (on by default). */
+  async assertNewThreadsOpen(businessId: string): Promise<void> {
+    const row = await this.db.withScope({ kind: 'business', businessId }, (tx) =>
+      tx.clientPortalSettings.findUnique({
+        where: { businessId },
+        select: { allowSecureMessage: true },
+      }),
+    );
+    if (row && !row.allowSecureMessage) throw messagesClosed();
   }
 
   async isOn(businessId: string, tab: PortalTab): Promise<boolean> {
@@ -129,9 +151,14 @@ export class PortalTabsService {
         where: { id: clientAccountId },
         select: { clientId: true },
       });
-      if (!account?.clientId) return { tabs: await this.read(tx) };
+      if (!account?.clientId) return { tabs: await this.read(tx), businessPortal: false };
       const areas = await this.areasIn(tx, account.clientId);
       const on = (m: PortalModule) => areas[m].firmOn && areas[m].clientOn;
+      // CP-9.3: a Personal portal lists no business-only tab (content.service's rule).
+      const client = await tx.client.findUnique({
+        where: { id: account.clientId },
+        select: { accountType: true },
+      });
       return {
         tabs: Object.fromEntries(PortalTab.options.map((t) => [t, on(t)])) as Tabs,
         more: {
@@ -139,6 +166,7 @@ export class PortalTabsService {
           TASKS_REQUESTS: on('TASKS_REQUESTS'),
           REPORTS: on('REPORTS'),
         },
+        businessPortal: client?.accountType === 'BUSINESS',
       };
     });
   }
