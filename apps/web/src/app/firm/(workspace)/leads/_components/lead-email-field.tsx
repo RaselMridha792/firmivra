@@ -1,12 +1,15 @@
 'use client';
 
-import { EMAIL_FONT_SIZES, EMAIL_FONTS, EMAIL_IMAGE_LIMITS } from '@firmivra/types';
+import { EMAIL_FONT_SIZES, EMAIL_FONTS } from '@firmivra/types';
 import { Button, RichTextEditor } from '@firmivra/ui';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { uploadImage } from '../../../../../lib/upload';
+import {
+  EMAIL_IMAGE_SIZING as SIZING,
+  useEmailImageUpload,
+} from '../../_components/email-image-upload';
 import { EMAIL_EXTRA_ERRORS, withSignature } from './lead-message';
 
 // The Send Email message (Octavia's Leads review, item 8; L4): fonts, sizes, bold and italic, and
@@ -15,58 +18,8 @@ import { EMAIL_EXTRA_ERRORS, withSignature } from './lead-message';
 // so what the composer shows is what the lead receives.
 
 export const SIGNATURE_KEY = ['lead-pipeline', 'signature'] as const;
-const SIZING = { minWidth: EMAIL_IMAGE_LIMITS.minWidth, maxWidth: EMAIL_IMAGE_LIMITS.maxWidth };
 /** A new email: an empty first line to write on. */
 const BLANK = '<p><br></p>';
-
-/** The image button: picks one file, uploads it, and answers its address (null if it failed). */
-function useImageUpload() {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const waitingRef = useRef<((file: File | null) => void) | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const insert = async (): Promise<string | null> => {
-    setProblem(null);
-    const file = await new Promise<File | null>((resolve) => {
-      waitingRef.current = resolve;
-      inputRef.current?.click();
-    });
-    if (!file) return null;
-    setBusy(true);
-    try {
-      const image = await uploadImage(file, {
-        contentTypes: EMAIL_IMAGE_LIMITS.contentTypes,
-        maxBytes: EMAIL_IMAGE_LIMITS.maxBytes,
-        start: (body) => api.leadPipeline.createEmailImageUpload(body),
-        finish: (uploadToken) => api.leadPipeline.confirmEmailImageUpload({ uploadToken }),
-      });
-      return image.url;
-    } catch (error) {
-      setProblem(errorMessage(error, EMAIL_EXTRA_ERRORS));
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  };
-  const fileInput = (
-    <input
-      ref={inputRef}
-      type="file"
-      accept={EMAIL_IMAGE_LIMITS.contentTypes.join(',')}
-      className="sr-only"
-      tabIndex={-1}
-      aria-hidden
-      data-testid="email-image-file"
-      onChange={(e) => {
-        const file = e.target.files?.[0] ?? null;
-        e.target.value = '';
-        waitingRef.current?.(file);
-        waitingRef.current = null;
-      }}
-    />
-  );
-  return { insert, fileInput, problem, busy };
-}
 
 interface EmailMessageFieldProps {
   /** The email's HTML as it will be sent, on every change (the signature included). */
@@ -75,8 +28,8 @@ interface EmailMessageFieldProps {
 }
 
 export function EmailMessageField({ onChange, error }: EmailMessageFieldProps) {
-  const images = useImageUpload();
-  const signatureImages = useImageUpload();
+  const images = useEmailImageUpload();
+  const signatureImages = useEmailImageUpload();
   const signature = useApiQuery(SIGNATURE_KEY, () => api.leadPipeline.signature());
   const saved = signature.data?.html ?? null;
   // Null until the member writes: then the saved signature (once loaded) sits under a blank line.

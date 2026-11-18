@@ -727,7 +727,11 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
     if (r.updatedAt !== version)
       throw fail(409, 'STALE_VERSION', 'This message changed since you opened it.');
   };
+  /** M22: the text each person gets: the message's own, or the files line for files alone. */
+  const textFor = (r: OutboundRow, p: MockPerson) =>
+    r.body ? fillFor(p, r.body).text : filesOnlyBody(r.files.map((f) => f.fileName));
   const ready = async (r: OutboundRow) => {
+    if (!r.body && r.files.length === 0) throw bodyRequired();
     if (r.channel === 'EMAIL' && !r.subject?.trim())
       throw fail(400, 'SUBJECT_REQUIRED', 'An email needs a subject');
     if ((await shape(r)).counts.canReceive === 0)
@@ -774,7 +778,8 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
   const insert = async (b: {
     channel: OutboundMessage['channel'];
     subject?: string | null;
-    body: string;
+    /** M22: left out for a Portal message of files alone. */
+    body?: string;
     templateId?: string | null;
     related?: { type: OutboundRelated['type']; id: string } | null;
     assignedUserId?: string | null;
@@ -790,7 +795,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       status: 'DRAFT',
       channel: b.channel,
       subject: b.subject ?? null,
-      body: b.body,
+      body: b.body ?? '',
       templateId: b.templateId ?? null,
       scheduledFor: null,
       clientIds: [...new Set(b.clientIds)],
@@ -862,7 +867,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           canReceive: x.canReceive,
           reason: x.reason,
           subject: subject?.text ?? null,
-          body: body.text,
+          body: textFor(r, p),
           unresolved: [...new Set([...(subject?.unresolved ?? []), ...body.unresolved])],
         };
       });
@@ -879,6 +884,12 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           code: 'SUBJECT_REQUIRED',
           severity: 'BLOCK',
           message: 'An email needs a subject.',
+        });
+      if (!r.body && r.files.length === 0)
+        checks.push({
+          code: 'BODY_REQUIRED',
+          severity: 'BLOCK',
+          message: 'Write a message or attach a file.',
         });
       if (unresolved.length > 0)
         checks.push({
@@ -928,8 +939,10 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
         b.channel === r.channel &&
         key(r.clientIds, r.leadIds) === key([...new Set(b.clientIds)], [...new Set(b.leadIds)])
       ) {
+        if (r.status === 'SCHEDULED' && b.body === undefined && r.files.length === 0)
+          throw bodyRequired();
         r.subject = b.subject ?? null;
-        r.body = b.body;
+        r.body = b.body ?? '';
         r.templateId = b.templateId ?? null;
         Object.assign(r, extrasOf(b));
         r.updatedAt = stamp();
@@ -975,7 +988,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           addMessage(
             t,
             staff(me),
-            fillFor(p, r.body).text,
+            textFor(r, p),
             r.files.map((f) => ({
               kind: 'FILE' as const,
               id: f.id,
@@ -1087,6 +1100,11 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
         throw fail(409, 'NOT_EDITABLE', 'This message was already sent or canceled.');
       if (!r.files.some((f) => f.id === fileId)) throw notFound();
+      // M22: a scheduled message of files alone keeps its last file.
+      if (r.status === 'SCHEDULED' && !r.body && r.files.length === 1)
+        throw bodyRequired(
+          'A scheduled message needs a message or a file. Write a message first, or cancel it',
+        );
       r.files = r.files.filter((f) => f.id !== fileId);
       r.updatedAt = stamp();
       return { ok: true as const };
@@ -1107,6 +1125,9 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
 
 const FILES_NEED_PORTAL =
   'Files go to clients through their portal. Choose Portal, or remove the files';
+/** M22: Send and Schedule need a text or a file, as the API (400). */
+const bodyRequired = (message = 'Write a message or attach a file') =>
+  fail(400, 'BODY_REQUIRED', message);
 
 /** A file New Message sent (MSG-F12), as the API links it: only once it reached a client. */
 function sentFileLink(fileId: string) {

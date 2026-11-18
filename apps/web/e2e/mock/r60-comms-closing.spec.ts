@@ -7,10 +7,9 @@ import { expect, test, type Page } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/communications`;
 
+/** New Communication opens the composer itself (Q3: nothing saved until its first save). */
 const start = async (page: Page, channel: 'EMAIL' | 'SMS') => {
   await page.goto(`${base}/new?channel=${channel}`);
-  await page.getByRole('button', { name: /^Start / }).click();
-  await page.waitForURL(/\/edit$/);
   await expect(page.getByTestId('composer')).toBeVisible();
 };
 const closing = async (page: Page, item: string) => {

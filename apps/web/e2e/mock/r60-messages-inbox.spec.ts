@@ -122,3 +122,67 @@ test('A Payroll Send Message keeps its own Back while the view changes', async (
   await page.getByTestId('back-to-origin').click();
   await expect(page).toHaveURL(app('/payroll'));
 });
+
+test('M16 (Review Two): Tab goes through the inbox in order, to a thread and its reply box, with focus shown', async ({
+  page,
+}) => {
+  await page.goto(app('/messages'));
+  await expect(page.getByTestId('thread-row')).toHaveCount(6);
+  // The first conversation opens by itself.
+  await expect(page.getByRole('textbox', { name: 'Type a message' })).toBeVisible();
+  // Arrive at New Message by the keyboard, so focus shows as it would for a keyboard user.
+  await page.getByTestId('messages-new').focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  const seen: { name: string; shows: boolean }[] = [];
+  for (let i = 0; i < 80; i += 1) {
+    const now = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement;
+      const input = el as HTMLInputElement;
+      const name =
+        el.getAttribute('data-testid') ??
+        el.getAttribute('aria-label') ??
+        (el.getAttribute('role') === 'tab' ? `tab:${el.textContent?.trim() ?? ''}` : null) ??
+        input.labels?.[0]?.textContent?.trim() ??
+        el.textContent?.trim().slice(0, 40) ??
+        el.tagName;
+      // Shown: its outline or ring (or its label's) differs from when it is not focused.
+      const look = () =>
+        [el, el.closest('label')]
+          .filter((e): e is HTMLElement => e !== null)
+          .map((e) => {
+            const s = getComputedStyle(e);
+            return `${s.outlineStyle} ${s.outlineWidth} ${s.boxShadow}`;
+          })
+          .join('|');
+      const focused = look();
+      el.blur();
+      const plain = look();
+      el.focus();
+      return { name, shows: focused !== plain };
+    });
+    seen.push(now);
+    if (now.name === 'Type a message') break;
+    await page.keyboard.press('Tab');
+  }
+  const names = seen.map((s) => s.name);
+  const stops = [
+    'messages-new',
+    'messages-bulk',
+    'messages-templates',
+    'messages-settings',
+    'tab:All Messages',
+    'messages-client',
+    'Search messages',
+    'Filter',
+    'thread-row',
+    'Type a message',
+  ];
+  const at = stops.map((stop) => names.findIndex((n) => n.startsWith(stop)));
+  expect(
+    at.every((i) => i >= 0),
+    names.join(' > '),
+  ).toBe(true);
+  expect(at, names.join(' > ')).toEqual([...at].sort((a, b) => a - b));
+  for (const i of at) expect(seen[i]?.shows, `focus shown on ${names[i] ?? ''}`).toBe(true);
+});

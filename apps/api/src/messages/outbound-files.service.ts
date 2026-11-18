@@ -71,6 +71,17 @@ export class OutboundUploadTokens extends Sealer<Claim> {
 }
 
 const MB = 1024 * 1024;
+/**
+ * M22 (Messaging Review 2): the stored text of a Portal message of files only. Its files go on a
+ * saved draft, and the table needs a text (outbound_messages_text), so a message with no text of
+ * its own keeps this mark: a zero-width space, which the contract refuses in a typed message, so
+ * it never stands for one. The API answers it as '' and each portal message it sends says what
+ * was sent instead ("Sent 2 files: a.pdf and b.pdf", the reply's line).
+ */
+export const NO_TEXT = '​';
+/** M22: Send and Schedule need a text or a file (400). */
+export const bodyRequired = (message = 'Write a message or attach a file') =>
+  new BadRequestException({ code: 'BODY_REQUIRED', message });
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const expired = () =>
   new GoneException({ code: 'UPLOAD_EXPIRED', message: 'The upload took too long. Add it again.' });
@@ -161,7 +172,7 @@ export class OutboundFilesService implements ScanResultHandler, OnModuleInit {
         kind: 'DIRECT',
         ...(actor.role === 'STAFF' ? { createdByUserId: actor.userId } : {}),
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, body: true },
     });
     if (!m) throw notFound();
     if (m.status !== 'DRAFT' && m.status !== 'SCHEDULED')
@@ -373,12 +384,21 @@ export class OutboundFilesService implements ScanResultHandler, OnModuleInit {
 
   async remove(businessId: string, actor: ClientsActor, id: string, fileId: string) {
     const key = await this.inFirm(businessId, async (tx) => {
-      await this.editable(tx, businessId, actor, id);
+      const m = await this.editable(tx, businessId, actor, id);
       const f = await tx.outboundMessageFile.findFirst({
         where: { businessId, outboundMessageId: id, id: fileId },
         select: { id: true, s3Key: true },
       });
       if (!f) throw notFound();
+      // M22: a scheduled message of files only keeps at least one (it would go with nothing).
+      if (
+        m.status === 'SCHEDULED' &&
+        m.body === NO_TEXT &&
+        (await tx.outboundMessageFile.count({ where: { businessId, outboundMessageId: id } })) <= 1
+      )
+        throw bodyRequired(
+          'A scheduled message needs a message or a file. Write a message first, or cancel it',
+        );
       await tx.outboundMessageFile.delete({ where: { id: f.id } });
       await this.audit.logIn(
         tx,

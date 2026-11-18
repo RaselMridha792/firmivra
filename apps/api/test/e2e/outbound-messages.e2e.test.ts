@@ -52,7 +52,7 @@ async function tokenFor(email: string): Promise<string> {
   return token;
 }
 async function call(
-  method: 'get' | 'post' | 'put',
+  method: 'get' | 'post' | 'put' | 'delete',
   path: string,
   who: { email: string } = people.ownerA,
   body?: object,
@@ -688,6 +688,172 @@ describe("M24 (Messaging Review 2): a client's drafts and scheduled messages", (
     ok(
       await call('post', `/outbound-messages/${planned.id}/cancel`, people.ownerA, {
         version: planned.updatedAt,
+      }),
+    );
+  });
+});
+
+describe('M22 (Messaging Review 2): New Message sends files with no text, by portal only', () => {
+  /** A file on the message, clean, as the browser's upload and the scanner leave it. */
+  async function fileOn(outboundMessageId: string, fileName: string): Promise<string> {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const fileId = await runInScope(
+      owner,
+      { kind: 'business', businessId: ids.firmA },
+      async (tx) => {
+        const f = await tx.outboundMessageFile.create({
+          data: {
+            businessId: ids.firmA,
+            outboundMessageId,
+            fileName,
+            contentType: 'application/pdf',
+            sizeBytes: 64,
+            sha256: 'a'.repeat(64),
+            s3Key: `tenant/${ids.firmA}/messages/${randomUUID()}`,
+            uploadedByUserId: people.ownerA.id,
+          },
+          select: { id: true },
+        });
+        await tx.outboundMessageFile.update({
+          where: { id: f.id },
+          data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+        });
+        return f.id;
+      },
+    );
+    await owner.$disconnect();
+    return fileId;
+  }
+  const later = () => new Date(Date.now() + 3 * 86_400_000).toISOString();
+  const versionOf = async (id: string) =>
+    Outbound.parse(ok(await call('get', `/outbound-messages/${id}`)).body).updatedAt;
+
+  it('files and no text: saved with none, sent with the files line of a reply', async () => {
+    const d = await draft({ channel: 'PORTAL', subject: `Files ${run}`, clientIds: [ids.one] });
+    expect(d.body).toBe('');
+    // Nothing yet: no text and no file is refused at Send and Schedule, and the review says so.
+    const empty = ok(await call('get', `/outbound-messages/${d.id}/review`)).body as {
+      checks: { code: string; severity: string }[];
+    };
+    expect(empty.checks).toContainEqual(
+      expect.objectContaining({ code: 'BODY_REQUIRED', severity: 'BLOCK' }),
+    );
+    const refused = await call('post', `/outbound-messages/${d.id}/send`, people.ownerA, {
+      version: d.updatedAt,
+    });
+    expect(refused.status).toBe(400);
+    expect(codeOf(refused)).toBe('BODY_REQUIRED');
+    const notPlanned = await call('post', `/outbound-messages/${d.id}/schedule`, people.ownerA, {
+      version: d.updatedAt,
+      scheduledFor: later(),
+    });
+    expect(notPlanned.status).toBe(400);
+    expect(codeOf(notPlanned)).toBe('BODY_REQUIRED');
+
+    await fileOn(d.id, 'Fake W-2.pdf');
+    const withFile = Outbound.parse(ok(await call('get', `/outbound-messages/${d.id}`)).body);
+    expect(withFile.body).toBe('');
+    const review = ok(await call('get', `/outbound-messages/${d.id}/review`)).body as {
+      recipients: { id: string; body: string }[];
+      checks: { code: string }[];
+    };
+    expect(review.recipients.find((r) => r.id === ids.one)?.body).toBe('Sent 1 file: Fake W-2.pdf');
+    expect(review.checks.map((c) => c.code)).toEqual(['READY']);
+    const sent = Outbound.parse(
+      ok(
+        await call('post', `/outbound-messages/${d.id}/send`, people.ownerA, {
+          version: withFile.updatedAt,
+        }),
+      ).body,
+    );
+    expect(sent.status).toBe('SENT');
+    expect(sent.body).toBe('');
+    const threadId = sent.recipients.find((r) => r.id === ids.one)?.threadId;
+    expect(threadId).toBeTruthy();
+    // The conversation (its preview and notices) says what was sent, with the file.
+    const thread = ok(await call('get', `/message-threads/${threadId ?? ''}`)).body as {
+      messages: { body: string; attachments: { fileName: string }[] }[];
+    };
+    expect(thread.messages).toHaveLength(1);
+    expect(thread.messages[0]?.body).toBe('Sent 1 file: Fake W-2.pdf');
+    expect(thread.messages[0]?.attachments.map((a) => a.fileName)).toEqual(['Fake W-2.pdf']);
+  });
+
+  it('a scheduled message of files only keeps its last file; Save keeps a text or a file', async () => {
+    const d = await draft({ channel: 'PORTAL', clientIds: [ids.one] });
+    const fileId = await fileOn(d.id, 'Fake 1099.pdf');
+    const planned = Outbound.parse(
+      ok(
+        await call('post', `/outbound-messages/${d.id}/schedule`, people.ownerA, {
+          version: await versionOf(d.id),
+          scheduledFor: later(),
+        }),
+      ).body,
+    );
+    expect(planned.status).toBe('SCHEDULED');
+    const lastFile = await call('delete', `/outbound-messages/${d.id}/files/${fileId}`);
+    expect(lastFile.status).toBe(400);
+    expect(codeOf(lastFile)).toBe('BODY_REQUIRED');
+    expect((await call('get', `/outbound-messages/${d.id}`)).body).toMatchObject({
+      files: [expect.objectContaining({ id: fileId })],
+    });
+    // Save on a scheduled message with neither a text nor a file is refused too.
+    const fileless = await draft({ channel: 'PORTAL', body: 'Hello', clientIds: [ids.one] });
+    const scheduled = Outbound.parse(
+      ok(
+        await call('post', `/outbound-messages/${fileless.id}/schedule`, people.ownerA, {
+          version: fileless.updatedAt,
+          scheduledFor: later(),
+        }),
+      ).body,
+    );
+    const bare = await call('put', `/outbound-messages/${fileless.id}`, people.ownerA, {
+      version: scheduled.updatedAt,
+      channel: 'PORTAL',
+      clientIds: [ids.one],
+    });
+    expect(bare.status).toBe(400);
+    expect(codeOf(bare)).toBe('BODY_REQUIRED');
+    for (const id of [d.id, fileless.id])
+      ok(
+        await call('post', `/outbound-messages/${id}/cancel`, people.ownerA, {
+          version: await versionOf(id),
+        }),
+      );
+  });
+
+  it('email and text still need a body (400); a body present works as before', async () => {
+    const email = await call('post', '/outbound-messages', people.ownerA, {
+      channel: 'EMAIL',
+      subject: 'No text',
+      clientIds: [ids.one],
+    });
+    expect(email.status).toBe(400);
+    expect(codeOf(email)).toBe('VALIDATION_FAILED');
+    expect(JSON.stringify(email.body)).toContain('Only a portal message can go with files alone');
+    const text = await call('post', '/outbound-messages', people.ownerA, {
+      channel: 'SMS',
+      leadIds: [ids.lead],
+    });
+    expect(text.status).toBe(400);
+    expect(codeOf(text)).toBe('VALIDATION_FAILED');
+    // A blank text is still refused as before, on every channel.
+    const blank = await call('post', '/outbound-messages', people.ownerA, {
+      channel: 'PORTAL',
+      body: '   ',
+      clientIds: [ids.one],
+    });
+    expect(blank.status).toBe(400);
+    const withText = await draft({
+      channel: 'EMAIL',
+      subject: 'Hi',
+      body: 'Hello',
+      clientIds: [ids.one],
+    });
+    expect(withText.body).toBe('Hello');
+    ok(
+      await call('post', `/outbound-messages/${withText.id}/cancel`, people.ownerA, {
+        version: withText.updatedAt,
       }),
     );
   });
