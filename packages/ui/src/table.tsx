@@ -39,8 +39,13 @@ export interface TableProps<T> {
   rowKey: (row: T) => string;
   caption: string;
   loading?: boolean;
+  /**
+   * Rows per page (default 10). With `showPagination={false}` it caps the list to its first
+   * `pageSize` rows only when given (a "top N" card); without it, every row shows.
+   */
   pageSize?: number;
   server?: TableServerControl;
+  /** False: no pager, and (unless `pageSize` is given) every row it was given. */
   showPagination?: boolean;
   tableClassName?: string;
   emptyTitle?: string;
@@ -77,7 +82,7 @@ export function Table<T>({
   rowKey,
   caption,
   loading,
-  pageSize = 10,
+  pageSize,
   server,
   showPagination = true,
   tableClassName = '',
@@ -96,7 +101,7 @@ export function Table<T>({
   const [localSort, setLocalSort] = useState<TableSort>();
   const sort = server ? server.sort : localSort;
   const [page, setPage] = useState(0);
-  const size = Math.max(1, Math.floor(pageSize));
+  const size = Math.max(1, Math.floor(pageSize ?? 10));
   const total = server ? server.total : rows.length;
   const pages = Math.max(1, Math.ceil((total ?? 0) / size));
   const current = server ? server.page - 1 : Math.min(page, pages - 1);
@@ -113,7 +118,16 @@ export function Table<T>({
           return compared * (sort?.descending ? -1 : 1);
         })
       : rows;
-  const shown = server ? rows : ordered.slice(current * size, (current + 1) * size);
+  // Without a pager the table never hides a row it was given, unless the caller caps it with its
+  // own `pageSize` (a "top N" card). A list cut at the default 10 with no way to the 11th hid
+  // records: Appointments' Manage Types showed 10 types and lost the rest (Nov 18).
+  const shown = server
+    ? rows
+    : showPagination
+      ? ordered.slice(current * size, (current + 1) * size)
+      : pageSize === undefined
+        ? ordered
+        : ordered.slice(0, size);
   const keys = shown.map(rowKey);
   const picked = new Set(selection?.selected);
   const all = keys.length > 0 && keys.every((key) => picked.has(key));

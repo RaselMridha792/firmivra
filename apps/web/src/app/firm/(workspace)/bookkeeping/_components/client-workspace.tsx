@@ -447,7 +447,6 @@ export function ClientWorkspace({ id }: { id: string }) {
                     caption="Accounts"
                     dense
                     noun="accounts"
-                    pageSize={10}
                     showPagination={false}
                     emptyTitle="No accounts yet"
                     emptyText="Connect software or add an account in Settings."
