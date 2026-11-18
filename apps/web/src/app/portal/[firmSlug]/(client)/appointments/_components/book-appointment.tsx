@@ -28,13 +28,15 @@ const BOOKING_ERRORS = {
 /**
  * "Schedule an Appointment": a modal with the booking steps (a kind of appointment, then a free
  * time, then confirm). `date` starts the day picker on a day picked in the month calendar; `typeId`
- * (a booking link's, Review 2 row 3) starts on that kind, or says it can't be booked online.
+ * (a booking link's, Review 2 row 3) starts on that kind, or says it can't be booked online;
+ * `packageId` (S12) is the package whose page it came from, named on a booking of that kind.
  */
 export function ScheduleModal({
   slug,
   open,
   date,
   typeId,
+  packageId,
   onClose,
   onBooked,
 }: {
@@ -42,13 +44,22 @@ export function ScheduleModal({
   open: boolean;
   date?: string;
   typeId?: string;
+  packageId?: string;
   onClose: () => void;
   /** Booked: the page says so above the list. */
   onBooked: (text: string) => void;
 }) {
   return (
     <Modal open={open} title="Schedule an Appointment" onClose={onClose}>
-      {open ? <BookableTypes slug={slug} date={date} typeId={typeId} onBooked={onBooked} /> : null}
+      {open ? (
+        <BookableTypes
+          slug={slug}
+          date={date}
+          typeId={typeId}
+          packageId={packageId}
+          onBooked={onBooked}
+        />
+      ) : null}
     </Modal>
   );
 }
@@ -57,11 +68,13 @@ function BookableTypes({
   slug,
   date,
   typeId,
+  packageId,
   onBooked,
 }: {
   slug: string;
   date?: string;
   typeId?: string;
+  packageId?: string;
   onBooked: (text: string) => void;
 }) {
   const types = useApiQuery([...myAppointmentsKey(slug), 'types'], () =>
@@ -75,6 +88,7 @@ function BookableTypes({
           types={list}
           initialDate={date}
           initialTypeId={typeId}
+          packageId={packageId}
           onBooked={onBooked}
           onTypeGone={() => void types.refetch()}
         />
@@ -88,6 +102,7 @@ function Booking({
   types,
   initialDate,
   initialTypeId,
+  packageId,
   onBooked,
   onTypeGone,
 }: {
@@ -96,6 +111,8 @@ function Booking({
   initialDate?: string;
   /** A booking link's type: booking starts on it, or says it can't be booked online. */
   initialTypeId?: string;
+  /** S12: the package page the link came from; sent with a booking of the link's type only. */
+  packageId?: string;
   onBooked: (text: string) => void;
   onTypeGone: () => void;
 }) {
@@ -114,7 +131,11 @@ function Booking({
   const [round, setRound] = useState(0);
   const book = useApiMutation(
     (slot: MySlot) =>
-      api.myAppointments(slug).book({ typeId: type?.id ?? '', startsAt: slot.startsAt }),
+      api.myAppointments(slug).book({
+        typeId: type?.id ?? '',
+        startsAt: slot.startsAt,
+        ...(packageId && type?.id === initialTypeId ? { packageId } : {}),
+      }),
     { invalidate: myAppointmentsKey(slug) },
   );
   const choose = (next: BookableType) => {

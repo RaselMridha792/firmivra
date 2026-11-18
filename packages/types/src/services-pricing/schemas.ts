@@ -409,6 +409,15 @@ export const ServicePackage = ServicePackageRow.extend({
   visibleToClients: z.boolean(),
   allowClientAddOns: z.boolean(),
   displayOnWebsite: z.boolean(),
+  /**
+   * S12 (decided Nov 19): the package's Booking type, one of the firm's appointment types; the
+   * public page's Book opens its booking. `bookable` is false while the type is archived or not
+   * booked online, when the page keeps its sign-in and contact path.
+   */
+  bookingType: z
+    .object({ id: z.uuid(), name: z.string(), bookable: z.boolean() })
+    .nullable()
+    .default(null),
   internalNotes: z.string().nullable(),
   version: z.string(),
 });
@@ -446,6 +455,8 @@ const packageFields = {
   visibleToClients: z.boolean().optional(),
   allowClientAddOns: z.boolean().optional(),
   displayOnWebsite: z.boolean().optional(),
+  /** S12: the Booking type (one of the firm's appointment types not archived); null for none. */
+  appointmentTypeId: z.uuid().nullable().optional(),
   internalNotes: clearable(text(500, 'many')),
 };
 
