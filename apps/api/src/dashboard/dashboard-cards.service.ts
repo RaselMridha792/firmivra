@@ -331,6 +331,19 @@ export class DashboardCardsService {
   // ---------- Counting ----------
 
   /**
+   * Dashboard Review Two V5: which of these modules the member may view (as `mayView`), so the
+   * summary leaves out every number whose list they may not open.
+   */
+  async viewable(
+    tenant: TenantContext,
+    userId: string,
+    modules: readonly PermissionModule[],
+  ): Promise<Set<PermissionModule>> {
+    const can = await Promise.all(modules.map((m) => this.mayView(tenant, userId, m)));
+    return new Set(modules.filter((_, i) => can[i]));
+  }
+
+  /**
    * Whether the member may view a card's list, in the role guard's order: an Owner always; then
    * the member's own change, their custom role's grid, and their role's grid.
    */

@@ -53,7 +53,7 @@ import {
   BK_KEY,
   card,
   dayText,
-  dateTimeText,
+  useFirmDateTime,
   linkBtn,
   money,
   outlined,
@@ -1182,6 +1182,7 @@ function DocumentsTab({
   engagementId: string | undefined;
   manager: boolean;
 }) {
+  const at = useFirmDateTime(); // C05: the firm's time zone
   const d = t.documents;
   return (
     <Section title="Engagement Documents" icon={FileText} testId="terms-documents">
@@ -1197,7 +1198,7 @@ function DocumentsTab({
             : 'None'}
         </dd>
         <dt className="text-muted">Signed</dt>
-        <dd className="text-heading">{d.signedAt ? dateTimeText(d.signedAt) : 'Not yet'}</dd>
+        <dd className="text-heading">{d.signedAt ? at(d.signedAt) : 'Not yet'}</dd>
       </dl>
       <div className="mt-3 flex flex-wrap gap-2">
         <DownloadAgreement t={t} />
@@ -1393,6 +1394,7 @@ function HistoryTab({
     effectiveFrom: string;
   }[];
 }) {
+  const at = useFirmDateTime(); // C05: the firm's time zone
   const history = useApiQuery([...KEY(clientId), 'history'], () =>
     api.bookkeepingTerms.history(clientId, { limit: 50 }),
   );
@@ -1429,7 +1431,7 @@ function HistoryTab({
                 <p className="text-heading">{eventText(e)}</p>
                 <p className="text-xs text-muted">
                   {e.actorName ? `${e.actorName} · ` : ''}
-                  {dateTimeText(e.at)}
+                  {at(e.at)}
                   {e.reason ? ` · ${e.reason}` : ''}
                 </p>
               </li>
