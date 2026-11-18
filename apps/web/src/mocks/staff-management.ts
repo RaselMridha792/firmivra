@@ -916,6 +916,9 @@ function guard(options: Options) {
 export function createStaffMock(options: Options = {}): StaffClient {
   const g = guard(options);
   const { s } = g;
+  /** SM17: a draft made here ('You') or by the signed-in person. */
+  const mine = (d: StaffDraft) =>
+    d.createdBy === 'You' || d.createdBy === s.members.find((m) => m.detail.isYou)?.detail.name;
   /** SM05: the accounts the saved defaults would change, as the API plans them. */
   const applyPlan = (): StaffSecurityApplyPreview => {
     const d = s.securityDefaults;
@@ -1096,6 +1099,9 @@ export function createStaffMock(options: Options = {}): StaffClient {
       }
       if (!ROLES_MANAGED_BY[g.role].includes(input.account.role))
         throw fail(403, 'CANNOT_GRANT', 'You cannot give this role');
+      // SM17: only your own draft.
+      if (input.draftId && !s.drafts.some((d) => d.id === input.draftId && mine(d)))
+        throw notFound();
       if (input.permissions) {
         checkGrants(input.permissions);
         checkGrantable(s, g.role, newlyGiven(cellsFor(s, input.account.role), input.permissions));
@@ -1588,15 +1594,16 @@ export function createStaffMock(options: Options = {}): StaffClient {
       return copy(doc);
     },
 
+    // SM17: as the API, a draft is its creator's own (another's is 404).
     drafts: async () => {
       await g.allowed();
       ownerOrAdmin();
-      return copy(s.drafts);
+      return copy(s.drafts.filter(mine));
     },
     draft: async (draftId) => {
       await g.allowed();
       ownerOrAdmin();
-      const d = s.drafts.find((x) => x.id === draftId);
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
       if (!d) throw notFound();
       return copy(d);
     },
@@ -1620,7 +1627,7 @@ export function createStaffMock(options: Options = {}): StaffClient {
       await g.allowed();
       ownerOrAdmin();
       const input = parseInput(SaveStaffDraftRequest, body);
-      const d = s.drafts.find((x) => x.id === draftId);
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
       if (!d) throw notFound();
       d.step = input.step;
       d.data = copy(input.data) as Record<string, unknown>;
@@ -1630,6 +1637,7 @@ export function createStaffMock(options: Options = {}): StaffClient {
     deleteDraft: async (draftId) => {
       await g.allowed();
       ownerOrAdmin();
+      if (!s.drafts.some((d) => d.id === draftId && mine(d))) throw notFound();
       s.drafts = s.drafts.filter((d) => d.id !== draftId);
       return { ok: true };
     },

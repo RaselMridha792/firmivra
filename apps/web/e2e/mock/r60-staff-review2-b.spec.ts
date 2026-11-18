@@ -90,3 +90,28 @@ test('SM05: Apply to Existing Accounts previews who changes, keeps the exception
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText('Hana Kim');
 });
+
+test('SM17: pay is never saved in a draft, and stays on the page through Back and Next', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/team/new'));
+  await page.getByLabel('First Name *').fill('Ada', { timeout: 60_000 });
+  await page.getByLabel('Last Name *').fill('Moss');
+  await page.getByLabel('Work Email *').fill('ada.moss.sm17@example.test');
+  await page.getByRole('button', { name: /Department\(s\) \*/ }).click();
+  await page.getByRole('checkbox', { name: 'Tax' }).check();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Job Title *').fill('Tax Preparer');
+  await page.getByLabel('Role *').selectOption({ label: 'Tax Preparer' });
+  await page.getByRole('button', { name: 'Next: Role & Permissions' }).click();
+  await page.getByRole('button', { name: 'Next: Access & Security' }).click({ timeout: 30_000 });
+  await page.getByRole('button', { name: 'Next: Additional Details' }).click({ timeout: 30_000 });
+  await page.getByLabel('Pay Rate / Salary').fill('52.50', { timeout: 30_000 });
+  await expect(page.getByText('Never saved in a draft.')).toBeVisible();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(page).toHaveURL(/\/team\/new\/security\?draft=/, { timeout: 30_000 });
+  await page.getByRole('button', { name: 'Next: Additional Details' }).click();
+  await expect(page).toHaveURL(/\/team\/new\/details\?draft=/, { timeout: 30_000 });
+  await expect(page.getByLabel('Pay Rate / Salary')).toHaveValue('52.50');
+});
