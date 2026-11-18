@@ -231,6 +231,7 @@ describe('SendingNotifyService', () => {
         .map(([t]) => t)
         .sort(),
     ).toEqual([
+      'appointment.reminder-sms',
       'client.signup-sms-code',
       'document.requested-sms',
       'lead.message-sms',

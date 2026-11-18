@@ -1112,3 +1112,336 @@ describe('task reminders (Tasks T-D12)', () => {
     expect(await fired(late)).toBeNull();
   });
 });
+
+describe('A7: every configured appointment reminder is sent', () => {
+  const peopleC = {
+    ownerC: person('owner-c', 'STAFF'),
+    primaryC: person('primary-c', 'CLIENT'),
+  };
+  const PHONE = '+15555550177';
+  const firmC = { id: '', clientId: '', leadId: '' };
+  const leadEmail = `r6j-lead-${run}@r6.test`;
+  const t0 = Date.now();
+  const at = (ms: number, businessIds = [firmC.id]) => ({ businessIds, now: new Date(t0 + ms) });
+  type Row = {
+    channel: 'EMAIL' | 'SMS' | 'PORTAL';
+    offsetMinutes: number;
+    note?: string;
+    /** How long before t0 the reminder was set (10 hours by default). */
+    setAgo?: number;
+  };
+  const book = (opts: {
+    startsIn: number;
+    reminders: Row[];
+    lead?: boolean;
+    /** False leaves the automatic reminder to the job; the others are marked reminded. */
+    reminded?: boolean;
+    cancelled?: boolean;
+    firm?: 'C' | 'B';
+  }) => {
+    const inB = opts.firm === 'B';
+    const businessId = inB ? ids.firmB : firmC.id;
+    return inFirm(businessId, async (tx) => {
+      const a = await tx.appointment.create({
+        data: {
+          businessId,
+          ...(inB
+            ? { clientId: ids.clientB }
+            : opts.lead
+              ? { leadId: firmC.leadId }
+              : { clientId: firmC.clientId }),
+          staffUserId: inB ? people.ownerB.id : peopleC.ownerC.id,
+          startsAt: new Date(t0 + opts.startsIn),
+          endsAt: new Date(t0 + opts.startsIn + HOUR / 2),
+          locationKind: 'PHONE',
+          createdAt: new Date(t0 - 10 * HOUR),
+          ...(opts.reminded === false ? {} : { reminderSentAt: new Date(t0 - 10 * HOUR) }),
+        },
+        select: { id: true },
+      });
+      for (const r of opts.reminders) {
+        await tx.appointmentReminder.create({
+          data: {
+            businessId,
+            appointmentId: a.id,
+            channel: r.channel,
+            offsetMinutes: r.offsetMinutes,
+            note: r.note ?? null,
+            createdAt: new Date(t0 - (r.setAgo ?? 10 * HOUR)),
+          },
+        });
+      }
+      if (opts.cancelled) {
+        await tx.appointment.update({
+          where: { id: a.id },
+          data: { status: 'CANCELLED', cancelledAt: new Date() },
+        });
+      }
+      return a.id;
+    });
+  };
+  const rows = (appointmentId: string, businessId = firmC.id) =>
+    inFirm(businessId, (tx) =>
+      tx.appointmentReminder.findMany({
+        where: { appointmentId },
+        orderBy: [{ offsetMinutes: 'desc' }, { channel: 'asc' }],
+        select: { channel: true, offsetMinutes: true, sentAt: true },
+      }),
+    );
+  const unsent = async (appointmentId: string, businessId = firmC.id) =>
+    (await rows(appointmentId, businessId))
+      .filter((r) => r.sentAt === null)
+      .map((r) => `${r.channel} ${r.offsetMinutes}`);
+  const runAt = (ms: number, businessIds?: string[]) =>
+    jobs.run('appointment-reminders', at(ms, businessIds));
+  const templates = () => outbox.map((m) => [m.template, m.to]);
+
+  beforeAll(async () => {
+    const db = owner();
+    try {
+      await runInScope(db, { kind: 'platform' }, async (tx) => {
+        for (const p of Object.values(peopleC)) {
+          await tx.user.create({
+            data: {
+              id: p.id,
+              cognitoSub: p.id,
+              pool: p.pool,
+              email: p.email,
+              name: p.name,
+              ...(p.pool === 'CLIENT' ? { phone: PHONE } : {}),
+            },
+          });
+        }
+        firmC.id = (
+          await tx.business.create({
+            data: { slug: `r6j-c-${run}`, name: 'Fake R6j C', status: 'ACTIVE' },
+          })
+        ).id;
+      });
+      await runInScope(db, { kind: 'business', businessId: firmC.id }, async (tx) => {
+        const C = { businessId: firmC.id };
+        await tx.membership.create({
+          data: { ...C, userId: peopleC.ownerC.id, role: 'OWNER', status: 'ACTIVE' },
+        });
+        firmC.clientId = (
+          await tx.client.create({ data: { ...C, displayName: 'Casey Sample (fake)' } })
+        ).id;
+        await tx.clientAccount.create({
+          data: {
+            ...C,
+            userId: peopleC.primaryC.id,
+            clientId: firmC.clientId,
+            email: peopleC.primaryC.email,
+            portalRole: 'PRIMARY',
+            status: 'ACTIVE',
+          },
+        });
+        // The firm sends texts (Communications); the client's own consent is NotifyService's.
+        await tx.messageSettings.create({ data: { ...C, smsEnabled: true } });
+        const service = await tx.service.create({
+          data: { ...C, kind: 'ANNUAL_TAX', name: `Fake tax ${run}`, status: 'ACTIVE' },
+        });
+        firmC.leadId = (
+          await tx.lead.create({
+            data: {
+              ...C,
+              serviceId: service.id,
+              firstName: 'Lee',
+              lastName: 'Sample (fake)',
+              email: leadEmail,
+            },
+          })
+        ).id;
+      });
+    } finally {
+      await db.$disconnect();
+    }
+  });
+
+  it('each one goes once, on its channel, at its time; the automatic reminder then reaches only the firm', async () => {
+    // Starts in just under 4 hours: the 4-hour reminders are due now.
+    const start = 4 * HOUR - 30_000;
+    const x = await book({
+      startsIn: start,
+      reminded: false,
+      reminders: [
+        { channel: 'EMAIL', offsetMinutes: 240, note: 'Fake: four hours to go.' },
+        { channel: 'PORTAL', offsetMinutes: 240 },
+        { channel: 'SMS', offsetMinutes: 240, note: 'Fake: a text note.' },
+        { channel: 'EMAIL', offsetMinutes: 60 },
+        { channel: 'PORTAL', offsetMinutes: 0 },
+      ],
+    });
+    outbox.length = 0;
+    // The three 4-hour reminders (one notice: one bell item, its email, the text), and the
+    // automatic reminder, to the firm's side only.
+    expect(await runAt(0)).toEqual({ skipped: false, sent: 4 });
+    expect(await bell(peopleC.primaryC, x, firmC.id)).toHaveLength(1);
+    expect(await bell(peopleC.ownerC, x, firmC.id)).toHaveLength(1);
+    expect(templates()).toEqual([
+      ['appointment.reminder', peopleC.primaryC.email],
+      ['appointment.reminder-sms', PHONE],
+    ]);
+    expect(outbox[0]!.data).toMatchObject({ message: 'Fake: four hours to go.' });
+    expect(outbox[1]!.data).toMatchObject({ message: 'Fake: a text note.' });
+    // Through NotifyService with the login named: the client's consent to texts applies there.
+    expect(outbox[1]!.recipient).toEqual({ userId: peopleC.primaryC.id });
+    expect(await unsent(x)).toEqual(['EMAIL 60', 'PORTAL 0']);
+
+    // Once: the next run sends nothing more.
+    outbox.length = 0;
+    expect(await runAt(60_000)).toEqual({ skipped: false, sent: 0 });
+    expect(outbox).toEqual([]);
+
+    // One hour before: the email reminder (a bell item and its email copy).
+    expect(await runAt(start - HOUR + 1_000)).toEqual({ skipped: false, sent: 1 });
+    expect(templates()).toEqual([['appointment.reminder', peopleC.primaryC.email]]);
+    // At the start: the portal notice, in the minute before; no email.
+    outbox.length = 0;
+    expect(await runAt(start - 30_000)).toEqual({ skipped: false, sent: 1 });
+    expect(outbox).toEqual([]);
+    expect(await bell(peopleC.primaryC, x, firmC.id)).toHaveLength(3);
+    expect(await unsent(x)).toEqual([]);
+    // The firm's side still has only the automatic reminder's bell item.
+    expect(await bell(peopleC.ownerC, x, firmC.id)).toHaveLength(1);
+  });
+
+  it('never twice when two runs overlap; a send the Notifier could not write is given back and tried after the back-off', async () => {
+    const y = await book({
+      startsIn: 6 * HOUR,
+      reminders: [{ channel: 'EMAIL', offsetMinutes: 300 }],
+    });
+    const configured = (
+      jobs as unknown as {
+        configuredReminders(
+          businessId: string,
+          now: Date,
+          deadline: number,
+          backingOff: ReadonlySet<string>,
+        ): Promise<number>;
+      }
+    ).configuredReminders.bind(jobs);
+    outbox.length = 0;
+    const now = new Date(t0 + HOUR + 1_000);
+    const counts = await Promise.all([
+      configured(firmC.id, now, Date.now() + 20_000, new Set()),
+      configured(firmC.id, now, Date.now() + 20_000, new Set()),
+    ]);
+    expect(counts.sort()).toEqual([0, 1]);
+    expect(templates()).toEqual([['appointment.reminder', peopleC.primaryC.email]]);
+    expect(await bell(peopleC.primaryC, y, firmC.id)).toHaveLength(1);
+
+    const z = await book({
+      startsIn: 7 * HOUR,
+      reminders: [{ channel: 'PORTAL', offsetMinutes: 360 }],
+    });
+    const spy = vi.spyOn(notifier, 'notify').mockResolvedValueOnce({ written: 0, failed: true });
+    try {
+      expect(await runAt(HOUR + 1_000)).toEqual({ skipped: false, sent: 0 });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(await unsent(z)).toEqual(['PORTAL 360']);
+      // Left out while it backs off, then sent.
+      expect(await runAt(HOUR + 61_000)).toEqual({ skipped: false, sent: 0 });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(await runAt(HOUR + REMINDER_BACKOFF_MS + 2_000)).toEqual({
+        skipped: false,
+        sent: 1,
+      });
+      expect(await unsent(z)).toEqual([]);
+      expect(await bell(peopleC.primaryC, z, firmC.id)).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a reschedule sends it again for the new time; never for a cancelled appointment or a time already past when it was set; a lead's reaches the lead by email only", async () => {
+    const r = await book({
+      startsIn: 3 * HOUR,
+      reminders: [{ channel: 'EMAIL', offsetMinutes: 120 }],
+    });
+    const k = await book({
+      startsIn: 8 * HOUR,
+      cancelled: true,
+      reminders: [{ channel: 'EMAIL', offsetMinutes: 420 }],
+    });
+    // Set just now for 12 hours before an appointment 11 hours away: its time had passed.
+    const late = await book({
+      startsIn: 11 * HOUR,
+      reminders: [{ channel: 'EMAIL', offsetMinutes: 720, setAgo: 0 }],
+    });
+    // A lead's own appointment whose 9-hour reminder is due now (the note of the one due now).
+    const d = await book({
+      startsIn: 9 * HOUR - 30_000,
+      lead: true,
+      reminders: [
+        { channel: 'EMAIL', offsetMinutes: 540, note: 'Fake: bring your ID.' },
+        { channel: 'PORTAL', offsetMinutes: 540 },
+      ],
+    });
+    outbox.length = 0;
+    expect(await runAt(HOUR + 1_000)).toEqual({ skipped: false, sent: 3 });
+    expect(await unsent(r)).toEqual([]);
+    expect(await unsent(k)).toEqual(['EMAIL 420']);
+    expect(await unsent(late)).toEqual(['EMAIL 720']);
+    expect(await unsent(d)).toEqual([]);
+    // P4-1: the lead gets an email without the portal link; nobody gets a portal notice for it.
+    expect(templates().sort()).toEqual([
+      ['appointment.lead-reminder', leadEmail],
+      ['appointment.reminder', peopleC.primaryC.email],
+    ]);
+    const toLead = outbox.find((m) => m.template === 'appointment.lead-reminder')!;
+    expect(toLead.data).toMatchObject({ message: 'Fake: bring your ID.' });
+    expect(toLead.data).not.toHaveProperty('link');
+    expect(
+      await inFirm(firmC.id, (tx) =>
+        tx.notification.count({ where: { entityId: d, recipientUserId: peopleC.primaryC.id } }),
+      ),
+    ).toBe(0);
+
+    // Moved two hours later: the reminder goes again, two hours before the new time.
+    await inFirm(firmC.id, (tx) =>
+      tx.appointment.update({
+        where: { id: r },
+        data: {
+          startsAt: new Date(t0 + 5 * HOUR),
+          endsAt: new Date(t0 + 5 * HOUR + HOUR / 2),
+        },
+      }),
+    );
+    expect(await unsent(r)).toEqual(['EMAIL 120']);
+    outbox.length = 0;
+    expect(await runAt(2 * HOUR)).toEqual({ skipped: false, sent: 0 });
+    // Its reminder, and the automatic one for the new time (the move cleared it), to the firm only.
+    expect(await runAt(3 * HOUR + 1_000)).toEqual({ skipped: false, sent: 2 });
+    expect(templates()).toEqual([['appointment.reminder', peopleC.primaryC.email]]);
+    expect(await bell(peopleC.primaryC, r, firmC.id)).toHaveLength(2);
+    expect(await bell(peopleC.ownerC, r, firmC.id)).toHaveLength(1);
+  });
+
+  it("firm C's run never touches firm B's reminders; firm B's reach only firm B's client", async () => {
+    const b = await book({
+      firm: 'B',
+      startsIn: 12 * HOUR,
+      reminders: [{ channel: 'EMAIL', offsetMinutes: 660 }],
+    });
+    outbox.length = 0;
+    await runAt(HOUR + 1_000);
+    expect(await unsent(b, ids.firmB)).toEqual(['EMAIL 660']);
+    expect(outbox.filter((m) => m.businessId === ids.firmB)).toEqual([]);
+    await runAt(HOUR + 1_000, [ids.firmB]);
+    expect(await unsent(b, ids.firmB)).toEqual([]);
+    const items = await inFirm(ids.firmB, (tx) =>
+      tx.notification.findMany({ where: { entityId: b }, select: { recipientUserId: true } }),
+    );
+    expect(items.map((n) => n.recipientUserId)).toEqual([people.primaryB.id]);
+    expect(outbox.filter((m) => m.businessId === ids.firmB).map((m) => [m.template, m.to])).toEqual(
+      [['appointment.reminder', people.primaryB.email]],
+    );
+    // (The test's owner login sees past row-level security, so the firm is named.)
+    expect(
+      await inFirm(firmC.id, (tx) =>
+        tx.notification.count({ where: { businessId: firmC.id, entityId: b } }),
+      ),
+    ).toBe(0);
+  });
+});
