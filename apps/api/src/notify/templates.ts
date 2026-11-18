@@ -467,6 +467,20 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     } in your client portal: ${link(d, 'link', o)}`,
   }),
 
+  // BK-CP2: a new report in the portal, by its service's name; never the report itself.
+  'report.published': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `${firm} shared a new report`,
+      blocks: [
+        hello(d),
+        text(`${firm} shared a new report for ${required(d, 'title')} in your client portal.`),
+        button('Open the client portal', link(d, 'link', o)),
+      ],
+    };
+  },
+
   'appointment.booked': (d, b, o) =>
     appointment(
       d,

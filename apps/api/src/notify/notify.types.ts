@@ -187,6 +187,13 @@ export interface NotifyTemplates {
     link: string;
   };
 
+  // ----- Workspaces (BK-CP2) -----
+  /**
+   * The firm published a Bookkeeping report: the service's name (the firm's own words) and the
+   * portal link to My Services. Never the report's title, figures or file.
+   */
+  'report.published': IgnoredFirmName & { name: string; title: string; link: string };
+
   // ----- Appointments (R12) -----
   'appointment.booked': AppointmentData;
   'appointment.changed': AppointmentData;
@@ -375,6 +382,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'firm-application.declined': 'email',
   'document.requested': 'email',
   'document.requested-sms': 'sms',
+  'report.published': 'email',
   'appointment.booked': 'email',
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
@@ -437,6 +445,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'firm-application.declined': 'platform',
   'document.requested': 'firm',
   'document.requested-sms': 'firm',
+  'report.published': 'firm',
   'appointment.booked': 'firm',
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
@@ -535,6 +544,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'firm-application.declined': 'ACCOUNT',
   'document.requested': 'DOCUMENTS',
   'document.requested-sms': 'DOCUMENTS',
+  'report.published': 'SERVICES',
   'appointment.booked': 'APPOINTMENTS',
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',
