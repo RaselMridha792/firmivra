@@ -68,8 +68,8 @@ interface Options {
   empty?: boolean;
 }
 
-const fail = (status: number, code: string, message: string) =>
-  new ApiRequestError(status, code, message);
+const fail = (status: number, code: string, message: string, details?: unknown) =>
+  new ApiRequestError(status, code, message, undefined, undefined, undefined, details);
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const copy = <T>(v: T): T => structuredClone(v);
 const DAY = 86_400_000;
@@ -195,7 +195,11 @@ interface Stored {
 /** TX-F20: an unresolved Error issue blocks Ready to File and every filing. */
 const openErrors = (r: Stored) =>
   (r.issues ?? []).some((i) => i.severity === 'ERROR' && !i.resolvedAt);
-const issuesBlock = () => fail(409, 'STATUS_BLOCKED', 'Resolve the validation errors first');
+// As the API (review.service.ts notBlockedByIssues): its reason and its blockers.
+const issuesBlock = () =>
+  fail(409, 'STATUS_BLOCKED', 'Resolve the validation errors first', {
+    blockers: ['VALIDATION_ISSUES_OPEN'],
+  });
 
 const STEP: Partial<Record<TaxReturnWorkflowStatus, number>> = {
   IN_PREPARATION: 1,
@@ -826,7 +830,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       throw fail(400, 'REASON_REQUIRED', 'Going back a step needs a reason');
     }
     const blockers = blockersFor(r, to, rows);
-    if (blockers.length) throw fail(409, 'STATUS_BLOCKED', 'Blocked');
+    if (blockers.length) throw fail(409, 'STATUS_BLOCKED', 'Blocked', { blockers });
     // As the API (TX-F22): Rejected only with a rejection recorded on a newest transmission.
     if (to === 'REJECTED' && !r.filings.some((f) => f.attempts[0]?.ackStatus === 'REJECTED')) {
       throw fail(

@@ -1261,8 +1261,17 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
     const dateSpec = q.date ?? d.date;
     const range = resolveRange(dateSpec as never);
     const compare = q.compareTo ?? d.compareTo;
-    const cmpRange =
-      compare === 'NONE' || !src.meta.supportsComparison ? null : shiftRange(range, compare);
+    // C18: as the API (engine.ts), a source that cannot be compared refuses a comparison.
+    if (compare !== 'NONE' && !src.meta.supportsComparison)
+      throw new ApiRequestError(
+        400,
+        'INVALID_DEFINITION',
+        'The report is not valid for its data source',
+        undefined,
+        undefined,
+        [{ path: 'compareTo', message: `${src.meta.label} cannot be compared` }],
+      );
+    const cmpRange = compare === 'NONE' ? null : shiftRange(range, compare);
     // RP-F20: the search narrows the cards and the chart with the table (one dataset).
     const needle = q.search?.toLowerCase();
     const searched = (rs: Row[]) =>
@@ -1438,10 +1447,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       definition: d,
       range,
       comparisonRange: cmpRange,
-      notices:
-        compare !== 'NONE' && !src.meta.supportsComparison
-          ? ['Comparison is not available for this data source.']
-          : [],
+      notices: [],
       kpis,
       chart,
       breakdown: breakdownChart(src, cur, q.breakdownBy),
