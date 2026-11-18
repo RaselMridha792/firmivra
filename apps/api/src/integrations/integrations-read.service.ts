@@ -650,11 +650,25 @@ export class IntegrationsReadService {
       where: { businessId, connectionId: id },
       orderBy: [{ scope: 'asc' }, { sortOrder: 'asc' }],
     });
+    const listed = new Set(provider.mappingScopes.map((s) => s.scope));
+    // I-R2-03: a saved pair whose scope the provider no longer lists is shown read-only.
+    const unlisted = [...new Set(rows.map((r) => r.scope).filter((s) => !listed.has(s)))];
     return {
-      scopes: provider.mappingScopes.map((s) => ({
-        ...s,
-        pairs: rows.filter((r) => r.scope === s.scope).map((r) => this.pairOf(provider, r)),
-      })),
+      scopes: [
+        ...provider.mappingScopes.map((s) => ({
+          ...s,
+          pairs: rows.filter((r) => r.scope === s.scope).map((r) => this.pairOf(provider, r)),
+          readOnly: false,
+        })),
+        ...unlisted.map((scope) => ({
+          scope,
+          label: scope.charAt(0).toUpperCase() + scope.slice(1).replace(/_/g, ' '),
+          localFields: [],
+          externalFields: [],
+          pairs: rows.filter((r) => r.scope === scope).map((r) => this.pairOf(provider, r)),
+          readOnly: true,
+        })),
+      ],
     };
   }
 

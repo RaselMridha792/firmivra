@@ -409,7 +409,16 @@ export type IntegrationMappingPair = z.infer<typeof IntegrationMappingPair>;
 
 /** GET .../mappings: the saved pairs, and the provider's fields to choose from, per scope. */
 export const IntegrationMappings = z.object({
-  scopes: z.array(IntegrationMappingScope.extend({ pairs: z.array(IntegrationMappingPair) })),
+  scopes: z.array(
+    IntegrationMappingScope.extend({
+      pairs: z.array(IntegrationMappingPair),
+      /**
+       * I-R2-03 (Integrations Review Two): pairs saved in a scope the provider no longer lists
+       * are shown, never dropped, in a scope of their own that cannot be edited (no fields).
+       */
+      readOnly: z.boolean().default(false),
+    }),
+  ),
 });
 export type IntegrationMappings = z.infer<typeof IntegrationMappings>;
 

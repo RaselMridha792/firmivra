@@ -1374,4 +1374,36 @@ describe('the sync history (Integrations Review Two)', () => {
     // Choosing it finds its run.
     expect((await history('entity=legacy_items')).items.map((i) => i.id)).toEqual([legacy.id]);
   });
+
+  it('I-R2-03: a mapping saved in an area the provider no longer offers is shown read-only', async () => {
+    const c = await connectionOf('quickbooks');
+    await inFirm('a', (tx) =>
+      tx.integrationFieldMapping.create({
+        data: {
+          businessId: firms.a,
+          connectionId: c.id,
+          scope: 'legacy_projects',
+          localField: 'title',
+          externalField: 'Name',
+        },
+      }),
+    );
+    const mappings = ok(
+      await call('get', `/integrations/connections/${c.id}/mappings`, people.ownerA),
+    ) as {
+      scopes: {
+        scope: string;
+        label: string;
+        readOnly: boolean;
+        pairs: { localField: string }[];
+      }[];
+    };
+    const legacy = mappings.scopes.find((s) => s.scope === 'legacy_projects');
+    expect(legacy).toMatchObject({ label: 'Legacy projects', readOnly: true });
+    expect(legacy!.pairs.map((p) => p.localField)).toEqual(['title']);
+    // The provider's own scopes stay editable.
+    expect(
+      mappings.scopes.filter((s) => s.scope !== 'legacy_projects').every((s) => !s.readOnly),
+    ).toBe(true);
+  });
 });
