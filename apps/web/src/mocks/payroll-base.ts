@@ -1,5 +1,6 @@
 import {
   ApiRequestError,
+  payrollPeriodAt,
   type PayrollActivity,
   type PayrollClientChange,
   type PayrollClientRef,
@@ -127,6 +128,11 @@ export interface Rec {
 
 export interface Store {
   clients: Rec[];
+  /**
+   * F01: the providers the firm authorized (its Integrations connections), as the API reads
+   * them. OnPay is chosen for a client but not authorized: Pending setup.
+   */
+  authorizedProviders: string[];
   settings: {
     defaultAssignee: MemberRef | null;
     reminderDaysBefore: number;
@@ -149,38 +155,8 @@ const HOURS: Record<PayrollFrequency, number> = {
   MONTHLY: 173.33,
 };
 
-const eom = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-const ymd = (y: number, m: number, d: number) => iso(Date.UTC(y, m, d, 12));
-
-/** The pay period that contains `date`, and the ones before and after it, for a frequency. */
-export function periodAt(freq: PayrollFrequency, date: string, offset: number) {
-  const d = new Date(`${date}T12:00:00Z`);
-  const y = d.getUTCFullYear();
-  const m = d.getUTCMonth();
-  const day = d.getUTCDate();
-  let start: string;
-  let end: string;
-  if (freq === 'WEEKLY' || freq === 'BIWEEKLY') {
-    const len = freq === 'WEEKLY' ? 7 : 14;
-    const anchor = Date.parse('2026-01-05T12:00:00Z');
-    const n = Math.floor((d.getTime() - anchor) / DAY / len) + offset;
-    start = iso(anchor + n * len * DAY);
-    end = plus(start, len - 1);
-  } else if (freq === 'MONTHLY') {
-    const t = new Date(Date.UTC(y, m + offset, 1));
-    start = ymd(t.getUTCFullYear(), t.getUTCMonth(), 1);
-    end = ymd(t.getUTCFullYear(), t.getUTCMonth(), eom(t.getUTCFullYear(), t.getUTCMonth()));
-  } else {
-    const half = (day <= 15 ? 0 : 1) + offset;
-    const t = new Date(Date.UTC(y, m + Math.floor(half / 2), 1));
-    const ty = t.getUTCFullYear();
-    const tm = t.getUTCMonth();
-    const second = ((half % 2) + 2) % 2 === 1;
-    start = ymd(ty, tm, second ? 16 : 1);
-    end = ymd(ty, tm, second ? eom(ty, tm) : 15);
-  }
-  return { start, end, pay: plus(end, 4) };
-}
+/** The pay period that contains `date`, and the ones before and after it (F01: the shared rule). */
+export const periodAt = payrollPeriodAt;
 
 const FIRST = [
   'Jasmine',
@@ -397,6 +373,8 @@ interface Spec {
   type?: 'INDIVIDUAL' | 'BUSINESS';
   industry: string;
   assignee: MemberRef;
+  /** F01: false, no data has come from the provider yet (never synced). */
+  synced?: false;
 }
 const SPECS: Spec[] = [
   {
@@ -426,6 +404,8 @@ const SPECS: Spec[] = [
     freq: 'MONTHLY',
     workers: 6,
     run: 'attention',
+    // F01: QuickBooks Payroll is authorized, and no data has come yet.
+    synced: false,
     industry: 'Consulting',
     assignee: mockMe,
   },
@@ -446,6 +426,8 @@ const SPECS: Spec[] = [
     workers: 9,
     contractors: 2,
     run: 'pastdue',
+    // F01: OnPay is chosen but not authorized, so it never synced.
+    synced: false,
     industry: 'Cleaning',
     assignee: ALICIA,
   },
@@ -482,6 +464,7 @@ const SPECS: Spec[] = [
 export function seedStore(empty: boolean): Store {
   const store: Store = {
     clients: [],
+    authorizedProviders: Object.keys(PROVIDERS).filter((k) => k !== 'onpay'),
     settings: {
       defaultAssignee: null,
       reminderDaysBefore: 3,
@@ -610,8 +593,14 @@ export function seedStore(empty: boolean): Store {
       providerKey: s.provider,
       serviceSince: '2024-01-15',
       nextPayrollOverride: null,
-      lastSyncedAt: hasProvider ? new Date(Date.now() - 6 * 3_600_000).toISOString() : null,
-      lastSyncAttemptAt: hasProvider ? new Date(Date.now() - 6 * 3_600_000).toISOString() : null,
+      lastSyncedAt:
+        hasProvider && s.synced !== false
+          ? new Date(Date.now() - 6 * 3_600_000).toISOString()
+          : null,
+      lastSyncAttemptAt:
+        hasProvider && s.synced !== false
+          ? new Date(Date.now() - 6 * 3_600_000).toISOString()
+          : null,
       assignedTo: s.assignee,
       pausedAt: null,
       archivedAt: null,
