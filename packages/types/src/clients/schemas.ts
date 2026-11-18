@@ -436,7 +436,6 @@ export const BulkClientsResponse = z.object({
 });
 export type BulkClientsResponse = z.infer<typeof BulkClientsResponse>;
 
-/** The profile as the firm sees it. */
 /** P4-6: one soft warning about a saved field (ClientProfile.warnings). */
 export const ClientProfileWarning = z.object({
   path: z.string(),
@@ -445,6 +444,7 @@ export const ClientProfileWarning = z.object({
 });
 export type ClientProfileWarning = z.infer<typeof ClientProfileWarning>;
 
+/** The profile as the firm sees it. */
 export const ClientProfile = z.object({
   firstName: z.string().nullable(),
   middleName: z.string().nullable(),
