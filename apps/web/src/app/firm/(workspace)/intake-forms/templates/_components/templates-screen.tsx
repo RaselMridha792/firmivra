@@ -54,7 +54,7 @@ import { TemplatePreview } from './template-preview';
 import { RecentlyUsed, TemplateCategories, TemplatesProTip } from './template-side';
 
 type Sort = NonNullable<IntakeFormsQuery['sort']>;
-type Status = '' | 'DRAFT' | 'PUBLISHED';
+type Status = '' | 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 interface Filters {
   sort: Sort;
   status: Status;
@@ -72,6 +72,8 @@ const STATUSES: { value: Status; label: string }[] = [
   { value: '', label: 'All statuses' },
   { value: 'PUBLISHED', label: 'Published' },
   { value: 'DRAFT', label: 'Draft' },
+  // Intake Review 2 24c-i: the Archived view, where Restore brings one back.
+  { value: 'ARCHIVED', label: 'Archived' },
 ];
 
 /** The four cards of form-templates-dashboard.jpg, from the library summary. */
@@ -152,7 +154,8 @@ export function TemplatesScreen() {
     category: category ?? undefined,
     search: search || undefined,
     sort: filters.sort,
-    status: filters.status || undefined,
+    status: filters.status && filters.status !== 'ARCHIVED' ? filters.status : undefined,
+    ...(filters.status === 'ARCHIVED' ? { archived: 'true' as const } : {}),
   };
   const summary = useApiQuery([...LIBRARY_KEY, 'summary'], () => api.intakeForms.librarySummary());
   const list = useApiQuery([...LIBRARY_KEY, 'list', query], () => api.intakeForms.forms(query));
@@ -180,6 +183,22 @@ export function TemplatesScreen() {
   const archive = useApiMutation((id: string) => api.intakeForms.archiveForm(id), {
     invalidate: INTAKE_KEY,
   });
+  const restore = useApiMutation((id: string) => api.intakeForms.restoreForm(id), {
+    invalidate: INTAKE_KEY,
+  });
+
+  /** 24c-i: back in the library as a draft, to publish again. */
+  function restoreTemplate(template: IntakeFormListItem) {
+    setNotice(null);
+    restore.mutate(template.id, {
+      onSuccess: () =>
+        setNotice({
+          message: `"${template.name}" was restored as a draft. Publish it to send it again.`,
+          tone: 'success',
+        }),
+      onError: failed,
+    });
+  }
   const failed = (error: unknown) => setNotice({ message: errorMessage(error), tone: 'error' });
 
   /** Create Template asks which service the template is for (every form belongs to one). */
@@ -233,12 +252,17 @@ export function TemplatesScreen() {
       router.push(`/intake-forms/send?formId=${encodeURIComponent(template.id)}`),
     onDuplicate: duplicateTemplate,
     onArchive: setArchiving,
+    onRestore: restoreTemplate,
     onLink: setLinking,
-    busy: duplicate.isPending || archive.isPending,
+    busy: duplicate.isPending || archive.isPending || restore.isPending,
   };
 
-  // Archived templates leave the library (the summary counts them out too).
-  const templates = (list.data ?? []).filter((template) => template.status !== 'RETIRED');
+  // Archived templates leave the library (the summary counts them out too); the Archived view
+  // (24c-i) lists only them.
+  const templates =
+    filters.status === 'ARCHIVED'
+      ? (list.data ?? [])
+      : (list.data ?? []).filter((template) => template.status !== 'RETIRED');
   const narrowed = category !== null || search !== '' || filters.status !== '';
   // The design's six category tabs; a category chosen in the sidebar outside them gets its own.
   const tabCategories =

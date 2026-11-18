@@ -41,6 +41,24 @@ export const storageUnavailable = () =>
 /** Requests the client can still answer: an upload for one makes it SUBMITTED. */
 export const OPEN_REQUEST: readonly DocumentRequestStatus[] = ['REQUESTED', 'REJECTED'];
 
+/**
+ * CP-PT-03: a document as the client's portal may show it: not in the firm's Trash, not archived,
+ * and the current version (an older version is superseded). The portal's reads and the firm's
+ * Client Portal counts use this one rule, so they never drift apart.
+ */
+export const LIVE_DOCUMENT = {
+  trashedAt: null,
+  archivedAt: null,
+  supersededAt: null,
+} as const satisfies Prisma.DocumentWhereInput;
+
+/** LIVE_DOCUMENT on a loaded row (select its trashedAt, archivedAt and supersededAt). */
+export const isLiveDocument = (d: {
+  trashedAt: Date | null;
+  archivedAt: Date | null;
+  supersededAt: Date | null;
+}) => d.trashedAt === null && d.archivedAt === null && d.supersededAt === null;
+
 /** Who acts on the firm side: the signed-in member and their role here (from TenantGuard). */
 export interface FirmActor {
   userId: string;

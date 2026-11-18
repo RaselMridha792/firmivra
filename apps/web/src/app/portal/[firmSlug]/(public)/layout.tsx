@@ -6,7 +6,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { usePortal } from '../layout';
+import { plainForm, usePortal } from '../layout';
 import lvpLogo from '../(client)/_components/lvp-logo.png';
 import { ButtonLink } from './_components/button-link';
 import { PortalFooter } from './_components/portal-footer';
@@ -25,6 +25,8 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
   // The two buttons are for the landing page only: sign-in, sign-up, password reset and Begin
   // Online keep the visitor on the task they opened.
   const landing = pathname === `/${business.slug}`;
+  // Intake Review 2 23-g: a form outside the portal with form branding off shows the name only.
+  const plain = plainForm(pathname, business.slug, branding);
   const serviceLinks = [
     { label: 'Tax Preparation', href: `/${business.slug}/begin/annual-tax` },
     { label: 'Business Bookkeeping', href: `/${business.slug}/begin/bookkeeping` },
@@ -120,7 +122,9 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                 : 'flex items-center text-xl font-bold text-firm-text'
             }
           >
-            {isLvp ? (
+            {plain ? (
+              <span data-testid="plain-firm-name">{business.name}</span>
+            ) : isLvp ? (
               <Image
                 src={lvpLogo}
                 alt={business.name}

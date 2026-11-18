@@ -244,8 +244,23 @@ export function ToggleRow({
 }
 
 /** A setting that cannot change, shown as its value ("Always on"), not as a switch. */
-export function FixedRow({ label, value, width }: { label: string; value: string; width: string }) {
-  return (
+/** Intake Review 2 23-h (lead, Nov 17): why Require e-signature can't be turned off. */
+export const SIGN_NOTE =
+  "Always on: each submission signs your firm's agreements, which keeps a legal record.";
+
+export function FixedRow({
+  label,
+  value,
+  width,
+  note,
+}: {
+  label: string;
+  value: string;
+  width: string;
+  /** Why it is fixed, under the row. */
+  note?: string;
+}) {
+  const row = (
     <Row
       label={label}
       width={width}
@@ -253,6 +268,13 @@ export function FixedRow({ label, value, width }: { label: string; value: string
         <span className="text-sm font-semibold whitespace-nowrap text-heading">{value}</span>
       }
     />
+  );
+  if (!note) return row;
+  return (
+    <div className="flex flex-col">
+      {row}
+      <p className="text-xs text-muted">{note}</p>
+    </div>
   );
 }
 

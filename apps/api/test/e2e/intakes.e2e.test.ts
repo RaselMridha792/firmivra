@@ -502,6 +502,8 @@ describe('portal: list, read and autosave', () => {
       canSubmit: true,
     });
     expect(intake.definition.key).toBe('ANNUAL_TAX');
+    // Intake Review 2 23-h: the form keeps its progress bar (no setting turned it off).
+    expect(intake.showProgressBar).toBe(true);
     // The spouse's login reads the same intake but may not change it.
     const spouse = mine(await portal('get', `/${ids.intake}`, people.spouse));
     expect(spouse).toMatchObject({ id: ids.intake, canEdit: false, canSubmit: false });

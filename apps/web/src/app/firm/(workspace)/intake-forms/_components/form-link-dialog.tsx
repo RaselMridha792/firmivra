@@ -6,6 +6,7 @@ import { useFirm } from '../../../../../components/firm-context';
 import { PublicLinkSection } from '../../../../../components/public-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { useState } from 'react';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { WebsiteGuide } from './website-guide';
 
@@ -76,7 +77,11 @@ export function FormLinkDialog({
       api.intakeForms.saveShare(formId, body),
     { invalidate: key },
   );
-  const s: IntakeShare | undefined = save.data ?? share.data;
+  // Intake Review 2 P4-16: Make a New Link (the old one stops at once), after a confirm.
+  const rotate = useApiMutation(() => api.intakeForms.rotateShare(formId), { invalidate: key });
+  const [confirming, setConfirming] = useState(false);
+  const [rotated, setRotated] = useState(false);
+  const s: IntakeShare | undefined = rotate.data ?? save.data ?? share.data;
   const set = (patch: Partial<{ sharing: boolean; portalPublished: boolean }>) => {
     if (!s) return;
     save.mutate({ sharing: s.sharing, portalPublished: s.portalPublished, ...patch });
@@ -136,6 +141,66 @@ export function FormLinkDialog({
               onChange={(on) => set({ portalPublished: on })}
               testId="publish-in-portal"
             />
+            {manager && !s.main && s.sharing ? (
+              <div className="flex flex-col gap-2" data-testid="rotate-link">
+                {confirming ? (
+                  <div
+                    role="alertdialog"
+                    aria-label="Make a new link?"
+                    className="flex flex-col gap-2 rounded-lg border border-warning bg-warning-soft p-3 text-sm"
+                  >
+                    <p className="text-heading">
+                      The current link stops working at once: anyone who opens it sees that the link
+                      is closed. Update your website button with the new link.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="secondary"
+                        disabled={rotate.isPending}
+                        onClick={() => setConfirming(false)}
+                      >
+                        Keep This Link
+                      </Button>
+                      <Button
+                        disabled={rotate.isPending}
+                        onClick={() =>
+                          rotate.mutate(undefined, {
+                            onSuccess: () => {
+                              setConfirming(false);
+                              setRotated(true);
+                            },
+                          })
+                        }
+                      >
+                        Make New Link
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    className="self-start"
+                    disabled={rotate.isPending}
+                    onClick={() => {
+                      setRotated(false);
+                      setConfirming(true);
+                    }}
+                  >
+                    Make a New Link
+                  </Button>
+                )}
+                {rotated ? (
+                  <p role="status" className="text-sm text-success">
+                    A new link is ready. The old one no longer works.
+                  </p>
+                ) : null}
+                {rotate.isError ? (
+                  <p role="alert" className="text-sm text-danger">
+                    {errorMessage(rotate.error, SHARE_ERRORS)}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {manager ? null : (
               <p className="text-xs text-muted">Only an Owner or Admin can change these.</p>
             )}

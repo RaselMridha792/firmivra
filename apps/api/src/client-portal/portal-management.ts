@@ -10,6 +10,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Prisma, type Database, type TxClient } from '@firmivra/db';
+import { LIVE_DOCUMENT } from '../storage/document-records.js';
 import {
   ClientId,
   type ClientPortalActivityItem,
@@ -276,7 +277,8 @@ export class PortalManagementService {
     const now = new Date();
     return this.inFirm(businessId, async (tx) => {
       await this.client(tx, tenant, userId, clientId);
-      const live = { clientId, trashedAt: null, archivedAt: null, supersededAt: null };
+      // CP-PT-03: the same rule as the client's own portal.
+      const live = { clientId, ...LIVE_DOCUMENT };
       const intakeOf = { engagement: { clientId } };
       const [documents, messages, appointments, taxReturns, invoices, intakeForms] =
         await Promise.all([

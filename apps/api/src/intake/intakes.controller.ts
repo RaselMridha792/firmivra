@@ -76,6 +76,7 @@ import { INTAKE_SIGNING, INTAKE_SIGNING_PROVIDER, type IntakeSigner } from './in
 import { type IntakeUploader, IntakeUploadsService } from './intake-uploads.service.js';
 import { type IntakeReach, IntakesService, type PortalClient } from './intakes.service.js';
 import { PortalTabRoute, PortalTabsModule } from '../client-portal/portal-tabs.js';
+import { IntakeAutomationsModule } from '../intake-workspace/intake-automations.js';
 import { IntakeSelfService, MyIntakeFormsController } from './intake-self-service.js';
 
 const idPipe = new ZodValidationPipe(IntakeId);
@@ -390,9 +391,9 @@ export class IntakesController {
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
-    @Body(new ZodValidationPipe(NoteBody)) _body: z.output<typeof NoteBody>,
+    @Body(new ZodValidationPipe(NoteBody)) body: z.output<typeof NoteBody>,
   ): Promise<FormNote> {
-    return this.records.addNote(tenant, auth.userId, id);
+    return this.records.addNote(tenant, auth.userId, id, body.text);
   }
 
   @Patch(':id')
@@ -453,6 +454,7 @@ export class IntakesController {
     NotificationsModule,
     IntakeWorkspaceModule,
     PortalTabsModule,
+    IntakeAutomationsModule,
   ],
   controllers: [
     MyIntakesController,
