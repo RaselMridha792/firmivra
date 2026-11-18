@@ -68,18 +68,23 @@ export function MarketplaceScreen({
     initial.sort === 'name' || initial.sort === 'category' ? initial.sort : 'popular',
   );
   const [view, setView] = useState<'grid' | 'list'>(initial.view === 'list' ? 'list' : 'grid');
+  // I-R2-02: the environment the overview was showing (its `environment`), Live unless Test.
+  const environment = params.get('environment') === 'TEST' ? 'TEST' : 'LIVE';
   const current = { search, category, sort, view };
   useEffect(() => writeListQuery(current, MARKETPLACE_VIEW));
   const here = `/integrations/marketplace${mergeListQuery('', current, MARKETPLACE_VIEW)}`;
   const [requestOpen, setRequestOpen] = useState(false);
   const [details, setDetails] = useState<IntegrationCard | null>(null);
   const allHeadingRef = useRef<HTMLHeadingElement>(null);
-  const catalog = useApiQuery(['integrations-marketplace', search, category, sort], () =>
-    api.integrations.marketplace({
-      search,
-      sort,
-      ...(category ? { category: IntegrationCategory.parse(category) } : {}),
-    }),
+  const catalog = useApiQuery(
+    ['integrations-marketplace', environment, search, category, sort],
+    () =>
+      api.integrations.marketplace({
+        environment,
+        search,
+        sort,
+        ...(category ? { category: IntegrationCategory.parse(category) } : {}),
+      }),
   );
   const permission = useApiQuery(['integrations-marketplace', 'capabilities'], () =>
     api.integrations.overview(),

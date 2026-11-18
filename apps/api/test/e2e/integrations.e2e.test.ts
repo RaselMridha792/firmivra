@@ -1506,3 +1506,49 @@ describe('connection health, one state for the label, the checks and the advice 
     expect(healthy.suggestions).toEqual([]);
   });
 });
+
+describe('one environment at a time (Integrations Review Two I-R2-02)', () => {
+  it("counts, checks and lists only the chosen environment's connections, on the overview and the marketplace", async () => {
+    // A Test connection for a provider that offers Live only: no Test card shows it.
+    await inFirm('b', (tx) =>
+      tx.integrationConnection.create({
+        data: {
+          businessId: firms.b,
+          provider: 'hubspot',
+          environment: 'TEST',
+          status: 'CONNECTED',
+          lastSyncAt: new Date(),
+        },
+      }),
+    );
+    type Overview = {
+      summary: { connected: number; lastCheckAt: string | null };
+      items: { provider: { provider: string } }[];
+      health: { operational: number };
+    };
+    const test = ok(
+      await call('get', '/integrations?environment=TEST', people.ownerB, undefined, 'b'),
+    ) as Overview;
+    expect(test.items.map((i) => i.provider.provider)).not.toContain('hubspot');
+    // The health card counts what the cards count, and the last check is of a shown one.
+    expect(test.health.operational).toBe(test.summary.connected);
+    expect(test.summary.lastCheckAt).toBeNull();
+    // The marketplace shows Live connections unless asked for Test.
+    type Market = { items: { provider: { provider: string }; status: string }[] };
+    const card = (m: Market) => m.items.find((i) => i.provider.provider === 'hubspot')!;
+    const live = ok(
+      await call('get', '/integrations/marketplace', people.ownerB, undefined, 'b'),
+    ) as Market;
+    expect(card(live).status).toBe('NEEDS_ATTENTION');
+    const sandbox = ok(
+      await call(
+        'get',
+        '/integrations/marketplace?environment=TEST',
+        people.ownerB,
+        undefined,
+        'b',
+      ),
+    ) as Market;
+    expect(card(sandbox).status).toBe('CONNECTED');
+  });
+});

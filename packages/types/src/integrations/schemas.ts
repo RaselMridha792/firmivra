@@ -317,6 +317,11 @@ export const IntegrationSort = z.enum(['popular', 'name', 'category']);
 
 /** GET /business/integrations/marketplace: Add Integration, with the category list and counts. */
 export const IntegrationMarketplaceQuery = z.strictObject({
+  /**
+   * I-R2-02 (Integrations Review Two): the environment whose connections the cards show (Live
+   * unless asked), as the overview's switch: never a Test connection on a Live card.
+   */
+  environment: IntegrationEnvironment.optional().default('LIVE'),
   category: IntegrationCategory.optional(),
   search: SearchText.optional(),
   sort: IntegrationSort.optional().default('popular'),

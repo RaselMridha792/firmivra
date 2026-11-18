@@ -116,6 +116,11 @@ export class IntegrationsReadService {
             p.environments.includes(q.environment) && (!q.category || p.category === q.category),
         );
       const all = scoped.map((p) => cardOf(p, byProvider.get(p.provider) ?? []));
+      // I-R2-02: every number comes from the connections whose cards this environment shows (a
+      // provider without this environment shows no card, so its connections count nowhere).
+      const shown = new Set(all.map((c) => c.provider.provider));
+      const visible = connections.filter((c) => shown.has(c.provider));
+      const visibleIds = visible.map((c) => c.id);
       const summary = {
         connected: all.filter((c) => c.status === 'CONNECTED' || c.status === 'SYNCING').length,
         needsAttention: all.filter((c) => c.status === 'NEEDS_ATTENTION').length,
@@ -128,9 +133,10 @@ export class IntegrationsReadService {
         comingSoon: all.filter((c) => c.connections.length === 0 && c.provider.comingSoon).length,
         paused: all.filter((c) => c.status === 'PAUSED').length,
         total: all.length,
+        // The last time one of them was checked: a connection test or a sync.
         lastCheckAt:
-          connections
-            .map((c) => c.lastSyncAt)
+          visible
+            .flatMap((c) => [c.lastCheckAt, c.lastSyncAt])
             .filter((d): d is Date => d !== null)
             .sort((a, b) => b.getTime() - a.getTime())[0]
             ?.toISOString() ?? null,
@@ -169,19 +175,20 @@ export class IntegrationsReadService {
         );
 
       const since = new Date(Date.now() - DAY);
+      const mine = { businessId, connectionId: { in: visibleIds } };
       const [failed, pending, mappings, recent] = await Promise.all([
         tx.integrationSyncRun.count({
-          where: { businessId, status: 'FAILED', createdAt: { gte: since } },
+          where: { ...mine, status: 'FAILED', createdAt: { gte: since } },
         }),
-        tx.integrationSyncRun.count({ where: { businessId, status: 'QUEUED' } }),
+        tx.integrationSyncRun.count({ where: { ...mine, status: 'QUEUED' } }),
         tx.integrationFieldMapping.groupBy({
           by: ['scope'],
-          where: { businessId },
+          where: mine,
           _count: { _all: true },
         }),
-        this.activity(tx, businessId, { page: 1, pageSize: 10 }),
+        this.activity(tx, businessId, { page: 1, pageSize: 10, connectionIds: visibleIds }),
       ]);
-      const authIssues = connections.filter(
+      const authIssues = visible.filter(
         (c) =>
           c.status === 'NEEDS_ATTENTION' &&
           (c.statusReason === 'authorization_expired' ||
@@ -191,7 +198,7 @@ export class IntegrationsReadService {
         summary,
         items,
         health: {
-          operational: connections.filter((c) => c.status === 'CONNECTED' || c.status === 'SYNCING')
+          operational: visible.filter((c) => c.status === 'CONNECTED' || c.status === 'SYNCING')
             .length,
           authorizationIssues: authIssues,
           failedSyncs: failed,
@@ -231,10 +238,22 @@ export class IntegrationsReadService {
     businessId: string,
     q:
       | Activity
-      | { page: number; pageSize: number; provider?: string; kind?: IntegrationActivity['kind'] },
+      | {
+          page: number;
+          pageSize: number;
+          provider?: string;
+          kind?: IntegrationActivity['kind'];
+          /** I-R2-02: only these connections (the overview's environment). */
+          connectionIds?: string[];
+        },
   ): Promise<IntegrationActivityPage> {
+    const only = 'connectionIds' in q && q.connectionIds ? q.connectionIds : undefined;
     const connections = await tx.integrationConnection.findMany({
-      where: { businessId, ...(q.provider ? { provider: q.provider } : {}) },
+      where: {
+        businessId,
+        ...(q.provider ? { provider: q.provider } : {}),
+        ...(only ? { id: { in: only } } : {}),
+      },
       select: { id: true, provider: true },
     });
     const providerOfConnection = new Map(connections.map((c) => [c.id, c.provider]));
@@ -325,8 +344,9 @@ export class IntegrationsReadService {
 
   marketplace(businessId: string, q: Marketplace): Promise<IntegrationMarketplace> {
     return this.inFirm(businessId, async (tx) => {
+      // I-R2-02: the connections of one environment, as the overview's Live / Test switch.
       const connections = (await tx.integrationConnection.findMany({
-        where: { businessId },
+        where: { businessId, environment: q.environment },
       })) as ConnectionRow[];
       const byProvider = new Map<string, ConnectionRow[]>();
       for (const c of connections)
