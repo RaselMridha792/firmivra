@@ -30,6 +30,10 @@ const MESSAGES: Record<string, string> = {
   BUSINESS_SETUP_REQUIRED: 'Your firm needs to finish setup first.',
   BUSINESS_REQUIRED: 'Choose a firm first.',
   NOT_FOUND: "We couldn't find that. It may have been removed.",
+  // Assignees (Intake Review 2 USABILITY-03; a screen may say it its own way)
+  CLIENT_NOT_ASSIGNED: "This staff member isn't assigned to this client.",
+  NOT_A_MEMBER: "That person isn't an active member of your firm.",
+  INVALID_STATUS: "This can't be done in its current status.",
   // Firm Sign in-person signing: every firm call while this device is handed to a signer.
   KIOSK_LOCKED: 'An in-person signing is open. Enter your password to return.',
   // Input and conflicts

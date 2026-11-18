@@ -59,6 +59,12 @@ export const AppointmentContact = z.object({
   email: z.string().nullable(),
   phone: z.string().nullable(),
   clientType: z.enum(['INDIVIDUAL', 'BUSINESS']).nullable(),
+  /**
+   * P4-2 (N8-18), a LEAD contact on the appointment's record: whether the member reaches the lead
+   * by the lead pages' rule (Owner and Admin every lead; Staff the leads assigned to them). Only
+   * they are offered Convert to New client when completing it; absent on other answers.
+   */
+  leadReach: z.boolean().optional(),
 });
 export type AppointmentContact = z.infer<typeof AppointmentContact>;
 

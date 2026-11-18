@@ -68,6 +68,11 @@ export const FormRecipient = z.object({
   name: z.string(),
   email: z.string().nullable(),
   phone: z.string().nullable(),
+  /**
+   * Intake Review 2 USABILITY-03: the client's or lead's assigned staff member. Assign Staff
+   * offers them and the Owner and Admins; anyone else is 409 CLIENT_NOT_ASSIGNED.
+   */
+  assignedUserId: z.uuid().nullable().default(null),
 });
 export type FormRecipient = z.infer<typeof FormRecipient>;
 

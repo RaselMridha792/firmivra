@@ -21,6 +21,7 @@ import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { returnReassignAuthority } from '../tax-returns/return-authority.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
+import { reachesLead } from './appointment-party.js';
 import { AppointmentNotices } from './appointment-notices.js';
 import { type CompleteBody as CompleteSchema, inCalendarYears } from './appointments.input.js';
 import { freeStarts, MINUTE, zonedDate, zonedInstant } from './calendar.js';
@@ -174,9 +175,13 @@ export class AppointmentsService {
         select: appointmentSelect,
       });
     });
-    const items = rows.map((row): CalendarAppointment =>
-      seesInFull(actor, row) ? { ...toAppointment(row), restricted: false } : toBusy(row),
-    );
+    const items = rows.map((row): CalendarAppointment => {
+      if (!seesInFull(actor, row)) return toBusy(row);
+      const a = toAppointment(row);
+      // P4-2: whether this member may convert the lead (Convert to New client when completing).
+      const lead = a.lead && row.lead ? { ...a.lead, reach: reachesLead(actor, row.lead) } : a.lead;
+      return { ...a, lead, restricted: false };
+    });
     await this.audit.log(
       'appointments.listed',
       { type: 'appointment' },
@@ -522,6 +527,11 @@ export class AppointmentsService {
       }
       if (body.outcome && (status !== 'COMPLETED' || !leadId)) {
         throw errors.invalidField('outcome', 'Only an appointment with a lead has an outcome');
+      }
+      // The lead's Convert flow is its owner's: the appointment's own staff member who does not
+      // reach the lead records Keep as Lead and Follow Up only (the lead's answer, Nov 18).
+      if (body.outcome === 'CONVERT_NEW' && current.lead && !reachesLead(actor, current.lead)) {
+        throw errors.leadOwnerConverts();
       }
       const updated = await tx.appointment.update({
         where: { id: current.id },

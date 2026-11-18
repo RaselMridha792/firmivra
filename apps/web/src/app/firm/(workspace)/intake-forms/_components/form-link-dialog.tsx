@@ -81,10 +81,18 @@ export function FormLinkDialog({
   const rotate = useApiMutation(() => api.intakeForms.rotateShare(formId), { invalidate: key });
   const [confirming, setConfirming] = useState(false);
   const [rotated, setRotated] = useState(false);
-  const s: IntakeShare | undefined = rotate.data ?? save.data ?? share.data;
+  // ACCESS-02d: the window shows the newest server answer, whichever came last: a save, a new
+  // link, or the read the two refetch (never an older answer over a later one).
+  const [answer, setAnswer] = useState<{ share: IntakeShare; at: number }>();
+  const answered = (next: IntakeShare) => setAnswer({ share: next, at: Date.now() });
+  const s: IntakeShare | undefined =
+    answer && (!share.data || answer.at >= share.dataUpdatedAt) ? answer.share : share.data;
   const set = (patch: Partial<{ sharing: boolean; portalPublished: boolean }>) => {
     if (!s) return;
-    save.mutate({ sharing: s.sharing, portalPublished: s.portalPublished, ...patch });
+    save.mutate(
+      { sharing: s.sharing, portalPublished: s.portalPublished, ...patch },
+      { onSuccess: answered },
+    );
   };
   const emptyText = share.isPending
     ? 'Loading the form link…'
@@ -165,7 +173,8 @@ export function FormLinkDialog({
                         disabled={rotate.isPending}
                         onClick={() =>
                           rotate.mutate(undefined, {
-                            onSuccess: () => {
+                            onSuccess: (next) => {
+                              answered(next);
                               setConfirming(false);
                               setRotated(true);
                             },
