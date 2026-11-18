@@ -151,10 +151,24 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     : preset
       ? ({ rule: 'ROLLING', preset } as const)
       : undefined;
+  const sources = useApiQuery([...RP_KEY, 'sources'], () => api.reports.sources());
+  // C18 (Tax Planning Review 2): a system report whose data cannot be compared (Tax Planning's
+  // plans) runs without a comparison, as its export already does; its first run waits until the
+  // catalog and the sources say which.
+  const catalog = useApiQuery([...RP_KEY, 'catalog'], () => api.reports.catalog());
+  const systemSource =
+    target.kind === 'SYSTEM'
+      ? catalog.data?.categories.flatMap((c) => c.reports).find((i) => i.key === target.key)
+          ?.dataSource
+      : undefined;
+  const comparable =
+    target.kind !== 'SYSTEM' ||
+    (!!systemSource && !!sources.data?.find((s) => s.key === systemSource)?.supportsComparison);
+  const known = target.kind !== 'SYSTEM' || (!catalog.isPending && !sources.isPending);
   const req = {
     target,
     ...(date ? { date: date as never } : {}),
-    ...(compare ? { compareTo: compare as never } : {}),
+    ...(compare && comparable ? { compareTo: compare as never } : {}),
     ...(clientType !== 'ALL' ? { quick: { clientType: clientType as never } } : {}),
     ...(service
       ? {
@@ -198,11 +212,11 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       }
     },
     placeholderData: keepPreviousData,
+    enabled: known,
   });
   const services = useApiQuery([...RP_KEY, 'services'], () =>
     api.reports.lookups({ kind: 'SERVICE_CATEGORY' }),
   );
-  const sources = useApiQuery([...RP_KEY, 'sources'], () => api.reports.sources());
   // RP-F13: a saved report's owner (or an Owner or Admin) may save changes on it.
   const savedOne = useApiQuery([...RP_KEY, 'saved-one', reportId], () =>
     target.kind === 'SAVED' ? api.reports.savedReport(reportId) : Promise.resolve(null),
