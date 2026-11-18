@@ -1,3 +1,8 @@
+import {
+  payrollConnectionLabel,
+  payrollConnectionState,
+  type PayrollClientWorkspace,
+} from '@firmivra/types';
 import type {
   PayrollClientStatus,
   PayrollFrequency,
@@ -276,4 +281,39 @@ export function CardHead({
       {aside}
     </header>
   );
+}
+
+export const stampOf = (iso: string) =>
+  new Date(iso).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+/** F01: the client's provider in the shared words, with a failed last attempt apart. */
+export function providerState(w: PayrollClientWorkspace) {
+  const facts = {
+    chosen: !!w.provider,
+    authorized: !!w.provider?.connected,
+    lastSyncedAt: w.lastSyncedAt,
+  };
+  const state = payrollConnectionState(facts);
+  const failedAt =
+    w.lastSyncAttemptAt && (!w.lastSyncedAt || w.lastSyncAttemptAt > w.lastSyncedAt)
+      ? w.lastSyncAttemptAt
+      : null;
+  return {
+    state,
+    label: payrollConnectionLabel(facts, stampOf),
+    tone: (state === 'SYNCED'
+      ? 'success'
+      : state === 'PENDING_SETUP'
+        ? 'warning'
+        : state === 'WAITING_FIRST_SYNC'
+          ? 'info'
+          : 'neutral') as 'success' | 'warning' | 'info' | 'neutral',
+    failedAt,
+  };
 }

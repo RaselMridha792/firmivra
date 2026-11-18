@@ -44,6 +44,7 @@ import { IntakesModule } from '../intake/intakes.controller.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { IntakeLinkCookies } from './intake-link-cookies.js';
 import { IntakeLinkService } from './intake-link.service.js';
+import { IntakeAutomationsModule } from '../intake-workspace/intake-automations.js';
 import { LINK_UPLOAD_PROVIDERS, LinkUploadsService } from './link-uploads.service.js';
 
 /** An opening viewer's network (networkOf: /24 or /48), as Begin Online's resume link counts. */
@@ -178,6 +179,7 @@ export class IntakeLinkController {
     IntakesModule,
     AgreementsModule,
     NotificationsModule,
+    IntakeAutomationsModule,
   ],
   controllers: [IntakeLinkController],
   providers: [

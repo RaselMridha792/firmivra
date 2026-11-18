@@ -10,6 +10,7 @@ import {
   TaxReturnId,
   UpdateTaxReturnRequest,
 } from '@firmivra/types';
+import { DocumentsModule } from '../storage/documents.controller.js';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
@@ -116,7 +117,8 @@ export class MyTaxReturnsController {
 @Module({
   // The export writes under the firm's reports prefix (ReportsModule's file store).
   // FieldEncryption seals a business return's corrected EIN.
-  imports: [ReportsModule, PortalTabsModule, FieldEncryptionModule],
+  // DocumentsModule: a linked document's download link (F18).
+  imports: [ReportsModule, PortalTabsModule, FieldEncryptionModule, DocumentsModule],
   // The workspace (R55) first: its static routes (summary) before any ':id'.
   controllers: [
     TaxReturnWorkspaceController,

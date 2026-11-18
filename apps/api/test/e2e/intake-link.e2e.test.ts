@@ -314,6 +314,15 @@ describe("a lead's secure intake link", () => {
       await inFirmA((tx) => firmWideVersion(tx, firms.a.id)),
       'Lee Lead',
     );
+    // Review Two 9b: the firm's listed addresses hear of a lead's submit too (set before it).
+    const notified = `intake-ops-${run}@firm.test`;
+    await inFirmA((tx) =>
+      tx.intakeSettings.upsert({
+        where: { businessId: firms.a.id },
+        create: { businessId: firms.a.id, notifyAdditionalEmails: [notified] },
+        update: { notifyAdditionalEmails: [notified] },
+      }),
+    );
     // Review Two row 21: the firm asks for consent (the setting's default); none is refused.
     expect(LinkIntake.parse(ok(await v.get())).consentRequired).toBe(true);
     expectError(await v.post('/submit', { answers: {}, signature }), 400, 'CONSENT_REQUIRED');
@@ -329,6 +338,13 @@ describe("a lead's secure intake link", () => {
     );
     expect(confirmed).toHaveLength(1);
     expect(confirmed[0]!.data).toEqual({ formTitle: 'Tax Planning Intake' });
+    // 9b: the listed address gets the submitted notice, once, with a link to Intake Forms.
+    const notices = outbox.filter(
+      (m) => m.template === 'intake.submitted-notice' && m.to === notified,
+    );
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.data).toMatchObject({ formTitle: 'Tax Planning Intake' });
+    expect(String((notices[0]!.data as { link: string }).link)).toMatch(/\/intake-forms$/);
     const stored = await inFirmA((tx) =>
       tx.intake.findUniqueOrThrow({
         where: { id },
@@ -414,5 +430,114 @@ describe("a lead's secure intake link", () => {
     );
     expectError(await v.get(), 410, 'LINK_INVALID');
     expectError(await visitor(firms.a.slug).post('/open', { token }), 410, 'LINK_INVALID');
+  });
+});
+
+describe('Intake Review 2 23-c to 23-f: the Automation Rules at a lead link submit', () => {
+  it('links the lead to the existing client of its email (never a second), and makes one follow-up task', async () => {
+    const email = `lee-auto-${run}@lead.test`;
+    const made = await inFirmA(async (tx) => {
+      const template = await tx.intakeTemplate.findUniqueOrThrow({
+        where: { id: ids.template },
+        select: { serviceId: true },
+      });
+      const lead = await tx.lead.create({
+        data: {
+          businessId: firms.a.id,
+          serviceId: template.serviceId,
+          status: 'CONTACTED',
+          submittedAt: new Date(),
+          firstName: 'Lee',
+          lastName: 'Lead auto (fake)',
+          email,
+          phone: '+15550104444',
+        },
+        select: { id: true },
+      });
+      const client = await tx.client.create({
+        data: {
+          businessId: firms.a.id,
+          displayName: 'Lee Already (fake)',
+          email,
+        },
+        select: { id: true },
+      });
+      await tx.intakeSettings.upsert({
+        where: { businessId: firms.a.id },
+        create: {
+          businessId: firms.a.id,
+          autoCreateClient: true,
+          autoCreateFollowUpTask: true,
+          followUpOwnerUserId: owners.a.id,
+        },
+        update: {
+          autoCreateClient: true,
+          autoCreateFollowUpTask: true,
+          followUpOwnerUserId: owners.a.id,
+        },
+      });
+      return { lead: lead.id, client: client.id };
+    });
+    ids['auto'] = made.lead;
+    const clientsBefore = await inFirmA((tx) =>
+      tx.client.count({ where: { businessId: firms.a.id } }),
+    );
+    const { id, token } = await sendTo('auto');
+    // A network of its own: Open allows 10 a minute per network, and the tests above used it.
+    viewers += 250;
+    const v = visitor(firms.a.slug);
+    ok(await v.post('/open', { token }));
+    for (const step of ['profile', 'finances', 'goals']) {
+      SavedIntakeStep.parse(ok(await v.put(`/steps/${step}`, { answers: stepAnswers(step) })));
+    }
+    const signature = signatureFor(
+      await inFirmA((tx) => firmWideVersion(tx, firms.a.id)),
+      'Lee Lead',
+    );
+    LinkIntake.parse(ok(await v.post('/submit', { answers: {}, signature, consent: true })));
+    const after = await inFirmA(async (tx) => ({
+      lead: await tx.lead.findUniqueOrThrow({
+        where: { id: made.lead },
+        select: { status: true, clientId: true },
+      }),
+      clients: await tx.client.count({ where: { businessId: firms.a.id } }),
+      tasks: await tx.task.findMany({
+        where: { businessId: firms.a.id, idempotencyKey: id },
+        select: { clientId: true, assignedUserId: true, title: true },
+      }),
+      audits: await tx.auditLog.findMany({
+        where: {
+          entityId: id,
+          action: { in: ['intake.client_auto_created', 'intake.follow_up_task_created'] },
+        },
+        select: { action: true, metadata: true },
+      }),
+    }));
+    // The existing client, linked: no second client.
+    expect(after.lead).toEqual({ status: 'CONVERTED', clientId: made.client });
+    expect(after.clients).toBe(clientsBefore);
+    // One follow-up task, for the default follow-up owner (the form has no assignee here).
+    expect(after.tasks).toEqual([
+      {
+        clientId: made.client,
+        assignedUserId: owners.a.id,
+        title: 'Review the submitted form: Tax Planning Intake',
+      },
+    ]);
+    expect(after.audits.map((a) => a.action).sort()).toEqual([
+      'intake.client_auto_created',
+      'intake.follow_up_task_created',
+    ]);
+    expect(after.audits.find((a) => a.action === 'intake.client_auto_created')?.metadata).toEqual({
+      clientId: made.client,
+      linked: 'existing',
+    });
+    // Off again (the firm's choice), nothing more happens; the settings stay for the other tests.
+    await inFirmA((tx) =>
+      tx.intakeSettings.update({
+        where: { businessId: firms.a.id },
+        data: { autoCreateClient: false, autoCreateFollowUpTask: false },
+      }),
+    );
   });
 });

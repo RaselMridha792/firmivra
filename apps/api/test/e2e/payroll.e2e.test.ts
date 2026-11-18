@@ -23,6 +23,7 @@ import {
   PayrollIssueList,
   PayrollLineList,
   PayrollOverview,
+  payrollConnectionLabel,
   PayrollReport,
   PayrollReportList,
   PayrollRun,
@@ -858,6 +859,47 @@ describe('the workspace and its service actions', () => {
     expect(await auditActions(pcId)).toContain('payroll.client.sync_queued');
   });
 
+  it('F01: the client and the providers panel give the same state: synced, waiting for first sync, pending setup', async () => {
+    const both = async () => {
+      const w = exact(PayrollClientWorkspace, await call('get', `/clients/${pcId}`, people.ownerA));
+      const o = exact(PayrollOverview, await call('get', '/overview', people.ownerA));
+      const row = o.providers.find((r) => r.key === 'gusto')!;
+      const fromClient = payrollConnectionLabel(
+        { chosen: !!w.provider, authorized: !!w.provider?.connected, lastSyncedAt: w.lastSyncedAt },
+        (iso) => iso,
+      );
+      const fromPanel = payrollConnectionLabel(
+        { chosen: true, authorized: row.connected, lastSyncedAt: row.lastSyncedAt },
+        (iso) => iso,
+      );
+      expect(fromPanel).toBe(fromClient);
+      return fromClient;
+    };
+    const syncedAt = new Date();
+    await asOwner(ids.firmA, (tx) =>
+      tx.payrollClient.update({ where: { id: pcId }, data: { lastSyncedAt: syncedAt } }),
+    );
+    expect(await both()).toBe(`Connected · last sync ${syncedAt.toISOString()}`);
+    await asOwner(ids.firmA, (tx) =>
+      tx.payrollClient.update({ where: { id: pcId }, data: { lastSyncedAt: null } }),
+    );
+    expect(await both()).toBe('Connected · waiting for first sync');
+    // Not authorized for the firm (its Integrations connection is not connected): pending setup.
+    const setConnection = (status: 'CONNECTED' | 'PAUSED') =>
+      asOwner(ids.firmA, (tx) =>
+        tx.integrationConnection.updateMany({
+          where: { businessId: ids.firmA, provider: 'gusto' },
+          data: { status },
+        }),
+      );
+    try {
+      await setConnection('PAUSED');
+      expect(await both()).toBe('Pending setup');
+    } finally {
+      await setConnection('CONNECTED');
+    }
+  });
+
   it('status is set by Staff; pause and resume restore the earlier status; each change is in the history', async () => {
     expect(
       exact(
@@ -1021,10 +1063,22 @@ describe('the workspace and its service actions', () => {
         await call('post', `/clients/${pcId}/plan`, people.adminA, { plan: 'Payroll Plus' }),
       ).plan,
     ).toBe('Payroll Plus');
+    // F01: a save with no plan never clears a saved one (a form that had not loaded it yet);
+    // Remove Plan does.
+    expectError(
+      await call('post', `/clients/${pcId}/plan`, people.adminA, { plan: null }),
+      409,
+      'PLAN_REMOVE_EXPLICIT',
+    );
+    expectError(
+      await call('post', `/clients/${pcId}/plan`, people.adminA, { catalogServiceId: null }),
+      409,
+      'PLAN_REMOVE_EXPLICIT',
+    );
     expect(
       exact(
         PayrollClientWorkspace,
-        await call('post', `/clients/${pcId}/plan`, people.adminA, { plan: null }),
+        await call('post', `/clients/${pcId}/plan`, people.adminA, { plan: null, remove: true }),
       ).plan,
     ).toBeNull();
     expectError(
@@ -1075,7 +1129,10 @@ describe('the workspace and its service actions', () => {
     expect(
       exact(
         PayrollClientWorkspace,
-        await call('post', `/clients/${pcId}/plan`, people.adminA, { catalogServiceId: null }),
+        await call('post', `/clients/${pcId}/plan`, people.adminA, {
+          catalogServiceId: null,
+          remove: true,
+        }),
       ),
     ).toMatchObject({ plan: null, catalogServiceId: null });
     expectError(

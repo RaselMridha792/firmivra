@@ -32,6 +32,7 @@ import { useUrlTab } from '../../../../../lib/url-tab';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ClientActionMenu } from './client-actions';
+import { providerState, stampOf } from './payroll-shared';
 import {
   CardHead,
   ClientStatusPill,
@@ -70,7 +71,7 @@ import {
 } from '../../../../../components/service-documents';
 import { ServiceTasks } from '../../tasks/_components/service-tasks';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
-import { describeConnection } from '../../../../../lib/connection-state';
+import { scheduledPayDate } from '@firmivra/types';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -438,13 +439,20 @@ function Overview({
         <Stat icon={FileText} title="Payroll Provider" testId="stat-provider">
           {w ? (
             <>
-              <p className="flex items-center gap-2 font-display text-xl font-bold text-heading">
+              <p className="font-display text-xl font-bold text-heading">
                 {w.provider?.label ?? 'Not connected'}
-                <Badge tone={providerState(w).tone}>{providerState(w).label}</Badge>
               </p>
-              <p className="text-xs text-muted" data-testid="provider-sync">
-                {providerState(w).sync.label}
-                {w.syncStatus === 'STALE' && !providerState(w).failedAt ? ' (stale)' : ''}
+              {/* F01: the same words as the providers panel and Upcoming Payroll Runs. */}
+              <p className="flex flex-wrap items-center gap-1 text-xs" data-testid="provider-sync">
+                <Badge tone={providerState(w).tone}>{providerState(w).label}</Badge>
+                {w.syncStatus === 'STALE' && !providerState(w).failedAt ? (
+                  <span className="text-muted">(stale)</span>
+                ) : null}
+                {providerState(w).failedAt ? (
+                  <span className="text-danger">
+                    Last attempt failed {stampOf(providerState(w).failedAt!)}
+                  </span>
+                ) : null}
               </p>
               {w.provider ? (
                 <button
@@ -645,11 +653,19 @@ function Overview({
               noun="runs"
               pageSize={4}
               loading={pending}
-              emptyTitle={failed ? 'Runs are not available' : 'No upcoming runs'}
+              emptyTitle={
+                failed
+                  ? 'Runs are not available'
+                  : w && scheduleOf(w).on
+                    ? `Next payroll ${dayText(scheduleOf(w).on!)}`
+                    : 'No upcoming runs'
+              }
               emptyText={
                 failed
                   ? 'We could not load the runs. Try again in a moment.'
-                  : 'Set a frequency and connect a provider to see the schedule.'
+                  : w
+                    ? scheduleOf(w).text
+                    : ''
               }
               rowActions={(r) => (
                 <button
@@ -927,12 +943,27 @@ function OverviewNotes({ id, onAll }: { id: string | undefined; onAll: () => voi
   );
 }
 
-/** SH7: the provider's connection apart from its sync, from the client's real sync times. */
-function providerState(w: PayrollClientWorkspace) {
-  return describeConnection({
-    provider: w.provider?.label ?? null,
-    status: w.provider ? (w.provider.connected ? 'CONNECTED' : 'NOT_AUTHORIZED') : null,
-    lastSuccessAt: w.lastSyncedAt,
-    lastAttemptAt: w.lastSyncAttemptAt,
-  });
+/**
+ * F01: Upcoming Payroll Runs with no run yet. With a frequency and an authorized provider, the
+ * next pay date from the frequency (or the one set), "first sync pending" until data came; else
+ * only what is truly missing.
+ */
+function scheduleOf(w: PayrollClientWorkspace): { on: string | null; text: string } {
+  const authorized = !!w.provider?.connected;
+  if (w.frequency && authorized) {
+    const on =
+      w.nextPayrollOn ?? scheduledPayDate(w.frequency, new Date().toISOString().slice(0, 10));
+    return {
+      on,
+      text: `${FREQUENCY_LABEL[w.frequency]} · ${w.lastSyncedAt ? 'runs appear with the next sync' : 'first sync pending'}`,
+    };
+  }
+  const missing = [
+    w.frequency ? null : 'set a pay frequency',
+    w.provider ? null : 'choose a payroll provider',
+    w.provider && !authorized ? `connect ${w.provider.label} in Integrations` : null,
+  ].filter(Boolean);
+  const list =
+    missing.length > 1 ? `${missing.slice(0, -1).join(', ')} and ${missing.at(-1)}` : missing[0];
+  return { on: null, text: `To see the schedule, ${list}.` };
 }
