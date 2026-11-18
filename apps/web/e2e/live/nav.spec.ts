@@ -36,11 +36,17 @@ async function menuItems(page: Page): Promise<Item[]> {
 /** The menu's current links: exactly one, and it is `path`. */
 async function expectCurrent(page: Page, item: Item, where: string) {
   const nav = page.getByRole('navigation', { name: 'Main' }).first();
-  const current = await nav
-    .locator('a[aria-current="page"]')
-    .evaluateAll((links) => links.map((a) => new URL((a as HTMLAnchorElement).href).pathname));
-  expect
-    .soft(current, `${where}: the menu should mark only "${item.label}" (${item.path}) as current`)
+  const current = () =>
+    nav
+      .locator('a[aria-current="page"]')
+      .evaluateAll((links) => links.map((a) => new URL((a as HTMLAnchorElement).href).pathname));
+  // The menu may mark its item a moment after the page settles (client-side route state): wait
+  // up to 8 s for the right mark before calling it wrong.
+  await expect.soft
+    .poll(current, {
+      message: `${where}: the menu should mark only "${item.label}" (${item.path}) as current`,
+      timeout: 8_000,
+    })
     .toEqual([item.path]);
 }
 
