@@ -1650,6 +1650,45 @@ export function createStaffMock(options: Options = {}): StaffClient {
 
     importTemplateUrl: () =>
       `data:text/csv;charset=utf-8,${encodeURIComponent('First Name,Last Name,Work Email,Phone,Job Title,Role,Department\n')}`,
+    // SM09: the API’s own workbook (staff-read.service.ts importTemplateXlsx), made once by it.
+    importTemplateXlsxUrl: () =>
+      'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' +
+      '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',
     previewImport: async (body) => {
       await g.allowed();
       ownerOrAdmin();

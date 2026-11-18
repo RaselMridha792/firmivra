@@ -1,3 +1,4 @@
+import { toXlsx } from '../reports/report-formats.js';
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
@@ -425,7 +426,8 @@ export class StaffReadService {
   }
 
   /** The CSV a firm fills in to import staff: the columns the import maps, and one made-up row. */
-  importTemplate(): string {
+  /** The import template's columns and one sample row (CSV and XLSX alike). */
+  private templateRows(): { head: string[]; sample: string[] } {
     const head = [
       'firstName',
       'lastName',
@@ -452,6 +454,30 @@ export class StaffReadService {
       '2026-01-15',
       'E-1001',
     ];
+    return { head, sample };
+  }
+
+  importTemplate(): string {
+    const { head, sample } = this.templateRows();
     return `${BOM}${head.join(',')}\r\n${sample.join(',')}\r\n`;
+  }
+
+  /** SM09 (Staff Management Review 2): the same template as an Excel workbook. */
+  importTemplateXlsx(): Buffer {
+    const { head, sample } = this.templateRows();
+    return toXlsx(
+      {
+        columns: head.map((key) => ({
+          key,
+          label: key,
+          type: 'TEXT' as const,
+          locked: false,
+          sortable: false,
+        })),
+        all: [{ cells: Object.fromEntries(head.map((k, n) => [k, sample[n] ?? null])), links: [] }],
+        totals: null,
+      },
+      'Staff import',
+    );
   }
 }

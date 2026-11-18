@@ -337,6 +337,27 @@ describe('summary, options and the template', () => {
       'firstName,lastName,email,phone,jobTitle,role,department,employmentType,office,hireDate,employeeId',
     );
   });
+
+  it('SM09: serves the same template as an Excel workbook', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/business/staff/import/template/xlsx')
+      .set('x-business-id', firms.a)
+      .set('x-forwarded-for', viewer())
+      .set('authorization', `Bearer ${await tokenFor(ownerA.email)}`)
+      .buffer(true)
+      .parse((r, done) => {
+        const parts: Buffer[] = [];
+        r.on('data', (c: Buffer) => parts.push(c));
+        r.on('end', () => done(null, Buffer.concat(parts)));
+      });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/spreadsheetml\.sheet/);
+    expect(res.headers['content-disposition']).toMatch(/staff-import-template\.xlsx/);
+    // A zip: an XLSX workbook.
+    const bytes = res.body as Buffer;
+    expect(bytes.subarray(0, 2).toString('latin1')).toBe('PK');
+    expect(bytes.length).toBeGreaterThan(500);
+  });
 });
 
 describe('one member', () => {

@@ -44,8 +44,11 @@ import { StepActions, WithDraft, useDraftSaver } from '../../_components/with-dr
 import { WizardHeader } from '../../_components/wizard-header';
 import { STAFF_ERRORS, stepHref } from '../../_components/wizard-parts';
 
-/** Create Staff's grid has the design's six columns; Export follows the role's default. */
-const COLUMNS: PermissionCapability[] = CAPABILITY_ORDER.filter((c) => c !== 'EXPORT');
+/**
+ * Create Staff's grid: every capability, Export too (SM04, Staff Management Review 2), as Edit
+ * Staff's Permissions tab and Roles show it; the new member keeps it.
+ */
+const COLUMNS: PermissionCapability[] = CAPABILITY_ORDER;
 
 const toValue = (cells: readonly { module: string; capability: string; granted: boolean }[]) => {
   const value: Record<string, string[]> = {};

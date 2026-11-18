@@ -396,6 +396,40 @@ describe('Create Staff', () => {
     expect(await membersWith(FAILING)).toBe(1);
   });
 
+  it('SM04: Create Staff gives Export like any other column, and the new member keeps it', async () => {
+    const create = async (key: string, permissions?: object[]) =>
+      CreateStaffResponse.parse(
+        ok(
+          await call('post', '/staff', ownerA, {
+            idempotencyKey: randomUUID(),
+            account: account(key),
+            sendWelcomeEmail: false,
+            ...(permissions ? { permissions } : {}),
+          }),
+          201,
+        ),
+      ).staff.id;
+    const gridOf = async (id: string) =>
+      StaffPermissions.parse(ok(await call('get', `/staff/${id}/permissions`, ownerA))).cells;
+    // A module the role lets them view but not export.
+    const roleCells = await gridOf(await create('sm04-role'));
+    const has = (module: string, capability: string) =>
+      roleCells.some((c) => c.module === module && c.capability === capability && c.granted);
+    const module = roleCells.find(
+      (c) => c.capability === 'VIEW' && c.granted && !has(c.module, 'EXPORT'),
+    )?.module;
+    expect(module).toBeTruthy();
+    const cells = await gridOf(
+      await create('sm04', [
+        { module: module!, capability: 'VIEW', granted: true },
+        { module: module!, capability: 'EXPORT', granted: true },
+      ]),
+    );
+    expect(cells.find((c) => c.module === module && c.capability === 'EXPORT')).toMatchObject({
+      granted: true,
+    });
+  });
+
   it('refuses an email someone here already has', async () => {
     for (const email of [staffA.email, invitedA.email.toUpperCase(), gonerA.email])
       expectError(
