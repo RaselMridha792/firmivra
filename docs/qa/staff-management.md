@@ -7,15 +7,15 @@ This file maps each row of Octavia's Staff Management Review 2 that needed work 
 
 | Row | Status | PR | Test |
 | --- | --- | --- | --- |
-| SM01 Staff and team reporting | Done | PR pending (batch 1) | mock `r60-staff-review2` "SM01: the Reports tile opens the Staff & Team report with its content, and Back returns to Staff Management" |
-| SM04 Export permissions | Done | PR pending (batch 1) | staff-write e2e "SM04: Create Staff gives Export like any other column, and the new member keeps it"; mock "SM04…" |
-| SM06 Company work schedules | Done | PR pending (batch 1) | staff-write e2e "SM06 and SM25…"; mock "SM06 and SM25: Edit Staff keeps a custom work schedule and both teams" |
-| SM09 Bulk file formats | Done | PR pending (batch 1) | staff e2e "SM09: serves the same template as an Excel workbook" |
-| SM16 Draft saving and retrieval | Done | PR pending (batch 1) | staff-write e2e "SM16: a draft keeps a changed permission grid and custom security settings as saved"; mock "SM16…" |
-| SM18 Unsaved changes warning | Done | PR pending (batch 1) | mock "SM18: Edit Staff asks…" and "SM18: Create Staff asks…" |
-| SM25 Direct membership and hierarchy | Done | PR pending (batch 1) | staff-write e2e "SM06 and SM25…" (teams kept, a supervisor loop refused); mock "SM06 and SM25…" |
-| SM38 Audit and timestamps | Done | PR pending (batch 1) | staff-documents e2e (the import's audit names its file); mock "SM38: Staff Management times are in the firm's time zone" |
-| SM20 Imported name preservation | Done | #1621 (db), PR pending (batch 1) | staff-write e2e "SM20 and SM21: a compound first name stays whole, and an invitation reads as sent only once emailed"; db `r60-staff-names` |
-| SM21 Invitation status accuracy | Done | #1621 (db), PR pending (batch 1) | staff-write e2e "SM20 and SM21…"; invites e2e (the email's send on record) |
+| SM01 Staff and team reporting | Done | #1630 | mock `r60-staff-review2` "SM01: the Reports tile opens the Staff & Team report with its content, and Back returns to Staff Management" |
+| SM04 Export permissions | Done | #1630 | staff-write e2e "SM04: Create Staff gives Export like any other column, and the new member keeps it"; mock "SM04…" |
+| SM06 Company work schedules | Done | #1630 | staff-write e2e "SM06 and SM25…"; mock "SM06 and SM25: Edit Staff keeps a custom work schedule and both teams" |
+| SM09 Bulk file formats | Done | #1630 | staff e2e "SM09: serves the same template as an Excel workbook" |
+| SM16 Draft saving and retrieval | Done | #1630 | staff-write e2e "SM16: a draft keeps a changed permission grid and custom security settings as saved"; mock "SM16…" |
+| SM18 Unsaved changes warning | Done | #1630 | mock "SM18: Edit Staff asks…" and "SM18: Create Staff asks…" |
+| SM25 Direct membership and hierarchy | Done | #1630 | staff-write e2e "SM06 and SM25…" (teams kept, a supervisor loop refused); mock "SM06 and SM25…" |
+| SM38 Audit and timestamps | Done | #1630 | staff-documents e2e (the import's audit names its file); mock "SM38: Staff Management times are in the firm's time zone" |
+| SM20 Imported name preservation | Done | #1621 (db), #1630 | staff-write e2e "SM20 and SM21: a compound first name stays whole, and an invitation reads as sent only once emailed"; db `r60-staff-names` |
+| SM21 Invitation status accuracy | Done | #1621 (db), #1630 | staff-write e2e "SM20 and SM21…"; invites e2e (the email's send on record) |
 | SM02, SM05, SM08, SM12, SM15, SM17, SM33, SM40 | Open | next batch | — |
 | SM23, SM24, SM26, SM29, SM31, SM32, SM35, SM36, SM37, SM39, SM41, SM42, SM43 (PURPLE) | Her retest | — | — |
