@@ -12,6 +12,7 @@ import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { DashboardSummary, INTAKE_FORMS, addDays, seasonOf } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { zonedInstant } from '../../src/appointments/calendar.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -26,6 +27,16 @@ const people = {
   ownerB: person('owner-b'),
 };
 type Person = (typeof people)[keyof typeof people];
+/**
+ * The summary as a member who may view every module gets it (Owner, Admin, Staff by default):
+ * since Dashboard Review Two V5 the API leaves out what a member may not view.
+ */
+type FullSummary = Omit<DashboardSummary, 'kpis' | 'pipeline' | 'revenue' | 'tasksDue'> & {
+  kpis: Required<DashboardSummary['kpis']>;
+  pipeline: Required<DashboardSummary['pipeline']>;
+  revenue: NonNullable<DashboardSummary['revenue']>;
+  tasksDue: NonNullable<DashboardSummary['tasksDue']>;
+};
 const firms = {} as Record<'a' | 'b', { id: string; slug: string }>;
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(Date.now() - days * DAY);
@@ -80,7 +91,7 @@ async function totalOf(who: Person, path: string): Promise<number> {
 const read = async (who: Person, firm: 'a' | 'b', query = '') => {
   const res = await summary(who, firm, 'STAFF', query);
   expect(res.status, JSON.stringify(res.body)).toBe(200);
-  return DashboardSummary.parse(res.body);
+  return DashboardSummary.parse(res.body) as FullSummary;
 };
 const day = (offset: number) => new Date(`${nyDay(offset)}T00:00:00.000Z`);
 
@@ -365,6 +376,26 @@ describe('GET /business/dashboard/summary', () => {
     expect(await get('/tasks?status=OPEN&limit=100')).not.toContain('Fake task archived');
   });
 
+  it('T6: a task completed leaves Tasks Due at once and is Done, not deleted', async () => {
+    const { token } = await app.get(TokenService).signLocal(people.ownerA.id, 'STAFF');
+    const api = (method: 'get' | 'post', path: string) =>
+      request(app.getHttpServer())
+        [method](`/api/v1/business${path}`)
+        .set('x-business-id', firms.a.id)
+        .set('authorization', `Bearer ${token}`);
+    const due = async () => ((await read(people.ownerA, 'a')).tasksDue ?? []).map((t) => t.id);
+    const [first] = await due();
+    expect(first).toBeDefined();
+    const done = await api('post', `/tasks/${first}/complete`);
+    expect(done.status, JSON.stringify(done.body)).toBeLessThan(300);
+    expect(await due()).not.toContain(first);
+    const completed = await api('get', '/tasks/overview?view=completed&pageSize=100');
+    expect((completed.body as { items: { id: string }[] }).items.map((t) => t.id)).toContain(first);
+    // Back as it was, for the tests after this one.
+    expect((await api('post', `/tasks/${first}/reopen`)).status).toBeLessThan(300);
+    expect(await due()).toContain(first);
+  });
+
   it('gives Staff the numbers of the clients assigned to them only', async () => {
     const s = await read(people.staffA, 'a');
     expect(s.kpis.totalClients).toEqual({ value: 1, previous: 0 });
@@ -603,5 +634,65 @@ describe('GET /business/dashboard/summary', () => {
     );
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.metadata === null)).toBe(true);
+  });
+});
+
+describe('Outstanding Invoices and Appointments Today against their lists (Dashboard Review Two V1)', () => {
+  it('give the same money and the same appointments as the lists they open, for the Owner and Staff', async () => {
+    for (const who of [people.ownerA, people.staffA]) {
+      const s = await read(who, 'a');
+      // Outstanding Invoices opens the unpaid invoices: their balances due add up to the card.
+      const invoices = await bodyOf<{ items: { status: string; balanceDueCents: number }[] }>(
+        who,
+        '/business/invoices?status=OPEN&archived=include&limit=100',
+      );
+      expect(invoices.items.reduce((sum, i) => sum + i.balanceDueCents, 0)).toBe(
+        s.kpis.outstandingInvoicesCents.value,
+      );
+      // Appointments Today opens the firm's today on the calendar: its scheduled ones.
+      const tz = s.timeZone!;
+      const from = new Date(zonedInstant(tz, s.today, 0)).toISOString();
+      const to = new Date(zonedInstant(tz, addDays(s.today, 1), 0)).toISOString();
+      const day = await bodyOf<{ items: { status: string; restricted?: boolean }[] }>(
+        who,
+        `/business/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      expect(day.items.filter((a) => a.status === 'SCHEDULED' && !a.restricted)).toHaveLength(
+        s.kpis.appointmentsToday.value,
+      );
+    }
+  });
+});
+
+describe('a firm in another time zone (Dashboard Review Two U2, V2)', () => {
+  it("counts today and its periods on the firm's own calendar, and says which zone", async () => {
+    // UTC+14: its today is ahead of New York's for most of the day.
+    const zone = 'Pacific/Kiritimati';
+    const setZone = (timezone: string) =>
+      inFirm('b', people.ownerB, (tx) =>
+        tx.businessSettings.upsert({
+          where: { businessId: firms.b.id },
+          create: { businessId: firms.b.id, timezone },
+          update: { timezone },
+        }),
+      );
+    await setZone(zone);
+    try {
+      const s = await read(people.ownerB, 'b');
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
+      expect([s.timeZone, s.today]).toEqual([zone, today]);
+      expect(s.range).toMatchObject({
+        period: 'THIS_MONTH',
+        from: `${today.slice(0, 8)}01`,
+        to: today,
+      });
+      // A Custom period may end on the firm's today, never the day after it.
+      const custom = (to: string) =>
+        summary(people.ownerB, 'b', 'STAFF', `?period=CUSTOM&from=${today}&to=${to}`);
+      expect((await custom(today)).status).toBe(200);
+      expect((await custom(addDays(today, 1))).status).toBe(400);
+    } finally {
+      await setZone('America/New_York');
+    }
   });
 });

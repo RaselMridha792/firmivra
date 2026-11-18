@@ -6,6 +6,10 @@ import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
+import type { TaskNotices } from '@firmivra/types';
+import request from 'supertest';
+import type { Server } from 'node:http';
+import { TokenService } from '../../src/auth/token.service.js';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
@@ -1020,5 +1024,91 @@ describe('task reminders (Tasks T-D12)', () => {
     });
     expect(await fired(r.day)).toBe('2026-12-15');
     expect(await bell(people.staff, t.open)).toHaveLength(3);
+  });
+
+  it("Dashboard Review Two §9: the task's reminder history names who got each one, how and when", async () => {
+    // This suite's app is not listening yet: on a free port, for the HTTP calls.
+    const server = app.getHttpServer() as Server;
+    if (!server.listening) await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    const token = async (who: Who) =>
+      (await app.get(TokenService).signLocal(who.id, 'STAFF')).token;
+    const history = async (who: Who, businessId = ids.firm) =>
+      request(server)
+        .get(`/api/v1/business/tasks/${t.open}/notices`)
+        .set('x-business-id', businessId)
+        .set('authorization', `Bearer ${await token(who)}`);
+    const res = await history(people.owner);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const body = res.body as TaskNotices;
+    expect(body.timeZone).toBe('America/Chicago');
+    expect(body.recipients.map((m) => m.userId).sort()).toEqual(
+      [people.staff.id, people.other.id].sort(),
+    );
+    // The day reminder went out for the 10th and the 15th, the 90-minute one for the 10th: the
+    // 90-minute one goes next, at 13:00 Chicago on the 15th.
+    expect(body.upcoming).toEqual([{ reminderId: r.custom, at: '2026-12-15T19:00:00.000Z' }]);
+    const staff = body.sent.filter((n) => n.recipient?.userId === people.staff.id);
+    expect(staff.map((n) => n.dueFor)).toEqual([
+      '2026-12-15T14:30',
+      '2026-12-10T14:30',
+      '2026-12-10T14:30',
+    ]);
+    // The day reminder carries an email copy, sent; the 90-minute one is a bell item only.
+    const emailed = staff.filter((n) => n.deliveries.length > 0);
+    expect(emailed).toHaveLength(2);
+    for (const n of emailed) {
+      expect(n.deliveries).toEqual([
+        expect.objectContaining({ channel: 'EMAIL', status: 'SENT', error: null }),
+      ]);
+    }
+    expect(body.emailOnly).toEqual([]);
+    // Another firm's Owner does not reach it.
+    expect((await history(people.ownerB, ids.firmB)).status).toBe(404);
+  });
+
+  it('an all-day task: a same-day reminder goes at 9:00 firm time; more than an hour late, never', async () => {
+    const make = (dueOn: string) =>
+      inFirm(ids.firm, async (tx) => {
+        const task = await tx.task.create({
+          data: {
+            businessId: ids.firm,
+            clientId: ids.client,
+            title: `Fake all-day task ${run}`,
+            dueOn: new Date(`${dueOn}T00:00:00Z`),
+            allDay: true,
+            assignedUserId: people.staff.id,
+            createdByUserId: people.owner.id,
+          },
+          select: { id: true },
+        });
+        return (
+          await tx.taskReminder.create({
+            data: { businessId: ids.firm, taskId: task.id, daysBefore: 0 },
+            select: { id: true },
+          })
+        ).id;
+      });
+    const onTime = await make('2026-12-20');
+    // 8:59 in Chicago: not yet; 9:00: it goes.
+    expect(await jobs.run('task-reminders', at('2026-12-20T14:59:00Z'))).toEqual({
+      skipped: false,
+      sent: 0,
+    });
+    expect(await jobs.run('task-reminders', at('2026-12-20T15:00:30Z'))).toEqual({
+      skipped: false,
+      sent: 1,
+    });
+    expect(await fired(onTime)).toBe('2026-12-20');
+    // Made after 10:00 on its day (more than an hour past 9:00): it never goes.
+    const late = await make('2026-12-21');
+    expect(await jobs.run('task-reminders', at('2026-12-21T16:01:00Z'))).toEqual({
+      skipped: false,
+      sent: 0,
+    });
+    expect(await jobs.run('task-reminders', at('2026-12-21T23:00:00Z'))).toEqual({
+      skipped: false,
+      sent: 0,
+    });
+    expect(await fired(late)).toBeNull();
   });
 });

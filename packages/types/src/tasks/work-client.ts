@@ -23,6 +23,7 @@ import {
   TaskCalendar,
   TaskCalendarQuery,
   TaskDetail,
+  TaskNotices,
   TaskOccurrence,
   TaskOccurrenceId,
   TaskOccurrencePage,
@@ -89,6 +90,9 @@ export function createTaskWorkClient(request: ApiRequest) {
 
     // ----- One task -----
     task: async (id: string): Promise<TaskDetail> => request(TaskDetail, task(id)),
+    /** Dashboard Review Two §9: the task's reminder history. */
+    notices: async (id: string): Promise<TaskNotices> =>
+      request(TaskNotices, `${task(id)}/notices`),
     create: async (body: CreateTaskDetailRequest): Promise<TaskDetail> =>
       request(TaskDetail, TASKS, post(parseInput(CreateTaskDetailRequest, body))),
     update: async (id: string, body: UpdateTaskDetailRequest): Promise<TaskDetail> =>

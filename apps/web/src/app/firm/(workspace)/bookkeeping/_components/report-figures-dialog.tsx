@@ -6,7 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { BK_ERRORS, BK_KEY, dayText, money } from './bookkeeping-shared';
+import { BK_ERRORS, BK_KEY, dayText, money, useFirmDateTime } from './bookkeeping-shared';
+import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
 
 // BK-RPT (Octavia's Oct 25 Bookkeeping review): a report's figures from the client's ledger,
 // statements, refunds, settlements and close for its period, previewed before anything is stored;
@@ -131,6 +132,9 @@ export function ReportFiguresDialog({
   row: BookkeepingReportRow;
   onClose: () => void;
 }) {
+  // C05: version times in the firm's time zone.
+  const at = useFirmDateTime();
+  const timeZone = useFirmTimeZone();
   const qc = useQueryClient();
   const preview = useQuery({
     queryKey: [...BK_KEY, 'report-preview', row.id],
@@ -210,9 +214,11 @@ export function ReportFiguresDialog({
               {versions.data!.items.map((v) => (
                 <li key={v.version} className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-heading">
-                    Version {v.version} · {new Date(v.generatedAt).toLocaleString('en-US')}
+                    Version {v.version} · {at(v.generatedAt)}
                     {v.generatedBy ? ` · ${v.generatedBy}` : ''}
-                    {v.sentAt ? ` · Sent ${new Date(v.sentAt).toLocaleDateString('en-US')}` : ''}
+                    {v.sentAt
+                      ? ` · Sent ${new Date(v.sentAt).toLocaleDateString('en-US', { timeZone })}`
+                      : ''}
                   </span>
                   <a
                     href={`/api/v1/business/bookkeeping/reports/${row.id}/versions/${v.version}/csv`}

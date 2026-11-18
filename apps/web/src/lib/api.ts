@@ -76,6 +76,7 @@ import {
   createProfileChangesClient,
   createSupportMessagesClient,
   createPublicAgreementsClient,
+  createDownload,
   createRequest,
   createRolesClient,
   createSchedulingClient,
@@ -221,6 +222,8 @@ import { sessionFetch } from './session';
  */
 const options = { baseUrl: '/api/v1', fetch: sessionFetch };
 const request = createRequest(options);
+/** Exports (CSV) through the same session refresh, so an expired access cookie never shows raw JSON. */
+const download = createDownload(options);
 /** False in production builds, where the compiler then drops every mock from the bundle. */
 const dev = process.env.NODE_ENV !== 'production';
 
@@ -295,7 +298,7 @@ export const api = {
   users:
     dev && mocked('users')
       ? createUsersMock({ role: MOCK_ROLE, empty: mockedEmpty('users') })
-      : createUsersClient(request, options.baseUrl),
+      : createUsersClient(request, download),
   /** Settings, the setup wizard, and the firm's Terms and Privacy (docs/api/settings.yaml). */
   settings:
     dev && mocked('settings')
@@ -434,7 +437,11 @@ export const api = {
   /** Appointments workspace (R42 contract): KPIs, agenda views, the full scheduling form, availability panel. */
   scheduling:
     dev && mocked('scheduling')
-      ? createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
+      ? // Dashboard Review Two V6: Send Reminder can be made to fail (`fv-mock-fail`).
+        failable(
+          'scheduling',
+          createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') }),
+        )
       : createSchedulingClient(request),
   /** Appointments A3 (R55): the firm's waitlist requests, and its switch and mode. */
   appointmentWaitlist:
@@ -498,7 +505,11 @@ export const api = {
       ? myDocumentsMock(firmSlug)
       : createMyDocumentsClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
-  tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  // Dashboard Review Two V6: completing a task can be made to fail (`fv-mock-fail`).
+  tasks:
+    dev && mocked('tasks')
+      ? failable('tasks', createTasksMock({ role: MOCK_ROLE }))
+      : createTasksClient(request),
   /**
    * Payroll (R39): payroll clients, workers, runs, filings and reports. Mock:
    * NEXT_PUBLIC_API_MOCK=payroll (mocks/payroll.ts, R56).
@@ -632,8 +643,8 @@ export const api = {
   /** Audit log viewer (R12): the firm's own log, for the Owner and Admins. */
   auditLog:
     dev && mocked('auditLog')
-      ? createAuditLogMock({ role: MOCK_ROLE })
-      : createAuditLogClient(request, options.baseUrl),
+      ? failable('auditLog', createAuditLogMock({ role: MOCK_ROLE }))
+      : createAuditLogClient(request, download),
   /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. The screens call it through audit-security/_components/audit-api.ts (mock: mocks/admin-audit-security.ts). */
   adminAudit: createAdminAuditClient(request),
   /** Super Admin Reports & Analytics (R55): overview, tabs, firm reports, the builder and saved reports. */

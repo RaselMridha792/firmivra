@@ -63,6 +63,26 @@ const role = (tabRole() ?? process.env.NEXT_PUBLIC_API_MOCK_ROLE) as MockRole | 
  */
 export const MOCK_ROLE: MockRole = role && ROLES.includes(role) ? role : 'OWNER';
 
+/**
+ * sessionStorage key a mock spec sets to take module views away from the signed-in member
+ * ("INVOICES_PAYMENTS,TASKS"), as a custom role or a member's own change does (Dashboard Review
+ * Two V5): the dashboard mock then leaves out those numbers, as the API does.
+ */
+export const MOCK_NO_VIEW_KEY = 'fv-mock-no-view';
+export function mockNoView(): ReadonlySet<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    return new Set(
+      (window.sessionStorage.getItem(MOCK_NO_VIEW_KEY) ?? '')
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 /** Waits like a real request, so loading states show in mock mode too. */
 export const mockDelay = (ms = 250) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 

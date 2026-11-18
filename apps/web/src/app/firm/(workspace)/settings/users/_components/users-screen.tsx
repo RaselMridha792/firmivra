@@ -42,6 +42,7 @@ import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { exportFailure, saveFile } from '../../../../../../lib/save-file';
 import { RowMenu, type RowMenuItem } from '../../../team/_components/row-menu';
 import { ActionModal, type StaffAction } from '../../../team/[id]/_components/staff-actions';
 import { MEMBER_ERRORS } from '../../../team/[id]/_components/staff-parts';
@@ -179,6 +180,20 @@ export function UsersScreen({ initialRole }: { initialRole?: string }) {
   const resend = useApiMutation((id: string) => api.staff.resendInvite(id), {
     invalidate: ['users'],
   });
+  // Audit Log Review 2, R02a: the export downloads through the session, never a plain link that
+  // shows raw JSON once the access cookie expires; a failure says why.
+  const exporter = useApiMutation((q: Parameters<typeof api.users.export>[0]) =>
+    api.users.export(q),
+  );
+  const runExport = (q: Parameters<typeof api.users.export>[0]) => {
+    setMessage('');
+    exporter.mutate(q, {
+      onSuccess: (file) => {
+        saveFile(file);
+        setMessage('The export downloaded.');
+      },
+    });
+  };
   const s = summary.data;
   const roleItems = roles.data?.items ?? [];
   const choices = roleChoices(roles.data);
@@ -502,21 +517,28 @@ export function UsersScreen({ initialRole }: { initialRole?: string }) {
                     }}
                   />
                 </div>
-                <a
-                  href={api.users.exportUrl(query)}
-                  className="ml-auto inline-flex min-h-10 items-center gap-2 rounded-lg border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface"
+                <button
+                  type="button"
+                  onClick={() => runExport(query)}
+                  disabled={exporter.isPending}
+                  data-testid="users-export"
+                  className="ml-auto inline-flex min-h-10 items-center gap-2 rounded-lg border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface disabled:opacity-60"
                 >
                   <DownloadSimple aria-hidden weight="bold" className="size-5" />
-                  Export
-                </a>
+                  {exporter.isPending ? 'Exporting…' : 'Export'}
+                </button>
               </div>
-              {message || resend.error ? (
+              {message || resend.error || exporter.error ? (
                 <p
-                  role={resend.error ? 'alert' : 'status'}
+                  role={resend.error || exporter.error ? 'alert' : 'status'}
                   data-testid="users-result"
-                  className={`text-sm ${resend.error ? 'text-danger' : 'text-success'}`}
+                  className={`text-sm ${resend.error || exporter.error ? 'text-danger' : 'text-success'}`}
                 >
-                  {resend.error ? errorMessage(resend.error, MEMBER_ERRORS) : message}
+                  {resend.error
+                    ? errorMessage(resend.error, MEMBER_ERRORS)
+                    : exporter.error
+                      ? exportFailure(exporter.error, MEMBER_ERRORS)
+                      : message}
                 </p>
               ) : null}
               {selected.length && manages ? (
@@ -527,7 +549,7 @@ export function UsersScreen({ initialRole }: { initialRole?: string }) {
                     {
                       label: 'Export Selected',
                       icon: DownloadSimple,
-                      onClick: () => window.location.assign(api.users.exportUrl({ ids: selected })),
+                      onClick: () => runExport({ ids: selected }),
                     },
                     {
                       label: 'Resend Invitations',

@@ -118,6 +118,8 @@ type FixedKey = 'totalClients' | 'newLeads' | 'outstandingInvoicesCents' | 'appo
 const CARDS: {
   key: FixedKey;
   label: string;
+  /** V5: the module whose list it opens; without its view the API leaves the number out. */
+  module: string;
   icon: Icon;
   tone: Tone;
   href: (span: Span) => string;
@@ -129,6 +131,7 @@ const CARDS: {
   {
     key: 'totalClients',
     label: 'Total Clients',
+    module: 'Clients',
     icon: UsersThree,
     tone: 'blue',
     // A period that ended before today: the clients on the books at its end (Review 2, K1).
@@ -139,6 +142,7 @@ const CARDS: {
   {
     key: 'newLeads',
     label: 'New Leads',
+    module: 'Leads',
     icon: UserPlus,
     tone: 'amber',
     // Stage New Lead, created in the period (the API counts the same).
@@ -149,6 +153,7 @@ const CARDS: {
   {
     key: 'outstandingInvoicesCents',
     label: 'Outstanding Invoices',
+    module: 'Invoices & Payments',
     icon: CurrencyDollar,
     tone: 'red',
     // Every unpaid balance, overdue or not.
@@ -159,6 +164,7 @@ const CARDS: {
   {
     key: 'appointmentsToday',
     label: 'Appointments Today',
+    module: 'Appointments',
     icon: CalendarDots,
     tone: 'blue',
     href: () => `/calendar/today?${FROM_DASHBOARD}`,
@@ -250,8 +256,22 @@ export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary
           </span>
         </div>
       ));
-  const fixed = CARDS.map(({ key, label, icon, tone, href: to, favour, periodic }) => {
+  const fixed = CARDS.map(({ key, label, module, icon, tone, href: to, favour, periodic }) => {
     const kpi = summary.data?.kpis[key];
+    const card = 'flex items-start gap-3 rounded-xl bg-surface p-3 shadow-md';
+    // Dashboard Review Two V5: a number the member may not see is not sent; the card says why.
+    if (summary.data && !kpi)
+      return (
+        <div key={key} data-testid="kpi-card" className={card}>
+          <IconTile icon={icon} tone={tone} />
+          <span className="flex min-w-0 flex-col gap-1">
+            <span className="text-sm font-medium text-heading">{label}</span>
+            <span className="text-sm text-muted" data-testid="kpi-no-access">
+              You don&apos;t have access to {module}.
+            </span>
+          </span>
+        </div>
+      );
     const today = summary.data?.today;
     const href = to(
       range ? { from: range.from, to: range.to, past: !!today && range.to < today } : null,
@@ -277,7 +297,6 @@ export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary
         </span>
       </>
     );
-    const card = 'flex items-start gap-3 rounded-xl bg-surface p-3 shadow-md';
     return key === 'appointmentsToday' ? (
       <div key={key} data-testid="kpi-card" className={`${card} flex-col`}>
         <div className="flex items-start gap-3">{body}</div>

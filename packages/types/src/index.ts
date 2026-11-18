@@ -2,12 +2,16 @@ export * from './schemas.js';
 export {
   ApiRequestError,
   createApiClient,
+  createDownload,
   createRequest,
+  csvRecordCount,
   parseInput,
   retryWhenUnavailable,
   toQuery,
   type ApiClient,
   type ApiClientOptions,
+  type ApiDownload,
+  type ApiFile,
   type ApiRequest,
 } from './client.js';
 export * from './auth/index.js';

@@ -3,22 +3,19 @@
 import type { AuditEntry } from '@firmivra/types';
 import { Avatar, Button, Card, EmptyState, Table, type Column } from '@firmivra/ui';
 import { DownloadSimple, ShieldCheck } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
 import { api } from '../../../../../lib/api';
-import { useApiQuery } from '../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
+import { exportFailure, saveFile } from '../../../../../lib/save-file';
 import { AuditLogFilters, addressFilters, type AuditFilters } from './audit-filters';
-
-const when = (iso: string) =>
-  new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+import { detailLines } from './audit-details';
+import { recordHref } from './audit-links';
+import { when } from './audit-time';
 
 /** "System" for the system and signed-out requests; Firmivra Support as it is, never a person. */
 function who(entry: AuditEntry) {
@@ -46,21 +43,21 @@ const actionText = (action: string) => {
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
-/** Metadata holds ids and flags only (the API never records secrets or document content). */
-const shown = (value: unknown) =>
-  typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value));
-
+/**
+ * Metadata holds ids, flags and changed values (the API never records secrets or document
+ * content); a change reads "old → new" (R03c).
+ */
 function Details({ entry }: { entry: AuditEntry }) {
-  const metadata = Object.entries(entry.metadata);
+  const metadata = detailLines(entry.metadata);
   return (
     <details className="min-w-0 max-w-full" data-testid="audit-details">
       <summary className="cursor-pointer text-link">Details</summary>
       <dl className="mt-2 grid min-w-0 gap-2 text-xs md:gap-1">
         {metadata.length ? (
-          metadata.map(([key, value]) => (
-            <div key={key} className="grid min-w-0 gap-1 sm:flex sm:flex-wrap">
+          metadata.map(({ key, value }, i) => (
+            <div key={`${key}-${i}`} className="grid min-w-0 gap-1 sm:flex sm:flex-wrap">
               <dt className="wrap-anywhere text-muted">{key}:</dt>
-              <dd className="min-w-0 wrap-anywhere">{shown(value)}</dd>
+              <dd className="min-w-0 wrap-anywhere">{value}</dd>
             </div>
           ))
         ) : (
@@ -75,13 +72,23 @@ function Details({ entry }: { entry: AuditEntry }) {
   );
 }
 
-const columns: Column<AuditEntry>[] = [
+function RecordLink({ entity }: { entity: AuditEntry['entity'] }) {
+  const href = recordHref(entity);
+  if (!href) return null;
+  return (
+    <Link href={href} data-testid="audit-record-link" className="block text-sm text-link">
+      Open {entity.type.replace(/_/g, ' ')}
+    </Link>
+  );
+}
+
+const columnsIn = (timeZone: string | undefined): Column<AuditEntry>[] => [
   {
     id: 'at',
     label: 'When',
     cell: (entry) => (
       <time dateTime={entry.at} className="whitespace-nowrap">
-        {when(entry.at)}
+        {when(entry.at, timeZone)}
       </time>
     ),
   },
@@ -110,7 +117,18 @@ const columns: Column<AuditEntry>[] = [
     label: 'Record',
     cell: (entry) => (
       <>
-        {entry.entity.type}
+        {/* M01a: the record's current name, or "Deleted <type>" when it is gone. */}
+        {entry.entity.name ? (
+          <span
+            data-testid="audit-record-name"
+            className={`block wrap-anywhere ${entry.entity.deleted ? 'text-muted italic' : 'font-medium text-heading'}`}
+          >
+            {entry.entity.name}
+          </span>
+        ) : null}
+        {/* M01b: the record's own page, which checks the viewer's access. */}
+        <RecordLink entity={entry.entity} />
+        <span className="block">{entry.entity.type}</span>
         {entry.entity.id ? (
           <span className="block break-all text-xs text-muted">{entry.entity.id}</span>
         ) : null}
@@ -136,6 +154,21 @@ export function AuditLogScreen() {
   const query = { ...filters, ...(cursor ? { cursor } : {}) };
   const log = useApiQuery(['audit-log', query], () => api.auditLog.list(query));
   const area = filters.action ?? '';
+  const timeZone = useFirmTimeZone();
+  const columns = columnsIn(timeZone);
+  // R02a: the export downloads through the session (an expired access cookie is refreshed, not
+  // shown as raw JSON); it says how many entries it saved, or why it failed.
+  const exporter = useApiMutation((f: AuditFilters) => api.auditLog.export(f));
+  const [exported, setExported] = useState<number | null>(null);
+  const runExport = () => {
+    setExported(null);
+    exporter.mutate(filters, {
+      onSuccess: (file) => {
+        saveFile(file);
+        setExported(file.entries);
+      },
+    });
+  };
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -159,17 +192,28 @@ export function AuditLogScreen() {
         </div>
         <RequireRole roles={['OWNER', 'ADMIN']}>
           {/* The filters shown, every page of them, as CSV (the export itself is logged). */}
-          <a
-            href={api.auditLog.exportUrl(filters)}
+          <button
+            type="button"
+            onClick={runExport}
+            disabled={exporter.isPending}
             data-testid="audit-export"
-            className="ml-auto inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface"
+            className="ml-auto inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface disabled:opacity-60"
           >
             <DownloadSimple aria-hidden weight="bold" className="size-5" />
-            Export
-          </a>
+            {exporter.isPending ? 'Exporting…' : 'Export'}
+          </button>
         </RequireRole>
       </header>
       <RequireRole roles={['OWNER', 'ADMIN']}>
+        {exporter.error ? (
+          <p role="alert" data-testid="audit-export-result" className="text-sm text-danger">
+            {exportFailure(exporter.error)}
+          </p>
+        ) : exported !== null ? (
+          <p role="status" data-testid="audit-export-result" className="text-sm text-success">
+            Downloaded {exported} {exported === 1 ? 'entry' : 'entries'}.
+          </p>
+        ) : null}
         <nav aria-label="Audit log areas" className="flex flex-wrap gap-2">
           {AREAS.map((a) => (
             <button
@@ -191,6 +235,7 @@ export function AuditLogScreen() {
         <Card>
           <AuditLogFilters
             initial={opened}
+            timeZone={timeZone}
             onApply={(next) => {
               setFilters(next);
               setCursors([]);

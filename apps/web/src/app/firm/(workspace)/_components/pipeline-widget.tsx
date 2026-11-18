@@ -21,6 +21,14 @@ const HREF: Record<(typeof STAGES)[number]['key'], ((d: Days) => string) | null>
     `/tax-returns?status=ACCEPTED&acceptedFrom=${d.from}&acceptedTo=${d.to}&${FROM_DASHBOARD}`,
 };
 
+/** V5: the module each stage's list belongs to; the API leaves a stage out without its view. */
+const MODULE: Record<string, string> = {
+  leads: 'Leads',
+  intake: 'Intake Forms',
+  inProgress: 'Tax Returns',
+  completed: 'Tax Returns',
+};
+
 /** The design's five stages and bar colours. */
 const STAGES = [
   // Each bar fades lighter toward its top, as the design draws them (R1, Oct 20).
@@ -53,7 +61,8 @@ export function PipelineWidget({
             <ul className="grid grid-cols-5 gap-2">
               {STAGES.map((s) => {
                 const count = pipeline[s.key];
-                const href = count !== null ? HREF[s.key] : null;
+                const denied = count === undefined ? MODULE[s.key] : undefined;
+                const href = count !== null && !denied ? HREF[s.key] : null;
                 const cell = 'flex flex-col items-center gap-1 text-center';
                 return (
                   <li key={s.key} data-testid="pipeline-stage">
@@ -84,9 +93,15 @@ export function PipelineWidget({
                         <span className="flex min-h-10 items-end text-xs leading-tight text-muted hyphens-auto sm:text-sm">
                           {s.label}
                         </span>
-                        <span className="text-2xl font-bold text-heading">
-                          {count ?? <span aria-label="No data">—</span>}
-                        </span>
+                        {denied ? (
+                          <span className="text-xs text-muted" data-testid="stage-no-access">
+                            You don&apos;t have access to {denied}.
+                          </span>
+                        ) : (
+                          <span className="text-2xl font-bold text-heading">
+                            {count ?? <span aria-label="No data">—</span>}
+                          </span>
+                        )}
                         <span className="flex h-24 w-full items-end justify-center rounded-control bg-canvas">
                           {count ? (
                             <span

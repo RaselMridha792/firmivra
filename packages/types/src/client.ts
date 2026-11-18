@@ -155,25 +155,85 @@ export function createRequest(options: ApiClientOptions) {
       credentials: 'include',
     });
     const json: unknown = await res.json().catch(() => undefined);
-    if (!res.ok) {
-      const parsed = ApiError.safeParse(json);
-      const e = parsed.success ? parsed.data.error : undefined;
-      const details = ApiErrorDetails.safeParse(e?.details);
-      throw new ApiRequestError(
-        res.status,
-        e?.code ?? `HTTP_${res.status}`,
-        e?.message ?? res.statusText,
-        e?.requestId,
-        retryAfterSeconds(res.headers.get('retry-after')),
-        details.success ? details.data : undefined,
-        e?.details,
-      );
-    }
+    if (!res.ok) throw requestError(res, json);
     return schema.parse(json);
   };
 }
 
 export type ApiRequest = ReturnType<typeof createRequest>;
+
+/** The ApiRequestError for a non-2xx response and its body (read as JSON, if it was). */
+function requestError(res: Response, json: unknown): ApiRequestError {
+  const parsed = ApiError.safeParse(json);
+  const e = parsed.success ? parsed.data.error : undefined;
+  const details = ApiErrorDetails.safeParse(e?.details);
+  return new ApiRequestError(
+    res.status,
+    e?.code ?? `HTTP_${res.status}`,
+    e?.message ?? res.statusText,
+    e?.requestId,
+    retryAfterSeconds(res.headers.get('retry-after')),
+    details.success ? details.data : undefined,
+    e?.details,
+  );
+}
+
+/** A file the API sends (an export): its name, its media type and its text. */
+export interface ApiFile {
+  name: string;
+  type: string;
+  text: string;
+}
+
+/** The file name a Content-Disposition header gives (`filename="audit-log.csv"`). */
+function fileNameOf(header: string | null): string | undefined {
+  const name = /filename="([^"\\/]{1,120})"/.exec(header ?? '')?.[1];
+  return name?.trim() || undefined;
+}
+
+/**
+ * Downloads a file (a CSV export) with the same headers, cookie and errors as `request`, so the
+ * browser's session refresh applies (a plain link would get a raw 401 once the access cookie
+ * expires) and a refusal is an ApiRequestError the screen can show.
+ */
+export function createDownload(options: ApiClientOptions) {
+  const doFetch = options.fetch ?? fetch;
+
+  return async function download(path: string, fallbackName: string): Promise<ApiFile> {
+    const headers: Record<string, string> = { accept: 'text/csv, application/json' };
+    if (options.token) headers['authorization'] = `Bearer ${options.token}`;
+    if (options.businessId) headers['x-business-id'] = options.businessId;
+    const res = await doFetch(`${options.baseUrl}${path}`, {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+    });
+    if (!res.ok) throw requestError(res, await res.json().catch(() => undefined));
+    return {
+      name: fileNameOf(res.headers.get('content-disposition')) ?? fallbackName,
+      type: res.headers.get('content-type') ?? 'text/csv; charset=utf-8',
+      text: await res.text(),
+    };
+  };
+}
+
+export type ApiDownload = ReturnType<typeof createDownload>;
+
+/** The records of a CSV after its header line (a quoted cell may hold a line break). */
+export function csvRecordCount(csv: string): number {
+  let rows = 0;
+  let quoted = false;
+  let content = false;
+  for (const char of csv) {
+    if (char === '"') quoted = !quoted;
+    if (char === '\n' && !quoted) {
+      if (content) rows += 1;
+      content = false;
+    } else if (char !== '\r' && char !== '\uFEFF') content = true;
+  }
+  if (content) rows += 1;
+  return Math.max(0, rows - 1);
+}
 
 export function createApiClient(options: ApiClientOptions) {
   const request = createRequest(options);

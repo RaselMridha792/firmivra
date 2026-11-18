@@ -20,6 +20,7 @@ import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/d
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { DATABASE } from '../database/database.module.js';
+import { activityText } from '../bookkeeping/bookkeeping.mappers.js';
 import { memberNames } from '../workspaces/common.js';
 
 // MSG-F16 and the client's Activity tab: the client's own timeline (R1's insert-only
@@ -71,10 +72,24 @@ function hrefOf(r: EventRow, clientId: string): string | null {
       return r.ref ? `/firm-sign/requests/${r.ref}` : null;
     case 'note':
       return `/clients/${clientId}/notes`;
+    case 'bookkeeping':
+      return r.ref ? `/bookkeeping/clients/${r.ref}` : null;
     default:
       return null;
   }
 }
+
+/** Review 2 (E01a A01): a note's type in words ("General note"), never its code. */
+const NOTE_TYPES: Record<string, string> = {
+  GENERAL: 'General note',
+  CALL: 'Call note',
+  MEETING: 'Meeting note',
+  FOLLOW_UP: 'Follow-up note',
+  DOCUMENT: 'Document note',
+  BILLING: 'Billing note',
+};
+const noteTypeText = (t: string) =>
+  NOTE_TYPES[t] ?? `${t.charAt(0)}${t.slice(1).toLowerCase().replace(/_+/g, ' ')} note`;
 
 /** A client change in words: "client.assignment_changed" is "Assigned staff changed". */
 const AUDIT_TITLES: Record<string, string> = {
@@ -182,6 +197,16 @@ export class ClientTimelineService {
           UNION ALL SELECT n.id, n.created_at, 'NOTE', 'Note added', n.note_type,
                  'note', NULL, NULL, n.author_user_id::text
             FROM notes n WHERE n.business_id = ${b}::uuid AND n.client_id = ${c}::uuid
+          -- Review 2 (E01a A01): the client's Bookkeeping Activity, from the card's own source;
+          -- a note or an upload it copies is already listed above, so it is left out here.
+          UNION ALL SELECT ba.id, ba.created_at, 'OTHER', ba.summary, 'Bookkeeping',
+                 'bookkeeping', NULL, bp.id::text, ba.actor_user_id::text
+            FROM bookkeeping_activity ba
+            JOIN engagements en ON en.business_id = ba.business_id AND en.id = ba.engagement_id
+            LEFT JOIN bookkeeping_profiles bp
+              ON bp.business_id = ba.business_id AND bp.engagement_id = ba.engagement_id
+            WHERE ba.business_id = ${b}::uuid AND en.client_id = ${c}::uuid
+              AND ba.details->>'noteId' IS NULL AND ba.details->>'documentId' IS NULL
           UNION ALL SELECT l.id, l.created_at, 'OTHER', l.action, NULL,
                  'audit', NULL, NULL, l.actor_user_id::text
             FROM audit_logs l WHERE l.business_id = ${b}::uuid AND l.entity_type = 'client'
@@ -225,8 +250,15 @@ export class ClientTimelineService {
         return {
           id: r.id,
           kind: r.kind as ClientTimelineEntry['kind'],
-          title: (r.src === 'audit' ? auditTitle(r.title) : r.title).slice(0, 200),
-          summary: r.summary ? r.summary.slice(0, 500) : null,
+          title: (r.src === 'audit'
+            ? auditTitle(r.title)
+            : r.src === 'bookkeeping'
+              ? activityText(r.title)
+              : r.title
+          ).slice(0, 200),
+          summary: r.summary
+            ? (r.src === 'note' ? noteTypeText(r.summary) : r.summary).slice(0, 500)
+            : null,
           occurredAt: r.at.toISOString(),
           href: r.src === 'timeline' ? timelineHref : hrefOf(r, clientId),
           createdBy: r.actor && name ? { userId: r.actor, name } : null,

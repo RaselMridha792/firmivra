@@ -23,7 +23,7 @@ import {
   shapeOf,
   UpdateDashboardCardRequest,
 } from '@firmivra/types';
-import { mockDelay } from '../lib/mock';
+import { mockDelay, mockNoView } from '../lib/mock';
 
 const ME = { userId: '0199b6a0-0000-7000-8000-0000000000f0', name: 'Mock User' };
 
@@ -124,10 +124,16 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
   const flows =
     q.period === 'TODAY'
       ? { newLeads: { value: 0, previous: 0 }, acceptedReturns: { value: 3, previous: 0 } }
-      : {
-          newLeads: { value: scale(24), previous: scale(17) },
-          acceptedReturns: { value: scale(52), previous: scale(41) },
-        };
+      : q.period === 'LAST_YEAR'
+        ? // Dashboard Review Two K8: a year with fewer new leads than the one before.
+          {
+            newLeads: { value: scale(17), previous: scale(24) },
+            acceptedReturns: { value: scale(52), previous: scale(41) },
+          }
+        : {
+            newLeads: { value: scale(24), previous: scale(17) },
+            acceptedReturns: { value: scale(52), previous: scale(41) },
+          };
 
   const pipelineDays = (Date.parse(pipeline.to) - Date.parse(pipeline.from)) / 86_400_000 + 1;
   const services = servicesOf();
@@ -153,6 +159,7 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
           }));
   return {
     today,
+    timeZone: 'America/New_York',
     range,
     kpis: {
       totalClients: { value: 127, previous: 113 },
@@ -189,37 +196,39 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
         { serviceId: null, name: null, cents: Math.round(totalCents * 0.05) },
       ],
     },
+    // Dashboard Review Two V6: open tasks of the tasks mock (mocks/tasks.ts), so completing one
+    // works there, and fails only when a spec makes it fail.
     tasksDue: [
       {
-        id: '0199b6a4-0000-7000-8000-000000000001',
+        id: '0199b6d1-0000-7000-8000-000000000001',
         title: 'Review missing docs',
         priority: 'HIGH',
         dueOn: day(0),
         client: client(1, 'Jamie Sample'),
       },
       {
-        id: '0199b6a4-0000-7000-8000-000000000002',
+        id: '0199b6d1-0000-7000-8000-000000000002',
         title: 'Send organizer to new lead',
         priority: 'MEDIUM',
         dueOn: day(0),
         client: client(3, 'Riley Example'),
       },
       {
-        id: '0199b6a4-0000-7000-8000-000000000003',
+        id: '0199b6d1-0000-7000-8000-000000000003',
         title: 'Complete 1120S draft',
         priority: 'HIGH',
         dueOn: day(1),
         client: client(2, 'Morgan Placeholder'),
       },
       {
-        id: '0199b6a4-0000-7000-8000-000000000004',
+        id: '0199b6d1-0000-7000-8000-000000000006',
         title: 'Follow up on payment',
         priority: 'MEDIUM',
         dueOn: day(1),
         client: client(4, 'Taylor Demo'),
       },
       {
-        id: '0199b6a4-0000-7000-8000-000000000005',
+        id: '0199b6d1-0000-7000-8000-000000000004',
         title: 'Review bookkeeping Q3',
         priority: 'LOW',
         dueOn: day(3),
@@ -256,7 +265,34 @@ export function createDashboardMock(): DashboardClient {
     services: servicesOf(),
   });
   return {
-    summary: async (query = {}) => (await mockDelay(), build(query)),
+    // V5, as the API: a number whose list the member may not view is left out.
+    summary: async (query = {}) => {
+      await mockDelay();
+      const d = build(query);
+      const no = mockNoView();
+      const only = <T>(module: string, value: T): T | undefined =>
+        no.has(module) ? undefined : value;
+      return {
+        ...d,
+        kpis: {
+          totalClients: only('CLIENTS', d.kpis.totalClients),
+          newLeads: only('LEADS', d.kpis.newLeads),
+          returnsInProgress: only('TAX_RETURNS', d.kpis.returnsInProgress),
+          acceptedReturns: only('TAX_RETURNS', d.kpis.acceptedReturns),
+          outstandingInvoicesCents: only('INVOICES_PAYMENTS', d.kpis.outstandingInvoicesCents),
+          appointmentsToday: only('APPOINTMENTS', d.kpis.appointmentsToday),
+        },
+        pipeline: {
+          ...d.pipeline,
+          leads: only('LEADS', d.pipeline.leads),
+          intake: only('INTAKE_FORMS', d.pipeline.intake),
+          inProgress: only('TAX_RETURNS', d.pipeline.inProgress),
+          completed: only('TAX_RETURNS', d.pipeline.completed),
+        },
+        revenue: only('INVOICES_PAYMENTS', d.revenue),
+        tasksDue: only('TASKS', d.tasksDue),
+      };
+    },
     cards: {
       list: async () => (await mockDelay(), settings()),
       create: async (body) => {

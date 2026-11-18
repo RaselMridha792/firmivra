@@ -360,8 +360,16 @@ export function createUsersMock(options: Options = {}): UsersClient {
         customRoles: liveCustomRoles(shared),
       };
     },
-    exportUrl: () =>
-      `data:text/csv;charset=utf-8,${encodeURIComponent('Name,Email,Role,Status\nSample User,sample@lvp.test,Staff,Active\n')}`,
+    // A small CSV in the API's shape; refused as the list is (Owner and Admin).
+    export: async () => {
+      await allowed(options.role);
+      const crlf = String.fromCharCode(13, 10);
+      return {
+        name: 'users.csv',
+        type: 'text/csv; charset=utf-8',
+        text: ['Name,Email,Role,Status', 'Sample User,sample@lvp.test,Staff,Active', ''].join(crlf),
+      };
+    },
     invite: async (body) => {
       await allowed(options.role);
       const input = parseInput(InviteUserRequest, body);

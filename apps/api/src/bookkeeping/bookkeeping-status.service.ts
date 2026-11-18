@@ -6,7 +6,7 @@ import {
   DEFAULT_CLOSE_CHECKLIST,
   type StatusRules,
 } from '@firmivra/types';
-import { addActivity, iso } from './bookkeeping.mappers.js';
+import { addActivity, iso, statusChangeText } from './bookkeeping.mappers.js';
 import { day, isoDay, nextReportDue, suggestStatus, toDay } from './bookkeeping.shared.js';
 
 /** The firm's bookkeeping settings, or the defaults when it never saved any. */
@@ -190,7 +190,7 @@ export class BookkeepingStatusService {
         engagementId,
         actorUserId,
         'STATUS_CHANGE',
-        `Status changed from ${profile.status} to ${suggested.status}`,
+        statusChangeText(profile.status, suggested.status),
         { from: profile.status, to: suggested.status, source: 'AUTOMATIC' },
       );
     }
