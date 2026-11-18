@@ -148,11 +148,14 @@ Octavia's Review One for what a client sees in their portal and for Settings > C
 | Row | Code status | PR | Test |
 | --- | --- | --- | --- |
 | CP-1 Panels and View Client Portal | Done | #1619 | mock `r1-portal-review1` "CP-1: five panels, each by its address, and View Client Portal opens a client's preview" |
-| CP-1g Button text, device preview | **GAP**: needs the db PR | | |
+| CP-1g Button text, device preview | **GAP**: next PR (schema in #1626) | | |
 | CP-3b Go to Communications | Done | #1619 | mock `r1-portal-review1` CP-1 (the link opens the announcement composer) |
-| CP-3c, CP-3d, CP-3h, CP-3i Announcements switch, channel policy, preview, dashboard switch | **GAP**: needs the db PR | | |
+| CP-3c, CP-3d, CP-3h, CP-3i Announcements switch, channel policy, preview, dashboard switch | **GAP**: next PR (schema in #1626) | | |
 | CP-4f Contact switches reached by API | Done (messages); appointments stay the card's button only, by the lead's decision | #1619 | e2e `portal-contact` "CP-4f: with Allow Secure Messages off, a client cannot start a conversation by API either" |
-| CP-5a to CP-5e, CP-5h Tabs: all six, rename, reorder, custom tabs, targeting, preview | **GAP**: needs the db PR | | |
+| CP-5a All six tabs switch | Done | #1626 (db), #1628 | e2e `portal-tabs` "CP-5a: with Business Documents & Resources off, its resources are refused by address too"; mock `r1-portal-review1` CP-5 |
+| CP-5b, CP-5c Rename and reorder | Done | #1626 (db), #1628 | e2e `portal-tabs` "CP-5b, CP-5c: renames and reorders the built-in tabs, for the portal too, audited once"; mock `r1-portal-review1` CP-5 |
+| CP-5h Features preview | Done | #1628 | mock `r1-portal-review1` "CP-5a to CP-5c, CP-5h: rename, reorder and switch the tabs, with a preview, and the portal follows" |
+| CP-5d, CP-5e Custom tabs and who sees them | **GAP**: next PR (schema in #1626) | | |
 | CP-6.6 Phone layout | Done (test) | #1619 | mock `r1-portal-review1` "CP-6.6: Settings > Client Portal fits a phone, every panel" |
 | CP-7.1 Cancel and leaving with unsaved changes | Done | #1619 | mock `r1-portal-review1` "CP-7.1: General has Cancel, and leaving with unsaved changes asks first" |
 | CP-7.6, CP-7.7 Rollout and sign-off evidence | Her retest and Rasel's release steps | | |
