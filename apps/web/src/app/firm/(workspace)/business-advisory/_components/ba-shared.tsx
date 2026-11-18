@@ -86,6 +86,8 @@ export const PLAN_STATUS: Record<string, string> = {
   DRAFT: 'Draft',
   IN_REVIEW: 'In Review',
   FINALIZED: 'Finalized',
+  // B10: sent to the client for approval in the portal.
+  AWAITING_CLIENT_APPROVAL: 'Awaiting Client Approval',
   SENT: 'Sent',
   IN_PROGRESS: 'In Progress',
   COMPLETED: 'Completed',
@@ -95,6 +97,7 @@ export const PlanStatusPill = pill(PLAN_STATUS, {
   DRAFT: 'neutral',
   IN_REVIEW: 'warning',
   FINALIZED: 'info',
+  AWAITING_CLIENT_APPROVAL: 'warning',
   SENT: 'purple',
   IN_PROGRESS: 'success',
   COMPLETED: 'success',

@@ -12,7 +12,9 @@ import type {
 type Tone = 'info' | 'success' | 'warning' | 'danger' | 'neutral' | 'purple';
 
 export const PLAN_STATE_TONE: Record<MyAdvisoryPlanState, Tone> = {
-  DELIVERED: 'success',
+  AWAITING_APPROVAL: 'warning',
+  APPROVED: 'success',
+  DELIVERED: 'info',
   IN_PREPARATION: 'neutral',
 };
 

@@ -55,6 +55,7 @@ import {
   CreateAdvisoryRecommendationRequest,
   FinalizeAdvisoryPlanRequest,
   ReorderAdvisoryMilestonesRequest,
+  RequestAdvisoryPlanApprovalRequest,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
@@ -207,6 +208,19 @@ export function createAdvisoryClient(request: ApiRequest) {
         AdvisoryPlanDetail,
         `${plan(id)}/send`,
         post(parseInput(SendAdvisoryPlanRequest, body)),
+      ),
+    /**
+     * B10: sends a plan in staff review to the client for approval in the portal. 409
+     * INVALID_STATUS, PLAN_NOT_READY or NO_PORTAL_LOGIN; 403 without "Send plans".
+     */
+    requestPlanApproval: async (
+      id: string,
+      body: RequestAdvisoryPlanApprovalRequest,
+    ): Promise<AdvisoryPlanDetail> =>
+      request(
+        AdvisoryPlanDetail,
+        `${plan(id)}/request-approval`,
+        post(parseInput(RequestAdvisoryPlanApprovalRequest, body)),
       ),
     archivePlan: async (id: string): Promise<AdvisoryPlanDetail> =>
       request(AdvisoryPlanDetail, `${plan(id)}/archive`, post()),

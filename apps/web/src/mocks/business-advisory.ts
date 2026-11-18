@@ -23,6 +23,7 @@ import {
   CreateAdvisoryRecommendationRequest,
   FinalizeAdvisoryPlanRequest,
   ReorderAdvisoryMilestonesRequest,
+  RequestAdvisoryPlanApprovalRequest,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
@@ -158,6 +159,12 @@ const serviceOptions = (): AdvisoryServiceOption[] =>
     packages: packages as string[],
     referralOnly: name === 'Legal & Insurance Referral',
   }));
+
+/**
+ * B10, B28: the advisory clients with no active portal login, so the portal cannot reach them
+ * (the API answers 409 NO_PORTAL_LOGIN). Synthetic.
+ */
+const NO_PORTAL_LOGIN: readonly string[] = ['Omar Haddad'];
 
 /** As the API's catalog (apps/api/src/advisory/catalog.ts). */
 const resourceLibrary = (): AdvisoryResource[] =>
@@ -458,6 +465,8 @@ interface PlanState {
   step: number;
   finalizedAt: string | null;
   sentAt: string | null;
+  /** B10: the client's approval in the portal (cleared by Modify Plan). */
+  clientApproval: AdvisoryPlanRow['clientApproval'];
   updatedAt: string;
   createdAt: string;
   profile: AdvisoryPlanProfile;
@@ -651,6 +660,7 @@ export function createAdvisoryMock({
         advisor: cl.advisor,
         finalizedAt: null,
         sentAt: null,
+        clientApproval: null,
         updatedAt: at(-3 - n),
         createdAt: at(-40 - n * 5),
         profile: {
@@ -1317,6 +1327,7 @@ export function createAdvisoryMock({
     currentVersion: p.versions.length,
     finalizedAt: p.finalizedAt,
     sentAt: p.sentAt,
+    clientApproval: p.clientApproval,
     archived: p.status === 'ARCHIVED',
     updatedAt: p.updatedAt,
   });
@@ -1430,6 +1441,29 @@ export function createAdvisoryMock({
         'SAVE_CONFLICT',
         'Someone saved this after you opened it. Reload to see their changes.',
       );
+  };
+  /** B10: 409 while the plan waits for the client's approval (Modify Plan withdraws it). */
+  const awaitingClient = () =>
+    fail(
+      409,
+      'INVALID_STATUS',
+      "The plan is waiting for the client's approval in their portal. Modify Plan to change it first",
+    );
+  /** What finalizing (and B10's request for approval) still needs, in the API's words. */
+  const readinessOf = (p: PlanState) => {
+    const f = liveFinancials(p.advisoryClientId);
+    return [
+      !p.profile.businessName && 'Add the business name (stage 1)',
+      // B13: the plan type, the summary and an explicit focus choice.
+      !p.planType && 'Choose the plan type (stage 1)',
+      !p.strategy.summary && 'Add the strategy summary (stage 3)',
+      !p.strategy.areas?.length &&
+        p.strategy.noFocusArea !== true &&
+        'Choose a focus area, or None / Not Applicable (stage 3)',
+      !goals.some((g) => g.planId === p.id && !g.archived) && 'Add at least one goal to the plan',
+      !f.length && 'Add the financial figures',
+      f[0]?.stale && 'The financial figures are out of date; add current ones',
+    ].filter((m): m is string => typeof m === 'string');
   };
   /** The plan, goal and workstream must be the client's own. */
   const ownedBy = (
@@ -1762,6 +1796,7 @@ export function createAdvisoryMock({
           assessment: {},
           strategy: {},
           versions: [],
+          clientApproval: null,
           version: 1,
         };
         plans.push(p);
@@ -1775,9 +1810,12 @@ export function createAdvisoryMock({
         const p = findPlan(planId);
         if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
         checkEtag(req.etag, p.version);
-        // B9, as the API: a finalized or sent plan is locked; only the wizard's place moves.
+        // B9, as the API: a finalized or sent plan is locked, and one awaiting the client's
+        // approval (B10); only the wizard's place moves.
         if (
-          (p.status === 'FINALIZED' || p.status === 'SENT') &&
+          (p.status === 'FINALIZED' ||
+            p.status === 'SENT' ||
+            p.status === 'AWAITING_CLIENT_APPROVAL') &&
           Object.entries(req).some(([k, v]) => v !== undefined && k !== 'etag' && k !== 'step')
         )
           throw fail(
@@ -1812,6 +1850,8 @@ export function createAdvisoryMock({
           // B9: Modify Plan takes a finalized or sent plan back to DRAFT (the next revision).
           FINALIZED: ['IN_PROGRESS', 'DRAFT'],
           SENT: ['IN_PROGRESS', 'DRAFT'],
+          // B10: Modify Plan withdraws the request for the client's approval.
+          AWAITING_CLIENT_APPROVAL: ['DRAFT'],
           IN_PROGRESS: ['COMPLETED'],
           COMPLETED: ['IN_PROGRESS'],
         };
@@ -1821,6 +1861,11 @@ export function createAdvisoryMock({
             'INVALID_STATUS',
             `A ${p.status.toLowerCase().replace('_', ' ')} plan can't move to that status`,
           );
+        // B10: a revision (Modify Plan) starts with no client approval: it needs approving again.
+        if (req.status === 'DRAFT' && p.status !== 'IN_REVIEW') {
+          p.clientApproval = null;
+          p.finalizedAt = null;
+        }
         p.status = req.status;
         p.version++;
         p.updatedAt = nowIso();
@@ -1837,21 +1882,10 @@ export function createAdvisoryMock({
         const p = findPlan(planId);
         if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
         checkEtag(req.etag, p.version);
-        const f = liveFinancials(p.advisoryClientId);
+        // B10: the client is reading it to approve it; their Approve finalizes it.
+        if (p.status === 'AWAITING_CLIENT_APPROVAL') throw awaitingClient();
         // The API's wording (apps/api/src/advisory/advisory-plans.service.ts).
-        const missing = [
-          !p.profile.businessName && 'Add the business name (stage 1)',
-          // B13: the plan type, the summary and an explicit focus choice.
-          !p.planType && 'Choose the plan type (stage 1)',
-          !p.strategy.summary && 'Add the strategy summary (stage 3)',
-          !p.strategy.areas?.length &&
-            p.strategy.noFocusArea !== true &&
-            'Choose a focus area, or None / Not Applicable (stage 3)',
-          !goals.some((g) => g.planId === p.id && !g.archived) &&
-            'Add at least one goal to the plan',
-          !f.length && 'Add the financial figures',
-          f[0]?.stale && 'The financial figures are out of date; add current ones',
-        ].filter((m): m is string => typeof m === 'string');
+        const missing = readinessOf(p);
         if (missing.length) throw notReady(missing);
         const versionNo = p.versions.length + 1;
         p.versions.push(snapshot(p, versionNo, signedIn, nowIso()));
@@ -1869,6 +1903,7 @@ export function createAdvisoryMock({
         const p = findPlan(planId);
         if (!canSend) throw forbidden();
         if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
+        if (p.status === 'AWAITING_CLIENT_APPROVAL') throw awaitingClient();
         const v = req.version
           ? p.versions.find((x) => x.versionNo === req.version)
           : p.versions.at(-1);
@@ -1882,6 +1917,48 @@ export function createAdvisoryMock({
         p.version++;
         p.updatedAt = nowIso();
         log(p.advisoryClientId, 'advisory.plan_sent', `Plan sent (${req.channel.toLowerCase()})`);
+        return planDetail(p);
+      }),
+    // B10, as the API: a plan in staff review goes to the client's portal for approval.
+    requestPlanApproval: (planId, body) =>
+      run(() => {
+        const req = parseInput(RequestAdvisoryPlanApprovalRequest, body);
+        const p = findPlan(planId);
+        if (!canSend) throw forbidden();
+        if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
+        checkEtag(req.etag, p.version);
+        if (p.status !== 'IN_REVIEW')
+          throw fail(
+            409,
+            'INVALID_STATUS',
+            p.status === 'DRAFT'
+              ? 'Submit the plan for staff review first: a plan goes to the client for approval from review'
+              : 'This plan cannot be sent for approval',
+          );
+        const missing = readinessOf(p);
+        if (missing.length) throw notReady(missing);
+        const c = clients.find((x) => x.id === p.advisoryClientId)!;
+        if (NO_PORTAL_LOGIN.includes(c.client.name))
+          throw fail(
+            409,
+            'NO_PORTAL_LOGIN',
+            `${c.client.name} has no active portal login, so they cannot approve the plan in the portal. Send them a portal invitation first.`,
+          );
+        const v = snapshot(p, p.versions.length + 1, signedIn, nowIso());
+        v.deliveredAt = nowIso();
+        v.deliveredChannel = 'portal';
+        v.deliveredBy = signedIn;
+        p.versions.push(v);
+        p.status = 'AWAITING_CLIENT_APPROVAL';
+        p.sentAt = nowIso();
+        p.clientApproval = null;
+        p.version++;
+        p.updatedAt = nowIso();
+        log(
+          p.advisoryClientId,
+          'advisory_plan.approval_requested',
+          'Plan sent for client approval',
+        );
         return planDetail(p);
       }),
     archivePlan: (planId) =>

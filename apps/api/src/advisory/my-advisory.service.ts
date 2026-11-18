@@ -1,7 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   AdvisoryArea,
+  ApproveMyAdvisoryPlanRequest,
   MyAdvisory,
   MyAdvisoryPlan,
   MyAdvisoryPlanRow,
@@ -10,10 +11,11 @@ import type {
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { Notifier } from '../notifications/notifier.js';
 import { type PortalCaller, type PortalLogin, portalLogin } from '../storage/document-records.js';
 import { visible } from '../storage/my-documents.service.js';
 import { day, memberNames, notFound } from '../workspaces/common.js';
-import { DISCLAIMER, todayIn } from './advisory.common.js';
+import { advErrors, DISCLAIMER, todayIn } from './advisory.common.js';
 import { resourceOf } from './catalog.js';
 
 /** What a version keeps (advisory-plans.service.ts `Content`), as the client may read it. */
@@ -60,13 +62,16 @@ type Advisory = Prisma.AdvisoryClientGetPayload<{ select: typeof advisorySelect 
  * resources sent and advisory files shared. Never figures, the health score, the assessment,
  * notes or anything hidden. The client is the session's login (household logins only), never the
  * URL; a plan of another client or firm, never delivered, or archived, is 404. Each view is
- * audited (`by: 'CLIENT'`).
+ * audited (`by: 'CLIENT'`). B10: the client approves the plan the firm sent for their approval.
  */
 @Injectable()
 export class MyAdvisoryService {
+  private readonly logger = new Logger(MyAdvisoryService.name);
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -101,7 +106,9 @@ export class MyAdvisoryService {
         versionNo: true,
         deliveredAt: true,
         content: true,
-        plan: { select: { status: true } },
+        plan: {
+          select: { status: true, clientApprovedAt: true, clientApprovedVersion: true },
+        },
       },
     });
     const seen = new Set<string>();
@@ -112,13 +119,26 @@ export class MyAdvisoryService {
 
   private planRow(v: Awaited<ReturnType<MyAdvisoryService['delivered']>>[number]) {
     const kept = v.content as Kept;
+    const { status, clientApprovedAt, clientApprovedVersion } = v.plan;
     return {
       id: v.planId,
       name: kept.planName ?? 'Business plan',
       targetYear: kept.targetYear ?? 0,
       version: v.versionNo,
       deliveredAt: v.deliveredAt!.toISOString(),
-      state: PREPARING.includes(v.plan.status) ? 'IN_PREPARATION' : 'DELIVERED',
+      // B10: waiting for the client's approval, or approved (until a revision clears it).
+      state:
+        status === 'AWAITING_CLIENT_APPROVAL'
+          ? 'AWAITING_APPROVAL'
+          : clientApprovedVersion
+            ? 'APPROVED'
+            : PREPARING.includes(status)
+              ? 'IN_PREPARATION'
+              : 'DELIVERED',
+      approval:
+        clientApprovedAt && clientApprovedVersion
+          ? { version: clientApprovedVersion, approvedAt: clientApprovedAt.toISOString() }
+          : null,
     } satisfies MyAdvisoryPlanRow;
   }
 
@@ -268,7 +288,7 @@ export class MyAdvisoryService {
     return out;
   }
 
-  async plan(caller: PortalCaller, id: string): Promise<MyAdvisoryPlan> {
+  async plan(caller: PortalCaller, id: string, audited = true): Promise<MyAdvisoryPlan> {
     const out = await this.inFirm(caller.businessId, async (tx) => {
       const found = await this.mine(tx, caller);
       if (!found) throw notFound();
@@ -315,12 +335,113 @@ export class MyAdvisoryService {
           status: w.status as MyAdvisoryPlan['services'][number]['status'],
         })),
       disclaimer: kept.disclaimer ?? DISCLAIMER,
+      // B10: while the plan waits, the version delivered is the one sent for approval (the firm
+      // can neither finalize nor send another until the client answers or it is withdrawn).
+      can: { approve: version.plan.status === 'AWAITING_CLIENT_APPROVAL' },
     };
-    await this.audit.log(
-      'advisory_plan.viewed',
-      { type: 'advisory_plan', id },
-      { advisoryClientId: out.advisoryClientId, version: version.versionNo, by: 'CLIENT' },
-    );
+    if (audited) {
+      await this.audit.log(
+        'advisory_plan.viewed',
+        { type: 'advisory_plan', id },
+        { advisoryClientId: out.advisoryClientId, version: version.versionNo, by: 'CLIENT' },
+      );
+    }
     return view;
+  }
+
+  /**
+   * B10: the client approves exactly the version the firm sent for their approval. The plan is
+   * then finalized at that version (the approval comes before finalization), with who, when and
+   * which version; audited, and the plan's advisor and sender get a bell item. A plan not waiting
+   * for approval, or another version, is 409 INVALID_STATUS; a plan the client can't see is 404.
+   */
+  async approve(
+    caller: PortalCaller,
+    id: string,
+    body: ApproveMyAdvisoryPlanRequest,
+  ): Promise<MyAdvisoryPlan> {
+    const { businessId } = caller;
+    const told = await this.inFirm(businessId, async (tx) => {
+      const found = await this.mine(tx, caller);
+      if (!found) throw notFound();
+      await tx.$queryRaw`
+        SELECT 1 FROM advisory_plans
+        WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
+          AND advisory_client_id = ${found.advisory.id}::uuid
+        FOR UPDATE`;
+      const shown = (await this.delivered(tx, businessId, found.advisory.id)).some(
+        (v) => v.planId === id,
+      );
+      const plan = shown
+        ? await tx.advisoryPlan.findFirst({
+            where: { businessId, id, advisoryClientId: found.advisory.id, archivedAt: null },
+            select: { status: true, sentByUserId: true },
+          })
+        : null;
+      if (!plan) throw notFound();
+      if (plan.status !== 'AWAITING_CLIENT_APPROVAL')
+        throw advErrors.invalidStatus('This plan is not waiting for your approval');
+      const newest = await tx.advisoryPlanVersion.findFirstOrThrow({
+        where: { businessId, planId: id },
+        orderBy: { versionNo: 'desc' },
+        select: { versionNo: true },
+      });
+      if (newest.versionNo !== body.version)
+        throw advErrors.invalidStatus(
+          `Version ${body.version} is not the one awaiting your approval: reload the plan`,
+        );
+      const now = new Date();
+      await tx.advisoryPlan.update({
+        where: { businessId_id: { businessId, id } },
+        data: {
+          status: 'FINALIZED',
+          finalizedAt: now,
+          currentVersion: newest.versionNo,
+          clientApprovedAt: now,
+          clientApprovedByUserId: caller.userId,
+          clientApprovedVersion: newest.versionNo,
+        },
+      });
+      await this.audit.logIn(
+        tx,
+        'advisory_plan.client_approved',
+        { type: 'advisory_plan', id },
+        {
+          advisoryClientId: found.advisory.id,
+          version: newest.versionNo,
+          from: 'AWAITING_CLIENT_APPROVAL',
+          to: 'FINALIZED',
+          by: 'CLIENT',
+        },
+      );
+      return [found.advisory.advisorUserId, plan.sentByUserId].filter(
+        (u): u is string => u !== null,
+      );
+    });
+    await this.tellFirm(businessId, id, body.version, [...new Set(told)]);
+    return this.plan(caller, id, false);
+  }
+
+  /** The plan's advisor and sender get a bell item; a failure is logged, never the client's error. */
+  private async tellFirm(
+    businessId: string,
+    id: string,
+    version: number,
+    toUserIds: string[],
+  ): Promise<void> {
+    if (toUserIds.length === 0) return;
+    try {
+      await this.notifier.notify({
+        businessId,
+        event: 'advisory-plan.client-approved',
+        recordId: id,
+        toUserIds,
+        eventKey: `advisory-plan.client-approved:${id}:${version}`,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `advisory-plan.client-approved for plan ${id} failed (${error instanceof Error ? error.name : 'Error'})`,
+      );
+    }
   }
 }

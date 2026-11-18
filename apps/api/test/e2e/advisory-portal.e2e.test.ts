@@ -2,7 +2,9 @@
 // read-only Business Advisory under My Services (only what the firm marked for the client: plans
 // delivered, recommendations shown, tasks not hidden, resources sent, advisory files shared).
 // The client is the session's login, never the URL: another client's or another firm's plan is
-// 404. Views are audited. Synthetic data only.
+// 404. Views are audited. B10: the firm sends a plan in staff review for the client's approval;
+// the client approves exactly that version in the portal, which finalizes it; Modify Plan
+// withdraws a request or clears an approval. Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -11,10 +13,17 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, type Prisma, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { MyAdvisory, MyAdvisoryPlan, OkResponse } from '@firmivra/types';
+import {
+  AdvisoryPlanDetail,
+  AdvisoryVersionList,
+  MyAdvisory,
+  MyAdvisoryPlan,
+  OkResponse,
+} from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { storedType } from '../../src/notifications/notification-text.js';
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -90,7 +99,7 @@ async function portal(
 }
 /** A firm route: `/api/v1/business/advisory{path}`. */
 async function firm(
-  method: 'get' | 'post',
+  method: 'get' | 'post' | 'patch',
   path: string,
   who: Who,
   body?: object,
@@ -432,6 +441,18 @@ beforeAll(async () => {
     docs.trashed = await doc(e1.id, 'FIRM_TO_CLIENT', 'Trashed (fake).pdf', {
       trashedAt: new Date(),
     });
+    // B10: current figures, so a plan of c1's is ready to go for approval.
+    await tx.advisoryFinancialSnapshot.create({
+      data: {
+        businessId,
+        advisoryClientId: advisory.a1,
+        periodStart: new Date('2025-01-01T00:00:00Z'),
+        periodEnd: new Date('2025-12-31T00:00:00Z'),
+        revenueCents: 1_234_567,
+        asOf: new Date(`${day(-5)}T00:00:00Z`),
+        createdByUserId: by,
+      },
+    });
   });
   await inFirm('b', async (tx) => {
     const businessId = firms.b.id;
@@ -615,5 +636,300 @@ describe("BA-CP: the client's Business Advisory in the portal", () => {
     });
     expectError(await portal('get', `/plans/${plans.other}`, logins.y), 404, 'NOT_FOUND');
     ok(await firm('post', `/clients/${advisory.a2}/restore`, staff.ownerA));
+  });
+});
+
+describe("B10: the client's approval of the business plan, before it is finalized", () => {
+  /** A plan of c1's ready to finalize (name, type, summary, focus, a goal; c1 has figures). */
+  const readyPlan = (name: string, status: 'DRAFT' | 'IN_REVIEW' = 'IN_REVIEW', goal = true) =>
+    inFirm('a', async (tx) => {
+      const p = await tx.advisoryPlan.create({
+        data: {
+          businessId: firms.a.id,
+          advisoryClientId: advisory.a1,
+          name: `${name} ${run}`,
+          targetYear: 2026,
+          planType: 'growth',
+          status,
+          step: 5,
+          profile: { businessName: 'Sample Bakery (fake)' },
+          strategy: { summary: 'Grow the bakery (fake).', noFocusArea: true },
+          createdByUserId: staff.ownerA.id,
+        },
+        select: { id: true },
+      });
+      if (goal) {
+        await tx.advisoryGoal.create({
+          data: {
+            businessId: firms.a.id,
+            advisoryClientId: advisory.a1,
+            planId: p.id,
+            title: `Goal of ${name} (fake)`,
+          },
+        });
+      }
+      return p.id;
+    });
+  const detail = async (id: string) =>
+    AdvisoryPlanDetail.parse(ok(await firm('get', `/plans/${id}`, staff.ownerA)));
+  const ask = async (id: string, who: Who = staff.ownerA, message?: string) =>
+    firm('post', `/plans/${id}/request-approval`, who, {
+      etag: (await detail(id)).etag,
+      ...(message ? { message } : {}),
+    });
+  const setStatus = async (id: string, status: string) =>
+    firm('post', `/plans/${id}/status`, staff.ownerA, { status, etag: (await detail(id)).etag });
+  const approval = (id: string) =>
+    inFirm('a', (tx) =>
+      tx.advisoryPlan.findFirstOrThrow({
+        where: { id },
+        select: {
+          status: true,
+          clientApprovedAt: true,
+          clientApprovedByUserId: true,
+          clientApprovedVersion: true,
+        },
+      }),
+    );
+
+  it('sends a plan in staff review for approval: the version is kept, the plan locked, the client told', async () => {
+    const id = await readyPlan('Approval plan');
+    // Only from staff review, only a ready plan, only to a client with a portal login.
+    const draft = await readyPlan('Draft for approval', 'DRAFT');
+    expectError(await ask(draft), 409, 'INVALID_STATUS');
+    const notReady = await readyPlan('Not ready for approval', 'IN_REVIEW', false);
+    expectError(await ask(notReady), 409, 'PLAN_NOT_READY');
+    const noLogin = await inFirm('a', async (tx) => {
+      const a3 = await tx.advisoryClient.create({
+        data: { businessId: firms.a.id, clientId: clients.c3 },
+        select: { id: true },
+      });
+      const p = await tx.advisoryPlan.create({
+        data: {
+          businessId: firms.a.id,
+          advisoryClientId: a3.id,
+          name: `No login plan ${run}`,
+          targetYear: 2026,
+          planType: 'growth',
+          status: 'IN_REVIEW',
+          profile: { businessName: 'Casey Co (fake)' },
+          strategy: { summary: 'Fake.', noFocusArea: true },
+          createdByUserId: staff.ownerA.id,
+        },
+        select: { id: true },
+      });
+      await tx.advisoryGoal.create({
+        data: { businessId: firms.a.id, advisoryClientId: a3.id, planId: p.id, title: 'Fake goal' },
+      });
+      await tx.advisoryFinancialSnapshot.create({
+        data: {
+          businessId: firms.a.id,
+          advisoryClientId: a3.id,
+          periodStart: new Date('2025-01-01T00:00:00Z'),
+          periodEnd: new Date('2025-12-31T00:00:00Z'),
+          revenueCents: 1_000,
+          asOf: new Date(`${day(-5)}T00:00:00Z`),
+          createdByUserId: staff.ownerA.id,
+        },
+      });
+      return p.id;
+    });
+    const refused = await ask(noLogin);
+    expectError(refused, 409, 'NO_PORTAL_LOGIN');
+    expect(JSON.stringify(refused.body)).toContain('portal invitation');
+    // Another firm never reaches it; a stale etag is a conflict.
+    expectError(
+      await firm('post', `/plans/${id}/request-approval`, staff.ownerB, { etag: 'x' }, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await firm('post', `/plans/${id}/request-approval`, staff.ownerA, { etag: 'stale' }),
+      409,
+      'SAVE_CONFLICT',
+    );
+
+    const sent = AdvisoryPlanDetail.parse(ok(await ask(id, staff.ownerA, 'Have a look (fake)')));
+    expect(sent).toMatchObject({ status: 'AWAITING_CLIENT_APPROVAL', clientApproval: null });
+    expect(sent.finalizedAt).toBeNull();
+    expect(sent.sentAt).not.toBeNull();
+    const versions = AdvisoryVersionList.parse(
+      ok(await firm('get', `/plans/${id}/versions`, staff.ownerA)),
+    ).items;
+    expect(versions.map((v) => [v.versionNo, v.deliveredChannel])).toEqual([[1, 'portal']]);
+    // Locked while the client reads it: no edit, no finalize, no other send, no second request.
+    expectError(
+      await firm('patch', `/plans/${id}`, staff.ownerA, {
+        etag: (await detail(id)).etag,
+        name: 'Renamed (fake)',
+      }),
+      409,
+      'PLAN_LOCKED',
+    );
+    expectError(
+      await firm('post', `/plans/${id}/finalize`, staff.ownerA, { etag: (await detail(id)).etag }),
+      409,
+      'INVALID_STATUS',
+    );
+    expectError(
+      await firm('post', `/plans/${id}/send`, staff.ownerA, { channel: 'DOWNLOAD' }),
+      409,
+      'INVALID_STATUS',
+    );
+    expectError(await ask(id), 409, 'INVALID_STATUS');
+
+    // The client's portal message links to the plan; the client sees it waiting for them.
+    const thread = await inFirm('a', (tx) =>
+      tx.messageThread.findFirstOrThrow({
+        where: { clientId: clients.c1, subject: { contains: `Approval plan ${run}` } },
+        include: { messages: true },
+      }),
+    );
+    expect(thread.subject).toMatch(/^Please review your business plan/);
+    expect(thread.messages[0]?.body).toContain(`/${firms.a.slug}/services/advisory/plans/${id}`);
+    expect(thread.messages[0]?.body).toContain('Have a look (fake)');
+    const mine = MyAdvisory.parse(ok(await portal('get', '', logins.x)));
+    expect(mine.plans.find((p) => p.id === id)).toMatchObject({
+      version: 1,
+      state: 'AWAITING_APPROVAL',
+      approval: null,
+    });
+    const plan = MyAdvisoryPlan.parse(ok(await portal('get', `/plans/${id}`, logins.x)));
+    expect(plan).toMatchObject({ version: 1, can: { approve: true } });
+    expect(JSON.stringify(plan)).not.toContain('1234567');
+
+    expect(await auditOf('advisory_plan.approval_requested', id)).toEqual([
+      { actorUserId: staff.ownerA.id, metadata: { advisoryClientId: advisory.a1, version: 1 } },
+    ]);
+  });
+
+  it('takes the client’s approval of exactly that version: finalized, shown to the firm, the firm told, audited', async () => {
+    const id = await readyPlan('Approve me');
+    ok(await ask(id));
+    // Never another client, an AUTHORIZED login, another firm's portal, or a bad body.
+    expectError(
+      await portal('post', `/plans/${id}/approve`, logins.y, { version: 1 }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await portal('post', `/plans/${id}/approve`, logins.xAuthorized, { version: 1 }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await portal('post', `/plans/${id}/approve`, logins.b, { version: 1 }, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await portal('post', `/plans/${id}/approve`, logins.x, {}),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // Only the version sent for approval; a plan not waiting is refused.
+    expectError(
+      await portal('post', `/plans/${id}/approve`, logins.x, { version: 2 }),
+      409,
+      'INVALID_STATUS',
+    );
+    expectError(
+      await portal('post', `/plans/${plans.delivered}/approve`, logins.x, { version: 1 }),
+      409,
+      'INVALID_STATUS',
+    );
+    expect((await approval(id)).clientApprovedAt).toBeNull();
+
+    const approved = MyAdvisoryPlan.parse(
+      ok(await portal('post', `/plans/${id}/approve`, logins.x, { version: 1 })),
+    );
+    expect(approved).toMatchObject({
+      state: 'APPROVED',
+      approval: { version: 1 },
+      can: { approve: false },
+    });
+    expect(await approval(id)).toMatchObject({
+      status: 'FINALIZED',
+      clientApprovedByUserId: logins.x.id,
+      clientApprovedVersion: 1,
+    });
+    const firmSide = await detail(id);
+    expect(firmSide).toMatchObject({
+      status: 'FINALIZED',
+      currentVersion: 1,
+      clientApproval: { version: 1, approvedBy: 'Fake x' },
+    });
+    expect(firmSide.finalizedAt).not.toBeNull();
+    expectError(
+      await portal('post', `/plans/${id}/approve`, logins.x, { version: 1 }),
+      409,
+      'INVALID_STATUS',
+    );
+    expect(await auditOf('advisory_plan.client_approved', id)).toEqual([
+      {
+        actorUserId: logins.x.id,
+        metadata: {
+          advisoryClientId: advisory.a1,
+          version: 1,
+          from: 'AWAITING_CLIENT_APPROVAL',
+          to: 'FINALIZED',
+          by: 'CLIENT',
+        },
+      },
+    ]);
+    // The advisor and the member who sent it each get a bell item.
+    const bells = await inFirm('a', (tx) =>
+      tx.notification.findMany({
+        where: { entityId: id, type: storedType('advisory-plan.client-approved') },
+        select: { recipientUserId: true },
+      }),
+    );
+    expect(bells.map((b) => b.recipientUserId).sort()).toEqual(
+      [staff.adminA.id, staff.ownerA.id].sort(),
+    );
+  });
+
+  it('Modify Plan withdraws a request or clears an approval: a revision needs approving again', async () => {
+    // An approval is cleared by the revision, and the next version needs its own.
+    const id = await readyPlan('Revise me');
+    ok(await ask(id));
+    ok(await portal('post', `/plans/${id}/approve`, logins.x, { version: 1 }));
+    expect(AdvisoryPlanDetail.parse(ok(await setStatus(id, 'DRAFT')))).toMatchObject({
+      status: 'DRAFT',
+      clientApproval: null,
+    });
+    expect(await approval(id)).toMatchObject({
+      clientApprovedAt: null,
+      clientApprovedByUserId: null,
+      clientApprovedVersion: null,
+    });
+    expect(
+      MyAdvisory.parse(ok(await portal('get', '', logins.x))).plans.find((p) => p.id === id),
+    ).toMatchObject({ state: 'IN_PREPARATION', approval: null });
+    ok(await setStatus(id, 'IN_REVIEW'));
+    ok(await ask(id));
+    expectError(
+      await portal('post', `/plans/${id}/approve`, logins.x, { version: 1 }),
+      409,
+      'INVALID_STATUS',
+    );
+    expect(
+      MyAdvisoryPlan.parse(
+        ok(await portal('post', `/plans/${id}/approve`, logins.x, { version: 2 })),
+      ),
+    ).toMatchObject({ state: 'APPROVED', approval: { version: 2 } });
+
+    // A request still open is withdrawn: the client can no longer approve it.
+    const other = await readyPlan('Withdraw me');
+    ok(await ask(other));
+    expect(AdvisoryPlanDetail.parse(ok(await setStatus(other, 'DRAFT'))).status).toBe('DRAFT');
+    expectError(
+      await portal('post', `/plans/${other}/approve`, logins.x, { version: 1 }),
+      409,
+      'INVALID_STATUS',
+    );
+    expect(
+      MyAdvisoryPlan.parse(ok(await portal('get', `/plans/${other}`, logins.x))),
+    ).toMatchObject({ state: 'IN_PREPARATION', can: { approve: false } });
   });
 });

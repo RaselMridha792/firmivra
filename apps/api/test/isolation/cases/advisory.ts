@@ -1,7 +1,7 @@
 // Business Advisory (R55): advisory clients and their services, business plans and versions,
 // financial snapshots, goals and milestones, recommendations, action items, resources and
-// settings; BA-CP, the client's own read-only view in the portal. A write case runs in a fresh
-// world, so one record serves them all.
+// settings; BA-CP, the client's own read-only view in the portal, and B10, the client's approval
+// of a plan sent for it. A write case runs in a fresh world, so one record serves them all.
 import { randomUUID } from 'node:crypto';
 import type { CaseModule } from '../world.js';
 
@@ -129,6 +129,85 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /**
+   * B10: a plan in staff review, ready to go for the client's approval (a goal, current figures;
+   * the world's client has a portal login).
+   */
+  advisoryPlanInReview: {
+    async create({ tx, businessId, owner, get }) {
+      const advisoryClientId = await get('advisoryClient');
+      const row = await tx.advisoryPlan.create({
+        data: {
+          businessId,
+          advisoryClientId,
+          name: `Fake plan in review ${tag()}`,
+          targetYear: 2026,
+          planType: 'growth',
+          status: 'IN_REVIEW',
+          step: 5,
+          profile: PLAN_PROFILE,
+          strategy: { ...PLAN_STRATEGY, noFocusArea: true },
+          createdByUserId: owner.id,
+          updatedAt: STAMP,
+        },
+      });
+      await tx.advisoryGoal.create({
+        data: { businessId, advisoryClientId, planId: row.id, title: `Fake goal ${tag()}` },
+      });
+      await tx.advisoryFinancialSnapshot.create({
+        data: {
+          businessId,
+          advisoryClientId,
+          periodStart: new Date('2025-01-01T00:00:00Z'),
+          periodEnd: new Date('2025-12-31T00:00:00Z'),
+          revenueCents: 1_000_000,
+          asOf: new Date(),
+          createdByUserId: owner.id,
+        },
+      });
+      // The goal's insert must not move the plan's version (etag).
+      await tx.advisoryPlan.update({
+        where: { businessId_id: { businessId, id: row.id } },
+        data: { updatedAt: STAMP },
+      });
+      return row.id;
+    },
+  },
+  /** B10: a plan whose version 1 waits for the world's client's approval in their portal. */
+  advisoryPlanAwaiting: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const name = `Fake plan awaiting approval ${tag()}`;
+      const row = await tx.advisoryPlan.create({
+        data: {
+          businessId,
+          advisoryClientId: await get('advisoryClient'),
+          name,
+          targetYear: 2026,
+          status: 'AWAITING_CLIENT_APPROVAL',
+          step: 5,
+          profile: PLAN_PROFILE,
+          strategy: PLAN_STRATEGY,
+          sentAt: STAMP,
+          createdByUserId: owner.id,
+          updatedAt: STAMP,
+        },
+      });
+      await tx.advisoryPlanVersion.create({
+        data: {
+          businessId,
+          planId: row.id,
+          versionNo: 1,
+          createdByUserId: owner.id,
+          content: { planName: name, targetYear: 2026, disclaimer: 'Fake' },
+          deliveredAt: STAMP,
+          deliveredChannel: 'portal',
+          deliveredByUserId: owner.id,
+        },
+      });
+      return row.id;
+    },
+  },
   /** BA-CP: a plan whose version 1 was delivered to the world's client (their portal reads it). */
   advisoryPlanDelivered: {
     clientPrivate: true,
@@ -221,6 +300,11 @@ export const records: CaseModule['records'] = {
 export const cases: CaseModule['cases'] = {
   // ---------- BA-CP: the portal's Business Advisory, client X's own delivered plan ----------
   'GET /api/v1/portal/:firmSlug/me/advisory/plans/:id': { params: { id: 'advisoryPlanDelivered' } },
+  // B10: client X approves the version awaiting their approval.
+  'POST /api/v1/portal/:firmSlug/me/advisory/plans/:id/approve': {
+    params: { id: 'advisoryPlanAwaiting' },
+    body: { version: 1 },
+  },
 
   [`POST ${BASE}/clients`]: {
     params: {},
@@ -298,6 +382,11 @@ export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/plans/:id/send`]: {
     params: { id: 'advisoryPlan' },
     body: { channel: 'DOWNLOAD' },
+  },
+  // B10: a plan in staff review goes to the client for approval.
+  [`POST ${BASE}/plans/:id/request-approval`]: {
+    params: { id: 'advisoryPlanInReview' },
+    body: { etag: ETAG },
   },
   [`POST ${BASE}/plans/:id/archive`]: { params: { id: 'advisoryPlan' } },
   [`POST ${BASE}/plans/:id/restore`]: { params: { id: 'advisoryPlan' } },

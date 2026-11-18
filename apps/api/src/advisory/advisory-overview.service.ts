@@ -38,7 +38,14 @@ type Out<S extends z.ZodType> = z.output<S>;
 const DAY = 86_400_000;
 const delta = (now: number, before: number): number | null =>
   before > 0 ? Math.round(((now - before) / before) * 100) : null;
-const ACTIVE_PLAN_STATUSES = ['DRAFT', 'IN_REVIEW', 'FINALIZED', 'SENT', 'IN_PROGRESS'] as const;
+const ACTIVE_PLAN_STATUSES = [
+  'DRAFT',
+  'IN_REVIEW',
+  'FINALIZED',
+  'AWAITING_CLIENT_APPROVAL',
+  'SENT',
+  'IN_PROGRESS',
+] as const;
 
 /** The overview, services, meetings, resources and the firm's advisory settings. */
 @Injectable()

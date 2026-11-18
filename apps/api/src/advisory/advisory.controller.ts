@@ -63,6 +63,7 @@ import {
   PlansQuery,
   RecommendationsQuery,
   ReorderMilestonesBody,
+  RequestApprovalBody,
   ResourcesQuery,
   SendPlanBody,
   SendResourceBody,
@@ -337,6 +338,19 @@ export class AdvisoryController {
   ): Promise<AdvisoryPlanDetail> {
     const w = who(auth, tenant);
     return this.plans.send(w.businessId, w.tenant, w.userId, id, body);
+  }
+
+  /** B10: a plan in staff review goes to the client's portal for approval before finalization. */
+  @Post('plans/:id/request-approval')
+  @HttpCode(200)
+  requestPlanApproval(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(RequestApprovalBody)) body: Out<typeof RequestApprovalBody>,
+  ): Promise<AdvisoryPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.requestApproval(w.businessId, w.tenant, w.userId, id, body);
   }
 
   @Post('plans/:id/archive')

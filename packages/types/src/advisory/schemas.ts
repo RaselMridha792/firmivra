@@ -561,6 +561,18 @@ export const AdvisoryPlanRow = z.object({
   currentVersion: z.number().int(),
   finalizedAt: DateTime.nullable(),
   sentAt: DateTime.nullable(),
+  /**
+   * B10: the client's approval in the portal of the version sent for approval (who, when, which
+   * version); null until they approve, and again after Modify Plan (a revision asks again).
+   */
+  clientApproval: z
+    .object({
+      version: z.number().int().min(1),
+      approvedAt: DateTime,
+      /** The client login's name. */
+      approvedBy: z.string().nullable(),
+    })
+    .nullable(),
   archived: z.boolean(),
   updatedAt: DateTime,
 });
@@ -693,8 +705,9 @@ export type UpdateAdvisoryPlanRequest = z.input<typeof UpdateAdvisoryPlanRequest
 
 /**
  * POST .../plans/{id}/status: DRAFT, IN_REVIEW, IN_PROGRESS and COMPLETED are set here; FINALIZED
- * and SENT only by finalize and send; ARCHIVED by archive. 409 INVALID_STATUS when the move does
- * not fit.
+ * and SENT only by finalize and send; AWAITING_CLIENT_APPROVAL only by request-approval (B10);
+ * ARCHIVED by archive. DRAFT from FINALIZED, SENT or AWAITING_CLIENT_APPROVAL is Modify Plan: the
+ * next revision, with the client's approval cleared. 409 INVALID_STATUS when the move does not fit.
  */
 export const SetAdvisoryPlanStatusRequest = z.strictObject({
   status: z.enum(['DRAFT', 'IN_REVIEW', 'IN_PROGRESS', 'COMPLETED']),
@@ -718,6 +731,21 @@ export const SendAdvisoryPlanRequest = z.strictObject({
   message: clearable(text(2_000, 'many')),
 });
 export type SendAdvisoryPlanRequest = z.input<typeof SendAdvisoryPlanRequest>;
+
+/**
+ * POST .../plans/{id}/request-approval (B10, Business Advisory review §16: staff review, then the
+ * client's approval BEFORE finalization). Only a plan in staff review (IN_REVIEW), ready as
+ * finalize requires (409 PLAN_NOT_READY), for a client with an active portal login (409
+ * NO_PORTAL_LOGIN). Keeps the version the client is asked to approve (delivered to the portal),
+ * moves the plan to AWAITING_CLIENT_APPROVAL (locked) and sends the client a portal message with
+ * the link. The client's Approve finalizes exactly that version; Modify Plan (DRAFT) withdraws it.
+ * Needs "Send plans" (403 FORBIDDEN). Audited.
+ */
+export const RequestAdvisoryPlanApprovalRequest = z.strictObject({
+  etag: Etag,
+  message: clearable(text(2_000, 'many')),
+});
+export type RequestAdvisoryPlanApprovalRequest = z.input<typeof RequestAdvisoryPlanApprovalRequest>;
 
 export const AdvisoryVersionRow = z.object({
   versionNo: z.number().int(),
@@ -1243,5 +1271,7 @@ export const AdvisoryErrorCode = z.enum([
   'RESOURCE_NOT_CLIENT_FACING',
   /** 409: the plan, goal or workstream is not this client's. */
   'NOT_THIS_CLIENT',
+  /** 409 (B10, B28): the client has no active portal login, so the portal cannot reach them. */
+  'NO_PORTAL_LOGIN',
 ]);
 export type AdvisoryErrorCode = z.infer<typeof AdvisoryErrorCode>;

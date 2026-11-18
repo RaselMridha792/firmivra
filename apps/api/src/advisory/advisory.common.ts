@@ -42,6 +42,8 @@ export const advErrors = {
   notClientFacing: () =>
     refusal('RESOURCE_NOT_CLIENT_FACING', 'This resource is for staff and cannot be sent'),
   clientArchived: () => refusal('CLIENT_ARCHIVED', 'Restore the advisory client first'),
+  /** B10, B28: the client has no active portal login (the words say what it stops). */
+  noPortalLogin: (message: string) => refusal('NO_PORTAL_LOGIN', message),
   overrideNotAllowed: () =>
     new ForbiddenException({
       code: 'OVERRIDE_NOT_ALLOWED',

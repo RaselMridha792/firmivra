@@ -93,8 +93,31 @@ function AdvisoryView({ advisory: a, slug }: { advisory: MyAdvisory; slug: strin
       </Card>
     );
   }
+  const waiting = a.plans.filter((p) => p.state === 'AWAITING_APPROVAL');
   return (
     <>
+      {waiting.length ? (
+        // B10: a plan the firm sent for the client's approval, before it is finalized.
+        <Card data-testid="advisory-approval-callout" className="border border-warning">
+          <p className="font-semibold text-heading">
+            {waiting.length === 1
+              ? 'A business plan is waiting for your approval.'
+              : `${waiting.length} business plans are waiting for your approval.`}
+          </p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {waiting.map((p) => (
+              <li key={p.id}>
+                <Link
+                  href={`/${slug}/services/advisory/plans/${p.id}`}
+                  className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-link hover:underline"
+                >
+                  Review and approve {p.name} <ChevronRight aria-hidden className="size-4" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
       <Card data-testid="advisory-summary">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
           {a.businessName ? (
@@ -141,6 +164,9 @@ function AdvisoryView({ advisory: a, slug }: { advisory: MyAdvisory; slug: strin
                 </Link>
                 <p className="text-sm text-muted">
                   {p.targetYear} · Version {p.version} · Delivered {dayText(p.deliveredAt)}
+                  {p.approval
+                    ? ` · You approved version ${p.approval.version} on ${dayText(p.approval.approvedAt)}`
+                    : ''}
                 </p>
               </div>
               <Badge tone={PLAN_STATE_TONE[p.state]}>

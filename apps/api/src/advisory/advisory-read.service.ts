@@ -270,7 +270,7 @@ export class AdvisoryReadService {
   planRow(
     p: Prisma.AdvisoryPlanGetPayload<{
       include: { advisoryClient: { include: typeof clientInclude } };
-    }>,
+    }> & { clientApprovedBy: { name: string } | null },
     names: Map<string, string>,
   ): AdvisoryPlanRow {
     return {
@@ -286,6 +286,15 @@ export class AdvisoryReadService {
       currentVersion: p.currentVersion,
       finalizedAt: iso(p.finalizedAt),
       sentAt: iso(p.sentAt),
+      // B10: all three or none (CHECK advisory_plans_client_approval).
+      clientApproval:
+        p.clientApprovedAt && p.clientApprovedVersion
+          ? {
+              version: p.clientApprovedVersion,
+              approvedAt: p.clientApprovedAt.toISOString(),
+              approvedBy: p.clientApprovedBy?.name ?? null,
+            }
+          : null,
       archived: p.archivedAt !== null,
       updatedAt: p.updatedAt.toISOString(),
     };

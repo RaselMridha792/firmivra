@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MessagesModule } from '../messages/messages.module.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { AdvisoryActionsService } from './advisory-actions.service.js';
 import { AdvisoryClientsService } from './advisory-clients.service.js';
 import { AdvisoryFinancialsService } from './advisory-financials.service.js';
@@ -17,10 +18,11 @@ import { MyAdvisoryService } from './my-advisory.service.js';
  * overview and Advisory Clients tab, client detail with the Business Health Score, services,
  * business plans in five stages with immutable versions and delivery, financial snapshots, goals
  * and milestones, recommendations and action items, meetings, the resource library, settings and
- * the Reports tab's counts. BA-CP: the client's own read-only view in the portal (My Services).
+ * the Reports tab's counts. BA-CP: the client's own read-only view in the portal (My Services),
+ * where the client approves a plan sent for approval (B10).
  */
 @Module({
-  imports: [MessagesModule],
+  imports: [MessagesModule, NotificationsModule],
   controllers: [AdvisoryController, MyAdvisoryController],
   providers: [
     AdvisoryReadService,

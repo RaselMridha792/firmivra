@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import type {
   AdvisoryPlanDetail,
@@ -11,6 +11,8 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { likeEscape } from '../clients/clients.service.js';
 import type { TenantContext } from '../common/request-context.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { day, memberNames, memberRef, notFound, sentFields } from '../workspaces/common.js';
@@ -19,6 +21,7 @@ import type {
   CreatePlanBody,
   FinalizeBody,
   PlansQuery,
+  RequestApprovalBody,
   SendPlanBody,
   SetPlanStatusBody,
   UpdatePlanBody,
@@ -36,6 +39,7 @@ type Out<S extends z.ZodType> = z.output<S>;
 
 const planInclude = {
   advisoryClient: { include: clientInclude },
+  clientApprovedBy: { select: { name: true } },
 } satisfies Prisma.AdvisoryPlanInclude;
 type PlanShape = Prisma.AdvisoryPlanGetPayload<{ include: typeof planInclude }>;
 
@@ -46,6 +50,8 @@ const NEXT_STATUS: Record<string, string[]> = {
   // its finalized versions stay as they were, and finalizing again makes the next one.
   FINALIZED: ['IN_PROGRESS', 'DRAFT'],
   SENT: ['IN_PROGRESS', 'DRAFT'],
+  // B10: waiting for the client's approval; Modify Plan withdraws it as the next revision.
+  AWAITING_CLIENT_APPROVAL: ['DRAFT'],
   IN_PROGRESS: ['COMPLETED'],
   COMPLETED: ['IN_PROGRESS'],
 };
@@ -84,6 +90,22 @@ function canon(value: unknown): string {
   return JSON.stringify(sort(value));
 }
 
+/** B10: 409 while the plan waits for the client's approval (Modify Plan withdraws it). */
+const awaitingClient = () =>
+  advErrors.invalidStatus(
+    "The plan is waiting for the client's approval in their portal. Modify Plan to change it first",
+  );
+
+/** Locked for edits: finalized, sent, or waiting for the client's approval (B9, B10). */
+const LOCKED: readonly string[] = ['FINALIZED', 'SENT', 'AWAITING_CLIENT_APPROVAL'];
+
+/** B10: no approval, as a Modify Plan revision starts (all three or none, in SQL). */
+const NO_CLIENT_APPROVAL = {
+  clientApprovedAt: null,
+  clientApprovedByUserId: null,
+  clientApprovedVersion: null,
+} as const;
+
 /** The plan's own content differs from what a version kept (what a person can edit in stages 1 to 3). */
 const changedSince = (p: PlanShape, c: Content) =>
   canon({
@@ -114,14 +136,20 @@ function focusChoice(
   return merged as Prisma.InputJsonObject;
 }
 
-/** Business plans: the five-step plan, its status, immutable versions and delivery to the client. */
+/**
+ * Business plans: the five-step plan, its status, immutable versions, the client's approval (B10)
+ * and delivery to the client.
+ */
 @Injectable()
 export class AdvisoryPlansService {
+  private readonly logger = new Logger(AdvisoryPlansService.name);
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly read: AdvisoryReadService,
     private readonly audit: AuditService,
     private readonly messages: MessagesService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   private run<T>(
@@ -344,9 +372,10 @@ export class AdvisoryPlansService {
       if (!ctx.perms.editPlans) throw advErrors.forbidden();
       const { tx } = ctx;
       const p = await this.editable(ctx, id, body.etag);
-      // B9: a finalized or sent plan is locked; only the wizard's place (`step`) moves.
+      // B9: a finalized or sent plan is locked, and one waiting for the client's approval (B10);
+      // only the wizard's place (`step`) moves.
       if (
-        (p.status === 'FINALIZED' || p.status === 'SENT') &&
+        LOCKED.includes(p.status) &&
         Object.entries(body).some(([k, v]) => v !== undefined && k !== 'etag' && k !== 'step')
       ) {
         throw advErrors.planLocked();
@@ -405,8 +434,10 @@ export class AdvisoryPlansService {
       if (!(NEXT_STATUS[p.status] ?? []).includes(body.status))
         throw advErrors.invalidStatus(`A plan cannot go from ${p.status} to ${body.status}`);
       // B9: Modify Plan, a finalized or sent plan back to DRAFT, is its next revision: a draft again
-      // (finalizing makes the next version); its versions keep what was finalized and sent.
-      const revision = body.status === 'DRAFT' && (p.status === 'FINALIZED' || p.status === 'SENT');
+      // (finalizing makes the next version); its versions keep what was finalized and sent. B10:
+      // a plan waiting for the client's approval goes back the same way (the request is
+      // withdrawn), and a revision starts with no client approval: it needs approving again.
+      const revision = body.status === 'DRAFT' && LOCKED.includes(p.status);
       if (body.status === 'DRAFT' && p.finalizedAt && !revision)
         throw advErrors.invalidStatus('A plan that was finalized cannot go back to a draft');
       await tx.advisoryPlan.update({
@@ -414,7 +445,7 @@ export class AdvisoryPlansService {
         data: {
           status: body.status,
           updatedByUserId: userId,
-          ...(revision ? { finalizedAt: null } : {}),
+          ...(revision ? { finalizedAt: null, ...NO_CLIENT_APPROVAL } : {}),
         },
       });
       await this.audit.logIn(
@@ -528,6 +559,32 @@ export class AdvisoryPlansService {
     return (last?.versionNo ?? 0) + 1;
   }
 
+  /** The plan's content and its source date, or 409 PLAN_NOT_READY with what is missing. */
+  private async ready(
+    ctx: AdvisoryCtx,
+    p: PlanShape,
+  ): Promise<{ content: Content; asOf: Date | null }> {
+    const { content, asOf } = await this.contentOf(ctx, p);
+    const missing: string[] = [];
+    if (typeof content.profile.businessName !== 'string')
+      missing.push('Add the business name (stage 1)');
+    // B13 (Octavia's §3): the plan type, the strategy summary and an explicit focus choice.
+    if (!p.planType) missing.push('Choose the plan type (stage 1)');
+    if (!content.strategy.summary) missing.push('Add the strategy summary (stage 3)');
+    const areas = content.strategy.areas;
+    if (!(Array.isArray(areas) && areas.length > 0) && content.strategy.noFocusArea !== true)
+      missing.push('Choose a focus area, or None / Not Applicable (stage 3)');
+    if (content.goals.length === 0) missing.push('Add at least one goal to the plan');
+    if (!asOf) missing.push('Add the financial figures');
+    else if (
+      (Date.parse(`${ctx.today}T00:00:00Z`) - asOf.getTime()) / 86_400_000 >
+      ctx.settings.staleFinancialsDays
+    )
+      missing.push('The financial figures are out of date; add current ones');
+    if (missing.length > 0) throw advErrors.planNotReady(missing);
+    return { content, asOf };
+  }
+
   finalize(
     businessId: string,
     tenant: TenantContext,
@@ -539,24 +596,9 @@ export class AdvisoryPlansService {
       if (!ctx.perms.editPlans) throw advErrors.forbidden();
       const { tx } = ctx;
       const p = await this.editable(ctx, id, body.etag);
-      const { content, asOf } = await this.contentOf(ctx, p);
-      const missing: string[] = [];
-      if (typeof content.profile.businessName !== 'string')
-        missing.push('Add the business name (stage 1)');
-      // B13 (Octavia's §3): the plan type, the strategy summary and an explicit focus choice.
-      if (!p.planType) missing.push('Choose the plan type (stage 1)');
-      if (!content.strategy.summary) missing.push('Add the strategy summary (stage 3)');
-      const areas = content.strategy.areas;
-      if (!(Array.isArray(areas) && areas.length > 0) && content.strategy.noFocusArea !== true)
-        missing.push('Choose a focus area, or None / Not Applicable (stage 3)');
-      if (content.goals.length === 0) missing.push('Add at least one goal to the plan');
-      if (!asOf) missing.push('Add the financial figures');
-      else if (
-        (Date.parse(`${ctx.today}T00:00:00Z`) - asOf.getTime()) / 86_400_000 >
-        ctx.settings.staleFinancialsDays
-      )
-        missing.push('The financial figures are out of date; add current ones');
-      if (missing.length > 0) throw advErrors.planNotReady(missing);
+      // B10: the client is reading this plan to approve it; their Approve finalizes it.
+      if (p.status === 'AWAITING_CLIENT_APPROVAL') throw awaitingClient();
+      const { content, asOf } = await this.ready(ctx, p);
       const versionNo = await this.nextVersionNo(ctx, id);
       await tx.advisoryPlanVersion.create({
         data: {
@@ -603,6 +645,8 @@ export class AdvisoryPlansService {
       const p = await this.load(ctx, id);
       if (p.archivedAt) throw advErrors.planArchived();
       if (p.advisoryClient.archivedAt) throw advErrors.clientArchived();
+      // B10: the version is in the client's portal already, waiting for their approval.
+      if (p.status === 'AWAITING_CLIENT_APPROVAL') throw awaitingClient();
       const version = await tx.advisoryPlanVersion.findFirst({
         where: {
           businessId,
@@ -735,6 +779,115 @@ export class AdvisoryPlansService {
       );
       return this.detailById(ctx, id);
     });
+  }
+
+  // ---------- B10: the client's approval before finalization ----------
+
+  /**
+   * B10 (Business Advisory review §16; Client Portal Review One): staff review, then the client's
+   * approval BEFORE finalization. A plan in staff review (IN_REVIEW), ready as finalize requires,
+   * for a client with an active household portal login: keeps the version the client is asked to
+   * approve (delivered to the portal), moves the plan to AWAITING_CLIENT_APPROVAL (locked) and,
+   * after it commits, sends the client a portal message with the plan's link. A failed message is
+   * logged (ids only) and never undoes the request: the plan waits in the client's Business
+   * Advisory. The client's Approve finalizes exactly that version (MyAdvisoryService.approve).
+   */
+  async requestApproval(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof RequestApprovalBody>,
+  ): Promise<AdvisoryPlanDetail> {
+    const done = await this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.send) throw advErrors.forbidden();
+      const { tx } = ctx;
+      const p = await this.editable(ctx, id, body.etag);
+      if (p.status !== 'IN_REVIEW')
+        throw advErrors.invalidStatus(
+          p.status === 'DRAFT'
+            ? 'Submit the plan for staff review first: a plan goes to the client for approval from review'
+            : `A plan that is ${p.status.toLowerCase().replace(/_/g, ' ')} cannot be sent for approval`,
+        );
+      const { content, asOf } = await this.ready(ctx, p);
+      const login = await tx.clientAccount.findFirst({
+        where: {
+          businessId,
+          clientId: p.advisoryClient.clientId,
+          status: 'ACTIVE',
+          portalRole: { in: ['PRIMARY', 'SPOUSE'] },
+        },
+        select: { id: true },
+      });
+      if (!login)
+        throw advErrors.noPortalLogin(
+          `${p.advisoryClient.client.displayName} has no active portal login, so they cannot approve the plan in the portal. Send them a portal invitation first.`,
+        );
+      const versionNo = await this.nextVersionNo(ctx, id);
+      const now = new Date();
+      await tx.advisoryPlanVersion.create({
+        data: {
+          businessId,
+          planId: id,
+          versionNo,
+          content: content as unknown as Prisma.InputJsonObject,
+          sourceDataAsOf: asOf,
+          createdByUserId: userId,
+          deliveredAt: now,
+          deliveredChannel: 'portal',
+          deliveredByUserId: userId,
+        },
+      });
+      await tx.advisoryPlan.update({
+        where: { businessId_id: { businessId, id } },
+        data: {
+          status: 'AWAITING_CLIENT_APPROVAL',
+          sentAt: now,
+          sentByUserId: userId,
+          updatedByUserId: userId,
+          ...NO_CLIENT_APPROVAL,
+        },
+      });
+      await this.audit.logIn(
+        tx,
+        'advisory_plan.approval_requested',
+        { type: 'advisory_plan', id },
+        { advisoryClientId: p.advisoryClientId, version: versionNo },
+      );
+      const firm = await tx.business.findFirst({
+        where: { id: businessId },
+        select: { slug: true },
+      });
+      const base = this.env.PORTAL_BASE_URL.replace(/\/+$/, '');
+      const link = `${base}/${firm?.slug ?? ''}/services/advisory/plans/${id}`;
+      const text = [
+        `Your business plan, ${content.planName} (${content.targetYear}), is ready for your review.`,
+        '',
+        `Please read it and approve it in your portal: ${link}`,
+        ...(body.message ? ['', body.message] : []),
+        '',
+        DISCLAIMER,
+      ].join('\n');
+      return {
+        clientId: p.advisoryClient.clientId,
+        actor: ctx.actor,
+        subject: `Please review your business plan: ${content.planName}`.slice(0, 200),
+        text,
+        detail: await this.detailById(ctx, id),
+      };
+    });
+    try {
+      await this.messages.create(businessId, done.actor, done.clientId, {
+        subject: done.subject,
+        body: done.text,
+        repliesEnabled: true,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `approval message for plan ${id} not sent (${error instanceof Error ? error.name : 'Error'})`,
+      );
+    }
+    return done.detail;
   }
 
   // ---------- Versions ----------

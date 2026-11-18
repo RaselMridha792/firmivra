@@ -2,6 +2,7 @@ import {
   ADVISORY_DISCLAIMER,
   AdvisoryPlanId,
   ApiRequestError,
+  ApproveMyAdvisoryPlanRequest,
   type MyAdvisory,
   type MyAdvisoryClient,
   type MyAdvisoryPlan,
@@ -12,12 +13,16 @@ import { mockDelay } from '../lib/mock';
 // BA-CP (Client Portal Review One): the signed-in client's Business Advisory in mock mode, as the
 // API (apps/api/src/advisory/my-advisory.service.ts) answers it: only what the firm marked for
 // the client, each delivered plan read-only at the version delivered; a plan never delivered,
-// archived or of another client is 404. Synthetic data only.
+// archived or of another client is 404. B10: Approve takes exactly the version awaiting the
+// client's approval (409 INVALID_STATUS otherwise) and the plan is then approved. Synthetic data.
 
 const copy = <T>(value: T): T => structuredClone(value);
 const notFound = () => new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+const invalid = (message: string) => new ApiRequestError(409, 'INVALID_STATUS', message);
 
 export const MY_ADVISORY_PLAN_IDS = {
+  /** B10: sent for the client's approval. */
+  review: '0199d600-0000-7000-8000-000000000004',
   growth: '0199d600-0000-7000-8000-000000000001',
   launch: '0199d600-0000-7000-8000-000000000002',
   /** Another client's plan (or one never delivered): the mock answers 404, as the API does. */
@@ -31,12 +36,44 @@ const dayFrom = (days: number) =>
 function seed(): { view: MyAdvisory; plans: MyAdvisoryPlan[] } {
   const plans: MyAdvisoryPlan[] = [
     {
+      id: MY_ADVISORY_PLAN_IDS.review,
+      name: '2027 Expansion Plan (sample)',
+      targetYear: 2027,
+      version: 1,
+      deliveredAt: ago(1),
+      state: 'AWAITING_APPROVAL',
+      approval: null,
+      businessName: 'Sample Bakery LLC',
+      summary: 'Add catering and a delivery van in the new year.',
+      focusAreas: [{ area: 'REVENUE_GROWTH', objective: 'Catering as a second line of sales' }],
+      goals: [
+        {
+          title: 'Book ten catering orders a month',
+          area: 'REVENUE_GROWTH',
+          targetDate: dayFrom(240),
+          status: 'NOT_STARTED',
+        },
+      ],
+      recommendations: [
+        {
+          title: 'Lease the van instead of buying it',
+          rationale: 'Keeps cash for the catering launch.',
+          impactLabel: 'Better cash flow',
+          status: 'PROPOSED',
+        },
+      ],
+      services: [{ name: 'Business Planning', status: 'IN_PROGRESS' }],
+      disclaimer: ADVISORY_DISCLAIMER,
+      can: { approve: true },
+    },
+    {
       id: MY_ADVISORY_PLAN_IDS.growth,
       name: '2026 Growth Plan (sample)',
       targetYear: 2026,
       version: 2,
       deliveredAt: ago(3),
       state: 'DELIVERED',
+      approval: null,
       businessName: 'Sample Bakery LLC',
       summary: 'Open a second location and steady the cash flow before the move.',
       focusAreas: [
@@ -70,6 +107,7 @@ function seed(): { view: MyAdvisory; plans: MyAdvisoryPlan[] } {
         { name: 'Funding Readiness', status: 'ACCEPTED' },
       ],
       disclaimer: ADVISORY_DISCLAIMER,
+      can: { approve: false },
     },
     {
       id: MY_ADVISORY_PLAN_IDS.launch,
@@ -78,6 +116,7 @@ function seed(): { view: MyAdvisory; plans: MyAdvisoryPlan[] } {
       version: 1,
       deliveredAt: ago(220),
       state: 'IN_PREPARATION',
+      approval: null,
       businessName: 'Sample Bakery LLC',
       summary: 'Form the company and open the first shop.',
       focusAreas: [{ area: 'BUSINESS_SETUP', objective: 'Entity, EIN and bank account' }],
@@ -92,15 +131,25 @@ function seed(): { view: MyAdvisory; plans: MyAdvisoryPlan[] } {
       recommendations: [],
       services: [{ name: 'Business Formation', status: 'COMPLETED' }],
       disclaimer: ADVISORY_DISCLAIMER,
+      can: { approve: false },
     },
   ];
-  const row = ({ id, name, targetYear, version, deliveredAt, state }: MyAdvisoryPlan) => ({
+  const row = ({
     id,
     name,
     targetYear,
     version,
     deliveredAt,
     state,
+    approval,
+  }: MyAdvisoryPlan) => ({
+    id,
+    name,
+    targetYear,
+    version,
+    deliveredAt,
+    state,
+    approval,
   });
   return {
     plans,
@@ -202,6 +251,25 @@ export function createMyAdvisoryMock(options: { enrolled?: boolean } = {}): MyAd
       const planId = parseInput(AdvisoryPlanId, id);
       const p = options.enrolled === false ? undefined : all().plans.find((x) => x.id === planId);
       if (!p) throw notFound();
+      return copy(p);
+    },
+    approve: async (id, body) => {
+      await mockDelay();
+      const planId = parseInput(AdvisoryPlanId, id);
+      const { version } = parseInput(ApproveMyAdvisoryPlanRequest, body);
+      const state = all();
+      const p = options.enrolled === false ? undefined : state.plans.find((x) => x.id === planId);
+      if (!p) throw notFound();
+      // As the API: only the plan awaiting approval, at exactly the version sent for it.
+      if (p.state !== 'AWAITING_APPROVAL')
+        throw invalid('This plan is not waiting for your approval');
+      if (version !== p.version)
+        throw invalid(`Version ${version} is not the one awaiting your approval: reload the plan`);
+      p.state = 'APPROVED';
+      p.approval = { version, approvedAt: new Date().toISOString() };
+      p.can = { approve: false };
+      const listed = state.view.plans.find((x) => x.id === planId);
+      if (listed) Object.assign(listed, { state: p.state, approval: p.approval });
       return copy(p);
     },
   };

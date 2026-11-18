@@ -19,6 +19,7 @@ import {
   CreateAdvisoryRecommendationRequest,
   FinalizeAdvisoryPlanRequest,
   ReorderAdvisoryMilestonesRequest,
+  RequestAdvisoryPlanApprovalRequest,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
@@ -66,6 +67,7 @@ export const UpdatePlanBody = clean(UpdateAdvisoryPlanRequest);
 export const SetPlanStatusBody = clean(SetAdvisoryPlanStatusRequest);
 export const FinalizeBody = clean(FinalizeAdvisoryPlanRequest);
 export const SendPlanBody = clean(SendAdvisoryPlanRequest);
+export const RequestApprovalBody = clean(RequestAdvisoryPlanApprovalRequest);
 
 export const FinancialsQuery = clean(AdvisoryFinancialsQuery);
 export const CreateFinancialBody = clean(CreateAdvisoryFinancialRequest);
