@@ -394,7 +394,11 @@ export const api = {
   /** Services & Pricing (R43 contract): services, categories, packages, promotions. */
   servicesPricing:
     dev && mocked('servicesPricing')
-      ? createServicesPricingMock({ role: MOCK_ROLE, empty: mockedEmpty('servicesPricing') })
+      ? // F08-S: the catalog can be made to fail (`fv-mock-fail`).
+        failable(
+          'servicesPricing',
+          createServicesPricingMock({ role: MOCK_ROLE, empty: mockedEmpty('servicesPricing') }),
+        )
       : createServicesPricingClient(request),
   /** The firm dashboard's numbers (R30). */
   dashboard:

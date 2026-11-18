@@ -1034,6 +1034,9 @@ export class TaxReturnWorkspaceService {
       'tax_return.issue': ['VALIDATION', 'Validation issue updated'],
       // F32a: a business return's identity corrected after it was filed.
       'tax_return.business_identity_corrected': ['UPDATED', 'Business identity corrected'],
+      // F16 (R61's live check): the year correction and a recorded extension show here too.
+      'tax_return.tax_year_corrected': ['UPDATED', 'Tax year corrected'],
+      'tax_return.extension_recorded': ['FILING', 'Extension recorded'],
     };
     const ISSUE: Record<string, string> = {
       raised: 'Validation issue raised',
@@ -1073,6 +1076,18 @@ export class TaxReturnWorkspaceService {
         if (l.action === 'tax_return.issue') {
           const a = (l.metadata as { action?: string } | null)?.action ?? '';
           k = ['VALIDATION', ISSUE[a] ?? k[1]];
+        }
+        // F16: which years, and the new deadline (both are the firm's own dates, never content).
+        const m = (l.metadata ?? {}) as { from?: unknown; to?: unknown; extendedDueOn?: unknown };
+        if (
+          l.action === 'tax_return.tax_year_corrected' &&
+          typeof m.from === 'number' &&
+          typeof m.to === 'number'
+        ) {
+          k = ['UPDATED', `Tax year corrected from ${m.from} to ${m.to}`];
+        }
+        if (l.action === 'tax_return.extension_recorded' && typeof m.extendedDueOn === 'string') {
+          k = ['FILING', `Extension recorded: due ${m.extendedDueOn}`];
         }
         return [
           {
