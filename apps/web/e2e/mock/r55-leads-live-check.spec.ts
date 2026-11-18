@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test';
 
 // R55, Leads Review Two, R61's live check (Nov 18). Row 3: the business or company typed in Add
 // New Lead shows on the list, the lead's header, Contact Information and Lead Details, and Edit
-// Lead changes it. Mock mode as the Owner; synthetic data.
+// Lead changes it. Row 26: every day and time on the lead is the firm's (New York), labelled,
+// on a device in Chicago an hour behind. Mock mode as the Owner; synthetic data.
+test.use({ timezoneId: 'America/Chicago' });
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}`;
@@ -45,4 +47,28 @@ test('row 3: the business name shows on the list, header and both cards, and Edi
     timeout: 60_000,
   });
   await expect(page.getByTestId('lead-business')).toHaveCount(0);
+});
+
+test('row 26: Next Follow-Up, Next Action and the list are in the firm’s zone, labelled', async ({
+  page,
+}) => {
+  // 8:15 AM in New York (7:15 AM here). Avery Lawson's call is seeded 30 hours ahead: Nov 17,
+  // 2:15 PM in New York, which is 1:15 PM on this device.
+  await page.clock.setFixedTime(new Date('2026-11-16T13:15:00.000Z'));
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(avery);
+
+  const figure = page.getByTestId('figure-next-follow-up');
+  await expect(figure).toContainText('Nov 17, 2026', { timeout: 60_000 });
+  await expect(figure).toContainText('2:15 PM EST · Call');
+  await expect(figure).not.toContainText('1:15 PM');
+
+  const details = page.getByTestId('card-lead-details');
+  await expect(details).toContainText('Call – Nov 17, 2026 at 2:15 PM EST');
+  await expect(details).not.toContainText('1:15 PM');
+
+  await page.goto(`${base}/leads`);
+  const row = page.getByRole('row').filter({ hasText: 'Avery Lawson' });
+  await expect(row).toContainText('Nov 17, 2026, 2:15 PM EST', { timeout: 60_000 });
+  await expect(row).not.toContainText('1:15 PM');
 });

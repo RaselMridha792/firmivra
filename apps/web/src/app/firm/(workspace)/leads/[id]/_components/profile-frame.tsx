@@ -179,7 +179,7 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-                  <span>Added: {lead ? dayText(lead.createdAt) : '—'}</span>
+                  <span>Added: {lead ? dayText(lead.createdAt, timeZone) : '—'}</span>
                   <span aria-hidden>|</span>
                   <span>
                     Last Contact: {lead?.lastContact ? stamp(lead.lastContact.at, timeZone) : '—'}

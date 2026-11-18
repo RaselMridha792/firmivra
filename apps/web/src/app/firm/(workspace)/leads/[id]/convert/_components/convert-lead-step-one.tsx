@@ -43,6 +43,7 @@ import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { errorCode } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
+import { useFirmTimeZone } from '../../../../intake-forms/_components/expiry';
 import { type ConvertDraft, draftErrors, useConvertDraft } from './convert-draft';
 
 type LeadOptions = NonNullable<Awaited<ReturnType<typeof api.leadPipeline.options>>>;
@@ -130,13 +131,15 @@ const titleCase = (value: string) =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 
-function date(value: string | null, withTime = false) {
+/** In the firm's time zone; a time is labelled with it (Leads Review Two row 26). */
+function date(value: string | null, timeZone: string | undefined, withTime = false) {
   if (!value) return '—';
   return new Date(value).toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     ...(withTime ? { hour: 'numeric', minute: '2-digit' } : {}),
+    ...(timeZone ? { timeZone, ...(withTime ? { timeZoneName: 'short' as const } : {}) } : {}),
   });
 }
 
@@ -307,6 +310,7 @@ function LeadDetails({
   lead: LeadProfile | undefined;
   query: UseQueryResult<LeadProfile>;
 }) {
+  const timeZone = useFirmTimeZone();
   const statusTone =
     lead?.stage === 'QUALIFIED' || lead?.stage === 'CONVERTED'
       ? 'success'
@@ -349,14 +353,14 @@ function LeadDetails({
             )}
           </InfoRow>
           <InfoRow icon={CalendarBlank} label="Date Added">
-            {date(lead.createdAt)}
+            {date(lead.createdAt, timeZone)}
           </InfoRow>
           <InfoRow icon={Clock} label="Last Contact">
-            {lead.lastContact ? date(lead.lastContact.at, true) : 'No contact yet'}
+            {lead.lastContact ? date(lead.lastContact.at, timeZone, true) : 'No contact yet'}
           </InfoRow>
           <InfoRow icon={CalendarBlank} label="Next Action">
             {lead.nextAction
-              ? `${titleCase(lead.nextAction.type)} · ${date(lead.nextAction.dueAt, true)}`
+              ? `${titleCase(lead.nextAction.type)} · ${date(lead.nextAction.dueAt, timeZone, true)}`
               : 'No further action'}
           </InfoRow>
           <InfoRow icon={Tag} label="Tags">

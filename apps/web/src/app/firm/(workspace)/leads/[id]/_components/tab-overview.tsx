@@ -49,7 +49,7 @@ import { ActivityTimeline } from './profile-activity';
 import { CardFrame, linkClass, outlineButton } from './profile-cards';
 import { useProfile } from './profile-frame';
 import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
-import { dayText, shortName, stamp } from './profile-shared';
+import { clockText, dayText, shortName, stamp } from './profile-shared';
 import { UpcomingAppointmentsCard } from './tab-appointments';
 import { ACTIONS, FollowUpCard, OpenTasksCard } from './tab-tasks';
 
@@ -78,12 +78,14 @@ const dash = (value: string | null | undefined) => (value ? value : '—');
 /** Quick Actions: two to a row; a long label wraps under 1600 px (the design's canvas is wider). */
 const quickButton = 'justify-start gap-1.5 !px-2.5 py-1.5 text-left';
 
-/** "Call – Sep 30, 2026 at 10:00 AM", red with "Overdue" once it has passed. */
-function NextActionText({ lead }: { lead: LeadProfile }) {
+/**
+ * "Call – Sep 30, 2026 at 10:00 AM EDT", in the firm's time zone (Leads Review Two row 26), red
+ * with "Overdue" once it has passed.
+ */
+function NextActionText({ lead, timeZone }: { lead: LeadProfile; timeZone: string | undefined }) {
   const next = lead.nextAction;
   if (!next) return <span className="text-muted">No follow-up scheduled</span>;
-  const when = new Date(next.dueAt);
-  const text = `${ACTIONS.find((a) => a.value === next.type)?.label ?? next.type} – ${dayText(next.dueAt)} at ${when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+  const text = `${ACTIONS.find((a) => a.value === next.type)?.label ?? next.type} – ${dayText(next.dueAt, timeZone)} at ${clockText(next.dueAt, timeZone)}`;
   return (
     <span className={next.overdue ? 'font-medium text-danger' : 'text-link'}>
       {next.overdue ? `Overdue: ${text}` : text}
@@ -418,7 +420,7 @@ export function OverviewTab() {
                   </span>
                 </Line>
                 <Line icon={CalendarBlank} label="Date Added">
-                  {lead ? dayText(lead.createdAt) : null}
+                  {lead ? dayText(lead.createdAt, timeZone) : null}
                 </Line>
                 <Line icon={Phone} label="Last Contact">
                   {lead?.lastContact
@@ -428,7 +430,7 @@ export function OverviewTab() {
                       : '—'}
                 </Line>
                 <Line icon={PaperPlaneTilt} label="Next Action">
-                  {lead ? <NextActionText lead={lead} /> : null}
+                  {lead ? <NextActionText lead={lead} timeZone={timeZone} /> : null}
                 </Line>
                 <Line icon={Tag} label="Tags">
                   <span className="flex flex-wrap items-center gap-1.5">
@@ -459,15 +461,12 @@ export function OverviewTab() {
               tone="blue"
               label="Next Follow-Up"
               testId="figure-next-follow-up"
-              value={lead?.nextAction ? dayText(lead.nextAction.dueAt) : '—'}
+              value={lead?.nextAction ? dayText(lead.nextAction.dueAt, timeZone) : '—'}
               note={
                 lead?.nextAction ? (
                   <span className={lead.nextAction.overdue ? 'text-danger' : undefined}>
-                    {new Date(lead.nextAction.dueAt).toLocaleTimeString('en-US', {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}{' '}
-                    · {ACTIONS.find((a) => a.value === lead.nextAction?.type)?.label}
+                    {clockText(lead.nextAction.dueAt, timeZone)} ·{' '}
+                    {ACTIONS.find((a) => a.value === lead.nextAction?.type)?.label}
                     {lead.nextAction.overdue ? ' · Overdue' : ''}
                   </span>
                 ) : (

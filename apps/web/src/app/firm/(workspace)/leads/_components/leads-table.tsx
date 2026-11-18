@@ -20,6 +20,9 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useMemo } from 'react';
+import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
+import { clockText, dayText } from '../[id]/_components/profile-shared';
 import {
   dateLabel,
   fullName,
@@ -62,7 +65,11 @@ interface LeadsTableProps {
   canDelete?: boolean;
 }
 
-const columns: Column<LeadRow>[] = [
+/**
+ * The list's columns. Leads Review Two row 26: the days and times are the firm's, a time labelled
+ * with its zone ("2:15 PM EST"), as on the lead's own pages.
+ */
+const leadColumns = (timeZone: string | undefined): Column<LeadRow>[] => [
   {
     id: 'name',
     label: 'Name',
@@ -167,12 +174,8 @@ const columns: Column<LeadRow>[] = [
       <span className="block min-w-0">
         {lead.lastContact ? (
           <time dateTime={lead.lastContact.at} className="block">
-            <span className="block">
-              {new Date(lead.lastContact.at).toLocaleDateString('en-US', { dateStyle: 'medium' })}
-            </span>
-            <span className="block text-muted">
-              {new Date(lead.lastContact.at).toLocaleTimeString('en-US', { timeStyle: 'short' })}
-            </span>
+            <span className="block">{dayText(lead.lastContact.at, timeZone)}</span>
+            <span className="block text-muted">{clockText(lead.lastContact.at, timeZone)}</span>
           </time>
         ) : (
           <span className="text-muted">No contact yet</span>
@@ -202,7 +205,7 @@ const columns: Column<LeadRow>[] = [
           </span>
           {action.dueAt ? (
             <time dateTime={action.dueAt} className={action.overdue ? 'block' : 'block text-muted'}>
-              {dateLabel(action.dueAt, true)}
+              {dateLabel(action.dueAt, true, timeZone)}
             </time>
           ) : null}
         </span>
@@ -244,37 +247,42 @@ const columns: Column<LeadRow>[] = [
     label: 'Date Added',
     className: 'w-16',
     cell: (lead) => (
-      <time dateTime={lead.createdAt} className="block truncate" title={dateLabel(lead.createdAt)}>
-        {dateLabel(lead.createdAt)}
+      <time
+        dateTime={lead.createdAt}
+        className="block truncate"
+        title={dateLabel(lead.createdAt, false, timeZone)}
+      >
+        {dateLabel(lead.createdAt, false, timeZone)}
       </time>
     ),
   },
 ];
 
 /** The archived view's columns: the name as text, not a link to a workspace (L10). */
-const archivedColumns: Column<LeadRow>[] = columns.map((column) =>
-  column.id === 'name'
-    ? {
-        ...column,
-        cell: (lead) => {
-          const name = fullName(lead.firstName, lead.lastName, lead.email);
-          return (
-            <span className="flex min-w-0 items-center gap-1 text-navigation" title={name}>
-              <Avatar name={name} src={lead.avatarUrl ?? undefined} size="md" />
-              <span className="flex min-w-0 flex-col">
-                <span className="text-xs font-semibold break-words">{name}</span>
-                {lead.businessName ? (
-                  <span className="text-xs font-normal break-words text-muted">
-                    {lead.businessName}
-                  </span>
-                ) : null}
+const archivedColumns = (columns: Column<LeadRow>[]): Column<LeadRow>[] =>
+  columns.map((column) =>
+    column.id === 'name'
+      ? {
+          ...column,
+          cell: (lead) => {
+            const name = fullName(lead.firstName, lead.lastName, lead.email);
+            return (
+              <span className="flex min-w-0 items-center gap-1 text-navigation" title={name}>
+                <Avatar name={name} src={lead.avatarUrl ?? undefined} size="md" />
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-xs font-semibold break-words">{name}</span>
+                  {lead.businessName ? (
+                    <span className="text-xs font-normal break-words text-muted">
+                      {lead.businessName}
+                    </span>
+                  ) : null}
+                </span>
               </span>
-            </span>
-          );
-        },
-      }
-    : column,
-);
+            );
+          },
+        }
+      : column,
+  );
 
 export function LeadsTable({
   rows,
@@ -293,13 +301,16 @@ export function LeadsTable({
   canDelete = false,
 }: LeadsTableProps) {
   const router = useRouter();
+  const timeZone = useFirmTimeZone();
+  const columns = useMemo(() => leadColumns(timeZone), [timeZone]);
+  const shown = useMemo(() => (archived ? archivedColumns(columns) : columns), [archived, columns]);
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="min-w-0 rounded-card border border-border bg-surface [&_nav]:!pl-3 [&_nav]:!pr-3 [&_nav]:!pb-3 [&_td_span.rounded-pill]:!rounded-md">
       <Table
         caption="Leads"
         rows={rows}
-        columns={archived ? archivedColumns : columns}
+        columns={shown}
         rowKey={(lead) => lead.id}
         dense
         noun="leads"
