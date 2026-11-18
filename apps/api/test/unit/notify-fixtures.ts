@@ -19,6 +19,8 @@ const appointment = {
   timeZone: 'America/Chicago',
   link,
 };
+/** P4-1: a lead's own appointment: no portal link. */
+const { link: _portal, ...leadAppointment } = appointment;
 
 export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'staff.invite': {
@@ -67,6 +69,8 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'appointment.booked': appointment,
   'appointment.changed': appointment,
   'appointment.reminder': appointment,
+  'appointment.lead-booked': leadAppointment,
+  'appointment.lead-reminder': leadAppointment,
   'appointment.cancelled': {
     name: 'Robin Example',
     title: 'Tax review',

@@ -3,6 +3,8 @@
 import { PORTAL_MODULE_LABELS } from '@firmivra/types';
 import { Badge, Card } from '@firmivra/ui';
 import { CheckCircle, Eye, LockSimple, WarningCircle } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
@@ -20,6 +22,14 @@ export function PortalPreview({ clientId }: { clientId: string }) {
   const preview = useApiQuery(['client-portal', 'preview', clientId], () =>
     api.clientPortal.preview(clientId),
   );
+  // CP-F2-15: the opened preview is recorded as a staff row; the activity lists show it at once.
+  const queryClient = useQueryClient();
+  const opened = preview.dataUpdatedAt;
+  useEffect(() => {
+    if (opened) {
+      void queryClient.invalidateQueries({ queryKey: ['client-portal', 'activity', clientId] });
+    }
+  }, [opened, clientId, queryClient]);
   const pending = useApiQuery(['client-portal', 'pending', clientId], () =>
     api.clientPortal.pendingActions(clientId),
   );

@@ -436,9 +436,28 @@ export type ClientRef = z.infer<typeof ClientRef>;
 export const AppointmentTypeRef = z.object({ id: z.uuid(), name: z.string() });
 export type AppointmentTypeRef = z.infer<typeof AppointmentTypeRef>;
 
+/**
+ * P4-1 (Leads Review Two 26 and 17): the lead an appointment was booked for, by name. A lead's own
+ * appointment has a lead and no client yet; at the lead's conversion it takes the new client and
+ * keeps its lead (where it came from). Every other appointment has a client and no lead.
+ */
+export const AppointmentLeadRef = z.object({ id: z.uuid(), name: z.string() });
+export type AppointmentLeadRef = z.infer<typeof AppointmentLeadRef>;
+
+/** Who an appointment is with, as the screens name it: its client, else its lead (P4-1). */
+export function appointmentWith(a: {
+  client: { displayName: string } | null;
+  lead: { name: string } | null;
+}): string {
+  return a.client?.displayName ?? a.lead?.name ?? 'Lead';
+}
+
 export const Appointment = z.object({
   id: z.uuid(),
-  client: ClientRef,
+  /** Null for a lead's own appointment (P4-1): `lead` names who it is with. */
+  client: ClientRef.nullable(),
+  /** The lead it was booked for (P4-1): a lead's own appointment, or a converted lead's. */
+  lead: AppointmentLeadRef.nullable(),
   staff: MemberRef,
   type: AppointmentTypeRef.nullable(),
   engagementId: z.uuid().nullable(),
@@ -756,5 +775,10 @@ export const AppointmentErrorCode = z.enum([
    * (every member reads as having none until then). Then this code goes away.
    */
   'MEETING_LINKS_UNAVAILABLE',
+  /**
+   * 409 (P4-1): a lead's own appointment (no client yet) on a path that needs a client (the
+   * portal, the waitlist, a client's reminders): convert the lead first.
+   */
+  'LEAD_APPOINTMENT',
 ]);
 export type AppointmentErrorCode = z.infer<typeof AppointmentErrorCode>;

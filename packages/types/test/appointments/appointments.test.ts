@@ -47,6 +47,8 @@ const member = { userId: '0199b6a0-0000-7000-8000-0000000000f1', name: 'Sam Staf
 const appointment = {
   id,
   client: { id: '0199b6a1-0000-7000-8000-000000000001', displayName: 'Jamie Sample' },
+  // P4-1: a client's appointment names no lead.
+  lead: null,
   staff: member,
   type: { id: '0199b6a2-0000-7000-8000-000000000001', name: 'Tax consultation' },
   engagementId: null,
@@ -149,7 +151,7 @@ describe('calendar entries (Staff access, Rasel Oct 7)', () => {
     expect(listed.calls[0]?.url).toBe(
       `/business/appointments?from=${encodeURIComponent(at)}&to=${encodeURIComponent('2026-10-20T14:00:00.000Z')}&clientId=${appointment.client.id}`,
     );
-    expect(items.map((a) => (a.restricted ? 'busy' : a.client.displayName))).toEqual([
+    expect(items.map((a) => (a.restricted ? 'busy' : a.client?.displayName))).toEqual([
       'Jamie Sample',
       'busy',
     ]);
