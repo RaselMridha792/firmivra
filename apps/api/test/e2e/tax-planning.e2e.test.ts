@@ -619,13 +619,14 @@ describe('plans', () => {
     expect(adjusted.staleData).toBe(false);
     // C06 (Review 2): the firm's own additional item, labelled from its key, with its source and
     // as-of date; any other unknown key is still refused.
+    const asOf = '2026-10-31T12:00:00.000Z';
     const extra = TaxPlanDetail.parse(
       ok(
         await saveInputs(id, [
           {
             ...money('custom_home_office_costs', 120_000),
             source: 'Client estimate',
-            asOf: new Date().toISOString(),
+            asOf,
           },
         ]),
       ),
@@ -634,7 +635,11 @@ describe('plans', () => {
       label: 'Home office costs',
       source: 'Client estimate',
       amountCents: 120_000,
+      asOf,
     });
+    // C06 (test gap): the as-of date is kept, read back with the plan.
+    const reread = await plan(id);
+    expect(reread.inputs?.find((i) => i.key === 'custom_home_office_costs')?.asOf).toBe(asOf);
     expectError(await saveInputs(id, [money('custom_', 1_000)]), 400, 'VALIDATION_FAILED');
   });
 });
