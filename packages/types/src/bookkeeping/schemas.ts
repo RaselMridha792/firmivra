@@ -415,6 +415,13 @@ export type BookkeepingClientPage = z.infer<typeof BookkeepingClientPage>;
 
 // ---------- Client workspace ----------
 
+/**
+ * "Shown in the client portal" (Settings): what the portal shows of this Bookkeeping service
+ * (Client Portal BK-CP4). Reports: its published reports, their files and the new-report notice;
+ * Tasks: its tasks in the portal's task list; Documents: the firm's documents of the service (the
+ * client's own uploads always show); Notes: Share with Client of a note of the service. A default
+ * never saved is shown; the workspace returns all four as they apply.
+ */
 export const PortalDefaults = z.strictObject({
   reports: z.boolean().optional(),
   tasks: z.boolean().optional(),

@@ -448,18 +448,32 @@ export class SignInService {
   }
 
   /**
-   * SM33 (Staff Management Review 2, decision 10a): a member set up two-factor sign-in: a bell
-   * item in every firm they are an ACTIVE member of, and one email (Firmivra's own notice). Staff
-   * only. Never fails the sign-in.
+   * SM33 (Staff Management Review 2, decision 10a): a member set up two-factor sign-in again (after
+   * a reset): a bell item in every firm they are an ACTIVE member of, and one email (Firmivra's own
+   * notice). Not their first set-up, when they activate their account: they have no session in
+   * any firm yet and just did it themselves. Staff only. Never fails the sign-in.
    */
   private async mfaEnrolled(place: SignInPlace, userId: string): Promise<void> {
     if (place.pool !== 'STAFF') return;
     try {
       const own = this.db.forUser(userId);
       const [firms, user] = await Promise.all([
-        own.membership.findMany({ where: { status: 'ACTIVE' }, select: { businessId: true } }),
+        own.membership.findMany({
+          where: { status: 'ACTIVE' },
+          select: { id: true, businessId: true },
+        }),
         own.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }),
       ]);
+      // Signed in before in one of their firms (a session row): a set-up again, not the first.
+      let before = false;
+      for (const m of firms) {
+        before ||=
+          (await this.db
+            .forBusiness(m.businessId)
+            .staffSession.count({ where: { businessId: m.businessId, membershipId: m.id } })) > 0;
+        if (before) break;
+      }
+      if (!before) return;
       for (const { businessId } of firms)
         await this.notifier.notify({
           businessId,

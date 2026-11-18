@@ -283,7 +283,7 @@ describe('the session limit, Last Login and this session (SM12)', () => {
 });
 
 describe('two-factor sign-in set up (SM33)', () => {
-  it('tells the member: a bell item in each of their firms and one email', async () => {
+  it('tells the member when they set it up again after a reset, never at their first set-up', async () => {
     // The local identity asks a person to set up their authenticator at their first sign-in.
     const email = person('enrol');
     await asOwner({ kind: 'platform' }, (tx) =>
@@ -297,15 +297,18 @@ describe('two-factor sign-in set up (SM33)', () => {
         },
       }),
     );
+    const memberOf = {} as Record<'a' | 'b', string>;
     for (const firm of ['a', 'b'] as const)
-      await asOwner({ kind: 'business', businessId: firms[firm] }, (tx) =>
-        tx.membership.create({
-          data: { businessId: firms[firm], userId: email.id, role: 'STAFF', status: 'ACTIVE' },
-        }),
-      );
-    await signIn(email.email);
-    for (const firm of ['a', 'b'] as const) {
-      const bell = await asOwner({ kind: 'business', businessId: firms[firm] }, (tx) =>
+      memberOf[firm] = (
+        await asOwner({ kind: 'business', businessId: firms[firm] }, (tx) =>
+          tx.membership.create({
+            data: { businessId: firms[firm], userId: email.id, role: 'STAFF', status: 'ACTIVE' },
+            select: { id: true },
+          }),
+        )
+      ).id;
+    const bells = (firm: 'a' | 'b') =>
+      asOwner({ kind: 'business', businessId: firms[firm] }, (tx) =>
         tx.notification.findMany({
           where: {
             businessId: firms[firm],
@@ -315,14 +318,27 @@ describe('two-factor sign-in set up (SM33)', () => {
           select: { entityId: true },
         }),
       );
-      expect(bell).toEqual([{ entityId: email.id }]);
-    }
-    expect(
-      mails.filter((m) => m.template === 'platform.mfa-enrolled' && m.to === email.email),
-    ).toEqual([expect.objectContaining({ businessId: null, data: { name: 'Fake enrol' } })]);
+    const enrolled = () =>
+      mails.filter((m) => m.template === 'platform.mfa-enrolled' && m.to === email.email);
+
+    // The first set-up (their account's activation) tells nobody: they just did it themselves.
+    const first = await signIn(email.email);
+    ok(await as(first, 'get', '/me/sessions'));
+    expect(await bells('a')).toEqual([]);
+    expect(enrolled()).toEqual([]);
+
+    // An Owner resets it; setting it up again is told in each of their firms, and by one email.
+    const owner = await signIn(people.ownerA.email);
+    ok(await as(owner, 'post', `/staff/${memberOf.a}/reset-mfa`, { confirm: true }));
+    await signIn(email.email);
+    for (const firm of ['a', 'b'] as const)
+      expect(await bells(firm)).toEqual([{ entityId: email.id }]);
+    expect(enrolled()).toEqual([
+      expect.objectContaining({ businessId: null, data: { name: 'Fake enrol' } }),
+    ]);
     // A later sign-in with the authenticator already set up tells nobody again.
     await signIn(email.email);
-    expect(mails.filter((m) => m.to === email.email)).toHaveLength(1);
+    expect(enrolled()).toHaveLength(1);
   });
 });
 
