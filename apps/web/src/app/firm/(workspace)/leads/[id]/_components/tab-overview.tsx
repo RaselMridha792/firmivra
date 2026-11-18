@@ -3,6 +3,7 @@
 import type { ContactChannel, LeadProfile, LeadScore } from '@firmivra/types';
 import { Avatar, Badge, Button, Callout, Modal, tileTones } from '@firmivra/ui';
 import {
+  Buildings,
   Cake,
   CalendarBlank,
   ChatCircleText,
@@ -297,6 +298,10 @@ export function OverviewTab() {
               <Line icon={UserCircle} label="Full Name">
                 {lead ? `${lead.firstName} ${lead.lastName}`.trim() : null}
               </Line>
+              {/* Leads Review Two row 3: the business or company from Add New Lead. */}
+              <Line icon={Buildings} label="Business / Company">
+                {dash(lead?.businessName)}
+              </Line>
               <Line icon={Envelope} label="Email">
                 {lead?.email}
               </Line>
@@ -343,6 +348,9 @@ export function OverviewTab() {
               testId="card-lead-details"
             >
               <dl>
+                <Line icon={Buildings} label="Business / Company">
+                  {dash(lead?.businessName)}
+                </Line>
                 <Line icon={TreeStructure} label="Lead Source">
                   {lead ? SOURCE_LABELS[lead.source] : null}
                   {lead?.sourceDetail ? (

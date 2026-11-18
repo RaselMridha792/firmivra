@@ -79,7 +79,15 @@ const columns: Column<LeadRow>[] = [
           className="flex min-w-0 items-center gap-1 text-navigation hover:underline"
         >
           <Avatar name={name} src={lead.avatarUrl ?? undefined} size="md" />
-          <span className="min-w-0 text-xs font-semibold break-words">{name}</span>
+          <span className="flex min-w-0 flex-col">
+            <span className="text-xs font-semibold break-words">{name}</span>
+            {/* Leads Review Two row 3: the business or company typed in Add New Lead. */}
+            {lead.businessName ? (
+              <span className="text-xs font-normal break-words text-muted">
+                {lead.businessName}
+              </span>
+            ) : null}
+          </span>
         </Link>
       );
     },
@@ -253,7 +261,14 @@ const archivedColumns: Column<LeadRow>[] = columns.map((column) =>
           return (
             <span className="flex min-w-0 items-center gap-1 text-navigation" title={name}>
               <Avatar name={name} src={lead.avatarUrl ?? undefined} size="md" />
-              <span className="min-w-0 text-xs font-semibold break-words">{name}</span>
+              <span className="flex min-w-0 flex-col">
+                <span className="text-xs font-semibold break-words">{name}</span>
+                {lead.businessName ? (
+                  <span className="text-xs font-normal break-words text-muted">
+                    {lead.businessName}
+                  </span>
+                ) : null}
+              </span>
             </span>
           );
         },
