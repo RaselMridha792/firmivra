@@ -47,7 +47,9 @@ const LABELS: Record<string, string> = {
   'auth.signed_in': 'Logged in',
   'auth.sign_in_failed': 'Failed sign-in',
   'auth.signed_out': 'Logged out',
-  'membership.invited': 'Invited',
+  // SM21: the invitation is made before its email goes out; "emailed" only once it did.
+  'membership.invited': 'Invitation created',
+  'membership.invite_emailed': 'Invitation emailed',
   'membership.role_changed': 'Role changed',
   'membership.deactivated': 'Account deactivated',
   'membership.invite_revoked': 'Invitation revoked',

@@ -1,4 +1,5 @@
 import { toXlsx } from '../reports/report-formats.js';
+import { namesOf } from './staff-names.js';
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
@@ -70,11 +71,6 @@ export const mfaOf = (status: string): StaffMfaState =>
 
 const BOM = String.fromCharCode(0xfeff);
 
-const split = (name: string): { firstName: string; lastName: string } => {
-  const [first = '', ...rest] = name.trim().split(/\s+/);
-  return { firstName: first, lastName: rest.join(' ') };
-};
-
 /** The Staff Management directory: list, summary, form options and one member's details. */
 @Injectable()
 export class StaffReadService {
@@ -110,14 +106,15 @@ export class StaffReadService {
         acceptedAt: null,
         revokedAt: null,
       },
-      select: { membershipId: true, createdAt: true, expiresAt: true },
+      select: { membershipId: true, emailedAt: true, expiresAt: true },
       orderBy: { createdAt: 'desc' },
     });
-    const out = new Map<string, { sentAt: string; expiresAt: string }>();
+    // SM21: sent only when its email went out (invites.emailed_at).
+    const out = new Map<string, { sentAt: string | null; expiresAt: string }>();
     for (const r of rows)
       if (r.membershipId && !out.has(r.membershipId))
         out.set(r.membershipId, {
-          sentAt: r.createdAt.toISOString(),
+          sentAt: r.emailedAt?.toISOString() ?? null,
           expiresAt: r.expiresAt.toISOString(),
         });
     return out;
@@ -345,7 +342,8 @@ export class StaffReadService {
         const t = m.teamMemberships.find((x) => x.kind === kind && x.team.status !== 'ARCHIVED');
         return t ? { id: t.team.id, name: t.team.name } : null;
       };
-      const { firstName, lastName } = split(m.user.name);
+      // SM20: the names as kept apart, while they still match users.name.
+      const { firstName, lastName } = namesOf(m.user.name, p);
       const day = (d: Date | null | undefined) => d?.toISOString().slice(0, 10) ?? null;
       return {
         id: m.id,

@@ -248,6 +248,8 @@ describe('Firm onboarding, from application to an active firm', () => {
     expect(firmRows.map((a) => a.action)).toEqual([
       'settings.copied_from_application',
       'membership.invited',
+      // SM21: the activation email went out, on record.
+      'membership.invite_emailed',
       'membership.activated',
       // The Owner's sign-in, at the first request in the firm (SM4).
       'auth.firm_session_started',

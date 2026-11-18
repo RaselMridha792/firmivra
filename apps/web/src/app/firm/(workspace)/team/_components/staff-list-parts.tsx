@@ -64,7 +64,10 @@ export function LastLogin({ member, now }: { member: StaffListItem; now: number 
       return <span className="whitespace-nowrap text-danger">Invite expired</span>;
     return (
       <span className="whitespace-nowrap">
-        {invite ? `Invited ${day(new Date(invite.sentAt), timeZone)}` : 'Invited'}
+        {/* SM21: "Invited" only once the email went out. */}
+        {invite?.sentAt
+          ? `Invited ${day(new Date(invite.sentAt), timeZone)}`
+          : 'Account created · invitation not sent'}
       </span>
     );
   }

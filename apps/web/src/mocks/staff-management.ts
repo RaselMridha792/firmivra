@@ -779,7 +779,8 @@ export function addInvitedMember(
     },
     mfa: 'PENDING',
     lastLogin: null,
-    invite: failed ? null : { sentAt, expiresAt },
+    // SM21: as the API, the invite is kept even when its email failed; it is just not sent.
+    invite: failed ? { sentAt: null, expiresAt } : { sentAt, expiresAt },
     notes: null,
     isYou: false,
     authority: NO_AUTHORITY,
@@ -1037,7 +1038,13 @@ export function createStaffMock(options: Options = {}): StaffClient {
       if (input.details?.office !== undefined) m.detail.profile.office = input.details.office;
       if (input.compensation)
         Object.assign(m.compensation, input.compensation, { updatedAt: now() });
-      if (!input.sendWelcomeEmail) m.detail.invite = null;
+      // SM21: as the API, Send Welcome Email off still makes the invite, never emailed.
+      if (!input.sendWelcomeEmail)
+        m.detail.invite = {
+          sentAt: null,
+          expiresAt:
+            m.detail.invite?.expiresAt ?? new Date(Date.now() + 7 * 86_400_000).toISOString(),
+        };
       for (const p of input.permissions ?? [])
         m.overrides.set(key(p.module, p.capability), p.granted);
       s.created.set(input.idempotencyKey, m.detail.id);

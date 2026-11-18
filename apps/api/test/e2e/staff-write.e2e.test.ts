@@ -16,6 +16,7 @@ import {
   StaffCompensation,
   StaffDetail,
   StaffDraft,
+  StaffActivityPage,
   StaffPermissions,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -394,6 +395,43 @@ describe('Create Staff', () => {
     expect(failed.staff.status).toBe('INVITED');
     // Kept, never a second member: Resend is the way on.
     expect(await membersWith(FAILING)).toBe(1);
+  });
+
+  it('SM20 and SM21: a compound first name stays whole, and an invitation reads as sent only once emailed', async () => {
+    const create = async (key: string, over: object, sendWelcomeEmail: boolean) =>
+      CreateStaffResponse.parse(
+        ok(
+          await call('post', '/staff', ownerA, {
+            idempotencyKey: randomUUID(),
+            account: account(key, over),
+            sendWelcomeEmail,
+          }),
+          201,
+        ),
+      ).staff.id;
+    const detail = async (id: string) =>
+      StaffDetail.parse(ok(await call('get', `/staff/${id}`, ownerA)));
+    const labels = async (id: string) =>
+      StaffActivityPage.parse(ok(await call('get', `/staff/${id}/activity`, ownerA))).items.map(
+        (i) => i.action,
+      );
+    // SM20: "Fake Mary Ann" + "Smith" comes back as typed, and Edit accepts it unchanged.
+    const quiet = await create('sm20', { firstName: 'Fake Mary Ann', lastName: 'Smith' }, false);
+    const d = await detail(quiet);
+    expect([d.firstName, d.lastName]).toEqual(['Fake Mary Ann', 'Smith']);
+    ok(
+      await call('patch', `/staff/${quiet}`, ownerA, {
+        version: d.version,
+        account: { firstName: 'Fake Mary Ann', lastName: 'Smith', jobTitle: 'Bookkeeper' },
+      }),
+    );
+    // SM21: Send Welcome Email off: an invite, never emailed, and no "emailed" activity.
+    expect(d.invite?.sentAt ?? null).toBeNull();
+    expect(await labels(quiet)).not.toContain('membership.invite_emailed');
+    // Sent: emailed, with its time and the activity row.
+    const sent = await create('sm21', {}, true);
+    expect((await detail(sent)).invite?.sentAt).not.toBeNull();
+    expect(await labels(sent)).toContain('membership.invite_emailed');
   });
 
   it('SM04: Create Staff gives Export like any other column, and the new member keeps it', async () => {
