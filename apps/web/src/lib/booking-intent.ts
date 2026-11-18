@@ -4,6 +4,8 @@
  * firm's approval, so their next sign-in to that firm's portal opens booking on it. Only the
  * type's id is kept (nothing personal), per firm, for 30 days. Storage that is blocked or full
  * keeps nothing, and the pages still work: the sign-in link carries the id too (`?book=`).
+ * S12: a package page's Book adds the package's id (`?package=`), kept and carried with the type,
+ * so the booking names the package for the firm.
  */
 const KEY_PREFIX = 'firmivra:booking:';
 const KEEP_MS = 30 * 24 * 60 * 60_000;
@@ -15,11 +17,20 @@ export const bookingKey = (slug: string) => `${KEY_PREFIX}${slug.toLowerCase()}`
 export const typeIdOf = (value: string | null | undefined): string | null =>
   value && UUID.test(value) ? value : null;
 
-/** Keeps the chosen type for the firm's next sign-in. */
-export function keepBooking(slug: string, typeId: string, now = Date.now()): void {
+/** Keeps the chosen type (and the package it was booked from, S12) for the firm's next sign-in. */
+export function keepBooking(
+  slug: string,
+  typeId: string,
+  now = Date.now(),
+  packageId?: string | null,
+): void {
   if (!typeIdOf(typeId)) return;
+  const pkg = typeIdOf(packageId);
   try {
-    localStorage.setItem(bookingKey(slug), JSON.stringify({ typeId, at: now }));
+    localStorage.setItem(
+      bookingKey(slug),
+      JSON.stringify({ typeId, at: now, ...(pkg ? { packageId: pkg } : {}) }),
+    );
   } catch {
     // Blocked storage keeps nothing; the sign-in link still carries the type.
   }
@@ -41,6 +52,19 @@ export function pendingBooking(slug: string, now = Date.now()): string | null {
   return null;
 }
 
+/** S12: the package the kept type was booked from (its page's Book), or null. */
+export function pendingPackage(slug: string, typeId: string, now = Date.now()): string | null {
+  if (pendingBooking(slug, now) !== typeId) return null;
+  try {
+    const kept = JSON.parse(localStorage.getItem(bookingKey(slug)) ?? '{}') as {
+      packageId?: unknown;
+    };
+    return typeof kept.packageId === 'string' ? typeIdOf(kept.packageId) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Forgets the kept type once booking has opened on it. */
 export function clearBooking(slug: string): void {
   try {
@@ -50,9 +74,11 @@ export function clearBooking(slug: string): void {
   }
 }
 
-/** The portal page that opens booking on a type. */
-export const bookingPath = (slug: string, typeId: string) =>
-  `/${slug}/appointments?book=${encodeURIComponent(typeId)}`;
+/** The portal page that opens booking on a type, naming the package it was booked from (S12). */
+export function bookingPath(slug: string, typeId: string, packageId?: string | null): string {
+  const pkg = typeIdOf(packageId);
+  return `/${slug}/appointments?book=${encodeURIComponent(typeId)}${pkg ? `&package=${pkg}` : ''}`;
+}
 
 /**
  * Intake Forms Review Two INTAKE-ACCESS-01: the portal page a signed-out client opened (an intake
@@ -85,15 +111,21 @@ export function signInWithReturn(signInPath: string, slug: string, here: string)
 
 /**
  * Where a client goes after signing in: booking on the type from the link (the sign-in page's
- * `?book=`), else the page they opened before signing in (`?next=`, INTAKE-ACCESS-01: an intake
- * email's form), else booking on the kept type, else home. The portal shell still sends a client
- * the firm has not approved yet to the waiting page, and the kept type waits with them.
+ * `?book=`, with its `?package=`), else the page they opened before signing in (`?next=`,
+ * INTAKE-ACCESS-01: an intake email's form), else booking on the kept type, else home. The portal
+ * shell still sends a client the firm has not approved yet to the waiting page, and the kept type
+ * waits with them.
  */
-export function afterSignIn(slug: string, fromLink?: string | null, next?: string | null): string {
+export function afterSignIn(
+  slug: string,
+  fromLink?: string | null,
+  next?: string | null,
+  packageFromLink?: string | null,
+): string {
   const linked = typeIdOf(fromLink);
-  if (linked) return bookingPath(slug, linked);
+  if (linked) return bookingPath(slug, linked, packageFromLink);
   const back = returnPathOf(slug, next);
   if (back) return back;
   const kept = pendingBooking(slug);
-  return kept ? bookingPath(slug, kept) : `/${slug}/home`;
+  return kept ? bookingPath(slug, kept, pendingPackage(slug, kept)) : `/${slug}/home`;
 }

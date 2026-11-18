@@ -22,6 +22,11 @@ export const PublicPackageDetails = z.object({
   included: z.array(z.object({ name: z.string() })),
   /** Listed with the package but not part of its price (S7). */
   notIncluded: z.array(z.object({ name: z.string() })),
+  /**
+   * S12: the appointment type the page's Book opens (its booking link); null when the package
+   * has none, or it is archived or not booked online (sign in and contact the firm instead).
+   */
+  bookingTypeId: z.uuid().nullable().default(null),
   /** Only when the firm lets clients add optional add-ons. */
   addOns: z.array(
     z.object({

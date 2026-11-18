@@ -299,9 +299,11 @@ export const cases: CaseModule['cases'] = {
     body: { meetingUrl: 'https://meet.example.com/fake-room' },
   },
   // Found, but no one has working hours, so no slot is free.
+  // S12: `packageId`, booked from a package's page; another firm's package is 404 like an unknown
+  // one, and the firm's own package of another type books as usual without being named.
   'POST /api/v1/portal/:firmSlug/me/appointments': {
     params: {},
-    bodyIds: { typeId: 'appointmentType' },
+    bodyIds: { typeId: 'appointmentType', packageId: 'catalogPackage' },
     body: { startsAt: at3pm(12), locationKind: 'PHONE' },
     expect: 409,
   },
