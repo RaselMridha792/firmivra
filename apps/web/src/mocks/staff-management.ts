@@ -620,6 +620,30 @@ function cellsFor(s: Store, role: MembershipRole, member?: Member): PermissionCe
   return cells;
 }
 
+/**
+ * SM02: as the API, only what the actor has themselves. The Owner gives anything; anyone else
+ * only the cells their own grid has. `given` is the cells newly given; a kept cell never counts.
+ */
+function checkGrantable(s: Store, role: MembershipRole, given: Iterable<string>) {
+  if (role === 'OWNER') return;
+  const you = s.members.find((m) => m.detail.isYou);
+  const has = new Set(
+    cellsFor(s, you?.detail.role ?? role, you)
+      .filter((c) => c.granted)
+      .map((c) => key(c.module, c.capability)),
+  );
+  if ([...given].some((k) => !has.has(k)))
+    throw fail(403, 'CANNOT_GRANT', 'You can only give permissions you have yourself');
+}
+
+/** The cells `grants` turns on that `cells` does not have yet. */
+const newlyGiven = (cells: readonly PermissionCell[], grants: readonly PermissionGrant[]) => {
+  const on = new Set(cells.filter((c) => c.granted).map((c) => key(c.module, c.capability)));
+  return grants
+    .filter((gr) => gr.granted && !on.has(key(gr.module, gr.capability)))
+    .map((gr) => key(gr.module, gr.capability));
+};
+
 /** Edit and the others need View; Owner is locked. */
 function checkGrants(grants: readonly PermissionGrant[]) {
   const on = new Set(grants.filter((g) => g.granted).map((g) => key(g.module, g.capability)));
@@ -1026,7 +1050,10 @@ export function createStaffMock(options: Options = {}): StaffClient {
       }
       if (!ROLES_MANAGED_BY[g.role].includes(input.account.role))
         throw fail(403, 'CANNOT_GRANT', 'You cannot give this role');
-      if (input.permissions) checkGrants(input.permissions);
+      if (input.permissions) {
+        checkGrants(input.permissions);
+        checkGrantable(s, g.role, newlyGiven(cellsFor(s, input.account.role), input.permissions));
+      }
       const { member, invitation } = addInvitedMember(options, {
         name: `${input.account.firstName} ${input.account.lastName}`,
         email: input.account.email,
@@ -1318,6 +1345,7 @@ export function createStaffMock(options: Options = {}): StaffClient {
       const m = g.find(id);
       g.manageable(m);
       checkGrants(input.grants);
+      checkGrantable(s, g.role, newlyGiven(cellsFor(s, m.detail.role, m), input.grants));
       const base = cellsFor(s, m.detail.role);
       const escalates = input.grants.some(
         (gr) =>
@@ -1364,6 +1392,19 @@ export function createStaffMock(options: Options = {}): StaffClient {
           !has(mod, 'VIEW')
         )
           throw fail(400, 'PERMISSION_NEEDS_VIEW', 'Give View before the other capabilities');
+      // A cell this turns on (Allow, or Inherit over a Deny) must be one the actor has.
+      checkGrantable(
+        s,
+        g.role,
+        newlyGiven(
+          cellsFor(s, m.detail.role, m),
+          input.overrides.map((o) => ({
+            module: o.module,
+            capability: o.capability,
+            granted: has(o.module, o.capability),
+          })),
+        ),
+      );
       const escalates = input.overrides.some(
         (o) => o.mode === 'ALLOW' && !roleHas(o.module, o.capability),
       );
@@ -1383,6 +1424,14 @@ export function createStaffMock(options: Options = {}): StaffClient {
       const m = g.find(id);
       const from = g.find(fromId);
       g.manageable(m);
+      checkGrantable(
+        s,
+        g.role,
+        newlyGiven(
+          cellsFor(s, m.detail.role, m),
+          cellsFor(s, from.detail.role, from).filter((c) => c.granted),
+        ),
+      );
       m.overrides = new Map(from.overrides);
       return { role: m.detail.role, cells: cellsFor(s, m.detail.role, m), updatedAt: now() };
     },
@@ -2176,6 +2225,7 @@ export function createRolesMock(options: Options = {}): RolesClient {
       manage(r);
       const input = parseInput(SaveRolePermissionsRequest, body);
       checkGrants(input.grants);
+      checkGrantable(s, g.role, newlyGiven(cellsFor(s, r), input.grants));
       // An Admin cannot close Roles & Permissions to every Admin; the Owner can.
       if (
         g.role === 'ADMIN' &&
@@ -2255,6 +2305,13 @@ export function createRolesMock(options: Options = {}): RolesClient {
       const grid = new Map(base);
       for (const gr of input.grants ?? []) grid.set(key(gr.module, gr.capability), gr.granted);
       viewFirst(grid);
+      checkGrantable(
+        s,
+        g.role,
+        (input.grants ?? [])
+          .filter((gr) => gr.granted && !base.get(key(gr.module, gr.capability)))
+          .map((gr) => key(gr.module, gr.capability)),
+      );
       if (
         (input.grants ?? []).some((gr) => gr.granted && !base.get(key(gr.module, gr.capability))) &&
         !input.acknowledgeEscalation
@@ -2290,6 +2347,13 @@ export function createRolesMock(options: Options = {}): RolesClient {
         const grid = new Map(role.grid);
         for (const gr of input.grants) grid.set(key(gr.module, gr.capability), gr.granted);
         viewFirst(grid);
+        checkGrantable(
+          s,
+          g.role,
+          input.grants
+            .filter((gr) => gr.granted && !role.grid.get(key(gr.module, gr.capability)))
+            .map((gr) => key(gr.module, gr.capability)),
+        );
         if (
           input.grants.some((gr) => {
             const k = key(gr.module, gr.capability);

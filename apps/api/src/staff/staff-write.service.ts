@@ -155,6 +155,7 @@ export class StaffWriteService {
             acknowledged: true,
             updatedById: by,
             fresh: true,
+            grantedBy: actor,
           };
           // Checked before the invite commits: a refused grid leaves no member behind.
           if (body.permissions?.length)
