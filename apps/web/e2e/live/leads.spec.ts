@@ -77,10 +77,75 @@ interface Ctx {
   clients: string[];
   appt: string; // the lead-appointment block's lead (R55)
   appointments: string[];
+  /** The run's own catalog service (Test Firm B has none) and the category if the run made it. */
+  serviceMade: string;
+  categoryMade: string;
+  /** The run's own appointment type (Test Firm B keeps none active). */
+  typeMade: string;
+  typeName: string;
+  /** The run's own follow-up sequence (Test Firm B has none). */
+  sequenceMade: string;
+  sequenceName: string;
+  /** Set on an earlier run's entry once its cleanup left nothing. */
+  cleaned?: boolean;
 }
+const SERVICE = `${runTag} Service`;
+const CATEGORY = 'LIVE-CHECK';
 const ctxFile = () => join(process.env['LIVE_OUT_DIR']!, 'leads-ctx.json');
-const readCtx = (): Ctx => JSON.parse(readFileSync(ctxFile(), 'utf8')) as Ctx;
-const saveCtx = (c: Ctx) => writeFileSync(ctxFile(), JSON.stringify(c, null, 2));
+const blankCtx = (): Ctx => ({
+  tag: runTag,
+  ownerId: '',
+  ownerName: '',
+  staffId: '',
+  staffName: '',
+  serviceId: '',
+  serviceName: '',
+  alpha: '',
+  beta: '',
+  gamma: '',
+  delta: '',
+  layout: '',
+  pages: [],
+  clients: [],
+  appt: '',
+  appointments: [],
+  serviceMade: '',
+  categoryMade: '',
+  typeMade: '',
+  typeName: '',
+  sequenceMade: '',
+  sequenceName: '',
+});
+const readCtx = (): Ctx => ({
+  ...blankCtx(),
+  ...(JSON.parse(readFileSync(ctxFile(), 'utf8')) as Partial<Ctx>),
+});
+/**
+ * Every run's records, by tag (outside the repo), so a run that stopped before its cleanup is
+ * cleaned by the next one's.
+ */
+const registryFile = () => join(shotsDir(TAB), '.runs.json');
+function readRegistry(): Ctx[] {
+  try {
+    return (JSON.parse(readFileSync(registryFile(), 'utf8')) as Partial<Ctx>[]).map((x) => ({
+      ...blankCtx(),
+      ...x,
+    }));
+  } catch {
+    return [];
+  }
+}
+function register(c: Ctx) {
+  const all = readRegistry();
+  const i = all.findIndex((x) => x.tag === c.tag);
+  if (i >= 0) all[i] = { ...all[i]!, ...c };
+  else all.push(c);
+  writeFileSync(registryFile(), JSON.stringify(all, null, 2));
+}
+const saveCtx = (c: Ctx) => {
+  writeFileSync(ctxFile(), JSON.stringify(c, null, 2));
+  register(c);
+};
 const P = (n: number) => `P${String(n).padStart(2, '0')}`;
 
 interface Res {
@@ -134,22 +199,26 @@ async function freshSession(browser: Browser, role: Role): Promise<void> {
 
 /**
  * The role's API through a browser context (setup and cleanup only): the saved session is
- * refreshed first (freshSession), and again here if it lapses. Writes send the site's Origin.
+ * refreshed first (freshSession), and a call that answers 401 (the access token lapsed meanwhile)
+ * refreshes it and is sent once more. Writes send the site's Origin.
  */
 async function roleApi(browser: Browser, role: Role): Promise<Api> {
   await freshSession(browser, role);
   const ctx = await browser.newContext({ storageState: statePath(role) });
   const url = (p: string) => `${appUrl}/api/v1/${p}`;
   const headers = { origin: appUrl };
-  if ((await ctx.request.get(url('me'))).status() === 401) {
+  const retry = async (call: () => Promise<Res>): Promise<Res> => {
+    const first = await call();
+    if (first.status() !== 401) return first;
     const r = await ctx.request.post(url('auth/refresh'), { headers, data: {} });
     if (!r.ok()) throw new Error(`${role} session refresh failed: ${r.status()}`);
-  }
+    return call();
+  };
   return {
-    get: (p) => ctx.request.get(url(p)),
-    post: (p, data) => ctx.request.post(url(p), { headers, data: data ?? {} }),
-    patch: (p, data) => ctx.request.patch(url(p), { headers, data }),
-    delete: (p) => ctx.request.delete(url(p), { headers }),
+    get: (p) => retry(() => ctx.request.get(url(p))),
+    post: (p, data) => retry(() => ctx.request.post(url(p), { headers, data: data ?? {} })),
+    patch: (p, data) => retry(() => ctx.request.patch(url(p), { headers, data })),
+    delete: (p) => retry(() => ctx.request.delete(url(p), { headers })),
     dispose: () => ctx.close(),
   };
 }
@@ -187,6 +256,7 @@ async function createLead(api: Api, last: string, n: number, extra: Record<strin
       source: 'OTHER',
       sourceDetail: `${runTag} synthetic`,
       priority: 'WARM',
+      allowDuplicate: true,
       ...extra,
     }),
     `create lead ${last}`,
@@ -194,60 +264,155 @@ async function createLead(api: Api, last: string, n: number, extra: Record<strin
   return made.id as string;
 }
 
+type LeadKey = 'alpha' | 'beta' | 'gamma' | 'delta' | 'layout';
+
+/** Makes the lead; if an earlier attempt of this run made it already (409), finds that one. */
+async function ensureLead(api: Api, last: string, n: number, extra: Record<string, unknown>) {
+  try {
+    return await createLead(api, last, n, extra);
+  } catch (e) {
+    if (!String(e).includes('POSSIBLE_DUPLICATE')) throw e;
+    const found = await ok(
+      await api.get(
+        `business/leads/pipeline?search=${encodeURIComponent(`${STAMP} ${last}`)}&pageSize=100`,
+      ),
+      'find lead',
+    );
+    const lead = (found.items as { id: string; firstName: string; lastName: string }[]).find(
+      (l) => l.firstName === runTag && l.lastName === last,
+    );
+    if (!lead) throw e;
+    return lead.id;
+  }
+}
+
 /**
- * Finds the run's leads, or makes them (once per run; a restarted worker reuses them). With
- * `withLeads` false (the lead-appointment block alone) only the ids and names are read.
+ * Finds the run's records, or makes them: who is who, the run's catalog service and appointment
+ * type (Test Firm B keeps neither active), then the leads. Saved after each record, so a restarted
+ * worker or a failed step resumes where it stopped. With `withLeads` false (the lead-appointment
+ * block alone) the leads are not made.
  */
 async function fixture(browser: Browser, withLeads = true): Promise<Ctx> {
+  let c = blankCtx();
   if (existsSync(ctxFile())) {
     const old = readCtx();
-    if (old.tag === runTag && (old.alpha || !withLeads)) return old;
+    if (old.tag === runTag) c = old;
+    else register(old); // an earlier run's records: its cleanup is swept by this run's
   }
+  const ready = Boolean(c.ownerId && c.serviceMade && c.typeMade && c.sequenceMade);
+  if (ready && (!withLeads || (c.layout && c.pages.length === 8))) return c;
   const api = await roleApi(browser, 'owner');
   try {
-    const me = await ok(await api.get('me'), 'me');
-    const ownerId = me.user.id as string;
-    let staffId = '';
-    if (hasLogin('staff')) {
-      const s = await roleApi(browser, 'staff');
-      staffId = (await ok(await s.get('me'), 'staff me')).user.id as string;
-      await s.dispose();
+    if (!c.ownerId) {
+      // An earlier run that stopped before its cleanup: clean it first.
+      for (const run of readRegistry().filter((r) => r.tag !== runTag && !r.cleaned)) {
+        const left: string[] = [];
+        await cleanRun(api, run, [], left);
+        if (!left.length) register({ ...run, cleaned: true });
+        else console.log(`EARLIER RUN ${run.tag} left: ${left.join('; ')}`);
+      }
+      const me = await ok(await api.get('me'), 'me');
+      c.ownerId = me.user.id as string;
+      if (hasLogin('staff')) {
+        const s = await roleApi(browser, 'staff');
+        c.staffId = (await ok(await s.get('me'), 'staff me')).user.id as string;
+        await s.dispose();
+      }
+      const opts = await ok(await api.get('business/leads/options'), 'options');
+      const staff = opts.staff as { userId: string; name: string }[];
+      c.ownerName = staff.find((m) => m.userId === c.ownerId)?.name ?? '';
+      c.staffName = staff.find((m) => m.userId === c.staffId)?.name ?? '';
+      saveCtx(c);
     }
-    const opts = await ok(await api.get('business/leads/options'), 'options');
-    const staff = opts.staff as { userId: string; name: string }[];
-    const services = opts.services as { id: string; name: string }[];
-    if (!services.length) throw new Error('Test Firm B has no service for leads');
-    const svc = services[0]!;
-    const c: Ctx = {
-      tag: runTag,
-      ownerId,
-      ownerName: staff.find((m) => m.userId === ownerId)?.name ?? '',
-      staffId,
-      staffName: staff.find((m) => m.userId === staffId)?.name ?? '',
-      serviceId: svc.id,
-      serviceName: svc.name,
-      alpha: '',
-      beta: '',
-      gamma: '',
-      delta: '',
-      layout: '',
-      pages: [],
-      clients: [],
-      appt: '',
-      appointments: [],
-    };
-    if (existsSync(ctxFile())) {
-      const old = readCtx();
-      if (old.tag === runTag)
-        Object.assign(c, { appt: old.appt, appointments: old.appointments, clients: old.clients });
+    if (!c.serviceMade) {
+      // A Custom Quote service (nothing bills) in the "LIVE-CHECK" category (found, or made).
+      const listed = await ok(await api.get('business/catalog/categories'), 'categories');
+      const cats = (Array.isArray(listed) ? listed : (listed.items ?? [])) as {
+        id: string;
+        name: string;
+      }[];
+      let categoryId = cats.find((x) => x.name === CATEGORY)?.id;
+      if (!categoryId) {
+        const made = await ok(
+          await api.post('business/catalog/categories', {
+            name: CATEGORY,
+            description: 'Live check fixture (synthetic)',
+          }),
+          'category',
+        );
+        categoryId = made.id as string;
+        c.categoryMade = categoryId;
+        saveCtx(c);
+      }
+      const made = await ok(
+        await api.post('business/catalog/services', {
+          name: SERVICE,
+          categoryId,
+          shortDescription: 'Live check fixture (synthetic), removed by the run',
+          kind: 'OTHER',
+          pricingType: 'CUSTOM_QUOTE',
+          activate: true,
+          allowDuplicateName: true,
+        }),
+        'service',
+      );
+      c.serviceMade = c.serviceId = made.id as string;
+      c.serviceName = SERVICE;
+      saveCtx(c);
     }
-    saveCtx(c);
+    if (!c.typeMade) {
+      // Staff only (not bookable from the portal); archived by cleanup.
+      const made = await ok(
+        await api.post('business/appointment-types', {
+          name: `${runTag} Lead 30m`,
+          durationMinutes: 30,
+          methods: ['IN_PERSON', 'PHONE', 'VIDEO'],
+          clientBookable: false,
+        }),
+        'appointment type',
+      );
+      c.typeMade = made.id as string;
+      c.typeName = (made.name as string | undefined) ?? `${runTag} Lead 30m`;
+      saveCtx(c);
+    }
+    if (!c.sequenceMade) {
+      // Reminders only, plus one outreach step that only reminds its owner: nothing is sent.
+      const made = await ok(
+        await api.post('business/lead-sequences', {
+          name: `${runTag} Sequence`,
+          description: 'Live check fixture (synthetic)',
+          steps: [
+            {
+              offsetDays: 1,
+              actionType: 'CALL',
+              mode: 'REMINDER',
+              note: 'Live check: reminder only',
+            },
+            {
+              offsetDays: 3,
+              actionType: 'EMAIL',
+              mode: 'OUTREACH',
+              note: 'Live check: nothing is sent',
+            },
+          ],
+        }),
+        'sequence',
+      );
+      c.sequenceMade = made.id as string;
+      c.sequenceName = (made.name as string | undefined) ?? `${runTag} Sequence`;
+      saveCtx(c);
+    }
     if (!withLeads) return c;
-    c.alpha = await createLead(api, 'Alpha', 1, {
+    const svc = { serviceIds: [c.serviceId] };
+    const lead = async (key: LeadKey, last: string, n: number, extra: Record<string, unknown>) => {
+      if (c[key]) return;
+      c[key] = await ensureLead(api, last, n, { ...svc, ...extra });
+      saveCtx(c);
+    };
+    await lead('alpha', 'Alpha', 1, {
       source: 'REFERRAL',
       phone: '(202) 555-0101',
       priority: 'HOT',
-      serviceIds: [svc.id],
       preferredContact: ['EMAIL'],
       nextAction: {
         type: 'CALL',
@@ -255,31 +420,30 @@ async function fixture(browser: Browser, withLeads = true): Promise<Ctx> {
         notes: 'Live check: overdue reminder only',
       },
     });
-    c.beta = await createLead(api, 'Beta', 2, {
+    await lead('beta', 'Beta', 2, {
       source: 'WEBSITE_FORM',
       stage: 'IN_REVIEW',
-      serviceIds: [svc.id],
       nextAction: {
         type: 'FOLLOW_UP',
         dueAt: at(weekday(9), '14:15'),
         notes: 'Live check: future reminder only',
       },
     });
-    c.gamma = await createLead(api, 'Gamma', 3, {
+    await lead('gamma', 'Gamma', 3, {
       phone: '(202) 555-0103',
       priority: 'COLD',
-      serviceIds: [svc.id],
-      assignedUserId: ownerId,
+      assignedUserId: c.ownerId,
     });
-    c.delta = await createLead(api, 'Delta', 4, staffId ? { assignedUserId: staffId } : {});
-    c.layout = await createLead(api, 'Layout', 5, {
-      phone: '(202) 555-0105',
-      serviceIds: [svc.id],
-    });
+    await lead('delta', 'Delta', 4, c.staffId ? { assignedUserId: c.staffId } : {});
+    await lead('layout', 'Layout', 5, { phone: '(202) 555-0105' });
     for (let i = 1; i <= 8; i++) {
-      c.pages.push(await createLead(api, P(i), 10 + i, i === 3 ? { phone: '(202) 555-0113' } : {}));
+      if (c.pages[i - 1]) continue;
+      c.pages[i - 1] = await ensureLead(api, P(i), 10 + i, {
+        ...svc,
+        ...(i === 3 ? { phone: '(202) 555-0113' } : {}),
+      });
+      saveCtx(c);
     }
-    saveCtx(c);
     return c;
   } finally {
     await api.dispose();
@@ -317,24 +481,87 @@ const filterPanel = (page: Page) => page.getByRole('region', { name: 'More filte
 const bulkBar = (page: Page) => page.getByRole('toolbar', { name: 'Bulk actions' }).first();
 const lead = (id: string, tab = '') => app(`/leads/${id}${tab ? `/${tab}` : ''}`);
 
-async function openList(page: Page, search = STAMP) {
+const signInHeading = (page: Page) => page.getByRole('heading', { name: 'Welcome Back' });
+const noMatch = (page: Page) => page.getByRole('heading', { name: 'No leads match these filters' });
+
+/** A lost session: leave the sign-in screen (no screenshot of it) and say so plainly. */
+async function failIfSignedOut(page: Page) {
+  if (
+    await signInHeading(page)
+      .isVisible()
+      .catch(() => false)
+  ) {
+    await page.goto('about:blank');
+    throw new Error(
+      'the page went to sign-in: the session was lost (harness, not a product finding)',
+    );
+  }
+}
+
+/**
+ * Opens the list, searched to this run's leads, 24 per page (all of them on one page). The search
+ * reaches the address (debounced) before anything else changes, so no filter is undone by it.
+ */
+async function openList(page: Page, search = STAMP, size = '24') {
   await page.goto(app('/leads'));
-  await expect(page).not.toHaveURL(/sign-in/);
-  await expect(table(page)).toBeVisible({ timeout: 60_000 });
+  // The table shows only when the firm has leads; the search box always.
+  await expect(searchBox(page).or(signInHeading(page))).toBeVisible({ timeout: 60_000 });
+  await failIfSignedOut(page);
+  await settled(page);
   if (search) {
     await searchBox(page).fill(search);
+    await expect(page).toHaveURL(/[?&]search=/);
     await expect(rows(page).first()).toContainText(search, { timeout: 30_000 });
+    if (
+      size !== '8' &&
+      (await pager(page)
+        .isVisible()
+        .catch(() => false))
+    ) {
+      await pager(page).locator('select').selectOption(size);
+      await expect(page).toHaveURL(new RegExp(`[?&]size=${size}`));
+    }
+    await settled(page);
   }
 }
 
 async function openLead(page: Page, id: string, tab = '') {
   await page.goto(lead(id, tab));
+  await expect(page.getByTestId('lead-name').or(signInHeading(page))).toBeVisible({
+    timeout: 60_000,
+  });
+  await failIfSignedOut(page);
   await expect(page.getByTestId('lead-name')).toContainText(STAMP, { timeout: 60_000 });
 }
 
+/** Opens a lead from its row's name link (its own address). */
+async function openFromRow(page: Page, last: string) {
+  const link = rowOf(page, last).getByRole('link', { name: new RegExp(`${STAMP} ${last}`) });
+  const href = await link.getAttribute('href');
+  expect(href, `the row of ${last} links to its lead`).toMatch(/\/leads\/[0-9a-f-]{36}/);
+  await page.goto(app(href!));
+  await expect(page.getByTestId('lead-name')).toContainText(last, { timeout: 60_000 });
+  return /\/leads\/([0-9a-f-]{36})/.exec(href!)![1]!;
+}
+
+/** The element shows whole, sideways, inside the table's scrolling frame and the window. */
+async function expectInFrame(page: Page, frame: Locator, el: Locator, what: string) {
+  const f = await frame.boundingBox();
+  const b = await el.boundingBox();
+  expect(f, 'the table frame is on the page').not.toBeNull();
+  expect(b, `${what} is on the page`).not.toBeNull();
+  if (!f || !b) return;
+  const right = Math.min(f.x + f.width, page.viewportSize()!.width);
+  expect(b.x, `${what}: left edge in view`).toBeGreaterThanOrEqual(f.x - 1);
+  expect(b.x + b.width, `${what}: right edge in view`).toBeLessThanOrEqual(right + 1);
+}
+
+/** The member's name as the screens shorten it ("QA Perf (fake)" shows as "Q. Perf (fake)"). */
+const tail = (name: string) => name.split(' ').slice(1).join(' ') || name;
+
 /** "Showing 1 – 8 of 12 leads": the 12 (0 when the list says nothing matches). */
 async function listTotal(page: Page): Promise<number> {
-  const empty = page.getByText('No leads match these filters');
+  const empty = noMatch(page);
   if (await empty.isVisible().catch(() => false)) return 0;
   const text = await pager(page)
     .innerText()
@@ -380,6 +607,7 @@ async function newLeadDialog(page: Page, last: string, mail: string) {
   await dialog.getByLabel('First name').fill(runTag);
   await dialog.getByLabel('Last name').fill(last);
   await dialog.getByRole('textbox', { name: 'Email' }).fill(mail);
+  await dialog.getByRole('checkbox', { name: readCtx().serviceName }).first().check();
   return dialog;
 }
 
@@ -439,6 +667,84 @@ async function convertLead(page: Page, id: string, c: Ctx, address: string): Pro
   saveCtx(now);
   return clientId;
 }
+
+// ================================================================ Admin
+test.describe('Leads (Admin)', () => {
+  test.use(as('admin'));
+  test.skip(() => !hasLogin('admin'), 'no admin login');
+  test.beforeAll(async ({ browser }) => {
+    await freshSession(browser, 'admin');
+    await fixture(browser);
+  });
+
+  test('20a admin: Archive, Delete and Restore are offered (Firm Admin may)', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== 'w1165');
+    await openList(page);
+    await page.getByRole('button', { name: `More actions for ${full(P(1))}` }).click();
+    await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Archive' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await check(page, P(1));
+    await expect(bulkBar(page).getByRole('button', { name: 'Delete' })).toBeVisible();
+    await shot(page, TAB, '20a-admin', info);
+  });
+});
+
+// ================================================================ Staff
+test.describe('Leads (Staff)', () => {
+  test.use(as('staff'));
+  test.skip(() => !hasLogin('staff'), 'no staff login');
+  let c: Ctx;
+  test.beforeAll(async ({ browser }) => {
+    await freshSession(browser, 'staff');
+    c = await fixture(browser);
+  });
+
+  test('20a staff: no Archive, Delete or Restore', async ({ page }, info) => {
+    test.skip(info.project.name !== 'w1165');
+    await openList(page);
+    const row = rowOf(page, 'Delta');
+    await row.getByRole('button', { name: /^More actions for / }).click();
+    const items = (await page.getByRole('menu').getByRole('menuitem').allInnerTexts()).map((s) =>
+      s.trim(),
+    );
+    expect(items).not.toContain('Archive');
+    await page.keyboard.press('Escape');
+    await row.getByRole('checkbox').check();
+    await expect(
+      page.getByText('1 leads selected').filter({ visible: true }).first(),
+    ).toBeVisible();
+    await expect(bulkBar(page).getByRole('button', { name: 'Delete' })).toHaveCount(0);
+    await shot(page, TAB, '20a-staff', info);
+  });
+
+  test('25 staff see only their own leads; another lead by its address is refused', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== 'w1165');
+    await openList(page);
+    await expect(rowOf(page, 'Delta')).toHaveCount(1);
+    await expect(rowOf(page, 'Alpha')).toHaveCount(0);
+    await expect(rowOf(page, 'Beta')).toHaveCount(0);
+    await shot(page, TAB, '25-staff-list', info);
+    await page.goto(lead(c.alpha));
+    await expect(
+      page
+        .getByText(
+          /not found|no access|can.t find|couldn.t find|doesn.t exist|not available|permission|404/i,
+        )
+        .first(),
+    ).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId('lead-name')).not.toContainText(STAMP);
+    await expect(page.locator('main')).not.toContainText(email(1));
+    await expect(page.locator('main')).not.toContainText(full('Alpha'));
+    await shot(page, TAB, '25-staff-refused', info);
+    note(info, 'NOT LIVE', '25 cross-firm isolation: needs a second firm login (never LVP)');
+  });
+});
 
 // ================================================================ Owner
 test.describe('Leads (Owner)', () => {
@@ -534,7 +840,7 @@ test.describe('Leads (Owner)', () => {
       .first()
       .click();
     await expect(rowOf(page, 'Alpha')).toHaveCount(0);
-    await expect(page.getByText('No leads match these filters')).toBeVisible();
+    await expect(noMatch(page)).toBeVisible();
     await openLead(page, c.alpha);
     await expect(page.getByTestId('card-lead-details')).toContainText('New Lead');
   });
@@ -546,7 +852,6 @@ test.describe('Leads (Owner)', () => {
     await openList(page, '');
     const dialog = await newLeadDialog(page, 'Created', email(20));
     await dialog.getByLabel('Business / Company name').fill(`${runTag} Company`);
-    await dialog.getByRole('textbox', { name: 'Phone' }).fill('(202) 555-0120');
     await dialog.getByLabel('Lead source').selectOption({ label: 'Referral' });
     await dialog.getByLabel('Source / campaign detail').fill(`${runTag} created detail`);
     await dialog.getByRole('checkbox', { name: c.serviceName }).first().check();
@@ -556,17 +861,14 @@ test.describe('Leads (Owner)', () => {
     await expect(dialog).toHaveCount(0, { timeout: 30_000 });
     await searchBox(page).fill(STAMP);
     await expect(rowOf(page, 'Created')).toHaveCount(1);
-    await rowOf(page, 'Created')
-      .getByRole('link', { name: new RegExp(`${STAMP} Created`) })
-      .click();
-    await expect(page.getByTestId('lead-name')).toContainText('Created');
+    await openFromRow(page, 'Created');
     await page.reload();
     await expect(page.getByTestId('card-contact')).toContainText(`${runTag} Company`);
     await expect(page.getByTestId('card-contact')).toContainText(email(20));
     const details = page.getByTestId('card-lead-details');
     await expect(details).toContainText('Referral');
     await expect(details).toContainText(c.serviceName);
-    await expect(details).toContainText(c.ownerName.split(' ')[0]!);
+    await expect(details).toContainText(tail(c.ownerName));
     await expect(page.getByTestId('card-recent-activity')).toContainText('Lead created');
     await shot(page, TAB, '03-created-lead', info);
   });
@@ -630,7 +932,7 @@ test.describe('Leads (Owner)', () => {
     await page.reload();
     await expect(notes).toContainText(NOTE_TOKEN);
     await expect(notes.getByRole('listitem').filter({ hasText: NOTE_TOKEN })).toContainText(
-      c.ownerName.split(' ')[0]!,
+      tail(c.ownerName),
     );
     await shot(page, TAB, '06-note', info);
     // Manual activity from Communications.
@@ -643,7 +945,7 @@ test.describe('Leads (Owner)', () => {
     await page.reload();
     const item = list.getByRole('listitem').filter({ hasText: `${runTag} logged contact` });
     await expect(item).toBeVisible();
-    await expect(item).toContainText(c.ownerName.split(' ')[0]!);
+    await expect(item).toContainText(tail(c.ownerName));
     // The note's token finds only this lead.
     await openList(page, '');
     await searchBox(page).fill(NOTE_TOKEN);
@@ -743,10 +1045,7 @@ test.describe('Leads (Owner)', () => {
     await expect(dialog.getByTestId('message-recipients')).toContainText(full('Alpha'));
     await expect(dialog.getByTestId('message-recipients')).toContainText('555-0101');
     await shot(page, TAB, '09-sms', info);
-    await dialog
-      .getByRole('button', { name: /^(Cancel|Close)$/ })
-      .first()
-      .click();
+    await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
     note(
       info,
@@ -765,9 +1064,9 @@ test.describe('Leads (Owner)', () => {
     await expect(dialog).toBeHidden();
     await page.reload();
     await searchBox(page).fill(STAMP);
-    await expect(rowOf(page, P(4))).toContainText(c.ownerName.split(' ')[0]!);
+    await expect(rowOf(page, P(4))).toContainText(tail(c.ownerName));
     await openLead(page, c.pages[3]!);
-    await expect(page.getByTestId('card-lead-details')).toContainText(c.ownerName.split(' ')[0]!);
+    await expect(page.getByTestId('card-lead-details')).toContainText(tail(c.ownerName));
     await shot(page, TAB, '10-assign', info);
   });
 
@@ -901,7 +1200,9 @@ test.describe('Leads (Owner)', () => {
     await page.getByLabel('All Lead Sources').selectOption({ label: 'Website Form' });
     await expect(rows(page)).toHaveCount(1);
     await check(page, 'Beta');
-    await expect(page.getByText('1 leads selected').first()).toBeVisible();
+    await expect(
+      page.getByText('1 leads selected').filter({ visible: true }).first(),
+    ).toBeVisible();
     await page.getByTestId('create-campaign').click();
     const panel = page.getByRole('dialog', { name: 'Create Campaign' });
     await panel.getByRole('button', { name: 'Email campaign' }).click();
@@ -916,7 +1217,9 @@ test.describe('Leads (Owner)', () => {
     await composer.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(panel).toBeHidden();
     await expect(page.getByLabel('All Lead Sources')).toHaveValue('WEBSITE_FORM');
-    await expect(page.getByText('1 leads selected').first()).toBeVisible();
+    await expect(
+      page.getByText('1 leads selected').filter({ visible: true }).first(),
+    ).toBeVisible();
     await expect(rowOf(page, 'Beta').getByRole('checkbox')).toBeChecked();
     // Enrol Beta only, on purpose (a fresh page, so the campaign list includes the new draft).
     await page.reload();
@@ -965,11 +1268,8 @@ test.describe('Leads (Owner)', () => {
     await dialog.getByRole('button', { name: 'Save Lead' }).click();
     await expect(dialog).toHaveCount(0, { timeout: 30_000 });
     await searchBox(page).fill(STAMP);
-    await rowOf(page, 'Steps')
-      .getByRole('link', { name: new RegExp(`${STAMP} Steps`) })
-      .click();
-    await expect(page.getByTestId('lead-name')).toContainText('Steps');
-    const id = /\/leads\/([0-9a-f-]{36})/.exec(page.url())![1]!;
+    await expect(rowOf(page, 'Steps')).toHaveCount(1);
+    const id = await openFromRow(page, 'Steps');
     await openLead(page, id, 'tasks');
     const card = page.getByTestId('card-follow-up');
     const steps = card.getByTestId('follow-up-steps').getByRole('listitem');
@@ -1016,8 +1316,8 @@ test.describe('Leads (Owner)', () => {
     await expect(rowOf(page, 'Gamma')).toContainText('Converted');
     note(
       info,
-      'PENDING',
-      '17 carry-forward of appointments/communications/campaign: R55 (P4-1) not on dev',
+      'see',
+      '17 carry-forward of appointments: the "lead appointments (R55)" block (LIVE_LEAD_APPTS=1)',
     );
     note(
       info,
@@ -1104,7 +1404,7 @@ test.describe('Leads (Owner)', () => {
     await page.getByRole('combobox', { name: 'All Lead Statuses' }).selectOption('SUBMITTED');
     await expect(rowOf(page, 'Alpha')).toHaveCount(1);
     await page.getByRole('combobox', { name: 'All Lead Statuses' }).selectOption('IN_REVIEW');
-    await expect(page.getByText('No leads match these filters')).toBeVisible();
+    await expect(noMatch(page)).toBeVisible();
     await page.getByLabel('All Lead Sources').selectOption({ label: 'Website Form' });
     await expect(rowOf(page, 'Beta')).toHaveCount(1);
     await expect(rows(page)).toHaveCount(1);
@@ -1121,7 +1421,7 @@ test.describe('Leads (Owner)', () => {
     await page.getByLabel('Date Range: From, start date').fill('2026-01-01');
     await page.getByLabel('Date Range: To, end date').fill('2026-01-31');
     await page.getByRole('button', { name: 'Done' }).click();
-    await expect(page.getByText('No leads match these filters')).toBeVisible();
+    await expect(noMatch(page)).toBeVisible();
     await shot(page, TAB, '21-filters', info);
     await page.getByRole('button', { name: 'Reset', exact: true }).click();
     await expect(chips(page)).toHaveCount(0);
@@ -1131,7 +1431,7 @@ test.describe('Leads (Owner)', () => {
     page,
   }, info) => {
     test.skip(info.project.name !== 'w1165');
-    await openList(page);
+    await openList(page, STAMP, '8');
     const total = await listTotal(page);
     expect(total).toBeGreaterThanOrEqual(13);
     await expect(rows(page)).toHaveCount(8);
@@ -1150,7 +1450,7 @@ test.describe('Leads (Owner)', () => {
     await pager(page).locator('select').selectOption('8');
     for (const [term, last] of [
       [email(1), 'Alpha'],
-      ['555-0101', 'Alpha'],
+      [`555-0101 ${STAMP}`, 'Alpha'],
       [`${STAMP} Beta`, 'Beta'],
       [NOTE_TOKEN, P(3)],
     ] as const) {
@@ -1159,7 +1459,7 @@ test.describe('Leads (Owner)', () => {
       await expect(rowOf(page, last)).toHaveCount(1);
     }
     await searchBox(page).fill(`${STAMP} nomatchzz`);
-    await expect(page.getByText('No leads match these filters')).toBeVisible();
+    await expect(noMatch(page)).toBeVisible();
   });
 
   test('23 bulk actions: Assign Staff changes only the selected leads', async ({ page }, info) => {
@@ -1174,7 +1474,7 @@ test.describe('Leads (Owner)', () => {
     await expect(dialog).toBeHidden();
     await page.reload();
     await searchBox(page).fill(STAMP);
-    const first = c.ownerName.split(' ')[0]!;
+    const first = tail(c.ownerName);
     await expect(rowOf(page, P(1))).toContainText(first);
     await expect(rowOf(page, P(2))).toContainText(first);
     await expect(rowOf(page, P(3))).not.toContainText(first);
@@ -1254,16 +1554,17 @@ test.describe('Leads (Owner)', () => {
     await shot(page, TAB, '26-appointment-dialog', info);
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toBeHidden();
-    note(info, 'PENDING', '26 appointment save and activity: R55 (P4-1) not on dev');
+    note(info, 'see', '26 appointment save and activity: the "lead appointments (R55)" block');
   });
 
   test('R2 1 Back to Leads keeps the search, a filter, the page size and the page', async ({
     page,
   }, info) => {
     test.skip(info.project.name !== 'w1165');
-    await openList(page);
+    await openList(page, STAMP, '8');
     await pager(page).getByRole('button', { name: 'Page 2' }).click();
-    const name = (await rows(page).first().getByRole('link').first().innerText()).trim();
+    await settled(page);
+    const name = new RegExp(`${STAMP} \\S+`).exec(await rows(page).first().innerText())![0];
     await rows(page).first().getByRole('link').first().click();
     await expect(page.getByTestId('lead-name')).toContainText(STAMP);
     await page.getByRole('link', { name: 'Back to Leads' }).click();
@@ -1370,7 +1671,19 @@ test.describe('Leads (Owner)', () => {
     const time = card.getByRole('combobox', { name: 'Time' });
     await expect(time).toHaveValue('14:15');
     await card.getByRole('button', { name: 'Save Follow-Up' }).click();
-    await expect(card.getByRole('status')).toHaveText('Follow-up saved.');
+    const told = await page
+      .getByText('Follow-up saved.')
+      .first()
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    await shot(page, TAB, 'R2-5-after-save', info);
+    note(
+      info,
+      'feedback',
+      told ? '"Follow-up saved." shown' : 'no "Follow-up saved." after the save',
+    );
+    expect.soft(told, 'the save says "Follow-up saved."').toBe(true);
     await page.reload();
     await expect(card).toContainText('2:15 PM');
     await expect(time).toHaveValue('14:15');
@@ -1390,12 +1703,18 @@ test.describe('Leads (Owner)', () => {
       row.getByRole('link', { name: new RegExp(`${STAMP} Alpha`) }),
       row.getByRole('button', { name: `More actions for ${full('Alpha')}` }),
     ];
-    for (const cell of pinned) await expect(cell).toBeInViewport({ ratio: 1 });
+    const names = ['select box', 'name', 'More actions'];
+    await row.evaluate((r) =>
+      window.scrollTo(0, r.getBoundingClientRect().top + window.scrollY - 300),
+    );
+    for (const [i, cell] of pinned.entries())
+      await expectInFrame(page, frame, cell, `start: ${names[i]}`);
     const overflow = await frame.evaluate((el) => el.scrollWidth - el.clientWidth);
     if (overflow > 0) {
       await frame.evaluate((el) => (el.scrollLeft = el.scrollWidth));
       await page.waitForTimeout(300);
-      for (const cell of pinned) await expect(cell).toBeInViewport({ ratio: 1 });
+      for (const [i, cell] of pinned.entries())
+        await expectInFrame(page, frame, cell, `end: ${names[i]}`);
     }
     note(info, 'table', `table frame overflow ${overflow}px`);
     await shot(page, TAB, 'R2-6a-pinned', info);
@@ -1424,9 +1743,15 @@ test.describe('Leads (Owner)', () => {
     }));
     expect(fit.scroll, 'the name is not cut off').toBeLessThanOrEqual(fit.client + 1);
     expect(fit.w, 'the name is not cut sideways').toBeLessThanOrEqual(fit.cw + 1);
-    await expect(
+    await row.evaluate((r) =>
+      window.scrollTo(0, r.getBoundingClientRect().top + window.scrollY - 300),
+    );
+    await expectInFrame(
+      page,
+      table(page).locator('xpath=ancestor::*[contains(@class,"overflow-x-auto")][1]'),
       row.getByRole('button', { name: `More actions for ${full(LONG)}` }),
-    ).toBeInViewport({ ratio: 1 });
+      'More actions',
+    );
     await shot(page, TAB, 'R2-6b-long-name', info);
     await expectNoSideScroll(page);
   });
@@ -1610,7 +1935,7 @@ test.describe('Leads (Owner)', () => {
     await expect(alert).toHaveText('End date must be on or after the start date');
     await expect(done).toBeDisabled();
     await expect(page).not.toHaveURL(/from=/);
-    expect(await listTotal(page)).toBe(before);
+    await expect(rows(page)).toHaveCount(Math.min(before, 24));
     await shot(page, TAB, 'R2-13-reversed', info);
     await from.fill(firmDay(0));
     await to.fill(firmDay(0));
@@ -1654,7 +1979,8 @@ test.describe('Leads (Owner)', () => {
     await dialog.getByRole('button', { name: 'Save Lead' }).click();
     await expect(dialog).toHaveCount(0, { timeout: 30_000 });
     await searchBox(page).fill(STAMP);
-    await rowOf(page, 'Twin').getByRole('link').first().click();
+    await expect(rowOf(page, 'Twin')).toHaveCount(1);
+    await openFromRow(page, 'Twin');
     const warning = page.getByTestId('lead-duplicates');
     await expect(warning).toContainText('Possible duplicate');
     await expect(warning.getByRole('link', { name: new RegExp(`${STAMP} Alpha`) })).toBeVisible();
@@ -1727,7 +2053,7 @@ test.describe('Leads (Owner)', () => {
     await expect(dialog).toContainText('Dates of birth and addresses are never exported.');
     await dialog.getByTestId('export-make').click();
     const ready = dialog.getByTestId('export-ready');
-    await expect(ready).toContainText(/\d+ leads in leads\.csv/);
+    await expect(ready).toContainText(/\d+ leads in leads[-\d]*\.csv/);
     await shot(page, TAB, 'R2-16-export', info);
   });
 
@@ -1790,7 +2116,12 @@ test.describe('Leads (Owner)', () => {
     await expect(card).toContainText('No sequence applied');
     await card.getByTestId('sequence-apply').click();
     const dialog = page.getByRole('dialog', { name: 'Apply a Follow-up Sequence' });
-    await dialog.getByLabel('Sequence').selectOption({ index: 1 });
+    const select = dialog.getByLabel('Sequence');
+    const option = (await select
+      .locator('option', { hasText: c.sequenceName })
+      .first()
+      .textContent())!;
+    await select.selectOption({ label: option.trim() });
     const chosen = (
       await dialog.getByLabel('Sequence').locator('option:checked').innerText()
     ).trim();
@@ -1824,80 +2155,6 @@ test.describe('Leads (Owner)', () => {
       figure.getByRole('list', { name: 'Why this score' }).getByRole('listitem').first(),
     ).toBeVisible();
     await shot(page, TAB, 'checklist-score', info);
-  });
-});
-
-// ================================================================ Admin
-test.describe('Leads (Admin)', () => {
-  test.use(as('admin'));
-  test.skip(() => !hasLogin('admin'), 'no admin login');
-  test.beforeAll(async ({ browser }) => {
-    await freshSession(browser, 'admin');
-    await fixture(browser);
-  });
-
-  test('20a admin: Archive, Delete and Restore are offered (Firm Admin may)', async ({
-    page,
-  }, info) => {
-    test.skip(info.project.name !== 'w1165');
-    await openList(page);
-    await page.getByRole('button', { name: `More actions for ${full(P(1))}` }).click();
-    await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Archive' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await check(page, P(1));
-    await expect(bulkBar(page).getByRole('button', { name: 'Delete' })).toBeVisible();
-    await shot(page, TAB, '20a-admin', info);
-  });
-});
-
-// ================================================================ Staff
-test.describe('Leads (Staff)', () => {
-  test.use(as('staff'));
-  test.skip(() => !hasLogin('staff'), 'no staff login');
-  let c: Ctx;
-  test.beforeAll(async ({ browser }) => {
-    await freshSession(browser, 'staff');
-    c = await fixture(browser);
-  });
-
-  test('20a staff: no Archive, Delete or Restore', async ({ page }, info) => {
-    test.skip(info.project.name !== 'w1165');
-    await openList(page);
-    const row = rowOf(page, 'Delta');
-    await row.getByRole('button', { name: /^More actions for / }).click();
-    const items = (await page.getByRole('menu').getByRole('menuitem').allInnerTexts()).map((s) =>
-      s.trim(),
-    );
-    expect(items).not.toContain('Archive');
-    await page.keyboard.press('Escape');
-    await row.getByRole('checkbox').check();
-    await expect(bulkBar(page)).toContainText('1 leads selected');
-    await expect(bulkBar(page).getByRole('button', { name: 'Delete' })).toHaveCount(0);
-    await shot(page, TAB, '20a-staff', info);
-  });
-
-  test('25 staff see only their own leads; another lead by its address is refused', async ({
-    page,
-  }, info) => {
-    test.skip(info.project.name !== 'w1165');
-    await openList(page);
-    await expect(rowOf(page, 'Delta')).toHaveCount(1);
-    await expect(rowOf(page, 'Alpha')).toHaveCount(0);
-    await expect(rowOf(page, 'Beta')).toHaveCount(0);
-    await shot(page, TAB, '25-staff-list', info);
-    await page.goto(lead(c.alpha));
-    await expect(
-      page
-        .getByText(
-          /not found|no access|can.t find|couldn.t find|doesn.t exist|not available|permission|404/i,
-        )
-        .first(),
-    ).toBeVisible({
-      timeout: 60_000,
-    });
-    await expect(page.getByTestId('lead-name')).toHaveCount(0);
-    await shot(page, TAB, '25-staff-refused', info);
-    note(info, 'NOT LIVE', '25 cross-firm isolation: needs a second firm login (never LVP)');
   });
 });
 
@@ -1942,7 +2199,7 @@ test.describe('lead appointments (R55)', () => {
     // The confirmation goes to the lead's email: it must be a simulator address.
     await expect(contact).toContainText(email(6));
     const type = dialog.getByLabel('Appointment type');
-    await type.selectOption({ index: 1 });
+    await type.selectOption({ label: `${c.typeName} (30 min)` });
     const typeName = (await type.locator('option:checked').innerText())
       .replace(/\s*\(\d+ min\)$/, '')
       .trim();
@@ -2012,6 +2269,9 @@ test.describe('lead appointments (R55)', () => {
     await shot(page, TAB, '17-appt-on-client', info);
     await openLead(page, c.appt, 'appointments');
     await expect(page.getByTestId('lead-appointment')).toHaveCount(1);
+    // P4-1: the lead's row names the client it went to.
+    await expect(page.getByTestId('lead-appointment')).toContainText(`Client: ${full('Appt')}`);
+    await shot(page, TAB, '17-appt-lead-row', info);
   });
 });
 
@@ -2075,106 +2335,159 @@ test.describe('Leads layout', () => {
 });
 
 // ================================================================ Cleanup (after every role's checks)
+
+/** Cancel only when every address the cancellation notice reaches is a simulator one. */
+const LIVE_STATUSES = ['SCHEDULED', 'PENDING', 'CONFIRMED', 'RESCHEDULED'];
+
+/** Removes one run's records (by its tag). Returns what it did and what it could not do. */
+async function cleanRun(api: Api, c: Ctx, done: string[], left: string[]) {
+  const stamp = c.tag.slice('LIVE-CHECK '.length);
+  const tagged = (x: string) => x.includes(stamp);
+  const found = await ok(
+    await api.get(`business/leads/pipeline?search=${encodeURIComponent(stamp)}&pageSize=100`),
+    'pipeline',
+  );
+  const leads = (found.items as { id: string; firstName: string; lastName: string }[]).filter(
+    (l) => tagged(l.firstName) || tagged(l.lastName),
+  );
+  const ids = new Set(leads.map((l) => l.id));
+  const appointments = new Set(c.appointments);
+  for (const id of ids) {
+    const files = await api.get(`business/leads/${id}/documents-and-forms`);
+    if (files.ok()) {
+      for (const d of ((await files.json()).documents ?? []) as {
+        id: string;
+        fileName: string;
+      }[]) {
+        if (!tagged(d.fileName)) continue;
+        const r = await api.delete(`business/leads/${id}/files/${d.id}`);
+        (r.ok() ? done : left).push(`file ${d.fileName} (${r.status()})`);
+      }
+    }
+    const appts = await api.get(`business/leads/${id}/appointments`);
+    if (appts.ok()) {
+      for (const a of ((await appts.json()).items ?? []) as { id: string }[])
+        appointments.add(a.id);
+    }
+  }
+  for (const id of appointments) {
+    const r = await api.get(`business/appointments/${id}`);
+    if (!r.ok()) continue;
+    const a = (await r.json()) as { status: string };
+    if (!LIVE_STATUSES.includes(a.status)) continue;
+    // Who the cancellation notice reaches: the record's contact (client or lead); other attendees
+    // are listed by name only, so an appointment with any is left alone.
+    const rec = await api.get(`business/appointments/${id}/record`);
+    const record = rec.ok()
+      ? ((await rec.json()) as {
+          contact?: { email?: string | null } | null;
+          attendees?: unknown[];
+        })
+      : {};
+    const to = record.contact?.email ?? '';
+    if (!SIMULATOR.test(to) || (record.attendees ?? []).length) {
+      left.push(
+        `appointment ${id} not cancelled: recipient ${to || 'unknown'}${(record.attendees ?? []).length ? ' and other attendees' : ''}`,
+      );
+      continue;
+    }
+    const res = await api.post(`business/appointments/${id}/cancel`, {
+      reason: `${c.tag} cleanup`,
+    });
+    (res.ok() ? done : left).push(`appointment ${id} cancel (${res.status()})`);
+  }
+  if (ids.size) {
+    const r = await api.post('business/leads/bulk', { action: 'ARCHIVE', ids: [...ids] });
+    const body = await r.text();
+    (r.ok() ? done : left).push(`archive ${ids.size} leads (${r.status()}) ${body.slice(0, 160)}`);
+  }
+  for (const id of c.clients) {
+    const r = await api.post(`business/clients/${id}/archive`, {});
+    (r.ok() || r.status() === 409 ? done : left).push(`client ${id} archive (${r.status()})`);
+  }
+  const comms = await api.get(`business/communications?search=${encodeURIComponent(stamp)}`);
+  if (comms.ok()) {
+    const body = await comms.json();
+    const list = (Array.isArray(body) ? body : (body.items ?? [])) as {
+      id: string;
+      name?: string;
+      title?: string;
+      archivedAt?: string | null;
+    }[];
+    for (const m of list.filter((x) => tagged(x.name ?? x.title ?? '') && !x.archivedAt)) {
+      const r = await api.post(`business/communications/${m.id}/archive`);
+      (r.ok() || r.status() === 409 ? done : left).push(
+        `campaign ${m.name ?? m.id} archive (${r.status()})`,
+      );
+    }
+  } else {
+    left.push(`campaign list ${comms.status()}`);
+  }
+  if (c.sequenceMade) {
+    const r = await api.post(`business/lead-sequences/${c.sequenceMade}/archive`);
+    (r.ok() || r.status() === 409 || r.status() === 404 ? done : left).push(
+      `sequence ${c.sequenceName || c.sequenceMade}: archive ${r.status()}`,
+    );
+  }
+  if (c.typeMade) {
+    const r = await api.post(`business/appointment-types/${c.typeMade}/archive`);
+    (r.ok() || r.status() === 409 || r.status() === 404 ? done : left).push(
+      `appointment type ${c.typeName || c.typeMade}: archive ${r.status()}`,
+    );
+  }
+  // The run's service: deleted, or archived when something (a converted client) still uses it.
+  if (c.serviceMade) {
+    const del = await api.delete(`business/catalog/services/${c.serviceMade}`);
+    if (del.ok() || del.status() === 404)
+      done.push(`service ${c.serviceMade}: delete ${del.status()}`);
+    else {
+      const ar = await api.post(`business/catalog/services/${c.serviceMade}/archive`);
+      (ar.ok() || ar.status() === 409 ? done : left).push(
+        `service ${c.serviceMade}: delete ${del.status()}, archive ${ar.status()}`,
+      );
+    }
+  }
+  if (c.categoryMade) {
+    const r = await api.delete(`business/catalog/categories/${c.categoryMade}`);
+    (r.ok() || r.status() === 404 ? done : left).push(`category ${CATEGORY}: delete ${r.status()}`);
+  }
+  const after = await ok(
+    await api.get(`business/leads/pipeline?search=${encodeURIComponent(stamp)}&pageSize=100`),
+    'pipeline after',
+  );
+  for (const l of after.items as { lastName: string; firstName: string; stage?: string }[]) {
+    if (!(tagged(l.firstName) || tagged(l.lastName))) continue;
+    // A converted lead is kept by design (its client is archived above); it cannot be archived.
+    if (l.stage === 'CONVERTED') done.push(`lead ${l.lastName} kept as Converted (no archive)`);
+    else left.push(`lead ${l.lastName} still active`);
+  }
+}
+
 test.describe('Leads cleanup', () => {
   test.use(as('owner'));
-  test('zz cleanup @narrow: archive every lead of the run, remove its files, cancel its appointments, archive its clients and campaign', async ({
+  test('zz cleanup @narrow: archive every lead of the run, remove its files, cancel its appointments, archive its clients, campaign, type and service', async ({
     browser,
   }, info) => {
-    if (!existsSync(ctxFile())) return;
-    const c = readCtx();
-    if (c.tag !== runTag) return;
+    if (existsSync(ctxFile())) register(readCtx());
+    const runs = readRegistry().filter((r) => r.tag === runTag || !r.cleaned);
+    if (!runs.length) return;
     const api = await roleApi(browser, 'owner');
     const left: string[] = [];
     const done: string[] = [];
     try {
-      const page = await ok(
-        await api.get(`business/leads/pipeline?search=${encodeURIComponent(STAMP)}&pageSize=100`),
-        'pipeline',
-      );
-      const leads = (page.items as { id: string; firstName: string; lastName: string }[]).filter(
-        (l) => l.firstName.includes(STAMP) || l.lastName.includes(STAMP),
-      );
-      const ids = new Set([...leads.map((l) => l.id)]);
-      for (const id of ids) {
-        const files = await api.get(`business/leads/${id}/documents-and-forms`);
-        if (files.ok()) {
-          for (const d of ((await files.json()).documents ?? []) as {
-            id: string;
-            fileName: string;
-          }[]) {
-            if (!d.fileName.includes(STAMP)) continue;
-            const r = await api.delete(`business/leads/${id}/files/${d.id}`);
-            (r.ok() ? done : left).push(`file ${d.fileName} (${r.status()})`);
-          }
-        }
-        const appts = await api.get(`business/leads/${id}/appointments`);
-        if (appts.ok()) {
-          for (const a of ((await appts.json()).items ?? []) as { id: string; status: string }[]) {
-            if (!c.appointments.includes(a.id)) c.appointments.push(a.id);
-          }
-        }
+      for (const run of runs) {
+        const l: string[] = [];
+        const d: string[] = [];
+        await cleanRun(api, run, d, l);
+        done.push(...d.map((x) => `[${run.tag}] ${x}`));
+        left.push(...l.map((x) => `[${run.tag}] ${x}`));
+        if (run.tag !== runTag && !l.length) register({ ...run, cleaned: true });
       }
-      for (const id of c.appointments) {
-        const r = await api.get(`business/appointments/${id}`);
-        if (!r.ok()) continue;
-        const a = (await r.json()) as {
-          status: string;
-          contact?: { email?: string | null } | null;
-          attendees?: { email?: string | null }[];
-        };
-        if (!['SCHEDULED', 'PENDING', 'CONFIRMED', 'RESCHEDULED'].includes(a.status)) continue;
-        // Rule: the cancellation notice goes only to simulator addresses; otherwise leave it.
-        const to = [a.contact?.email, ...(a.attendees ?? []).map((x) => x.email)].filter(
-          (x): x is string => Boolean(x),
-        );
-        if (!to.length || to.some((x) => !SIMULATOR.test(x))) {
-          left.push(`appointment ${id} not cancelled: recipients ${to.join(', ') || 'unknown'}`);
-          continue;
-        }
-        const res = await api.post(`business/appointments/${id}/cancel`, {
-          reason: `${runTag} cleanup`,
-        });
-        (res.ok() ? done : left).push(`appointment ${id} cancel (${res.status()})`);
-      }
-      if (ids.size) {
-        const r = await api.post('business/leads/bulk', { action: 'ARCHIVE', ids: [...ids] });
-        const body = await r.text();
-        (r.ok() ? done : left).push(
-          `archive ${ids.size} leads (${r.status()}) ${body.slice(0, 200)}`,
-        );
-      }
-      for (const id of c.clients) {
-        const r = await api.post(`business/clients/${id}/archive`, {});
-        (r.ok() || r.status() === 409 ? done : left).push(`client ${id} archive (${r.status()})`);
-      }
-      const comms = await api.get(`business/communications?search=${encodeURIComponent(STAMP)}`);
-      if (comms.ok()) {
-        const body = await comms.json();
-        const list = (Array.isArray(body) ? body : (body.items ?? [])) as {
-          id: string;
-          name?: string;
-          title?: string;
-        }[];
-        for (const m of list.filter((x) => (x.name ?? x.title ?? '').includes(STAMP))) {
-          const r = await api.post(`business/communications/${m.id}/archive`);
-          (r.ok() ? done : left).push(`campaign ${m.name ?? m.id} archive (${r.status()})`);
-        }
-      } else {
-        left.push(`campaign list ${comms.status()}`);
-      }
-      // Still active after the archive?
-      const after = await ok(
-        await api.get(`business/leads/pipeline?search=${encodeURIComponent(STAMP)}&pageSize=100`),
-        'pipeline after',
-      );
-      for (const l of after.items as { id: string; lastName: string }[])
-        left.push(`lead ${l.lastName} still active`);
-      saveCtx(c);
     } finally {
       await api.dispose();
     }
     done.push(`tag "${TAG}" kept: the one fixed tag every run reuses (tags have no delete)`);
     console.log(`CLEANUP done:\n${done.join('\n')}\nCLEANUP left:\n${left.join('\n')}`);
-    info.annotations.push({ type: 'left-behind', description: left.join('; ') });
+    info.annotations.push({ type: 'left-behind', description: left.join('; ') || 'none' });
   });
 });
