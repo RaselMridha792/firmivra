@@ -121,11 +121,12 @@ test('Add Note opens in place, internal and on this service (BK-NAV)', async ({ 
   expect(page.url()).toBe(url);
   const save = dialog.getByRole('button', { name: 'Save Note' });
   await expect(save).toBeDisabled();
-  // Review 2 (N04): its type, what it is about, and visibility: internal, sharing not offered yet.
+  // Review 2 (N04): its type, what it is about, and visibility: internal by default; B32's
+  // Share with client is a choice (its preview and confirm: r55-note-share).
   await expect(dialog.getByLabel('Note type')).toHaveValue('GENERAL');
   await expect(dialog.getByLabel('Related to')).toBeVisible();
   await expect(dialog.getByLabel('Internal (staff only)')).toBeChecked();
-  await expect(dialog.getByLabel('Shared with client')).toBeDisabled();
+  await expect(dialog.getByLabel('Share with client')).not.toBeChecked();
   await dialog.getByLabel('Note', { exact: true }).fill('Fake: asked for the March statement');
   await expect(save).toBeEnabled();
   await dialog.getByRole('button', { name: 'Cancel' }).click();

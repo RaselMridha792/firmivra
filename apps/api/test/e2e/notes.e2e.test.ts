@@ -1,6 +1,7 @@
 // End-to-end: R20 steps 4 and 5, internal notes and private notes (contract in
 // packages/types/src/messages). Internal notes stay on the firm side (Staff: their clients; the
-// author, Owner and Admins change one). A private note and its reminder belong to one portal login:
+// author, Owner and Admins change one); B32's Share with Client sends a copy of a note's text as a
+// portal message. A private note and its reminder belong to one portal login:
 // no staff role, no other login and no scope without that actor ever sees it. No text in audit.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
@@ -11,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
-import { InternalNote as NoteShape } from '@firmivra/types';
+import { InternalNote as NoteShape, NoteShared, SHARED_NOTE_SUBJECT } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -355,6 +356,74 @@ describe('internal notes', () => {
     expect(listed.items.map((n) => [n.id, n.body])).toEqual([[kept.id, 'Before archive']]);
     expectOk(await firm('post', `/clients/${created.id}/restore`, people.ownerA, {}));
     expectOk(await firm('patch', `/notes/${kept.id}`, people.ownerA, { body: 'After restore' }));
+  });
+
+  it('B32: Share with Client sends the previewed text as a portal message; the note stays internal; audited with ids only', async () => {
+    const text = `Fake: your extension is filed.\nNext, sign the 8879. ${run}`;
+    const note = await addNote({ body: text }, people.ownerA, ids.two);
+    const share = (updatedAt: string, who = people.ownerA, businessId = ids.firmA) =>
+      firm('post', `/notes/${note.id}/share`, who, { updatedAt }, businessId);
+    const before = new Date(Date.parse(note.updatedAt) - 1_000).toISOString();
+    // A preview of another version is refused, and nothing is sent.
+    const stale = await share(before);
+    expect([stale.status, codeOf(stale)]).toEqual([409, 'NOTE_CHANGED']);
+    // Staff not assigned to the client, and another firm, find no such note.
+    expect((await share(note.updatedAt, people.staffA)).status).toBe(404);
+    expect((await share(note.updatedAt, people.ownerB, ids.firmB)).status).toBe(404);
+    expect((await firm('post', `/notes/${note.id}/share`, people.ownerA, {})).status).toBe(400);
+
+    const shared = z
+      .strictObject(NoteShared.shape)
+      .parse(expectOk(await share(note.updatedAt)).body);
+    // The client reads it in Messages, exactly as the preview showed it, from the firm.
+    const thread = expectOk(await portal('get', `/messages/${shared.threadId}`, people.other))
+      .body as { subject: string; messages: { id: string; from: string; body: string }[] };
+    expect(thread.subject).toBe(SHARED_NOTE_SUBJECT);
+    expect(thread.messages.map((m) => [m.id, m.from, m.body])).toEqual([
+      [shared.messageId, 'FIRM', text],
+    ]);
+    // The note itself is unchanged and still internal; the portal never lists notes.
+    const listed = z
+      .strictObject({ items: z.array(Note) })
+      .parse(expectOk(await firm('get', `/clients/${ids.two}/notes`, people.ownerA)).body).items;
+    expect(listed.find((n) => n.id === note.id)).toMatchObject({
+      body: text,
+      visibility: 'INTERNAL',
+      updatedAt: note.updatedAt,
+    });
+    expect(
+      JSON.stringify(expectOk(await portal('get', '/notes', people.other)).body),
+    ).not.toContain(run);
+    // An edit after a preview makes that preview stale.
+    expectOk(await firm('patch', `/notes/${note.id}`, people.ownerA, { body: 'Edited later' }));
+    const late = await share(note.updatedAt);
+    expect([late.status, codeOf(late)]).toEqual([409, 'NOTE_CHANGED']);
+    // One audit row, ids only, never the text.
+    const rows = await asApp(undefined, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, action: 'note.shared', entityId: note.id },
+        select: { entityType: true, metadata: true },
+      }),
+    );
+    expect(rows).toEqual([
+      {
+        entityType: 'note',
+        metadata: { clientId: ids.two, threadId: shared.threadId, messageId: shared.messageId },
+      },
+    ]);
+  });
+
+  it('B32: an archived client is shared nothing (409 CLIENT_ARCHIVED)', async () => {
+    const created = expectOk(
+      await firm('post', '/clients', people.ownerA, { displayName: `Archived share ${run}` }),
+      201,
+    ).body as { id: string };
+    const kept = await addNote({ body: 'Before archive' }, people.ownerA, created.id);
+    expectOk(await firm('post', `/clients/${created.id}/archive`, people.ownerA, {}));
+    const res = await firm('post', `/notes/${kept.id}/share`, people.ownerA, {
+      updatedAt: kept.updatedAt,
+    });
+    expect([res.status, codeOf(res)]).toEqual([409, 'CLIENT_ARCHIVED']);
   });
 });
 

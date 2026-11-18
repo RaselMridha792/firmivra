@@ -6,17 +6,28 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type { InternalNote, MyNoteResponse } from '@firmivra/types';
+import {
+  type InternalNote,
+  type MyNoteResponse,
+  type NoteShared,
+  SHARED_NOTE_SUBJECT,
+} from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { addServiceEvent } from '../bookkeeping/bookkeeping-activity.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { MessagesService } from './messages.service.js';
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const forbidden = () =>
   new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
 const archived = () =>
   new ConflictException({ code: 'CLIENT_ARCHIVED', message: 'Restore the client first' });
+const noteChanged = () =>
+  new ConflictException({
+    code: 'NOTE_CHANGED',
+    message: 'This note changed since you opened the preview. Review it again before sharing.',
+  });
 
 /**
  * Review 2 (N04): the record a note is about must be this firm's (row-level security keeps the
@@ -75,6 +86,7 @@ export class NotesService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly messages: MessagesService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -243,6 +255,44 @@ export class NotesService {
       await this.audit.logIn(tx, 'note.deleted', { type: 'note', id }, { clientId: note.clientId });
     });
     return { ok: true };
+  }
+
+  /**
+   * B32 (decision 5, option B): Share with Client. The note's text, as the member previewed it
+   * (`updatedAt` is that version; a note changed since is 409 NOTE_CHANGED), becomes a new portal
+   * message to the client through Messages (the same thread, notice and rules as New Message,
+   * under the note's service when it has one). The note itself stays internal and unchanged.
+   * Whoever may see the note shares it (Staff: their own clients'; another's is 404); an archived
+   * client is 409 CLIENT_ARCHIVED. Audited with ids only, never the text.
+   */
+  async share(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    updatedAt: string,
+  ): Promise<NoteShared> {
+    const note = await this.inFirm(businessId, async (tx) => {
+      const row = await tx.note.findFirst({
+        where: { businessId, id, client: this.reach(actor) },
+        select: { id: true, clientId: true, engagementId: true, body: true, updatedAt: true },
+      });
+      if (!row) throw notFound();
+      if (row.updatedAt.getTime() !== new Date(updatedAt).getTime()) throw noteChanged();
+      return row;
+    });
+    const thread = await this.messages.create(businessId, actor, note.clientId, {
+      subject: SHARED_NOTE_SUBJECT,
+      body: note.body,
+      ...(note.engagementId ? { engagementId: note.engagementId } : {}),
+    });
+    const messageId = thread.messages[0]?.id;
+    if (!messageId) throw new Error('A new thread has its first message');
+    await this.audit.log(
+      'note.shared',
+      { type: 'note', id: note.id },
+      { clientId: note.clientId, threadId: thread.id, messageId },
+    );
+    return { threadId: thread.id, messageId };
   }
 
   // ----- The client login's private note -----

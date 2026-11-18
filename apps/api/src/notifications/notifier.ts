@@ -373,6 +373,9 @@ interface Recipient {
  */
 const EMAIL_EVENTS = new Set<NotificationEvent>([
   'document.requested',
+  // BK-CP2: a Bookkeeping report published (the sender passes `email: false` when its Report
+  // Delivery is the portal only).
+  'report.published',
   'appointment.booked',
   'appointment.changed',
   'appointment.reminder',
@@ -399,6 +402,8 @@ const emailable = (event: NotificationEvent, r: Recipient) =>
 /** Events with a text copy, and its NotifyService template (client side only, on request). */
 const SMS_EVENTS: Partial<Record<NotificationEvent, NotifyTemplate>> = {
   'document.requested': 'document.requested-sms',
+  // A7: an appointment's configured Text reminder.
+  'appointment.reminder': 'appointment.reminder-sms',
 };
 
 /**
@@ -890,6 +895,14 @@ export class Notifier {
         select: { id: true, phone: true },
       });
       const link = await this.portalLink(businessId, target);
+      // A7: an appointment text carries its Text reminder's note and the instructions shown in
+      // texts (B9), read when it is sent.
+      const words =
+        template === 'appointment.reminder-sms'
+          ? await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+              noticeWords(tx, businessId, target.id, 'appointment.reminder', new Date(), 'SMS'),
+            )
+          : null;
       for (const c of clients) {
         const to = phones.find((p) => p.id === c.recipient.userId)?.phone;
         if (!to) continue;
@@ -901,7 +914,16 @@ export class Notifier {
             to,
             businessId,
             recipient: { userId: c.recipient.userId },
-            data: { title: str('title'), dueOn: str('dueOn') || null, link },
+            data: words
+              ? {
+                  title: str('title'),
+                  startsAt: new Date(str('startsAt')),
+                  timeZone: str('timeZone'),
+                  link,
+                  message: words.message,
+                  instructions: words.instructions,
+                }
+              : { title: str('title'), dueOn: str('dueOn') || null, link },
           } as NotifyMessage);
         } catch (error) {
           this.logger.warn(
@@ -1154,37 +1176,40 @@ export class Notifier {
                   }
                 : template === 'document.requested'
                   ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
-                  : template === 'intake.sent' || template === 'intake.reminder'
-                    ? {
-                        name: recipient.name,
-                        link,
-                        ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                          intakeWords(tx, businessId, target.id),
-                        )),
-                      }
-                    : template === 'invoice.sent' || template === 'payment.received'
-                      ? { name: recipient.name, invoiceNumber: str('number'), link }
-                      : template === 'invoice.reminder' || template === 'invoice.overdue'
-                        ? {
-                            name: recipient.name,
-                            invoiceNumber: str('number'),
-                            dueOn: str('dueOn'),
-                            link,
-                          }
-                        : {
-                            name: recipient.name,
-                            title: str('title'),
-                            startsAt: new Date(str('startsAt')),
-                            timeZone: str('timeZone'),
-                            link,
-                            // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
-                            ...(await this.database.withScope(
-                              { kind: 'business', businessId },
-                              (tx) => noticeWords(tx, businessId, target.id, template),
-                            )),
-                            // A1: only the appointment's own client confirms it.
-                            ...(recipient.attendee ? { confirmAsk: false } : {}),
-                          };
+                  : template === 'report.published'
+                    ? { name: recipient.name, title: str('title') || 'your service', link }
+                    : template === 'intake.sent' || template === 'intake.reminder'
+                      ? {
+                          name: recipient.name,
+                          link,
+                          ...(await this.database.withScope(
+                            { kind: 'business', businessId },
+                            (tx) => intakeWords(tx, businessId, target.id),
+                          )),
+                        }
+                      : template === 'invoice.sent' || template === 'payment.received'
+                        ? { name: recipient.name, invoiceNumber: str('number'), link }
+                        : template === 'invoice.reminder' || template === 'invoice.overdue'
+                          ? {
+                              name: recipient.name,
+                              invoiceNumber: str('number'),
+                              dueOn: str('dueOn'),
+                              link,
+                            }
+                          : {
+                              name: recipient.name,
+                              title: str('title'),
+                              startsAt: new Date(str('startsAt')),
+                              timeZone: str('timeZone'),
+                              link,
+                              // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
+                              ...(await this.database.withScope(
+                                { kind: 'business', businessId },
+                                (tx) => noticeWords(tx, businessId, target.id, template),
+                              )),
+                              // A1: only the appointment's own client confirms it.
+                              ...(recipient.attendee ? { confirmAsk: false } : {}),
+                            };
       await this.sender.send({
         template,
         to: recipient.email!,

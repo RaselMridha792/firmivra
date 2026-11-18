@@ -12,6 +12,7 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
@@ -136,6 +137,7 @@ export class MyAppointmentsService {
     private readonly history: AppointmentHistory,
     private readonly notices: AppointmentNotices,
     @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
+    private readonly intakes: IntakeSendService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -364,6 +366,8 @@ export class MyAppointmentsService {
       return created;
     });
     await this.notices.send('appointment.booked', businessId, row.id, { clientAccountId });
+    // A9: the type's required intake form goes to the client's portal, linked to it.
+    await this.intakes.sendForAppointment(businessId, row.id, null);
     return toMine(row, Date.now(), withClient(row).clientId);
   }
 

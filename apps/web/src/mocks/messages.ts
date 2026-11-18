@@ -51,6 +51,8 @@ import {
   type MessageAttachment,
   SetNoteReminderRequest,
   UpdateInternalNoteRequest,
+  SHARED_NOTE_SUBJECT,
+  ShareNoteRequest,
   UpdateMessageSettingsRequest,
   SetMessageThreadAssigneeRequest,
   UpdateMessageThreadRequest,
@@ -1538,8 +1540,13 @@ const NOTE_TYPE_WORDS: Record<string, string> = {
 export function createClientNotesMock(options: { role?: MockFirmRole } = {}): ClientNotesClient {
   const role = options.role ?? 'OWNER';
   const me = role === 'STAFF' ? mockStaff : mockMe;
+  // As `api.messages`: a service mock's client (Bookkeeping, Payroll, Business Advisory, a tax
+  // return) is the firm's too, so its notes are kept and shared (B32) as the API does.
   const reaches = (clientId: string) =>
-    (clientId in CLIENTS || ARCHIVED.includes(clientId)) &&
+    (clientId in CLIENTS ||
+      ARCHIVED.includes(clientId) ||
+      serviceMockClient(clientId) ||
+      taxReturnMockClient(clientId)) &&
     (role !== 'STAFF' || STAFF_CLIENTS.includes(clientId));
   const view = (n: InternalNote): InternalNote => ({
     ...n,
@@ -1614,6 +1621,38 @@ export function createClientNotesMock(options: { role?: MockFirmRole } = {}): Cl
       const n = find(noteId);
       s().notes = s().notes.filter((x) => x !== n);
       return { ok: true };
+    },
+    // B32, as the API: whoever sees the note shares the version they previewed (409 NOTE_CHANGED
+    // otherwise), never an archived client's (409), as a new portal message; the note is untouched.
+    share: async (noteId, body) => {
+      await mockDelay();
+      const b = parseInput(ShareNoteRequest, body);
+      const n = s().notes.find((x) => x.id === parseInput(InternalNoteId, noteId));
+      if (!n || !reaches(n.clientId)) throw notFound();
+      if (Date.parse(n.updatedAt) !== Date.parse(b.updatedAt)) {
+        throw fail(
+          409,
+          'NOTE_CHANGED',
+          'This note changed since you opened the preview. Review it again before sharing.',
+        );
+      }
+      if (ARCHIVED.includes(n.clientId)) {
+        throw fail(409, 'CLIENT_ARCHIVED', 'Restore the client first');
+      }
+      const t: ThreadRow = {
+        id: id('0199b6e1', next()),
+        clientId: n.clientId,
+        engagementId: n.engagementId,
+        subject: SHARED_NOTE_SUBJECT,
+        related: null,
+        repliesEnabled: true,
+        automated: false,
+        archivedAt: null,
+        createdAt: now(),
+      };
+      s().threads.push(t);
+      const m = addMessage(t, staff(me), n.body);
+      return { threadId: t.id, messageId: m.id };
     },
   };
 }
