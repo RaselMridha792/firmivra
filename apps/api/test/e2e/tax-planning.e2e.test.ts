@@ -2275,6 +2275,36 @@ describe('the overview, Clients tab, calendar and resources', () => {
     expectError(await call('get', '/clients?status=NOPE', ownerA), 400, 'VALIDATION_FAILED');
   });
 
+  it('C08 and C22 (test gaps): each row shows its plan’s own status; year, staff and entity filter the list', async () => {
+    const page = async (q = '') =>
+      PlanningClientPage.parse(ok(await call('get', `/clients?pageSize=100${q}`, ownerA))).items;
+    const all = await page();
+    // C08: one status everywhere: the Clients list says what the plan itself says.
+    const withPlan = all.filter((r) => r.planId !== null);
+    expect(withPlan.length).toBeGreaterThan(0);
+    for (const r of withPlan) {
+      expect([r.client.id, r.status]).toEqual([r.client.id, (await plan(r.planId!)).status]);
+    }
+    const ids = (rows: typeof all) => rows.map((r) => r.client.id).sort();
+    // C22: the plan year.
+    const year = await page('&planYear=2026');
+    expect(ids(year)).toEqual(ids(all.filter((r) => r.planYear === 2026)));
+    expect(year.length).toBeGreaterThan(0);
+    expect(await page('&planYear=2031')).toEqual([]);
+    // The staff member.
+    const staffId = withPlan.find((r) => r.assignedTo)?.assignedTo?.userId;
+    expect(staffId).toBeTruthy();
+    const byStaff = await page(`&assignedUserId=${staffId}`);
+    expect(ids(byStaff)).toEqual(ids(all.filter((r) => r.assignedTo?.userId === staffId)));
+    // The entity, as the screen labels it.
+    const business = await page('&entityType=Business');
+    expect(ids(business)).toContain(clients.c2);
+    expect(business.every((r) => r.entityLabel === 'Business')).toBe(true);
+    expect(ids(await page('&entityType=Individual'))).toEqual(
+      ids(all.filter((r) => r.entityLabel === 'Individual')),
+    );
+  });
+
   it("opens the overview's KPI lists, finds a plan by its name and names the planning service (Review 2 C01, C02, C22)", async () => {
     const overview = TaxPlanningOverview.parse(ok(await call('get', '/overview', ownerA)));
     // C01: each KPI's list counts the clients the KPI counts.
