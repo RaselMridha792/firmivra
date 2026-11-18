@@ -7,21 +7,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type {
-  CheckOutboundRequest,
-  ListOutboundQuery,
-  OutboundAssigneeList,
-  OutboundCheck,
-  OutboundExclusion,
-  OutboundMessage,
-  OutboundMessageList,
-  OutboundRecipient,
-  OutboundRelated,
-  OutboundRelatedOptions,
-  OutboundReview,
-  SaveOutboundRequest,
-  ScheduleOutboundRequest,
-  UpdateOutboundRequest,
+import {
+  type CheckOutboundRequest,
+  filesOnlyBody,
+  type ListOutboundQuery,
+  type OutboundAssigneeList,
+  type OutboundCheck,
+  type OutboundExclusion,
+  type OutboundMessage,
+  type OutboundMessageList,
+  type OutboundRecipient,
+  type OutboundRelated,
+  type OutboundRelatedOptions,
+  type OutboundReview,
+  type SaveOutboundRequest,
+  type ScheduleOutboundRequest,
+  type UpdateOutboundRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
@@ -39,7 +40,7 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { fill } from '../templates/merge-fields.js';
 import { TemplateRenderService } from '../templates/template-render.service.js';
 import { MessagesService } from './messages.service.js';
-import { OutboundFilesService } from './outbound-files.service.js';
+import { bodyRequired, NO_TEXT, OutboundFilesService } from './outbound-files.service.js';
 
 type Channel = OutboundMessage['channel'];
 type Save = z.output<typeof SaveOutboundRequest>;
@@ -69,6 +70,9 @@ const CHANNEL_HOW = {
   SMS: 'by text',
 } as const;
 const linkOn = (base: string, path: string) => `${base.replace(/\/+$/, '')}${path}`;
+/** M22: a message of files only says what was sent (the reply's line), its files by name. */
+const filesLine = (files: readonly { fileName: string }[]) =>
+  filesOnlyBody(files.map((f) => f.fileName));
 
 const messageSelect = {
   id: true,
@@ -356,7 +360,7 @@ export class OutboundMessagesService {
       status: row.status,
       channel: row.channel,
       subject: row.subject,
-      body: row.body,
+      body: row.body === NO_TEXT ? '' : row.body,
       templateId: row.templateId,
       related:
         row.relatedEntityType && row.relatedEntityId
@@ -626,7 +630,7 @@ export class OutboundMessagesService {
         channel: body.channel,
         status: 'DRAFT',
         subject: body.subject ?? null,
-        body: body.body,
+        body: body.body ?? NO_TEXT,
         templateId: await this.template(tx, businessId, body.templateId),
         ...extras,
         createdByUserId: actor.userId,
@@ -698,11 +702,19 @@ export class OutboundMessagesService {
             code: 'SUBJECT_REQUIRED',
             message: 'An email needs a subject',
           });
+        // M22: a scheduled message keeps a text or a file.
+        if (
+          row.status === 'SCHEDULED' &&
+          save.body === undefined &&
+          (await tx.outboundMessageFile.count({ where: { businessId, outboundMessageId: id } })) ===
+            0
+        )
+          throw bodyRequired();
         await tx.outboundMessage.update({
           where: { id },
           data: {
             subject: save.subject ?? null,
-            body: save.body,
+            body: save.body ?? NO_TEXT,
             templateId: await this.template(tx, businessId, save.templateId),
             ...(await this.extras(tx, businessId, save)),
           },
@@ -835,6 +847,8 @@ export class OutboundMessagesService {
           canReceive: r.canReceive,
           reason: r.reason,
           ...f,
+          // M22: files with no text go with the files line, never filled.
+          body: m.body ? f.body : filesLine(m.files),
         });
       }
       const unresolved = [
@@ -852,6 +866,12 @@ export class OutboundMessagesService {
           code: 'SUBJECT_REQUIRED',
           severity: 'BLOCK',
           message: 'An email needs a subject.',
+        });
+      if (!m.body && m.files.length === 0)
+        checks.push({
+          code: 'BODY_REQUIRED',
+          severity: 'BLOCK',
+          message: 'Write a message or attach a file.',
         });
       if (unresolved.length > 0)
         checks.push({
@@ -917,8 +937,9 @@ export class OutboundMessagesService {
     }
   }
 
-  /** Ready to leave: an email has its subject, and someone can receive it. */
+  /** Ready to leave: a text or a file (M22), an email has its subject, and someone can receive it. */
   private ready(m: OutboundMessage): void {
+    if (!m.body && m.files.length === 0) throw bodyRequired();
     if (m.channel === 'EMAIL' && !m.subject?.trim())
       throw new BadRequestException({
         code: 'SUBJECT_REQUIRED',
@@ -1061,10 +1082,19 @@ export class OutboundMessagesService {
       const slug = (
         await tx.business.findUnique({ where: { id: businessId }, select: { slug: true } })
       )?.slug;
-      return { m, author, firm, queued, people, slug };
+      // M22: files with no text: each portal message says what was sent (the reply's line).
+      const filesOnly = m.body === NO_TEXT;
+      if (filesOnly)
+        m.body = filesLine(
+          await tx.outboundMessageFile.findMany({
+            where: { businessId, outboundMessageId: id },
+            select: { fileName: true },
+          }),
+        );
+      return { m, author, firm, queued, people, slug, filesOnly };
     });
     if (!plan) return;
-    const { m, author, firm, people, slug } = plan;
+    const { m, author, firm, people, slug, filesOnly } = plan;
     for (const r of plan.queued) {
       const p = people.find((x) => x.id === (r.clientId ?? r.leadId));
       const where = {
@@ -1094,7 +1124,7 @@ export class OutboundMessagesService {
       const text = await this.inFirm(businessId, async (tx) =>
         this.filled(await this.valuesFor(tx, businessId, author, p), m.subject, m.body),
       );
-      const own = { ...m, subject: text.subject, body: text.body };
+      const own = { ...m, subject: text.subject, body: filesOnly ? m.body : text.body };
       const outcome = await this.one(businessId, author, own, p, slug).catch((error: unknown) => {
         this.logger.warn(
           `message ${id}: a recipient failed (${error instanceof Error ? error.name : 'Error'})`,

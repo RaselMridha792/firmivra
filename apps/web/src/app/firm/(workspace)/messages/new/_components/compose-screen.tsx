@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  filesOnlyBody,
   OUTBOUND_FILES_MAX,
   OUTBOUND_RELATED_LABELS,
   OUTBOUND_RELATED_TYPES,
@@ -151,6 +152,7 @@ const ERRORS: Record<string, string> = {
   ATTACHMENT_TYPE: 'Messages Settings do not allow this type of file.',
   ATTACHMENT_TOO_LARGE: 'This file is over the size Messages Settings allow.',
   TOO_MANY_FILES: `A message carries at most ${OUTBOUND_FILES_MAX} files.`,
+  BODY_REQUIRED: 'Write a message or attach a file.',
 };
 const words = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0);
 
@@ -254,6 +256,9 @@ export function ComposeScreen({
   );
   const can = check.data?.recipients.filter((r) => r.canReceive).length ?? 0;
   const smsTooLong = form.channel === 'SMS' && form.body.length > 1600;
+  // M22: a Portal message may go with files alone (they reach clients through their portal).
+  const hasText = form.body.trim() !== '';
+  const hasContent = hasText || (form.channel === 'PORTAL' && (saved?.files.length ?? 0) > 0);
   const subjectMissing = form.channel === 'EMAIL' && !form.subject.trim();
   const when = form.later && form.date ? toInstant(form.date, form.time, timeZone) : null;
   const finished = saved && !saved.editable;
@@ -263,7 +268,7 @@ export function ComposeScreen({
       ? 'review'
       : chosen === 0
         ? 'recipients'
-        : !form.body.trim()
+        : !hasContent
           ? 'details'
           : 'review';
 
@@ -273,7 +278,8 @@ export function ComposeScreen({
   const payload = () => ({
     channel: form.channel,
     subject: form.subject.trim() || null,
-    body: form.body.trim(),
+    // Left out with no text: a Portal message of files alone (M22).
+    body: form.body.trim() || undefined,
     templateId: form.templateId,
     related:
       oneClient && relatedType && relatedId
@@ -335,7 +341,7 @@ export function ComposeScreen({
     setBusy(false);
   };
   const sendDisabled =
-    busy || chosen === 0 || !form.body.trim() || can === 0 || smsTooLong || subjectMissing;
+    busy || chosen === 0 || !hasContent || can === 0 || smsTooLong || subjectMissing;
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="compose">
@@ -484,7 +490,7 @@ export function ComposeScreen({
             <ComposeFiles
               message={saved}
               channel={form.channel}
-              canSave={chosen > 0 && form.body.trim() !== '' && !smsTooLong}
+              canSave={chosen > 0 && (hasText || form.channel === 'PORTAL') && !smsTooLong}
               prepare={prepare}
               onChanged={setSaved}
               onError={(text) => setNotice({ text, tone: 'error' })}
@@ -581,7 +587,7 @@ export function ComposeScreen({
                 </Link>
                 <Button
                   variant="secondary"
-                  disabled={busy || chosen === 0 || !form.body.trim()}
+                  disabled={busy || chosen === 0 || !hasContent}
                   onClick={() => void run('draft')}
                 >
                   Save Draft
@@ -771,7 +777,7 @@ function ComposeFiles({
 }: {
   message?: OutboundMessage;
   channel: OutboundMessage['channel'];
-  /** A draft can be saved: someone is chosen and there is a message. */
+  /** A draft can be saved: someone is chosen, and a message (or the Portal channel, M22). */
   canSave: boolean;
   prepare: () => Promise<OutboundMessage>;
   onChanged: (m: OutboundMessage) => void;
@@ -869,7 +875,7 @@ function ComposeFiles({
             `Max size: ${maxMb} MB per file, up to ${OUTBOUND_FILES_MAX} files`,
             canSave
               ? 'Files go to clients through their portal (Portal channel), never by email or text.'
-              : 'Choose recipients and write the message first: files go on the saved draft.',
+              : 'Choose recipients first (and write the message for email or text): files go on the saved draft.',
           ]}
           onFiles={(picked) => void add(picked)}
         />
@@ -994,7 +1000,11 @@ function Drafts({ currentId }: { currentId?: string }) {
         {items.map((m) => (
           <li key={m.id} className="flex items-center justify-between gap-2">
             <span className="min-w-0 truncate">
-              <span className="font-medium text-heading">{m.subject || m.body.slice(0, 40)}</span>
+              <span className="font-medium text-heading">
+                {m.subject ||
+                  m.body.slice(0, 40) ||
+                  filesOnlyBody(m.files.map((f) => f.fileName)).slice(0, 40)}
+              </span>
               <span className="text-muted">
                 {' '}
                 · {m.status === 'SCHEDULED' ? 'Scheduled' : 'Draft'} · {m.counts.total}{' '}
