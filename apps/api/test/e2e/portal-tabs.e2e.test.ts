@@ -169,7 +169,11 @@ describe('Settings > Client Portal > Features (portal tabs)', () => {
   it('starts with every tab on, for the firm and in the portal menu', async () => {
     const firm = await send('get', SETTINGS, owner);
     expect(firm.status).toBe(200);
-    expect(PortalTabs.parse(firm.body)).toEqual({ tabs: ALL_ON, layout: DEFAULT_PORTAL_LAYOUT });
+    expect(PortalTabs.parse(firm.body)).toEqual({
+      tabs: ALL_ON,
+      layout: DEFAULT_PORTAL_LAYOUT,
+      custom: [],
+    });
     const menu = await send('get', `/portal/${slug}/me/tabs`, client);
     expect(PortalTabs.parse(menu.body).tabs).toEqual(ALL_ON);
   });

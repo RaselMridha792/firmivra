@@ -169,7 +169,7 @@ Octavia's Review One for what a client sees in their portal and for Settings > C
 | CP-5a All six tabs switch | Done | #1626 (db), #1628 | e2e `portal-tabs` "CP-5a: with Business Documents & Resources off, its resources are refused by address too"; mock `r1-portal-review1` CP-5 |
 | CP-5b, CP-5c Rename and reorder | Done | #1626 (db), #1628 | e2e `portal-tabs` "CP-5b, CP-5c: renames and reorders the built-in tabs, for the portal too, audited once"; mock `r1-portal-review1` CP-5 |
 | CP-5h Features preview | Done | #1628 | mock `r1-portal-review1` "CP-5a to CP-5c, CP-5h: rename, reorder and switch the tabs, with a preview, and the portal follows" |
-| CP-5d, CP-5e Custom tabs and who sees them | **GAP**: next PR (schema in #1626) | | |
+| CP-5d, CP-5e Custom tabs and who sees them | Done: Features > Custom Tabs (document upload or business resources; all business clients, a tag, or chosen clients; on/off; archive); the portal lists them after the built-in tabs, business portals only | #1626 (db), #1634 | e2e `portal-custom-tabs` (5 tests: Owner/Admin only, names, audiences, audit, archive, other firm); e2e `documents-portal` "CP-5d: a custom document tab…" (the upload keeps the tab); mock `r1-portal-review1` "CP-5d, CP-5e: …" |
 | CP-6.6 Phone layout | Done (test) | #1619 | mock `r1-portal-review1` "CP-6.6: Settings > Client Portal fits a phone, every panel" |
 | CP-7.1 Cancel and leaving with unsaved changes | Done | #1619 | mock `r1-portal-review1` "CP-7.1: General has Cancel, and leaving with unsaved changes asks first" |
 | CP-7.6, CP-7.7 Rollout and sign-off evidence | Her retest and Rasel's release steps | | |
