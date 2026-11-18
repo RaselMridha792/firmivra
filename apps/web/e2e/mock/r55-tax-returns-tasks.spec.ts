@@ -22,7 +22,9 @@ async function taskOnReturn(page: Page, title: string) {
     timeout: 60_000,
   });
   await page.locator('#tf-title').fill(title);
-  await page.getByLabel('Task type').selectOption({ index: 1 });
+  // Tasks Review Two T-C04: Task Type is a dropdown with Edit and Delete beside each type.
+  await page.getByLabel('Task type').click();
+  await page.getByRole('listbox', { name: 'Task types' }).getByRole('option').nth(1).click();
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
   await page.getByRole('button', { name: 'Save Task' }).click();

@@ -16,6 +16,8 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
+import { mockIntakeFormsOfClient } from './intake-forms';
+import { mockPortalInvitationOf } from './portal-invitations';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MEMBER = 'Morgan Example';
@@ -144,7 +146,9 @@ export function createClientPortalMock(): ClientPortalClient {
       const lock = lockOf(found.id);
       const active = found.portalLogins.some((l) => l.status === 'ACTIVE');
       const pending = found.portalLogins.some((l) => l.status === 'PENDING_APPROVAL');
-      const latest = events(found.id)[0];
+      // As the API: the client's own last action; a member's (a preview) never counts.
+      const latest = events(found.id).find((e) => e.actor.kind === 'CLIENT');
+      const invitation = mockPortalInvitationOf(found.id, found.portalLogins);
       const header: ClientPortalHeader = {
         client: {
           id: found.id,
@@ -166,14 +170,17 @@ export function createClientPortalMock(): ClientPortalClient {
                 ? 'ACTIVE'
                 : pending
                   ? 'PENDING_APPROVAL'
-                  : 'NOT_ACTIVATED',
+                  : invitation?.state === 'OPEN'
+                    ? 'INVITATION_PENDING'
+                    : 'NOT_ACTIVATED',
           lock,
           logins: found.portalLogins,
           portalSince: active ? '2024-01-12T15:00:00.000Z' : null,
           lastLogin: active ? new Date(Date.now() - 6 * DAY_MS).toISOString() : null,
           lastActivity: latest ? { at: latest.at, type: latest.type } : null,
           mfa: active ? 'ENABLED' : null,
-          invitation: null,
+          // As the API: the client's newest invitation (an invitation sent here shows here).
+          invitation,
           invitationBlocked: found.email ? (active || pending ? 'HAS_LOGIN' : null) : 'NO_EMAIL',
           link: PORTAL,
         },
@@ -349,6 +356,16 @@ export function createClientPortalMock(): ClientPortalClient {
     preview: async (clientId) => {
       await mockDelay();
       const { found } = record(clientId);
+      // As the API: the member's preview is in the client's portal activity, as a staff row.
+      const list = events(found.id);
+      list.unshift({
+        id: `0199d100-0000-7000-8001-${String(list.length + 1).padStart(12, '0')}`,
+        at: new Date().toISOString(),
+        type: 'portal.preview_opened',
+        actor: { kind: 'STAFF', name: 'Mock User' },
+        entity: { type: 'client', id: found.id },
+        ip: '198.51.100.90',
+      });
       return {
         clientName: found.displayName,
         firmName: 'LVP Accounting & Taxes (fake)',
@@ -366,10 +383,19 @@ export function createClientPortalMock(): ClientPortalClient {
     },
     formsSummary: async (clientId) => {
       await mockDelay();
-      const has = record(clientId).found.portalLogins.length > 0;
-      return has
-        ? { total: 8, completed: 3, needsReview: 1, inProgress: 2, notStarted: 1, archived: 1 }
-        : { total: 0, completed: 0, needsReview: 0, inProgress: 0, notStarted: 0, archived: 0 };
+      record(clientId);
+      // As the API: counted from the client's intake forms, the records the list shows (before,
+      // fixed numbers that the empty list contradicted).
+      const forms = mockIntakeFormsOfClient(clientId);
+      const n = (...status: string[]) => forms.filter((f) => status.includes(f.status)).length;
+      return {
+        total: forms.length,
+        completed: n('COMPLETED'),
+        needsReview: n('SUBMITTED', 'UNDER_REVIEW'),
+        inProgress: n('IN_PROGRESS', 'NEEDS_CORRECTION'),
+        notStarted: n('SENT', 'EXPIRED'),
+        archived: n('ARCHIVED'),
+      };
     },
   };
 }

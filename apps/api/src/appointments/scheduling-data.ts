@@ -6,7 +6,7 @@ import type {
   BusyAgendaItem,
   MemberRef,
 } from '@firmivra/types';
-import { appointmentSelect, type FirmActor, seesInFull } from './calendar-data.js';
+import { appointmentSelect, type FirmActor, inFullWhere, seesInFull } from './calendar-data.js';
 import { errors } from './errors.js';
 import {
   colorHex,
@@ -15,6 +15,7 @@ import {
   reminderFromOffset,
   versionOf,
 } from './scheduling-map.js';
+import { clientOrLeadName } from './appointment-party.js';
 
 // The rows and shapes of the scheduling screens (contract in
 // packages/types/src/appointments/scheduling.ts). They read the same appointment records as R12's
@@ -69,6 +70,18 @@ export const schedulingSelect = {
       accountType: true,
     },
   },
+  // P4-1: a lead's own appointment is with its lead (the contact the screens show).
+  lead: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      assignedUserId: true,
+      businessName: true,
+      email: true,
+      phone: true,
+    },
+  },
   type: { select: { id: true, name: true, color: true } },
   // A1: the other clients who attend (a group appointment), for staff only.
   attendees: {
@@ -108,6 +121,20 @@ const memberRef = (m: { userId: string; user: { name: string } }): MemberRef => 
 });
 
 export function contactOf(row: SchedulingRow): AppointmentContact {
+  if (!row.clientId || !row.client) {
+    // P4-1: a lead's own appointment is with its lead (the database keeps one of the two).
+    const lead = row.lead;
+    if (!lead) throw new Error(`appointment ${row.id} has neither a client nor a lead`);
+    return {
+      kind: 'LEAD',
+      id: lead.id,
+      name: clientOrLeadName({ client: null, lead }),
+      businessName: lead.businessName,
+      email: lead.email || null,
+      phone: lead.phone,
+      clientType: null,
+    };
+  }
   const business = row.client.accountType === 'BUSINESS';
   return {
     kind: 'CLIENT',
@@ -153,7 +180,7 @@ export function toAgendaItem(row: SchedulingRow): AgendaItem {
     },
     videoUrl: videoUrlOf(row),
     color: colorOf(row),
-    // An appointment always has a client for now (internal meetings need a schema change).
+    // An appointment has a client or a lead (internal meetings need a schema change).
     internal: false,
   };
 }
@@ -279,13 +306,8 @@ export async function findSchedulingRow(
   id: string,
 ): Promise<SchedulingRow | null> {
   return tx.appointment.findFirst({
-    where: {
-      businessId,
-      id,
-      ...(actor.role === 'STAFF'
-        ? { OR: [{ staffUserId: actor.userId }, { client: { assignedUserId: actor.userId } }] }
-        : {}),
-    },
+    // P4-1: R12's rule, a lead's own appointment by its lead (calendar-data inFullWhere).
+    where: { AND: [{ businessId, id }, inFullWhere(actor)] },
     select: schedulingSelect,
   });
 }

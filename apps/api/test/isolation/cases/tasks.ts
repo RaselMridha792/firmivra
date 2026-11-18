@@ -196,6 +196,9 @@ const BASE = '/api/v1/business';
 const NEW_TASK_IDS = {
   clientId: 'client',
   engagementId: 'engagement',
+  // C15 (Tax Planning Review 2) and T-C10: Related To's plan and deadline of the client.
+  taxPlanId: 'taxPlan',
+  deadlineId: 'complianceDeadline',
   assignedUserId: 'adminUser',
   typeId: 'taskType',
   serviceId: 'service',
@@ -210,6 +213,8 @@ const PLACEHOLDER = randomUUID();
 const draftChangeIds = (step: string) => ({
   clientId: 'client',
   engagementId: 'engagement',
+  taxPlanId: 'taxPlan',
+  deadlineId: 'complianceDeadline',
   assignedUserId: 'adminUser',
   typeId: 'taskType',
   serviceId: 'service',
@@ -228,8 +233,7 @@ const draftChange = {
 export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/tasks`]: {
     params: {},
-    // C15 (Tax Planning Review 2): a task of the client's plan.
-    bodyIds: { ...NEW_TASK_IDS, taxPlanId: 'taxPlan' },
+    bodyIds: NEW_TASK_IDS,
     body: {
       title: 'Fake task',
       checklist: [{ label: 'Fake step', assignedUserId: PLACEHOLDER }],
@@ -239,6 +243,10 @@ export const cases: CaseModule['cases'] = {
   [`PATCH ${BASE}/tasks/:id`]: {
     params: { id: 'taskWithItem' },
     bodyIds: {
+      // T-C10: Related To changes in Edit.
+      engagementId: 'engagement',
+      taxPlanId: 'taxPlan',
+      deadlineId: 'complianceDeadline',
       assignedUserId: 'adminUser',
       typeId: 'taskType',
       serviceId: 'service',

@@ -191,6 +191,12 @@ export interface NotifyTemplates {
   'appointment.booked': AppointmentData;
   'appointment.changed': AppointmentData;
   'appointment.reminder': AppointmentData;
+  /**
+   * P4-1: a lead's own appointment (no client yet), to the lead's email: the booking's
+   * confirmation and its reminder only. No portal (a lead has none): no link and no ask to confirm.
+   */
+  'appointment.lead-booked': LeadAppointmentData;
+  'appointment.lead-reminder': LeadAppointmentData;
   /** Appointments Review 2 (P3): the firm cancelled it; the reason staff gave, if any. */
   'appointment.cancelled': Omit<AppointmentData, 'message' | 'instructions'> & {
     reason: string | null;
@@ -340,6 +346,9 @@ export interface AppointmentData extends IgnoredFirmName {
   confirmAsk?: boolean;
 }
 
+/** P4-1: a lead's appointment notice: as a client's, without the portal link or confirm ask. */
+export type LeadAppointmentData = Omit<AppointmentData, 'link' | 'confirmAsk'>;
+
 export type NotifyTemplate = keyof NotifyTemplates;
 export type NotifyChannel = 'email' | 'sms';
 
@@ -362,6 +371,8 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.booked': 'email',
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
+  'appointment.lead-booked': 'email',
+  'appointment.lead-reminder': 'email',
   'appointment.cancelled': 'email',
   'appointment.waitlist-offer': 'email',
   'project-deadline.reminder': 'email',
@@ -421,6 +432,8 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.booked': 'firm',
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
+  'appointment.lead-booked': 'firm',
+  'appointment.lead-reminder': 'firm',
   'appointment.cancelled': 'firm',
   'appointment.waitlist-offer': 'firm',
   'project-deadline.reminder': 'firm',
@@ -516,6 +529,8 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.booked': 'APPOINTMENTS',
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',
+  'appointment.lead-booked': 'APPOINTMENTS',
+  'appointment.lead-reminder': 'APPOINTMENTS',
   'appointment.cancelled': 'APPOINTMENTS',
   'appointment.waitlist-offer': 'APPOINTMENTS',
   'project-deadline.reminder': 'SERVICES',

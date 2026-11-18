@@ -844,6 +844,49 @@ describe('activation, pausing and copies', () => {
   });
 });
 
+describe('task automations are Owner and Admin only (Tasks Review Two T-D10)', () => {
+  it('refuses Staff creating, editing, activating, pausing and archiving a task automation; Admin may', async () => {
+    const definition = {
+      trigger: { module: 'TASKS', event: 'task.overdue' },
+      actions: [{ id: 't', type: 'CREATE_TASK', config: { title: 'Follow up', dueInDays: 7 } }],
+    };
+    expectError(
+      await call('post', '/rules', staffA, { name: mark('Staff'), category: 'TASKS', definition }),
+      403,
+      'FORBIDDEN',
+    );
+    const made = await createRule(definition, { name: mark('Task rule'), category: 'TASKS' });
+    expectError(
+      await call('patch', `/rules/${made.id}`, staffA, { etag: made.etag, name: mark('Renamed') }),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call('put', `/rules/${made.id}/definition`, staffA, { etag: made.etag, definition }),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(await activate(made.id, staffA), 403, 'FORBIDDEN');
+    expect(AutomationRuleDetail.parse(ok(await activate(made.id))).status).toBe('ACTIVE');
+    expectError(await call('post', `/rules/${made.id}/pause`, staffA, {}), 403, 'FORBIDDEN');
+    expectError(
+      await call('post', `/rules/${made.id}/archive`, staffA, { etag: (await rule(made.id)).etag }),
+      403,
+      'FORBIDDEN',
+    );
+    expect((await rule(made.id)).status).toBe('ACTIVE');
+    // An Admin does each of them.
+    expect(
+      AutomationRuleDetail.parse(ok(await call('post', `/rules/${made.id}/pause`, adminA, {})))
+        .status,
+    ).toBe('PAUSED');
+    ok(
+      await call('post', `/rules/${made.id}/archive`, adminA, { etag: (await rule(made.id)).etag }),
+    );
+    expect((await rule(made.id)).status).toBe('ARCHIVED');
+  });
+});
+
 describe('dry runs', () => {
   it('count and sample what a rule would act on, create nothing, and say what is wrong', async () => {
     const runsBefore = await inFirm('a', (tx) =>

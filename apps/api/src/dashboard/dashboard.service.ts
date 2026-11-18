@@ -213,9 +213,15 @@ export class DashboardService {
                 OR EXISTS (SELECT 1 FROM leads l
                   WHERE l.business_id = i.business_id AND l.id = i.lead_id
                     AND l.assigned_user_id = ${reachUser}::uuid))) AS intakes_open,
-            (SELECT count(*)::int FROM appointments a ${ofClient('a')} WHERE a.business_id = ${businessId}::uuid
+            -- P4-1: a lead's own appointment (no client yet) counts too, in the calendar's reach
+            -- (Staff: theirs, their client's, or their lead's).
+            (SELECT count(*)::int FROM appointments a
+              LEFT JOIN clients c ON c.business_id = a.business_id AND c.id = a.client_id
+              LEFT JOIN leads l ON l.business_id = a.business_id AND l.id = a.lead_id
+              WHERE a.business_id = ${businessId}::uuid
               AND a.status = 'SCHEDULED' AND a.starts_at >= p.day_start AND a.starts_at < p.day_end
-              AND (${mine} OR a.staff_user_id = ${staff}::uuid)) AS appointments_today,
+              AND (${mine} OR a.staff_user_id = ${staff}::uuid
+                OR (a.client_id IS NULL AND l.assigned_user_id = ${staff}::uuid))) AS appointments_today,
             (SELECT COALESCE(sum(GREATEST(0, i.total_cents - app_invoice_paid_cents(i.id))), 0)::float8
               FROM invoices i ${ofClient('i')} WHERE i.business_id = ${businessId}::uuid
               AND i.status = 'OPEN' AND ${mine}) AS outstanding

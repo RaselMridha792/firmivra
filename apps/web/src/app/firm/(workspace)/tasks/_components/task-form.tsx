@@ -37,6 +37,7 @@ import {
   ReminderList,
   Section,
   ClientCombobox,
+  handOffToRecurring,
   Selectbox,
   field,
 } from './task-form-parts';
@@ -51,7 +52,7 @@ import {
   timeText,
 } from './task-shared';
 import { ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
-import { recurringHref } from './new-task-href';
+import { recurringHref, relatedChoice, splitRelated } from './new-task-href';
 
 /** The page Create Task was opened from (SH1), if any. */
 const openedFrom = () => safeOrigin(new URLSearchParams(window.location.search).get(ORIGIN_PARAM));
@@ -213,9 +214,23 @@ function Form({
   const [clientNames, setClientNames] = useState<Record<string, string>>(
     prefill ? { [prefill.clientId]: prefill.clientName } : {},
   );
-  const [engagementId, setEngagementId] = useState(
-    seed?.engagementId ?? prefill?.engagementId ?? '',
-  );
+  // T-C10: Related To is one choice: the client's engagement, tax plan or deadline, or a custom
+  // note that is not a record. `saved` is what the task holds, so Edit sends only a change.
+  const [saved, setSaved] = useState(() => ({
+    choice: seed
+      ? relatedChoice(seed)
+      : prefill?.engagementId
+        ? `engagement:${prefill.engagementId}`
+        : '',
+    note: seed?.relatedText ?? '',
+  }));
+  const [related, setRelated] = useState(saved.choice);
+  const [note, setNote] = useState(saved.note);
+  // The note's box shows until its Save keeps it.
+  const [noteOpen, setNoteOpen] = useState(!saved.note);
+  const chosen = splitRelated(related);
+  const engagementId = chosen.kind === 'engagement' ? chosen.id : '';
+  const noteText = chosen.kind === 'custom' ? note.trim() : '';
   // Review 2 (Payroll F04, Bookkeeping N05): null until someone chooses, so a new task opened on
   // a service's engagement takes that service; a task being edited or a draft keeps its own.
   const [serviceChoice, setServiceChoice] = useState<string | null>(
@@ -300,19 +315,62 @@ function Form({
 
   const typeChoice = useTypeChoice(typeId, seed?.type);
 
-  // Octavia's C5: Related To is one of the chosen client's engagements (open or not started), not
-  // a second Service list; a task keeps the one it has. Other record types need a contract.
+  // Octavia's C5 (T-C10): Related To lists the chosen client's records by type, not a second
+  // Service list: open or not started engagements, tax plans that are not closed, and open
+  // deadlines; the task (or draft) keeps the ones it has.
+  const plans = useApiQuery([...TASKS_KEY, 'related-plans', clientId], async () =>
+    clientId ? (await api.taxPlanning.plans({ clientId, pageSize: 100 })).items : [],
+  );
+  const deadlines = useApiQuery([...TASKS_KEY, 'related-deadlines', clientId], async () =>
+    clientId ? (await api.compliance.clientCompliance(clientId)).deadlines : [],
+  );
+  const kept = seed && seed.client?.id === clientId ? seed : undefined;
   const relatedOptions = [
-    ...(seed?.engagement ? [{ value: seed.engagement.id, label: seed.engagement.title }] : []),
+    ...(kept?.engagement
+      ? [
+          {
+            value: `engagement:${kept.engagement.id}`,
+            label: kept.engagement.title,
+            group: 'Engagement',
+          },
+        ]
+      : []),
     ...(engagements.data ?? [])
       .filter(
-        (x) => x.id !== seed?.engagement?.id && (x.status === 'ACTIVE' || x.status === 'PENDING'),
+        (x) => x.id !== kept?.engagement?.id && (x.status === 'ACTIVE' || x.status === 'PENDING'),
       )
       .map((x) => ({
-        value: x.id,
+        value: `engagement:${x.id}`,
         label: `${x.title} (${x.status === 'ACTIVE' ? 'open' : 'not started'})`,
+        group: 'Engagement',
+      })),
+    ...(kept?.taxPlan
+      ? [{ value: `taxPlan:${kept.taxPlan.id}`, label: kept.taxPlan.name, group: 'Tax plan' }]
+      : []),
+    ...(plans.data ?? [])
+      .filter((p) => p.id !== kept?.taxPlan?.id && p.status !== 'CLOSED')
+      .map((p) => ({
+        value: `taxPlan:${p.id}`,
+        label: `${p.name} (${p.planYear})`,
+        group: 'Tax plan',
+      })),
+    ...(kept?.deadline
+      ? [{ value: `deadline:${kept.deadline.id}`, label: kept.deadline.name, group: 'Deadline' }]
+      : []),
+    ...(deadlines.data ?? [])
+      .filter((d) => d.id !== kept?.deadline?.id)
+      .map((d) => ({
+        value: `deadline:${d.id}`,
+        label: `${d.name} (due ${dayText(d.dueOn)})`,
+        group: 'Deadline',
       })),
   ];
+  const relatedSummary =
+    chosen.kind === 'custom'
+      ? noteText
+        ? `Custom: ${noteText}`
+        : 'Custom note'
+      : (relatedOptions.find((o) => o.value === related)?.label ?? '—');
 
   // Attachments (C6): files go to the client's documents under one of the client's open
   // services: the Related To project when it is open, else the first open one.
@@ -410,7 +468,9 @@ function Form({
     typeId,
     details,
     clientId,
-    engagementId,
+    // T-C10: against what the task holds, so a note saved on its own leaves nothing unsaved.
+    relatedChanged:
+      related !== saved.choice || noteText !== (related === 'custom' ? saved.note : ''),
     serviceChoice,
     assignee,
     extra,
@@ -440,12 +500,51 @@ function Form({
     files.sendable.length && fileService && clientId
       ? files.upload(files.sendable, clientId, fileService.id)
       : [];
+  /** T-C10: Related To as a draft holds it (`null` clears): one record, or the custom note. */
+  const relatedFields = () => ({
+    engagementId: chosen.kind === 'engagement' ? chosen.id : null,
+    taxPlanId: chosen.kind === 'taxPlan' ? chosen.id : null,
+    deadlineId: chosen.kind === 'deadline' ? chosen.id : null,
+    relatedText: noteText || null,
+  });
+  /** Related To of a new task or draft: only what is chosen. */
+  const relatedForNew = () => ({
+    ...(chosen.kind === 'engagement' ? { engagementId: chosen.id } : {}),
+    ...(chosen.kind === 'taxPlan' ? { taxPlanId: chosen.id } : {}),
+    ...(chosen.kind === 'deadline' ? { deadlineId: chosen.id } : {}),
+    ...(noteText ? { relatedText: noteText } : {}),
+  });
+  /**
+   * Edit sends Related To only when it changed: the new record or note, and the old choice
+   * cleared, so another link the task has (a deadline's task with an engagement) stays.
+   */
+  const relatedChange = (): Pick<
+    UpdateTaskDetailRequest,
+    'engagementId' | 'taxPlanId' | 'deadlineId' | 'relatedText'
+  > => {
+    if (related === saved.choice && noteText === (related === 'custom' ? saved.note : ''))
+      return {};
+    const field = { engagement: 'engagementId', taxPlan: 'taxPlanId', deadline: 'deadlineId' };
+    const out: Record<string, string | null> = {};
+    const was = splitRelated(saved.choice).kind;
+    if (was === 'custom') out['relatedText'] = null;
+    else if (was) out[field[was]] = null;
+    if (chosen.kind === 'custom') {
+      out['relatedText'] = noteText;
+      // A record and a note never together: the engagement goes (the tasks_related_text check).
+      if (seed?.engagement) out['engagementId'] = null;
+    } else if (chosen.kind) {
+      out[field[chosen.kind]] = chosen.id;
+      if (chosen.kind === 'engagement' && seed?.relatedText) out['relatedText'] = null;
+    }
+    return out;
+  };
   /** A draft's fields as they stand (A2): `null` clears; new files join the ones it has. */
   const draftFields = (documentIds: string[]) => ({
     title: title.trim(),
     details,
     clientId: clientId || null,
-    engagementId: engagementId || null,
+    ...relatedFields(),
     dueOn: dueOn || null,
     assignedUserId: assignee || null,
     ...common(),
@@ -472,6 +571,7 @@ function Form({
         details,
         dueOn: dueOn || null,
         assignedUserId: assignee || null,
+        ...relatedChange(),
         ...common(),
         checklist: checklistBody,
       };
@@ -485,7 +585,7 @@ function Form({
       clientId,
       title: title.trim(),
       details,
-      ...(engagementId ? { engagementId } : {}),
+      ...relatedForNew(),
       ...(dueOn ? { dueOn } : {}),
       ...(assignee ? { assignedUserId: assignee } : {}),
       ...common(),
@@ -506,7 +606,7 @@ function Form({
       title: title.trim(),
       details,
       ...(clientId ? { clientId } : {}),
-      ...(engagementId ? { engagementId } : {}),
+      ...relatedForNew(),
       ...(dueOn ? { dueOn } : {}),
       ...(assignee ? { assignedUserId: assignee } : {}),
       ...common(),
@@ -536,11 +636,42 @@ function Form({
     options,
   );
 
+  /**
+   * T-C10: the custom note's own Save. Create Task and a draft keep it in the form (it saves with
+   * the task); Edit Task saves it to the task at once and takes the task's new version.
+   */
+  const saveNoteNow = useApiMutation(
+    () => api.taskWork.update(task!.id, { version, ...relatedChange() }),
+    options,
+  );
+  function saveNote() {
+    if (!noteText) {
+      setErrors((e) => ({ ...e, related: 'Type the custom note, or choose a record' }));
+      return;
+    }
+    setErrors(({ related: _gone, ...rest }) => rest);
+    if (!task || (saved.choice === 'custom' && saved.note === noteText)) {
+      setNoteOpen(false);
+      return;
+    }
+    saveNoteNow.mutate(undefined, {
+      onSuccess: (fresh) => {
+        setVersion(fresh.version);
+        setSaved({ choice: 'custom', note: noteText });
+        setNoteOpen(false);
+        setMessage({ text: 'Custom note saved.', tone: 'success' });
+      },
+      onError: (er) => setMessage({ text: errorMessage(er, TASK_ERRORS), tone: 'error' }),
+    });
+  }
+
   function validate() {
     const e: Record<string, string> = {};
     if (!title.trim()) e['title'] = 'Enter the task name';
     if (typeChoice.problem) e['type'] = typeChoice.problem;
     if (!clientId) e['client'] = 'Choose a client';
+    if (chosen.kind === 'custom' && !noteText)
+      e['related'] = 'Type the custom note, or choose a record';
     if (!assignee && !byTeam) e['assignee'] = 'Choose who it is assigned to';
     if (!dueOn) e['due'] = 'Choose a due date';
     if (startOn && dueOn && startOn > dueOn) e['due'] = 'The due date is before the start';
@@ -633,10 +764,7 @@ function Form({
 
   const summary: [string, string][] = [
     ['Client', clientName || '—'],
-    [
-      'Related To',
-      engagements.data?.find((x) => x.id === engagementId)?.title ?? seed?.engagement?.title ?? '—',
-    ],
+    ['Related To', relatedSummary],
     [
       'Service',
       services.data?.items.find((s) => s.id === serviceId)?.name ?? seed?.service?.name ?? '—',
@@ -768,12 +896,12 @@ function Form({
                   onChoose={(c) => {
                     setClientNames((n) => ({ ...n, [c.id]: c.displayName }));
                     setClientId(c.id);
-                    setEngagementId('');
+                    setRelated('');
                     setClientSearch('');
                   }}
                   onClear={() => {
                     setClientId('');
-                    setEngagementId('');
+                    setRelated('');
                     setClientSearch('');
                   }}
                 />
@@ -783,24 +911,24 @@ function Form({
                 <Selectbox
                   id="tf-related"
                   label="Related to"
-                  value={engagementId}
-                  disabled={!clientId || editing}
-                  onChange={setEngagementId}
+                  value={related}
+                  disabled={!clientId}
+                  onChange={(v) => {
+                    setRelated(v);
+                    if (v === 'custom' && !noteText) setNoteOpen(true);
+                  }}
                   options={[
                     {
                       value: '',
-                      label: !clientId
-                        ? 'Choose a client first'
-                        : relatedOptions.length
-                          ? 'No engagement'
-                          : 'No open engagement for this client',
+                      label: !clientId ? 'Choose a client first' : 'No related record',
                     },
                     ...relatedOptions,
+                    ...(clientId ? [{ value: 'custom', label: 'Custom note (not a record)' }] : []),
                   ]}
                 />
                 <p className="text-xs text-muted">
-                  The client&apos;s engagement this work belongs to. The service is chosen
-                  separately.
+                  The client&apos;s engagement, tax plan or deadline this work belongs to, or a
+                  custom note. The service is chosen separately.
                 </p>
               </Label>
               <Label text="Service (if applicable)" htmlFor="tf-service">
@@ -818,6 +946,58 @@ function Form({
                   ]}
                 />
               </Label>
+              {/* T-C10 (A1): Related To typed when no record fits, with its own Save. */}
+              {chosen.kind === 'custom' ? (
+                <div className="flex flex-col gap-1 md:col-span-3" data-testid="related-note">
+                  <label htmlFor="tf-related-note" className="text-sm font-medium text-heading">
+                    Custom note (not a record)
+                  </label>
+                  {noteOpen ? (
+                    <div className="flex gap-2">
+                      <input
+                        id="tf-related-note"
+                        className={field}
+                        value={note}
+                        maxLength={200}
+                        placeholder="What this task relates to"
+                        aria-invalid={errors['related'] ? true : undefined}
+                        onChange={(e) => setNote(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            saveNote();
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        disabled={saveNoteNow.isPending}
+                        onClick={saveNote}
+                        data-testid="related-note-save"
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="flex flex-wrap items-center gap-2 text-sm text-text">
+                      <span data-testid="related-note-text">Custom: {noteText}</span>
+                      <button
+                        type="button"
+                        className="font-medium text-link underline"
+                        onClick={() => setNoteOpen(true)}
+                      >
+                        Change
+                      </button>
+                    </p>
+                  )}
+                  <p className="text-xs text-muted">
+                    {task
+                      ? 'Save keeps the note on this task now. It is a note, not a link to a record.'
+                      : 'Save keeps the note with this task. It is a note, not a link to a record.'}
+                  </p>
+                  {err('related')}
+                </div>
+              ) : null}
             </div>
           </Section>
 
@@ -967,7 +1147,11 @@ function Form({
                   <Toggle
                     label="Recurring Task"
                     checked={false}
-                    onChange={() => guard.leave(keepOrigin(recurringHref(clientId, engagementId)))}
+                    onChange={() => {
+                      // T-C11: the title and checklist typed here come along.
+                      handOffToRecurring({ title, items });
+                      guard.leave(keepOrigin(recurringHref(clientId, engagementId)));
+                    }}
                   />
                   <span>
                     <span className="block font-medium">Recurring Task</span>

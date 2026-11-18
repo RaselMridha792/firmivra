@@ -1,7 +1,7 @@
 'use client';
 
 import { DOCUMENT_ERRORS, type TaskDetail } from '@firmivra/types';
-import { Badge, Button, Input, Modal, Select, Toast } from '@firmivra/ui';
+import { Badge, Button, Checkbox, Input, Modal, Select, Toast } from '@firmivra/ui';
 import {
   Archive,
   ArrowCounterClockwise,
@@ -32,7 +32,8 @@ import {
 } from './task-shared';
 import { beforeText } from './task-form-parts';
 import { ReminderHistory } from './task-reminder-history';
-import { workspacePath } from './new-task-href';
+import { relatedLinks } from './new-task-href';
+import { useFirm } from '../../../../../components/firm-context';
 import { OriginLink } from '../../../../../components/origin-link';
 
 const linkText = 'font-medium text-link hover:underline';
@@ -149,8 +150,11 @@ export function TaskDetailScreen({
   const router = useRouter();
   const query = useApiQuery([...TASKS_KEY, 'task', id], () => api.taskWork.task(id));
   const t: TaskDetail | undefined = query.data;
+  // T-D16: Owner and Admin may change the series a task came from.
+  const { role } = useFirm();
+  const manages = role === 'OWNER' || role === 'ADMIN';
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const [dialog, setDialog] = useState<'template' | 'recurring' | 'archive' | null>(
+  const [dialog, setDialog] = useState<'template' | 'recurring' | 'archive' | 'scope' | null>(
     convertToRecurring ? 'recurring' : null,
   );
   const options = { invalidate: [...TASKS_KEY] };
@@ -196,12 +200,23 @@ export function TaskDetailScreen({
         </div>
         {t ? (
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Task actions">
-            <Link
-              href={`/tasks/${id}/edit`}
-              className="inline-flex min-h-10 items-center gap-2 rounded-control bg-action px-4 text-sm font-medium text-on-action hover:bg-action-hover"
-            >
-              <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit
-            </Link>
+            {/* T-D16: a task a series made asks which to change: it, or the series from now on. */}
+            {t.series ? (
+              <button
+                type="button"
+                className="inline-flex min-h-10 items-center gap-2 rounded-control bg-action px-4 text-sm font-medium text-on-action hover:bg-action-hover"
+                onClick={() => setDialog('scope')}
+              >
+                <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit
+              </button>
+            ) : (
+              <Link
+                href={`/tasks/${id}/edit`}
+                className="inline-flex min-h-10 items-center gap-2 rounded-control bg-action px-4 text-sm font-medium text-on-action hover:bg-action-hover"
+              >
+                <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit
+              </Link>
+            )}
             {t.status === 'OPEN' ? (
               <>
                 <button
@@ -298,16 +313,21 @@ export function TaskDetailScreen({
                   ],
                   [
                     'Related To',
-                    t.engagement && workspacePath(t.engagement.workspace) ? (
-                      <OriginLink
-                        key="related"
-                        href={workspacePath(t.engagement.workspace)!}
-                        className={linkText}
-                      >
-                        {t.engagement.title}
-                      </OriginLink>
+                    // T-C10: each record opens its page; a custom note is labelled, never a link.
+                    relatedLinks(t).length ? (
+                      <span key="related" className="flex flex-col gap-1" data-testid="related-to">
+                        {relatedLinks(t).map((l) =>
+                          l.href ? (
+                            <OriginLink key={l.key} href={l.href} className={linkText}>
+                              {l.label}
+                            </OriginLink>
+                          ) : (
+                            <span key={l.key}>{l.label}</span>
+                          ),
+                        )}
+                      </span>
                     ) : (
-                      (t.engagement?.title ?? '—')
+                      '—'
                     ),
                   ],
                   ['Service', t.service?.name ?? '—'],
@@ -328,7 +348,21 @@ export function TaskDetailScreen({
                         ],
                       ]
                     : []),
-                  ...(t.series ? [['Series', t.series.title]] : []),
+                  // T-C03: the series it was made by opens its overview.
+                  ...(t.series
+                    ? [
+                        [
+                          'Series',
+                          <OriginLink
+                            key="series"
+                            href={`/tasks/recurring/${t.series.id}`}
+                            className={linkText}
+                          >
+                            {t.series.title}
+                          </OriginLink>,
+                        ],
+                      ]
+                    : []),
                 ] as [string, ReactNode][]
               ).map(([k, v]) => (
                 <div key={k} className="contents">
@@ -440,6 +474,38 @@ export function TaskDetailScreen({
           </p>
         </Card>
       </div>
+      {dialog === 'scope' && t?.series ? (
+        <Modal
+          open
+          title="Edit a recurring task"
+          subtitle={`This task was made by the series ${t.series.title}.`}
+          onClose={() => setDialog(null)}
+        >
+          <div className="flex flex-col gap-2" data-testid="edit-scope">
+            <Link
+              href={`/tasks/${id}/edit`}
+              className="rounded-control border border-border p-3 hover:bg-canvas"
+            >
+              <span className="block font-medium text-heading">This occurrence</span>
+              <span className="block text-sm text-muted">
+                Change only this task. The series and its other tasks stay as they are.
+              </span>
+            </Link>
+            {manages ? (
+              <Link
+                href={`/tasks/recurring/${t.series.id}/edit`}
+                className="rounded-control border border-border p-3 hover:bg-canvas"
+              >
+                <span className="block font-medium text-heading">This and future occurrences</span>
+                <span className="block text-sm text-muted">
+                  Change the series: tasks it makes from now on follow it. Tasks already made, this
+                  one included, keep what they have.
+                </span>
+              </Link>
+            ) : null}
+          </div>
+        </Modal>
+      ) : null}
       {dialog === 'archive' && t ? (
         <Modal
           open
@@ -558,6 +624,7 @@ function ConvertDialog({
 }) {
   const [interval, setInterval] = useState('1');
   const [unit, setUnit] = useState<'DAY' | 'WEEK' | 'MONTH' | 'QUARTER' | 'YEAR'>('MONTH');
+  const [applyChecklist, setApplyChecklist] = useState(true);
   const convert = useApiMutation(
     () =>
       api.taskWork.convertToRecurring(task.id, {
@@ -570,6 +637,7 @@ function ConvertDialog({
           endOn: null,
           holidayRule: 'NEXT_BUSINESS_DAY',
         },
+        applyChecklist: applyChecklist && task.checklistItems.length > 0,
       }),
     { invalidate: [...TASKS_KEY] },
   );
@@ -614,6 +682,20 @@ function ConvertDialog({
             { value: 'YEAR', label: 'Year(s)' },
           ]}
         />
+      </div>
+      {/* T-C11: the checklist for every occurrence, each its own copy. */}
+      <div className="mt-3" data-testid="convert-apply-checklist">
+        <Checkbox
+          label="Apply the same checklist to all occurrences"
+          checked={applyChecklist && task.checklistItems.length > 0}
+          disabled={task.checklistItems.length === 0}
+          onChange={(e) => setApplyChecklist(e.target.checked)}
+        />
+        <p className="ml-8 text-xs text-muted">
+          {task.checklistItems.length === 0
+            ? 'This task has no checklist.'
+            : `Each occurrence gets its own copy of the ${task.checklistItems.length} step${task.checklistItems.length === 1 ? '' : 's'}.`}
+        </p>
       </div>
       {convert.isError ? (
         <p role="alert" className="mt-2 text-sm text-danger">

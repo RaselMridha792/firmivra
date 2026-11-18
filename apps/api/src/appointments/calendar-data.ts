@@ -1,5 +1,5 @@
 import type { Prisma, TxClient } from '@firmivra/db';
-import type { Appointment, BusyAppointment, MemberRef } from '@firmivra/types';
+import type { Appointment, AppointmentLeadRef, BusyAppointment, MemberRef } from '@firmivra/types';
 import {
   addDays,
   type Interval,
@@ -10,6 +10,7 @@ import {
 } from './calendar.js';
 import { errors } from './errors.js';
 import { legacyKind } from './scheduling-map.js';
+import { clientOrLeadName } from './appointment-party.js';
 
 // Database reads shared by the appointment services (locks are in calendar-locks.ts). Every
 // function takes the transaction of the firm's business scope (row-level security: this firm
@@ -101,6 +102,9 @@ export const appointmentSelect = {
   clientInstructions: true,
   instructionsInPortal: true,
   client: { select: { displayName: true, assignedUserId: true } },
+  // P4-1: the lead it was booked for (a lead's own appointment, or a converted lead's).
+  leadId: true,
+  lead: { select: { id: true, firstName: true, lastName: true, assignedUserId: true } },
   staff: { select: memberSelect },
   type: { select: { id: true, name: true } },
   // A1: the other clients who attend (ids only: a new time must suit them too).
@@ -109,10 +113,22 @@ export const appointmentSelect = {
 
 export type AppointmentRow = Prisma.AppointmentGetPayload<{ select: typeof appointmentSelect }>;
 
+/** P4-1: the lead an appointment was booked for, by name; null for a client's own. */
+export function leadRefOf(row: {
+  lead: { id: string; firstName: string; lastName: string } | null;
+}): AppointmentLeadRef | null {
+  return row.lead
+    ? { id: row.lead.id, name: clientOrLeadName({ client: null, lead: row.lead }) }
+    : null;
+}
+
 export function toAppointment(row: AppointmentRow): Appointment {
   return {
     id: row.id,
-    client: { id: row.clientId, displayName: row.client.displayName },
+    // P4-1: a lead's own appointment has no client yet; its lead names who it is with.
+    client:
+      row.clientId && row.client ? { id: row.clientId, displayName: row.client.displayName } : null,
+    lead: leadRefOf(row),
     staff: memberRef(row.staff),
     type: row.type ? { id: row.type.id, name: row.type.name } : null,
     engagementId: row.engagementId,
@@ -143,20 +159,29 @@ export function toBusy(row: AppointmentRow): BusyAppointment {
 
 /**
  * The calendar rule (#63, R12 Decisions): Owner and Admin see every appointment in full; Staff
- * the ones they are the staff member of, or whose client is assigned to them.
+ * the ones they are the staff member of, or whose client is assigned to them. P4-1: a lead's own
+ * appointment (no client yet) by the lead pages' rule: Staff see it in full when the lead is
+ * assigned to them (leads.assigned_user_id), and as Busy otherwise.
  */
 export function seesInFull(actor: FirmActor, row: AppointmentRow): boolean {
   return (
     actor.role !== 'STAFF' ||
     row.staffUserId === actor.userId ||
-    row.client.assignedUserId === actor.userId
+    (row.client !== null && row.client.assignedUserId === actor.userId) ||
+    (row.clientId === null && row.lead !== null && row.lead.assignedUserId === actor.userId)
   );
 }
 
 /** The same rule as a filter, for the routes that read or change one appointment. */
 export function inFullWhere(actor: FirmActor): Prisma.AppointmentWhereInput {
   return actor.role === 'STAFF'
-    ? { OR: [{ staffUserId: actor.userId }, { client: { assignedUserId: actor.userId } }] }
+    ? {
+        OR: [
+          { staffUserId: actor.userId },
+          { client: { assignedUserId: actor.userId } },
+          { clientId: null, lead: { assignedUserId: actor.userId } },
+        ],
+      }
     : {};
 }
 
@@ -191,7 +216,8 @@ export interface BusyTimes {
   appointments: {
     id: string;
     staffUserId: string;
-    clientId: string;
+    /** Null for a lead's own appointment (P4-1). */
+    clientId: string | null;
     clientIds: string[];
     start: number;
     end: number;
@@ -227,7 +253,9 @@ export async function busyTimes(
       id: a.id,
       staffUserId: a.staffUserId,
       clientId: a.clientId,
-      clientIds: [a.clientId, ...a.attendees.map((x) => x.clientId)].map((id) => id.toLowerCase()),
+      clientIds: [a.clientId, ...a.attendees.map((x) => x.clientId)]
+        .filter((id): id is string => id !== null)
+        .map((id) => id.toLowerCase()),
       start: a.startsAt.getTime(),
       end: a.endsAt.getTime(),
     })),
@@ -265,12 +293,13 @@ export function clientBusy(busy: BusyTimes, clientId: string, exceptId?: string)
 export async function clientsBusy(
   tx: TxClient,
   businessId: string,
-  clientIds: readonly string[],
+  /** A lead's own appointment (P4-1) passes a null client: it is left out. */
+  clientIds: readonly (string | null)[],
   span: Interval,
   exceptId?: string,
 ): Promise<boolean> {
-  if (clientIds.length === 0) return false;
-  const ids = [...clientIds];
+  const ids = clientIds.filter((id): id is string => id !== null);
+  if (ids.length === 0) return false;
   const hit = await tx.appointment.findFirst({
     where: {
       businessId,

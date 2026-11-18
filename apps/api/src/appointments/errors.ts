@@ -10,7 +10,12 @@ import { databaseErrorCode } from '@firmivra/db';
 import type { AppointmentErrorCode, ConflictResult, SchedulingErrorCode } from '@firmivra/types';
 
 const conflict = (
-  code: AppointmentErrorCode | SchedulingErrorCode | 'CLIENT_ARCHIVED' | 'CUTOFF_NOT_SUPPORTED',
+  code:
+    | AppointmentErrorCode
+    | SchedulingErrorCode
+    | 'CLIENT_ARCHIVED'
+    | 'CUTOFF_NOT_SUPPORTED'
+    | 'LEAD_APPOINTMENT',
   message: string,
   details?: unknown,
 ) => new ConflictException({ code, message, ...(details === undefined ? {} : { details }) });
@@ -74,6 +79,12 @@ export const errors = {
       'VIDEO_LINK_MISSING',
       'The staff member has no meeting link yet. Add it in Settings > Availability, or paste a link.',
     ),
+  /** P4-1: a lead gets its appointment's confirmation and reminder by email only. */
+  leadSms: () =>
+    new BadRequestException({
+      code: 'SMS_UNAVAILABLE',
+      message: 'Text reminders are not sent to leads. Use email, or convert the lead to a client.',
+    }),
   smsUnavailable: () =>
     new BadRequestException({
       code: 'SMS_UNAVAILABLE',
@@ -85,6 +96,15 @@ export const errors = {
   /** 400 at `path`: a booking or change in a meeting method its type does not offer (A1). */
   methodNotOffered: (path: string) =>
     invalidField(path, 'This appointment type is not offered that way. Choose another method.'),
+  /**
+   * P4-1: a lead's own appointment (no client yet) on a path that needs a client (the portal, the
+   * waitlist, invoices, a client's own list): refused, never skipped.
+   */
+  leadAppointment: () =>
+    conflict(
+      'LEAD_APPOINTMENT',
+      'This appointment is for a lead. Convert the lead to a client first.',
+    ),
   /** R10's code: nothing new is booked for an archived client (restore the client first). */
   clientArchived: () => conflict('CLIENT_ARCHIVED', 'Restore the client first'),
   /** The same in the portal, worded for the client. */

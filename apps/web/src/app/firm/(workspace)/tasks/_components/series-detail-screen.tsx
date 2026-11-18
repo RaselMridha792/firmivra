@@ -1,12 +1,14 @@
 'use client';
 
-import { Badge, Button, Modal, Toast } from '@firmivra/ui';
-import { ArrowLeft, Pause, Play, Stop } from '@phosphor-icons/react';
+import type { TaskOccurrence } from '@firmivra/types';
+import { Badge, Button, Modal, Select, Toast } from '@firmivra/ui';
+import { ArrowLeft, Pause, PencilSimple, Play, Stop } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { useFirm } from '../../../../../components/firm-context';
 import { OriginLink } from '../../../../../components/origin-link';
 import { PRIORITY_LABEL, TASKS_KEY, TASK_ERRORS, dayText, shortName } from './task-shared';
 
@@ -17,6 +19,36 @@ const TONE = {
   ENDED: 'neutral',
   ARCHIVED: 'neutral',
 } as const;
+/**
+ * T-C03: an occurrence's status in words: Upcoming, Skipped, Failed, or for a made one where its
+ * task is now (Open, Completed, Cancelled).
+ */
+function occurrenceLabel(o: TaskOccurrence): string {
+  if (o.state === 'GENERATED')
+    return o.task?.status === 'DONE'
+      ? 'Completed'
+      : o.task?.status === 'CANCELLED'
+        ? 'Cancelled'
+        : 'Open';
+  if (o.state === 'SCHEDULED') return 'Upcoming';
+  return o.state === 'SKIPPED' ? 'Skipped' : 'Failed';
+}
+
+/** Why it was skipped or failed, and the tries while a failing one is retried. */
+function occurrenceNote(o: TaskOccurrence): string | null {
+  if (o.state === 'SKIPPED')
+    return o.skipReason === 'REPLACED'
+      ? 'Skipped: the repeat rule changed.'
+      : o.skipReason
+        ? `Skipped: ${o.skipReason}`
+        : 'Skipped.';
+  if (o.failureCode && (o.state === 'FAILED' || o.state === 'SCHEDULED'))
+    return `${o.state === 'FAILED' ? 'Could not make the task' : 'Retrying'} after ${o.attempts} ${
+      o.attempts === 1 ? 'try' : 'tries'
+    } (${o.failureCode}).`;
+  return null;
+}
+
 const OCC = {
   SCHEDULED: 'info',
   GENERATED: 'success',
@@ -37,8 +69,13 @@ const btn =
 /** /tasks/recurring/[id]: one series, its settings, its occurrences, and pause, resume, stop, skip. */
 export function SeriesDetailScreen({ id }: { id: string }) {
   const series = useApiQuery([...TASKS_KEY, 'series', id], () => api.taskWork.series(id));
-  const occ = useApiQuery([...TASKS_KEY, 'series', id, 'occurrences'], () =>
-    api.taskWork.occurrences(id, { pageSize: 50 }),
+  // T-D16: Owner and Admin edit a series (the API refuses others).
+  const { role } = useFirm();
+  const manages = role === 'OWNER' || role === 'ADMIN';
+  // T-C03: upcoming, made, skipped or failed occurrences, one state at a time or all.
+  const [state, setState] = useState<TaskOccurrence['state'] | ''>('');
+  const occ = useApiQuery([...TASKS_KEY, 'series', id, 'occurrences', state], () =>
+    api.taskWork.occurrences(id, { pageSize: 50, ...(state ? { state } : {}) }),
   );
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [skipAll, setSkipAll] = useState(false);
@@ -89,6 +126,15 @@ export function SeriesDetailScreen({ id }: { id: string }) {
             role="group"
             aria-label="Series actions"
           >
+            {/* T-D16: Edit Series, for this and future occurrences (while it still runs). */}
+            {manages && (s.status === 'ACTIVE' || s.status === 'PAUSED') ? (
+              <Link
+                href={`/tasks/recurring/${id}/edit`}
+                className="inline-flex min-h-10 items-center gap-2 rounded-control bg-action px-4 text-sm font-medium text-on-action hover:bg-action-hover"
+              >
+                <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit Series
+              </Link>
+            ) : null}
             {s.status === 'ACTIVE' ? (
               <button
                 type="button"
@@ -178,6 +224,27 @@ export function SeriesDetailScreen({ id }: { id: string }) {
             <p className={quiet}>{note}</p>
           )}
         </Card>
+        {/* T-C11: the checklist each occurrence gets its own copy of. */}
+        <Card title="Checklist for Each Occurrence" testId="series-checklist">
+          {!s || s.checklist.length === 0 ? (
+            <p className={quiet}>{s ? 'Occurrences start without a checklist.' : note}</p>
+          ) : (
+            <>
+              <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-heading">
+                {s.checklist.map((c, i) => (
+                  <li key={`${i}-${c.label}`}>
+                    {c.label}
+                    {c.required ? <span className="text-xs text-muted"> (required)</span> : null}
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-2 text-xs text-muted">
+                Each occurrence gets its own copy: ticking a step on one task does not tick it on
+                the others.
+              </p>
+            </>
+          )}
+        </Card>
         <Card title="Next Occurrences" testId="series-upcoming">
           {!s || s.upcoming.length === 0 ? (
             <p className={quiet}>{s ? 'No more occurrences are scheduled.' : note}</p>
@@ -199,6 +266,21 @@ export function SeriesDetailScreen({ id }: { id: string }) {
         </Card>
         <div className="lg:col-span-2">
           <Card title="Occurrences" testId="series-occurrences">
+            <div className="mb-3 flex justify-end">
+              <Select
+                label="Occurrence status"
+                hideLabel
+                value={state}
+                onChange={(e) => setState(e.target.value as TaskOccurrence['state'] | '')}
+                options={[
+                  { value: '', label: 'All occurrences' },
+                  { value: 'SCHEDULED', label: 'Upcoming' },
+                  { value: 'GENERATED', label: 'Made' },
+                  { value: 'SKIPPED', label: 'Skipped' },
+                  { value: 'FAILED', label: 'Failed' },
+                ]}
+              />
+            </div>
             {rows.length === 0 ? (
               <p className={quiet}>
                 {occ.isPending
@@ -223,9 +305,12 @@ export function SeriesDetailScreen({ id }: { id: string }) {
                       <tr key={o.id} className="border-t border-divider">
                         <td className="px-3 py-2 text-heading">{dayText(o.dueOn)}</td>
                         <td className="px-3 py-2">
-                          <Badge tone={OCC[o.state]}>
-                            {o.state.charAt(0) + o.state.slice(1).toLowerCase()}
-                          </Badge>
+                          <Badge tone={OCC[o.state]}>{occurrenceLabel(o)}</Badge>
+                          {occurrenceNote(o) ? (
+                            <p className="mt-1 text-xs text-muted" data-testid="occurrence-note">
+                              {occurrenceNote(o)}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2 text-right">
                           {o.state === 'GENERATED' && o.taskId ? (

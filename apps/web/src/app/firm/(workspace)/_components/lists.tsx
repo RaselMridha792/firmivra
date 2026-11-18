@@ -2,6 +2,7 @@
 
 import {
   type Appointment,
+  appointmentWith,
   type DashboardSummary,
   type MessageThreadList,
   roleCan,
@@ -221,6 +222,7 @@ export function UpcomingAppointments({
   const { role } = useFirm();
   const canChange = role ? roleCan(role, 'APPOINTMENTS', 'EDIT') : false;
   const canOpenClient = role ? roleCan(role, 'CLIENTS', 'VIEW') : false;
+  const canOpenLead = role ? roleCan(role, 'LEADS', 'VIEW') : false;
   const [ask, setAsk] = useState<{ ask: Ask; a: Appointment }>();
   const [message, setMessage] = useState<string>();
   const remind = useApiMutation((id: string) => api.scheduling.sendReminder(id), {
@@ -253,9 +255,12 @@ export function UpcomingAppointments({
           { label: 'Cancel', danger: true, onSelect: () => setAsk({ ask: 'cancel', a }) },
         ]
       : []),
-    ...(canOpenClient
-      ? [{ label: 'Open Client', onSelect: () => go(`/clients/${a.client.id}`) }]
-      : []),
+    // P4-1: a lead's own appointment opens its lead (the lead pages' own rules apply).
+    ...(a.client && canOpenClient
+      ? [{ label: 'Open Client', onSelect: () => go(`/clients/${a.client?.id ?? ''}`) }]
+      : !a.client && a.lead && canOpenLead
+        ? [{ label: 'Open Lead', onSelect: () => go(`/leads/${a.lead?.id ?? ''}`) }]
+        : []),
   ];
   return (
     <Widget
@@ -287,7 +292,7 @@ export function UpcomingAppointments({
                 const Icon = ICONS[a.locationKind];
                 const at = new Date(a.startsAt);
                 const join = meetingLink(a);
-                const what = `${a.type?.name ?? 'Appointment'} with ${a.client.displayName}`;
+                const what = `${a.type?.name ?? 'Appointment'} with ${appointmentWith(a)}`;
                 return (
                   <li key={a.id} data-testid="upcoming-row" className="flex items-center gap-2">
                     <Link
@@ -308,7 +313,7 @@ export function UpcomingAppointments({
                           {a.type?.name ?? 'Appointment'}
                         </span>
                         <span className="truncate text-xs text-muted">
-                          {a.client.displayName} · {LOCATION_LABELS[a.locationKind]}
+                          {appointmentWith(a)} · {LOCATION_LABELS[a.locationKind]}
                         </span>
                       </span>
                     </Link>
@@ -334,7 +339,7 @@ export function UpcomingAppointments({
             <CloseModal
               id={ask.a.id}
               ask={ask.ask}
-              name={ask.a.client.displayName}
+              name={appointmentWith(ask.a)}
               onClose={() => setAsk(undefined)}
               onDone={(text) => {
                 setAsk(undefined);

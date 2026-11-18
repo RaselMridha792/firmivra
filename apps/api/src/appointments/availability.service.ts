@@ -30,6 +30,7 @@ import {
 import { lockForBlock, retryWhenBusy, tryLock, workingHoursLockKey } from './calendar-locks.js';
 import { errors } from './errors.js';
 import { linkOf, MEETING_LINKS, type MeetingLinkStore } from './meeting-links.js';
+import { clientOrLeadName } from './appointment-party.js';
 
 type BlocksQuery = z.output<typeof BlockedTimesQuery>;
 type BlockBody = z.output<typeof CreateBlockedTimeRequest>;
@@ -105,6 +106,8 @@ async function scheduledConflicts(
       endsAt: true,
       staffUserId: true,
       client: { select: { displayName: true } },
+      // P4-1: a lead's own appointment is named by its lead.
+      lead: { select: { firstName: true, lastName: true } },
     },
   });
   const names = await memberNames(tx, businessId, [...new Set(rows.map((r) => r.staffUserId))]);
@@ -113,7 +116,7 @@ async function scheduledConflicts(
     startsAt: r.startsAt.toISOString(),
     endsAt: r.endsAt.toISOString(),
     member: { userId: r.staffUserId, name: names.get(r.staffUserId) ?? 'Former member' },
-    clientName: r.client.displayName,
+    clientName: clientOrLeadName(r),
   }));
 }
 

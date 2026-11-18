@@ -26,6 +26,7 @@ const FIRM: Record<NotificationTargetKind, ((clientId: string) => string) | stri
   project_deadline: null,
   // By its own id (below): the task itself.
   task: null,
+  task_series: null,
 };
 
 /** Portal pages, by kind, after `/{firmSlug}`. */
@@ -48,6 +49,7 @@ const PORTAL: Record<NotificationTargetKind, string | null> = {
   project_deadline: null,
   // A task's reminder is the firm's business.
   task: null,
+  task_series: null,
 };
 
 /**
@@ -79,6 +81,8 @@ export function notificationLink(target: unknown, where: NotificationSite): stri
   if (kind === 'project_deadline') return '/tax-planning/deadlines';
   // T-D12: a task's reminder opens the task (its page checks access again).
   if (kind === 'task') return `/tasks/${id}`;
+  // T-D15: a series that failed to make a task opens its overview.
+  if (kind === 'task_series') return `/tasks/recurring/${id}`;
   const page = FIRM[kind];
   if (typeof page !== 'function') return page;
   return clientId ? page(clientId) : null;

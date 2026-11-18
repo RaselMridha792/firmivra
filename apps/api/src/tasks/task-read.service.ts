@@ -46,6 +46,8 @@ const FILTERS = [
   'dueSet',
   'dueFrom',
   'dueTo',
+  'completedFrom',
+  'completedTo',
   'search',
 ] as const;
 
@@ -195,6 +197,15 @@ export class TaskReadService {
       if (q.dueSet === true) and.push({ dueOn: { not: null } });
       if (q.dueFrom) and.push({ dueOn: { gte: toDay(q.dueFrom) } });
       if (q.dueTo) and.push({ dueOn: { lte: toDay(q.dueTo) } });
+      // T-D02: completed on the firm's days, both ends included.
+      if (q.completedFrom)
+        and.push({
+          completedAt: { gte: new Date(zonedInstant(clock.timeZone, q.completedFrom, 0)) },
+        });
+      if (q.completedTo)
+        and.push({
+          completedAt: { lt: new Date(zonedInstant(clock.timeZone, q.completedTo, 24 * 60)) },
+        });
       if (q.search) {
         // T-D03: % and _ are letters here, never wildcards; Related To is searched too.
         const has = { contains: likeEscape(q.search), mode: 'insensitive' } as const;
@@ -205,6 +216,9 @@ export class TaskReadService {
             { type: { name: has } },
             { service: { name: has } },
             { engagement: { title: has } },
+            // T-C10: Related To's plan and deadline too.
+            { taxPlan: { name: has } },
+            { deadline: { name: has } },
             { relatedText: has },
           ],
         });

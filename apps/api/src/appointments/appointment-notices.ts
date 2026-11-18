@@ -5,7 +5,7 @@ import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { NOTIFY_SERVICE, type NotifyMessage, type NotifyService } from '../notify/notify.types.js';
 import { firmTimeZone } from './calendar-data.js';
-import { noticeWords } from './notice-words.js';
+import { leadNotice, type LeadNoticeTemplate, noticeWords } from './notice-words.js';
 
 export type AppointmentNotice =
   'appointment.booked' | 'appointment.changed' | 'appointment.reminder';
@@ -43,7 +43,7 @@ export class AppointmentNotices {
     appointmentId: string,
     to: NoticeTo = {},
   ): Promise<void> {
-    let messages: NotifyMessage<AppointmentNotice>[];
+    let messages: NotifyMessage<AppointmentNotice | LeadNoticeTemplate>[];
     try {
       messages = await this.messages(template, businessId, appointmentId, to);
     } catch {
@@ -86,14 +86,22 @@ export class AppointmentNotices {
     return sent;
   }
 
-  /** One message for each person reached: the client first, then each attendee. */
+  /**
+   * One message for each person reached: the client first, then each attendee. P4-1: a lead's own
+   * appointment (no client yet) tells its lead instead, by email only and without the portal: the
+   * confirmation and the reminder (`leadNotice`), when the lead has an email.
+   */
   private messages(
     template: AppointmentNotice,
     businessId: string,
     appointmentId: string,
     to: NoticeTo,
-  ): Promise<NotifyMessage<AppointmentNotice>[]> {
+  ): Promise<NotifyMessage<AppointmentNotice | LeadNoticeTemplate>[]> {
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+      if (!to.clientIds && !to.clientAccountId) {
+        const lead = await leadNotice(tx, businessId, appointmentId, template);
+        if (lead) return [lead];
+      }
       const a = await tx.appointment.findFirst({
         where: { businessId, id: appointmentId },
         select: {
@@ -110,8 +118,11 @@ export class AppointmentNotices {
       });
       if (!a || a.status !== 'SCHEDULED' || a.startsAt.getTime() <= Date.now()) return [];
       const only = to.clientIds && new Set(to.clientIds.map((id) => id.toLowerCase()));
+      // P4-1: a lead's own appointment has no client to tell here (its lead is told separately).
       const people = [
-        { clientId: a.clientId, client: a.client, primary: true },
+        ...(a.clientId && a.client
+          ? [{ clientId: a.clientId, client: a.client, primary: true }]
+          : []),
         ...a.attendees.map((x) => ({ ...x, primary: false })),
       ].filter((p) => !only || only.has(p.clientId.toLowerCase()));
       if (people.length === 0) return [];

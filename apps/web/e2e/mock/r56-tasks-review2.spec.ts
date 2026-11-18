@@ -253,3 +253,161 @@ test('T-C04: each Task Type in the dropdown has Edit and Delete; Delete asks, an
   await page.getByLabel('Task type').click();
   await expect(list.getByRole('option', { name: 'Compliance', exact: true })).toHaveCount(0);
 });
+
+test('T-D02: Completed (This Month) and Total Tasks list what they count, also from My Tasks', async ({
+  page,
+}) => {
+  await page.goto(base);
+  const table = page.getByTestId('task-table');
+  await expect(table.getByTestId('task-link').first()).toBeVisible({ timeout: 60_000 });
+  const count = async (id: string) =>
+    Number(((await page.getByTestId(`kpi-${id}`).innerText()).match(/\d+/) ?? ['0'])[0]);
+  const completed = await count('completed');
+  expect(completed).toBeGreaterThan(0);
+  await page.getByTestId('kpi-completed').click();
+  await expect(page.getByTestId('kpi-completed')).toHaveAttribute('aria-pressed', 'true');
+  await expect(table.getByTestId('task-link')).toHaveCount(Math.min(completed, 10));
+  await page.getByTestId('kpi-all').click();
+  await expect(page.getByTestId('kpi-all')).toHaveAttribute('aria-pressed', 'true');
+  const total = await count('all');
+  await expect(table.getByTestId('task-link')).toHaveCount(Math.min(total, 10));
+});
+
+test('T-C03: the series lists upcoming and skipped occurrences with the reason, one state at a time', async ({
+  page,
+}) => {
+  await page.goto(`${base}?view=recurring`);
+  await page.locator('a[href^="/tasks/recurring/0"]').first().click({ timeout: 60_000 });
+  const occurrences = page.getByTestId('series-occurrences');
+  const rows = page.getByTestId('occurrence-rows').getByRole('row');
+  await expect(rows.first()).toContainText('Upcoming', { timeout: 60_000 });
+  await rows.first().getByRole('button', { name: /^Skip/ }).click();
+  await occurrences.getByLabel('Occurrence status').selectOption('SKIPPED');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Skipped');
+  await expect(rows.first().getByTestId('occurrence-note')).toHaveText('Skipped.');
+  await occurrences.getByLabel('Occurrence status').selectOption('SCHEDULED');
+  await expect(rows.first()).toContainText('Upcoming');
+});
+
+test('T-C11: Apply the same checklist sits in the Checklist section; the Recurring switch carries the typed checklist', async ({
+  page,
+}) => {
+  await openCreate(page);
+  await page.getByLabel('Task Name *').fill('Monthly bank reconciliation');
+  await page.getByRole('button', { name: 'Add Checklist Item' }).click();
+  await page.getByLabel('Checklist item 1').fill('Download statements');
+  await page.getByRole('switch', { name: 'Recurring Task' }).click();
+  const leave = page.getByRole('dialog');
+  if (await leave.isVisible().catch(() => false))
+    await leave.getByRole('button', { name: /Discard|Leave/ }).click();
+  await expect(page).toHaveURL(/\/tasks\/recurring\/new/, { timeout: 60_000 });
+  await expect(page.getByLabel('Task Name *')).toHaveValue('Monthly bank reconciliation');
+  const checklist = page.getByTestId('rec-checklist');
+  await expect(checklist.getByLabel('Checklist item 1')).toHaveValue('Download statements');
+  const apply = checklist.getByTestId('rec-apply-checklist');
+  await expect(apply.getByRole('checkbox')).toBeChecked();
+  await expect(apply).toContainText('Each occurrence gets its own copy');
+});
+
+test('T-D16: Edit Series changes this and future occurrences; a task from a series asks which to change', async ({
+  page,
+}) => {
+  await page.goto(`${base}/0199c0f0-0a10-7000-8000-000000000001`);
+  await expect(page.getByTestId('checklist-progress')).toBeVisible({ timeout: 60_000 });
+  const actions = page.getByRole('group', { name: 'Task actions' });
+  await actions.getByRole('button', { name: 'Convert to Recurring' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Convert' }).click();
+  await expect(page).toHaveURL(/\/tasks\/recurring\/[0-9a-f-]{36}$/);
+  const seriesUrl = page.url();
+
+  // From the series page: the form is the series', saved for this and future occurrences.
+  await page.getByRole('link', { name: 'Edit Series' }).click();
+  await expect(page).toHaveURL(/\/tasks\/recurring\/[0-9a-f-]{36}\/edit$/);
+  await expect(page.getByRole('heading', { name: 'Edit Recurring Task' })).toBeVisible();
+  await expect(page.getByTestId('edit-series-scope')).toContainText(
+    'tasks already made keep theirs',
+  );
+  await expect(page.getByTestId('series-save-another')).toHaveCount(0);
+  await expect(page.getByLabel('Client *')).toHaveValue(/[0-9a-f-]{36}/);
+  await page.getByLabel('Task Name *').fill('Business plan check-in (sample)');
+  await chooseType(page, 'Business Advisory');
+  await page.getByTestId('series-save').click();
+  await expect(page).toHaveURL(seriesUrl);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(
+    'Business plan check-in (sample)',
+  );
+
+  // From the task the series came from: this occurrence, or this and future ones.
+  await page.goBack(); // the edit page
+  await page.goBack(); // the series
+  await page.goBack(); // the task
+  await expect(page).toHaveURL(/0199c0f0-0a10-7000-8000-000000000001$/);
+  await actions.getByRole('button', { name: 'Edit', exact: true }).click();
+  const scope = page.getByTestId('edit-scope');
+  await expect(scope.getByRole('link', { name: /This occurrence/ })).toHaveAttribute(
+    'href',
+    '/tasks/0199c0f0-0a10-7000-8000-000000000001/edit',
+  );
+  await expect(scope.getByRole('link', { name: /This and future occurrences/ })).toHaveAttribute(
+    'href',
+    /\/tasks\/recurring\/[0-9a-f-]{36}\/edit$/,
+  );
+});
+
+test('T-C10: Related To lists the client’s records by type, or a custom note with its own Save; Edit changes it', async ({
+  page,
+}) => {
+  await openCreate(page);
+  await page.getByLabel('Task Name *').fill('Prepare the estimate (sample)');
+  await chooseType(page, 'Tax Preparation');
+  await chooseClient(page, 'Jamie Sample');
+  await page.getByLabel('Assigned to').selectOption({ index: 1 });
+  await page.locator('#tf-due').fill('2027-03-02');
+  const related = page.getByLabel('Related to');
+  await expect(related).toBeEnabled();
+  // Grouped by type, with the custom note last; never the Service list again.
+  const deadline = related.locator('optgroup[label="Deadline"] option').first();
+  await expect(related.locator('optgroup[label="Engagement"] option').first()).toBeAttached();
+  await expect(related.locator('option').last()).toHaveText('Custom note (not a record)');
+  const deadlineName = (await deadline.innerText()).replace(/ \(due .*\)$/, '');
+  await related.selectOption((await deadline.getAttribute('value'))!);
+  await page.getByTestId('task-save').click();
+
+  // The task page opens the deadline; a custom note is labelled and never a link.
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  const relatedTo = page.getByTestId('related-to');
+  await expect(relatedTo.getByRole('link', { name: `Deadline: ${deadlineName}` })).toHaveAttribute(
+    'href',
+    /\/compliance\/[0-9a-f-]{36}/,
+  );
+
+  // Edit changes it: the note's own Save keeps it on the task at once.
+  await page
+    .getByRole('group', { name: 'Task actions' })
+    .getByRole('link', { name: 'Edit', exact: true })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Edit Task' })).toBeVisible();
+  await expect(related).toBeEnabled();
+  await related.selectOption({ label: 'Custom note (not a record)' });
+  const note = page.getByTestId('related-note');
+  await note.getByTestId('related-note-save').click();
+  await expect(note.getByRole('alert')).toHaveText('Type the custom note, or choose a record');
+  await note.getByLabel('Custom note (not a record)').fill('Year-end catch-up');
+  await note.getByTestId('related-note-save').click();
+  await expect(page.getByText('Custom note saved.')).toBeVisible();
+  await expect(note.getByTestId('related-note-text')).toHaveText('Custom: Year-end catch-up');
+
+  // Nothing is left unsaved: Back to Tasks leaves at once, and the table shows the note.
+  await page.getByRole('link', { name: 'Back to Tasks' }).click();
+  await expect(page).toHaveURL(/\/tasks$/);
+  // Related To is searched: the custom note finds the task.
+  await page.getByRole('tab', { name: 'All Tasks' }).click();
+  await page.getByPlaceholder('Search tasks...').fill('year-end catch');
+  const row = page
+    .getByTestId('task-table')
+    .getByRole('row')
+    .filter({ hasText: 'Prepare the estimate (sample)' });
+  await expect(row).toContainText('Custom: Year-end catch-up');
+  await expect(row).not.toContainText(deadlineName);
+});

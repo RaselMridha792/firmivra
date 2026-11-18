@@ -46,7 +46,10 @@ export interface ConflictStaff {
 export interface LiveAppointment {
   id: string;
   staffUserId: string;
-  clientId: string;
+  /** Null for a lead's own appointment (P4-1). */
+  clientId: string | null;
+  /** P4-1: the lead it was booked for (a lead's own, or a converted lead's). */
+  leadId?: string | null;
   roomId: string | null;
   /** Review 2 (A2): the items it holds, of those the candidate asks for. */
   equipmentIds?: readonly string[];
@@ -79,6 +82,11 @@ export interface Candidate {
   occurrences: readonly Interval[];
   allDay: boolean;
   clientId: string | null;
+  /**
+   * P4-1: a lead's own booking (no client): the lead is double booked as the database counts it,
+   * by its other lead-only appointments (appointments_no_double_booking_lead).
+   */
+  leadId?: string | null;
   /** A1: the other clients who attend; each is double booked as the client would be. */
   attendeeClientIds?: readonly string[];
   roomId: string | null;
@@ -177,7 +185,9 @@ export function findConflicts(data: ConflictData, c: Candidate): Found[] {
     for (const a of data.appointments) {
       if (a.id === except) continue;
       // A1: the client or an attendee of the candidate already has, or attends, one then.
-      const theirs = [a.clientId, ...(a.attendeeClientIds ?? [])].map((id) => id.toLowerCase());
+      const theirs = [a.clientId, ...(a.attendeeClientIds ?? [])].flatMap((id) =>
+        id ? [id.toLowerCase()] : [],
+      );
       const clash = theirs.filter((id) => people.has(id));
       if (clash.length > 0 && overlaps(slot, a)) {
         push(
@@ -188,6 +198,17 @@ export function findConflicts(data: ConflictData, c: Candidate): Found[] {
           client && clash.includes(client)
             ? 'This client already has an appointment at this time'
             : 'An attendee already has an appointment at this time',
+        );
+      }
+      // P4-1: a lead in one meeting at a time, while neither has a client.
+      const lead = c.clientId ? null : c.leadId?.toLowerCase();
+      if (lead && !a.clientId && a.leadId?.toLowerCase() === lead && overlaps(slot, a)) {
+        push(
+          'CLIENT_DOUBLE_BOOKED',
+          true,
+          null,
+          a,
+          'This lead already has an appointment at this time',
         );
       }
       if (c.roomId && a.roomId === c.roomId && overlaps(slot, a)) {
@@ -286,6 +307,8 @@ export async function loadConflictData(
   /** A1: the candidate's other attendees, whose appointments count as the client's. */
   attendeeClientIds: readonly string[] = [],
   equipmentIds: readonly string[] = [],
+  /** P4-1: a lead's own booking: the lead's other lead-only appointments count. */
+  leadId: string | null = null,
 ): Promise<ConflictData> {
   const userIds = members.map((m) => m.userId);
   const weekly = await workingHours(tx, businessId, userIds);
@@ -329,6 +352,7 @@ export async function loadConflictData(
           { attendees: { some: { businessId, clientId: { in: clientIds } } } },
         ]
       : []),
+    ...(leadId && !clientId ? [{ leadId, clientId: null }] : []),
     ...(roomId ? [{ roomId }] : []),
     ...(equipmentIds.length > 0
       ? [{ equipment: { some: { equipmentId: { in: [...equipmentIds] } } } }]
@@ -341,6 +365,7 @@ export async function loadConflictData(
       id: true,
       staffUserId: true,
       clientId: true,
+      leadId: true,
       roomId: true,
       startsAt: true,
       endsAt: true,
@@ -372,6 +397,7 @@ export async function loadConflictData(
       id: a.id,
       staffUserId: a.staffUserId,
       clientId: a.clientId,
+      leadId: a.leadId,
       roomId: a.roomId,
       equipmentIds: a.equipment.map((e) => e.equipmentId.toLowerCase()),
       start: a.startsAt.getTime(),
