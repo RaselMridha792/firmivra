@@ -3,7 +3,7 @@
 This file maps each row of Octavia's Staff Management Review 2 that needed work (RED and YELLOW) to the PR that fixed it and the test that covers it. Her PURPLE rows are her own testing and stay with her retest. Product decisions are the lead's of Nov 18 (DECISIONS); the two schema changes (SM20, SM21) are #1621, approved by Rasel.
 
 - API e2e: `apps/api/test/e2e/staff.e2e.test.ts`, `staff-write.e2e.test.ts`, `staff-documents.e2e.test.ts`
-- API e2e (batch 2): `custom-roles.e2e.test.ts`, `departments.e2e.test.ts`, `team.e2e.test.ts`, `my-security.e2e.test.ts`
+- API e2e (batch 2): `custom-roles.e2e.test.ts`, `departments.e2e.test.ts`, `team.e2e.test.ts`, `my-security.e2e.test.ts`, `staff-security-defaults.e2e.test.ts`, `staff-documents.e2e.test.ts` (SM17 draft files)
 - Mock specs: `apps/web/e2e/mock/r60-staff-review2.spec.ts`, `r60-staff-review2-b.spec.ts`, and the earlier `r56-reports.spec.ts` (SM3)
 
 | Row | Status | PR | Test |
@@ -24,6 +24,6 @@ This file maps each row of Octavia's Staff Management Review 2 that needed work 
 | SM12 Sessions and last login | Done | #1636 | my-security e2e "SM12: a sign-in over the saved limit ends the oldest, audited; Last Login is the newest sign-in"; mock "SM12: Active Sessions marks this session on your own record only" |
 | SM05 Company security policy | Done | #1642 | security-defaults e2e "Apply to Existing Accounts (SM05)…"; mock `r60-staff-review2-b` "SM05: Apply to Existing Accounts previews who changes, keeps the exceptions, and applies" |
 | SM33 Security controls | Done | #1642 | staff-sessions unit "SM33: …automatic logout…" and "SM33: from the "Disable account on" date…"; staff-security e2e "resets MFA and signs the sessions out" (the notice); my-security e2e "two-factor sign-in set up (SM33)"; mock `r60-staff-security-defaults` |
-| SM17 Draft files and pay | Part one done; files open | #1642 | staff-write e2e "SM17: a draft is its creator's own…"; mock "SM17: pay is never saved in a draft…". Durable draft files: next PR |
+| SM17 Draft files and pay | Done | #1642, #1647 | staff-write e2e "SM17: a draft is its creator's own…"; mock "SM17: pay is never saved in a draft…" (#1642); staff-documents e2e "draft files (SM17)"; mock "SM17: Save under Remove keeps a file and its type with the draft, through Back and Next" (#1647) |
 | SM40 Keyboard and responsive | Tests added | #1642 | mock "SM40: a dialog gives focus back…", "SM40: Create Staff goes field to field with Tab…", "SM40: Staff Management fits a 768/375 px screen…". Her retest stays hers |
 | SM23, SM24, SM26, SM29, SM31, SM32, SM35, SM36, SM37, SM39, SM41, SM42, SM43 (PURPLE) | Her retest | — | — |
