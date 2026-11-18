@@ -35,6 +35,8 @@ const AREAS = [
   { prefix: 'membership.', label: 'Team' },
   { prefix: 'staff.', label: 'Staff access' },
   { prefix: 'role.', label: 'Roles & permissions' },
+  // Audit Log Review 2, M02b: refused exports, permission and settings changes.
+  { prefix: 'access.', label: 'Denied access' },
 ] as const;
 
 /** "client_account.approved" → "Client account approved": the code stays beside it. */
