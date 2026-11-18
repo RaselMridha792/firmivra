@@ -19,3 +19,17 @@ test('F36: "Where returns appear" shows for a firm with no tax statuses too', as
   await expect(where).toBeVisible();
   await expect(where).toContainText('Where returns appear');
 });
+
+test('F25-J: Filing Jurisdictions opened at once lists every jurisdiction the return has', async ({
+  page,
+}) => {
+  await page.goto(app('/tax-returns?q=Jamie%20Sample'));
+  await page.getByTestId('return-link').first().click();
+  await expect(page.getByTestId('return-workspace')).toBeVisible({ timeout: 60_000 });
+  await page.getByRole('tab', { name: 'E-File' }).click();
+  // Clicked as soon as it shows: it waits for the filings (disabled until then).
+  await page.getByTestId('efile').getByRole('button', { name: 'Jurisdictions' }).click();
+  const dialog = page.getByTestId('jurisdictions-dialog');
+  await expect(dialog).toContainText('Federal');
+  await expect(dialog).toContainText('GA');
+});

@@ -1098,7 +1098,14 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
       testId="efile"
       action={
         <span className="flex gap-2">
-          <button type="button" className={smallButton} onClick={() => setManage(true)}>
+          {/* F25-J: opened only once the filings are in, so it never starts from a partial list. */}
+          <button
+            type="button"
+            className={smallButton}
+            disabled={!q.isSuccess}
+            title={q.isSuccess ? undefined : 'Loading the jurisdictions…'}
+            onClick={() => setManage(true)}
+          >
             Jurisdictions
           </button>
           <Button
@@ -1325,10 +1332,10 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
           onNotice={onNotice}
         />
       ) : null}
-      {manage ? (
+      {manage && q.isSuccess ? (
         <JurisdictionsDialog
           detail={detail}
-          current={q.data ?? []}
+          current={q.data}
           onClose={() => setManage(false)}
           onNotice={onNotice}
         />
