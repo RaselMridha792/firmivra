@@ -18,6 +18,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { effectivePortalDefaults, shownInPortal } from '../bookkeeping/portal-defaults.js';
 import {
   conflict,
   isForeignKeyViolation,
@@ -337,8 +338,10 @@ export class ReportsService {
       const email = await this.inFirm(businessId, async (tx) => {
         const profile = await tx.bookkeepingProfile.findFirst({
           where: { businessId, engagementId: was.engagementId },
-          select: { reportSchedule: true },
+          select: { reportSchedule: true, portalDefaults: true },
         });
+        // BK-CP4: reports kept out of the portal are never announced there.
+        if (profile && !effectivePortalDefaults(profile.portalDefaults).reports) return null;
         const own = profile?.reportSchedule;
         const schedule =
           own !== null && own !== undefined
@@ -352,6 +355,7 @@ export class ReportsService {
         const items = z.array(ReportScheduleItem).safeParse(schedule ?? []);
         return items.success && items.data.some((i) => i.delivery !== 'PORTAL');
       });
+      if (email === null) return;
       const result = await this.notifier.notify({
         businessId,
         event: 'report.published',
@@ -446,6 +450,10 @@ export class ReportsService {
       if (!engagement) throw notFound();
       // Their service without a workspace has no reports, whatever a row says (#109 review).
       if (!workspaceKindOf(engagement.service.kind)) {
+        return { rows: [], clientId: account.clientId, serviceId: engagement.id };
+      }
+      // BK-CP4: a Bookkeeping service whose Portal Defaults leave reports out shows none.
+      if (!(await shownInPortal(tx, businessId, engagement.id, 'reports'))) {
         return { rows: [], clientId: account.clientId, serviceId: engagement.id };
       }
       const rows = await tx.engagementReport.findMany({

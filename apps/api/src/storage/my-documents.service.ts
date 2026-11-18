@@ -15,6 +15,7 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { decodeCursor, encodeCursor, likeEscape } from '../clients/clients.service.js';
+import { hiddenFirmDocuments } from '../bookkeeping/portal-defaults.js';
 import { DATABASE } from '../database/database.module.js';
 import {
   badCursor,
@@ -81,9 +82,28 @@ export class MyDocumentsService {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }
 
+  /**
+   * `visible`, less the firm's documents a Bookkeeping service's Portal Defaults keep out of the
+   * portal (BK-CP4: Documents off, or a report's file with Reports off). The client's own uploads
+   * (MINE) are theirs and always show.
+   */
+  private async sourceOf(
+    tx: TxClient,
+    login: PortalLogin,
+    source: Source,
+  ): Promise<Prisma.DocumentWhereInput | null> {
+    const where = visible(login, source);
+    if (source === 'MINE' || !where || !login.clientId) return where;
+    const hidden = await hiddenFirmDocuments(tx, login.businessId, login.clientId);
+    return hidden ? { AND: [where, { NOT: hidden }] } : where;
+  }
+
   /** A document this login may see (either source); else 404. */
   private async find(tx: TxClient, login: PortalLogin, id: string): Promise<DocumentRow> {
-    const sources = [visible(login, 'MINE'), visible(login, 'FIRM')].filter((w) => w !== null);
+    const sources = [
+      await this.sourceOf(tx, login, 'MINE'),
+      await this.sourceOf(tx, login, 'FIRM'),
+    ].filter((w) => w !== null);
     const row = sources.length
       ? await tx.document.findFirst({
           where: { AND: [{ id }, { OR: sources }] },
@@ -98,7 +118,7 @@ export class MyDocumentsService {
   async list(caller: PortalCaller, q: ListQuery): Promise<MyDocumentList> {
     const { result, clientId } = await this.inFirm(caller.businessId, async (tx) => {
       const login = await portalLogin(tx, caller);
-      const source = visible(login, q.source);
+      const source = await this.sourceOf(tx, login, q.source);
       const empty = { items: [], nextCursor: null, years: [] };
       if (!source) return { result: empty, clientId: login.clientId };
       const byName = q.sort === 'name';
