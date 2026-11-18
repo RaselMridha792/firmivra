@@ -249,6 +249,8 @@ If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and em
 - **Records and logs:** it writes `dev.client_login_linked` to the firm's audit log. The task log shows ids only.
 - **Running it again** changes nothing.
 
+**Harness portal client (lead, Nov 18).** The live-check harness gets its own Test Firm B portal login, so it never uses a reviewer's. Make the client first on Test Firm B's Clients screen with the email `success+qa-perf-client-b@simulator.amazonses.com` (an SES mailbox simulator address: nothing it is sent reaches a person). Then create the clients-pool Cognito user with that same email, a name and a permanent password (kept only in `F:/firmivra-private/`), and run the task with `LINK_CLIENT_ACCOUNT` `{"sub":"<clients-pool sub>","firmSlug":"test-firm-b","accountEmail":"success+qa-perf-client-b@simulator.amazonses.com"}` and `COGNITO_CLIENTS_USER_POOL_ID`. The link creates that client's portal account, exactly as for the QA fixture clients; it accepts no other simulator address and no other firm, and changes no existing account.
+
 ## Firm KMS keys, EIN-hash key, Cognito email (R1 step 14, Oct 8)
 
 Nothing here is in AWS before Rasel's yes. Merging the PR deploys `firmivra-dev-app` at once (Deploy dev); the bootstrap policies and `firmivra-dev-auth` are manual.

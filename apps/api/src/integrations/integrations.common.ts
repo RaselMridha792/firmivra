@@ -131,6 +131,8 @@ export interface ConnectionRow {
   syncEveryMinutes: number | null;
   connectedAt: Date;
   lastSyncAt: Date | null;
+  /** The last connection test (I-R2-02: the overview's "last checked"). */
+  lastCheckAt: Date | null;
   nextSyncAt: Date | null;
 }
 
@@ -200,6 +202,19 @@ const ENTITY_LABELS = new Map<string, string>([
   ['test', 'Connection test'],
   ['webhook', 'Webhook'],
 ]);
+/** I-F03 (Integrations Review Two): a check or a sync older than this makes the health STALE. */
+export const STALE_AFTER_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * I-R2-04 (Integrations Review Two): runs newest first by when they actually ran; one queued and
+ * not started yet comes first. The screens show the same time (`startedAt`, else `createdAt`).
+ */
+export const RUN_ORDER = [
+  { startedAt: { sort: 'desc', nulls: 'first' } },
+  { createdAt: 'desc' },
+  { id: 'asc' },
+] as const;
+
 export function entityLabelOf(provider: IntegrationProvider | undefined, entity: string): string {
   return (
     ENTITY_LABELS.get(entity) ??

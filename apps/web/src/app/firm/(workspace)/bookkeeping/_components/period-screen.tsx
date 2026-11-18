@@ -398,7 +398,6 @@ export function PeriodScreen({ id }: { id: string }) {
             caption="Reconciliations"
             dense
             noun="reconciliations"
-            pageSize={20}
             showPagination={false}
             rowActions={reconMenu}
             emptyTitle="No reconciliations yet"
@@ -425,7 +424,6 @@ export function PeriodScreen({ id }: { id: string }) {
             caption="Period reports"
             dense
             noun="reports"
-            pageSize={20}
             showPagination={false}
             rowActions={(r) => (
               <ReportMenu row={r} engagementId={cw.data?.engagementId ?? null} onNotice={notice} />

@@ -7,6 +7,10 @@
 //   LINK_CLIENT_ACCOUNT: JSON { sub, firmSlug: "demo", accountEmail: "<seeded @demo.test address>" }
 // or (Rasel, Nov 14) Test Firm B's QA fixture client, whose portal account the link creates:
 //   LINK_CLIENT_ACCOUNT: JSON { sub, firmSlug: "test-firm-b", accountEmail: "qa-fixture-1@example.test" }
+// or (lead, Nov 18) the live-check harness's own Test Firm B client, on an SES simulator address:
+//   LINK_CLIENT_ACCOUNT: JSON { sub, firmSlug: "test-firm-b",
+//     accountEmail: "success+qa-perf-client-b@simulator.amazonses.com" }
+//   (make that client first on the firm's Clients screen; the link then creates its portal account)
 //   COGNITO_CLIENTS_USER_POOL_ID: the clients pool, passed as an override (the task definition
 //   names only the staff and admins pools; the role may already ListUsers in all three)
 // Overrides are recorded in CloudTrail, so they hold no emails or names: the task reads them from
