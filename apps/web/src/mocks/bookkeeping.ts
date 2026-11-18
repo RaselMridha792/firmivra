@@ -58,6 +58,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
+import { setTimelineSource } from './client-timeline';
 import { registerServiceEngagement } from './service-engagements';
 import { teamFixtures } from './team';
 import { catalogPlanRef } from './services-pricing';
@@ -615,6 +616,15 @@ function categoryOf(id: string) {
   return { id, name: LEDGER_CATEGORIES[i]![0] };
 }
 
+/** The bookkeeping statuses in words, as the API writes them in Activity. */
+const STATUS_WORDS: Record<BookkeepingClientWorkspace['status'], string> = {
+  ON_TRACK: 'On track',
+  NEEDS_ATTENTION: 'Needs attention',
+  MISSING_DOCUMENTS: 'Missing documents',
+  OVERDUE: 'Overdue',
+  NOT_STARTED: 'Not started',
+};
+
 export function createBookkeepingMock({
   role = 'OWNER',
   empty = false,
@@ -1161,6 +1171,27 @@ export function createBookkeepingMock({
     list.unshift({ id: id('ba00'), kind, summary, actor: mockMe, createdAt: nowIso() });
     activities.set(c.id, list);
   };
+  // E01a A01: as the API, the client's Activity page lists this card's events (a note or an
+  // upload it copies is listed there from its own record).
+  setTimelineSource('bookkeeping', (clientId) =>
+    clients
+      .filter((c) => c.client.id === clientId)
+      .flatMap((c) =>
+        (activities.get(c.id) ?? [])
+          .filter(
+            (a) => a.kind !== 'NOTE' && !/^(Document uploaded|The client uploaded)/.test(a.summary),
+          )
+          .map((a) => ({
+            id: a.id,
+            kind: 'OTHER' as const,
+            title: a.summary,
+            summary: 'Bookkeeping',
+            occurredAt: a.createdAt,
+            href: `/bookkeeping/clients/${c.id}`,
+            createdBy: a.actor,
+          })),
+      ),
+  );
   const findClient = (cid: string) => {
     const c = clients.find((x) => x.id === cid);
     if (!c) throw fail(404, 'NOT_FOUND', 'That bookkeeping client was not found.');
@@ -1612,6 +1643,7 @@ export function createBookkeepingMock({
       run(() => {
         const input = parseInput(BookkeepingStatusRequest, body);
         const c = findClient(cid);
+        const before = c.status;
         if (input.status === 'AUTOMATIC') {
           c.statusSource = 'AUTOMATIC';
         } else {
@@ -1620,10 +1652,13 @@ export function createBookkeepingMock({
           c.statusReason = input.reason ?? null;
         }
         c.statusChangedAt = nowIso();
+        // As the API: the statuses in words, never their codes.
         log(
           c,
           'STATUS_CHANGE',
-          `Status ${input.status === 'AUTOMATIC' ? 'handed back to the rules' : `set to ${input.status.toLowerCase().replace('_', ' ')}`}`,
+          input.status === 'AUTOMATIC'
+            ? 'Status handed back to the rules'
+            : `Status changed from ${STATUS_WORDS[before]} to ${STATUS_WORDS[input.status]}`,
         );
         return view(c);
       }),

@@ -47,9 +47,14 @@ test('a message sent with Add to Client Timeline shows on the client’s Activit
   await page.screenshot({ path: 'e2e/screenshots/r60-messages-timeline/activity.png' });
 });
 
-test('a client with nothing on their timeline says so', async ({ page }) => {
+test('a client with no message on their timeline shows only their recorded events', async ({
+  page,
+}) => {
+  // As the API (N8-05, Bookkeeping E01a A01): the client's own records are listed (here a note and
+  // when the client was added); nothing from Messages until one is added to the timeline.
   await page.goto(app(`/clients/${JAMIE}/activity`));
-  await expect(page.getByTestId('client-activity')).toContainText('No activity yet', {
-    timeout: 60_000,
-  });
+  const activity = page.getByTestId('client-activity');
+  await expect(activity).toContainText('Client added', { timeout: 60_000 });
+  await expect(activity).toContainText('Note added');
+  await expect(activity).not.toContainText('No activity yet');
 });

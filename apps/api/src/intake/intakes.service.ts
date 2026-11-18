@@ -1,3 +1,4 @@
+import { LIVE_DOCUMENT } from '../storage/document-records.js';
 import {
   BadRequestException,
   ConflictException,
@@ -304,8 +305,9 @@ export class IntakesService {
   }
 
   private uploadsOf(tx: TxClient, businessId: string, intakeId: string) {
+    // CP-PT-03: never a file the firm trashed, archived or replaced.
     return tx.document.findMany({
-      where: { businessId, intakeId },
+      where: { businessId, intakeId, ...LIVE_DOCUMENT },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: uploadSelect,
     });
@@ -776,7 +778,7 @@ export class IntakesService {
   /** The files in the intake's upload slots, oldest first. */
   private async slotFiles(tx: TxClient, businessId: string, intakeId: string): Promise<SlotFile[]> {
     const docs = await tx.document.findMany({
-      where: { businessId, intakeId },
+      where: { businessId, intakeId, ...LIVE_DOCUMENT },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { id: true, intakeSlot: true, scanStatus: true },
     });
