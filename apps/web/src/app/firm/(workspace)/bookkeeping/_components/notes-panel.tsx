@@ -5,17 +5,8 @@ import { Badge } from '@firmivra/ui';
 import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { BK_KEY, card, linkBtn, outlined, quiet } from './bookkeeping-shared';
+import { BK_KEY, card, linkBtn, outlined, quiet, useFirmDateTime } from './bookkeeping-shared';
 import { AddClientNoteButton, NOTE_TYPE_LABEL } from './client-note-dialog';
-
-const when = (iso: string) =>
-  new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 
 /**
  * Review 2 (N04): the Notes tab opens this client's bookkeeping notes in place (not the client's
@@ -23,6 +14,7 @@ const when = (iso: string) =>
  * Add Note writes one here; every note of the client is a link away.
  */
 export function NotesPanel({ w }: { w: BookkeepingClientWorkspace }) {
+  const when = useFirmDateTime(); // C05: the firm's time zone
   const notes = useApiQuery([...BK_KEY, 'notes', w.client.id, w.engagementId], () =>
     api.clientNotes.list(w.client.id, { engagementId: w.engagementId }),
   );

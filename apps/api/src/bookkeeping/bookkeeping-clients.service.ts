@@ -50,6 +50,7 @@ import {
   reportSelect,
   skipTake,
   toAccount,
+  statusChangeText,
   toActivity,
   toClientRef,
   toConnection,
@@ -1066,7 +1067,7 @@ export class BookkeepingClientsService {
           p.engagementId,
           actor.userId,
           'STATUS_CHANGE',
-          `Status changed from ${p.status} to ${body.status}`,
+          statusChangeText(p.status, body.status),
           { from: p.status, to: body.status, source: 'MANUAL' },
         );
       }
