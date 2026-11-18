@@ -1065,26 +1065,6 @@ describe('drafts', () => {
     expect(ok(await call('delete', `/staff-drafts/${draft.id}`, ownerA))).toEqual({ ok: true });
     expectError(await call('get', `/staff-drafts/${draft.id}`, ownerA), 404, 'NOT_FOUND');
   });
-});
-
-describe('firm B', () => {
-  it("reaches none of firm A's members or drafts", async () => {
-    const draft = StaffDraft.parse(
-      ok(await call('post', '/staff-drafts', ownerA, { step: 1, data: {} }), 201),
-    );
-    for (const [method, path, body] of [
-      ['patch', `/staff/${member.managerA}`, { version: 'x', account: { jobTitle: 'X' } }],
-      ['post', `/staff/${member.managerA}/lock`, { reason: 'x', confirm: true }],
-      ['post', `/staff/${member.gonerA}/reactivate`, undefined],
-      ['put', `/staff/${member.managerA}/permissions`, { grants: [] }],
-      ['post', `/staff/${member.managerA}/permissions/copy-from/${member.staffA}`, undefined],
-      ['get', `/staff/${member.managerA}/notes`, undefined],
-      ['get', `/staff/${member.managerA}/compensation`, undefined],
-      ['get', `/staff-drafts/${draft.id}`, undefined],
-      ['delete', `/staff-drafts/${draft.id}`, undefined],
-    ] as const)
-      expectError(await call(method, path, ownerB, body, 'b'), 404, 'NOT_FOUND');
-  });
 
   it('SM16: a draft keeps a changed permission grid and custom security settings as saved', async () => {
     const data = {
@@ -1114,5 +1094,25 @@ describe('firm B', () => {
     expect(read.step).toBe(3);
     expect(read.data).toMatchObject(data);
     expect(ok(await call('delete', `/staff-drafts/${draft.id}`, ownerA))).toEqual({ ok: true });
+  });
+});
+
+describe('firm B', () => {
+  it("reaches none of firm A's members or drafts", async () => {
+    const draft = StaffDraft.parse(
+      ok(await call('post', '/staff-drafts', ownerA, { step: 1, data: {} }), 201),
+    );
+    for (const [method, path, body] of [
+      ['patch', `/staff/${member.managerA}`, { version: 'x', account: { jobTitle: 'X' } }],
+      ['post', `/staff/${member.managerA}/lock`, { reason: 'x', confirm: true }],
+      ['post', `/staff/${member.gonerA}/reactivate`, undefined],
+      ['put', `/staff/${member.managerA}/permissions`, { grants: [] }],
+      ['post', `/staff/${member.managerA}/permissions/copy-from/${member.staffA}`, undefined],
+      ['get', `/staff/${member.managerA}/notes`, undefined],
+      ['get', `/staff/${member.managerA}/compensation`, undefined],
+      ['get', `/staff-drafts/${draft.id}`, undefined],
+      ['delete', `/staff-drafts/${draft.id}`, undefined],
+    ] as const)
+      expectError(await call(method, path, ownerB, body, 'b'), 404, 'NOT_FOUND');
   });
 });
