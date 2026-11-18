@@ -35,6 +35,7 @@ import {
   toRun,
   toSummary,
   RUN_ORDER,
+  entityLabelOf,
 } from './integrations.common.js';
 import type {
   ActivityQuery,
@@ -582,13 +583,20 @@ export class IntegrationsReadService {
         ...(q.entity ? { entity: q.entity } : {}),
         ...(q.manual !== undefined ? { manual: q.manual } : {}),
       };
-      const [total, rows] = await Promise.all([
+      const [total, rows, seen] = await Promise.all([
         tx.integrationSyncRun.count({ where }),
         tx.integrationSyncRun.findMany({
           where,
           orderBy: [...RUN_ORDER],
           skip: (q.page - 1) * q.pageSize,
           take: q.pageSize,
+        }),
+        // I-R2-05: the objects of every run of the connection, for the Object filter.
+        tx.integrationSyncRun.findMany({
+          where: { businessId, connectionId: id, entity: { notIn: ['test', 'webhook'] } },
+          distinct: ['entity'],
+          select: { entity: true },
+          orderBy: { entity: 'asc' },
         }),
       ]);
       const names = await memberNames(
@@ -602,6 +610,7 @@ export class IntegrationsReadService {
         total,
         page: q.page,
         pageSize: q.pageSize,
+        entities: seen.map((r) => ({ key: r.entity, label: entityLabelOf(provider, r.entity) })),
       };
     });
   }

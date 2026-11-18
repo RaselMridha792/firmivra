@@ -14,6 +14,7 @@ import {
   WarningCircle,
   type Icon,
 } from '@phosphor-icons/react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
@@ -111,9 +112,11 @@ function History({
   const [started, setStarted] = useState<Started>('');
   const [page, setPage] = useState(1);
   const [runId, setRunId] = useState<string | null>(null);
-  const query = useApiQuery(
-    ['integrations', 'history', integrationId, status, entity, started, page],
-    () =>
+  // I-R2-05: the page shown stays while another filter loads, so the Object choices (every object
+  // the runs have, `entities`) never lose the one chosen.
+  const query = useQuery({
+    queryKey: ['integrations', 'history', integrationId, status, entity, started, page],
+    queryFn: () =>
       api.integrations.history(integrationId, {
         ...(status ? { status } : {}),
         ...(entity ? { entity } : {}),
@@ -121,8 +124,10 @@ function History({
         page,
         pageSize: PAGE_SIZE,
       }),
-  );
+    placeholderData: keepPreviousData,
+  });
   const data = query.data;
+  const seen = data?.entities ?? [];
   const pageCount = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const filtered = !!(status || entity || started);
   const reset = (apply: () => void) => {
@@ -157,7 +162,10 @@ function History({
             onChange={(event) => reset(() => setEntity(event.target.value))}
             options={[
               { value: '', label: 'All objects' },
-              ...(detail?.provider.entities ?? []).map((e) => ({ value: e.key, label: e.label })),
+              // I-R2-05: the provider's objects and any object its past runs have.
+              ...[...(detail?.provider.entities ?? []), ...seen]
+                .filter((e, i, all) => all.findIndex((x) => x.key === e.key) === i)
+                .map((e) => ({ value: e.key, label: e.label })),
               { value: 'test', label: 'Connection tests' },
               { value: 'webhook', label: 'Webhooks' },
             ]}

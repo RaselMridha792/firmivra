@@ -1345,4 +1345,33 @@ describe('the sync history (Integrations Review Two)', () => {
     expect(mine.map((i) => i.id)).toEqual([ranLater.id, ranEarlier.id]);
     expect(mine[0]!.startedAt).toBe('2026-01-05T10:00:00.000Z');
   });
+
+  it('I-R2-05: an object the runs have stays a filter choice, even one the provider no longer lists', async () => {
+    const c = await connectionOf('quickbooks');
+    const legacy = await inFirm('a', (tx) =>
+      tx.integrationSyncRun.create({
+        data: {
+          businessId: firms.a,
+          connectionId: c.id,
+          entity: 'legacy_items',
+          status: 'FAILED',
+          startedAt: new Date('2026-01-03T10:00:00.000Z'),
+          finishedAt: new Date('2026-01-03T10:01:00.000Z'),
+        },
+        select: { id: true },
+      }),
+    );
+    const history = async (query: string) =>
+      ok(
+        await call('get', `/integrations/connections/${c.id}/history?${query}`, people.ownerA),
+      ) as { items: { id: string }[]; entities: { key: string; label: string }[] };
+    // Whatever the filter, the choices list every object the runs have (not tests or webhooks).
+    const filtered = await history('status=SUCCEEDED');
+    expect(filtered.entities).toEqual(
+      expect.arrayContaining([{ key: 'legacy_items', label: 'Legacy_items' }]),
+    );
+    expect(filtered.entities.map((e) => e.key)).not.toContain('test');
+    // Choosing it finds its run.
+    expect((await history('entity=legacy_items')).items.map((i) => i.id)).toEqual([legacy.id]);
+  });
 });

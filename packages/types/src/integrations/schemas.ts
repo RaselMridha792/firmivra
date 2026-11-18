@@ -487,6 +487,12 @@ export type IntegrationHistoryQuery = z.input<typeof IntegrationHistoryQuery>;
 export const IntegrationHistoryPage = z.object({
   items: z.array(IntegrationSyncRun).max(100),
   ...Page,
+  /**
+   * I-R2-05 (Integrations Review Two): every object the connection's runs have, whatever the
+   * filters, with its label; one the provider no longer lists still filters (connection tests
+   * and webhooks are left out: they have their own choices).
+   */
+  entities: z.array(z.object({ key: z.string(), label: z.string() })).default([]),
 });
 export type IntegrationHistoryPage = z.infer<typeof IntegrationHistoryPage>;
 
