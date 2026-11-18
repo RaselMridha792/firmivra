@@ -37,7 +37,7 @@ import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NotesCard } from '../../../clients/[id]/messages/_components/notes-card';
-import { activityHref, activityOf, dayText, timeText } from '../activity-labels';
+import { activityHref, activityOf, activityText, dayText, timeText } from '../activity-labels';
 import { headerKey } from '../keys';
 import { useClientHeader } from './client-shell';
 
@@ -583,11 +583,11 @@ export function ActivityRows({
                       className="flex items-center gap-2 text-link hover:underline"
                       data-testid="activity-record"
                     >
-                      <Glyph aria-hidden className="size-4 text-action" /> {kind.label}
+                      <Glyph aria-hidden className="size-4 text-action" /> {activityText(e)}
                     </Link>
                   ) : (
                     <span className="flex items-center gap-2 text-text">
-                      <Glyph aria-hidden className="size-4 text-action" /> {kind.label}
+                      <Glyph aria-hidden className="size-4 text-action" /> {activityText(e)}
                     </span>
                   )}
                 </td>
