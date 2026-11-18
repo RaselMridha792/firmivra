@@ -18,6 +18,8 @@ import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { SectionCard } from '../../_components/section-card';
 import { StepActions, WithDraft, useDraftSaver } from '../../_components/with-draft';
+import { UnsavedDialog, useUnsavedGuard } from '../../../../tasks/_components/unsaved-guard';
+
 import { WizardHeader } from '../../_components/wizard-header';
 import { ACCESS_LEVELS, levelForRole, stepHref } from '../../_components/wizard-parts';
 import { AccountPreview, WizardNotes, previewFromDraft } from '../../_components/wizard-side';
@@ -200,6 +202,8 @@ function SecurityForm({
   const [form, setForm] = useState<Form>(() => fromDraft(base, start));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const draft = useDraftSaver(startDraft, 3);
+  // SM18: leaving with unsaved changes asks Keep Editing, Discard Changes or Save Draft.
+  const guard = useUnsavedGuard(form);
   const set = <K extends keyof Form>(field: K, value: Form[K]) => {
     setForm((f) => ({ ...f, [field]: value }));
     draft.touched();
@@ -541,11 +545,24 @@ function SecurityForm({
             error={draft.error}
             onBack={() => go('permissions', false)}
             onSave={() =>
-              draft.save(data(), (id) =>
-                router.replace(stepHref('security', id), { scroll: false }),
-              )
+              draft.save(data(), (id) => {
+                guard.rebase();
+                router.replace(stepHref('security', id), { scroll: false });
+              })
             }
             onNext={() => go('details', true)}
+          />
+          <UnsavedDialog
+            guard={guard}
+            saveLabel="Save Draft"
+            saving={draft.pending}
+            onSave={() => {
+              const to = guard.pending;
+              draft.save(data(), () => {
+                guard.allow();
+                if (to) router.push(to);
+              });
+            }}
           />
         </div>
 

@@ -27,6 +27,8 @@ import { formatPhone } from '../../../clients/_components/client-parts';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { UnsavedDialog, useUnsavedGuard } from '../../../tasks/_components/unsaved-guard';
+
 import { NOT_LOADED } from '../../_components/quiet-card';
 import { MultiPick } from '../../new/_components/multi-pick';
 import { SectionCard } from '../../new/_components/section-card';
@@ -283,6 +285,9 @@ function EditForm({
     setSaved('');
   };
   const requirePasswordChange = mustChange ?? security.data?.requirePasswordChange ?? false;
+  // SM18 (Staff Management Review 2): leaving with unsaved changes (Cancel, Back to Staff
+  // Management, the sidebar, closing the tab) asks Keep Editing, Discard Changes or Save.
+  const guard = useUnsavedGuard({ form, mustChange });
   const save = useApiMutation(
     async (body: {
       account?: Partial<ReturnType<typeof toAccount>>;
@@ -716,6 +721,7 @@ function EditForm({
             footer,
           )
         : null}
+      <UnsavedDialog guard={guard} onSave={onSave} saving={save.isPending} />
     </form>
   );
 }
