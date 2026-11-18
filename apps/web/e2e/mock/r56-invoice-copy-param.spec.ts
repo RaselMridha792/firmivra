@@ -3,8 +3,9 @@ import { expect, type Page, test } from '@playwright/test';
 // Dashboard live check Q4, Q8, B04 (R56): `from=` is only ever the way back (lib/origin.ts). + New ›
 // New invoice and the dashboard's Create Invoice open a blank Create Invoice with Back to the
 // dashboard, never "This invoice is not available"; Duplicate starts from a copy with
-// `copyFrom=<id>`. Mock mode (playwright.mock.config.ts) as the Owner. Synthetic data only:
-// invoice 2 is INV-2026-0102, with two lines.
+// `copyFrom=<id>`, and Compliance's recurring setup starts from a deadline with `deadline=<id>`.
+// Mock mode (playwright.mock.config.ts) as the Owner. Synthetic data only: invoice 2 is
+// INV-2026-0102, with two lines.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 const invoice = (n: number) => `0199b6e1-0000-7000-8000-${String(n).padStart(12, '0')}`;
@@ -59,4 +60,18 @@ test('Duplicate starts a new invoice from a copy, with copyFrom', async ({ page 
     'Individual tax preparation (Form 1040)',
   );
   await expect(page.getByLabel('Description 2 *')).toHaveValue('Schedule C, business income');
+});
+
+test('a recurring rule starts from a deadline with deadline=, and from= stays the way back', async ({
+  page,
+}) => {
+  // The mock's first deadline, Q3 Estimated Tax Payment.
+  const deadline = '0199c0f0-2d00-7000-8000-000000000001';
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app(`/compliance/recurring/new?deadline=${deadline}&from=%2F`));
+  await expect(page.getByLabel('Deadline Name *')).toHaveValue('Q3 Estimated Tax Payment', {
+    timeout: 60_000,
+  });
+  await expect(page.getByText('This is not available right now.')).toHaveCount(0);
+  await expect(page.getByTestId('back-to-origin')).toHaveText(/Back to Dashboard/);
 });
