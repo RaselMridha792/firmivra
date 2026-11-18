@@ -40,6 +40,7 @@ import { liveEquipment, liveRooms, resourceStore } from './appointment-resources
 import {
   addMockLeadAppointment,
   mockLeadAppointmentOutcome,
+  mockLeadReach,
   mockLeadToBook,
 } from './leads-pipeline';
 
@@ -164,7 +165,25 @@ function seed(empty: boolean): Store {
       'CONFIRMED',
       'VIDEO',
     ],
-    [5, '10:00', '11:00', contact(9, 'Jack Banfield'), 1, 0, daniel, 'CONFIRMED', 'IN_PERSON'],
+    [
+      5,
+      '10:00',
+      '11:00',
+      // P4-2: a lead the leads mock assigns to Theo Grant (Owen Hartley, Contacted), with Daniel
+      // Okafor as the appointment's staff member: Daniel (Staff) records Keep as Lead and Follow
+      // Up through the appointment and is not offered Convert to New client.
+      {
+        ...contact(10, 'Owen Hartley', 'LEAD'),
+        id: '0199c0c0-0a00-7000-8000-000000000010',
+        email: 'owen.hartley@example.test',
+        phone: '(555) 030-1010',
+      },
+      1,
+      null,
+      daniel,
+      'CONFIRMED',
+      'IN_PERSON',
+    ],
     [5, '13:00', '14:00', contact(10, 'Clara Voss'), 3, 1, hana, 'CONFIRMED', 'PHONE'],
     [6, '09:00', '11:00', contact(11, 'Workshop Group'), 7, 3, owner, 'CONFIRMED', 'IN_PERSON'],
     [-6, '10:00', '11:00', contact(12, 'Elena Brooks'), 1, 0, daniel, 'COMPLETED', 'IN_PERSON'],
@@ -422,6 +441,8 @@ export function completeMockRecord(
     throw invalid('outcome', 'Choose what came of the appointment with this lead');
   if (!leadId && input.outcome)
     throw invalid('outcome', 'Only an appointment with a lead has an outcome');
+  if (leadId && input.outcome === 'CONVERT_NEW' && !mockLeadReach(leadId, role))
+    throw fail(403, 'FORBIDDEN', "The lead's owner can convert this lead.");
   if (leadId && input.outcome) {
     const label = LEAD_APPOINTMENT_OUTCOME_LABELS[input.outcome];
     const day = input.followUpOn ?? null;
@@ -803,7 +824,15 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
 
     record: async (id) => {
       await mockDelay();
-      const r = copy(find(id));
+      const found = copy(find(id));
+      // P4-2, as the API: whether this member may convert the lead (Convert to New client).
+      const r =
+        found.contact.kind === 'LEAD' && found.contact.id
+          ? {
+              ...found,
+              contact: { ...found.contact, leadReach: mockLeadReach(found.contact.id, role) },
+            }
+          : found;
       // A9: the intake form sent for this appointment, when there is one.
       const intake = appointmentIntakes().get(id);
       return intake ? { ...r, related: { ...r.related, intakeForm: intake } } : r;

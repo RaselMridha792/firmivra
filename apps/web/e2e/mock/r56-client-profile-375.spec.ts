@@ -46,8 +46,14 @@ test('§23 at 375 px: Documents, Messages and Notes fit, with their actions on s
   page,
 }) => {
   await phone(page, `/clients/${JAMIE}/documents`);
-  await onScreen(page.getByTestId('upload-document'));
+  // P4-7: Request a document is the tab's primary; Upload Document is in its More Actions menu.
+  await onScreen(page.getByTestId('request-document-open'));
+  const more = page.getByTestId('client-tab-header').getByRole('button', { name: 'More Actions' });
+  await onScreen(more);
   await noSidewaysScroll(page);
+  await more.click();
+  await onScreen(page.getByRole('menuitem', { name: 'Upload Document' }));
+  await page.keyboard.press('Escape');
 
   await phone(page, `/clients/${JAMIE}/messages`);
   const compose = page.getByRole('button', { name: 'New Message' });
