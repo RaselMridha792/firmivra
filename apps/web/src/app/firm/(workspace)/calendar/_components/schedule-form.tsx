@@ -1018,6 +1018,20 @@ function FormBody({
     setForm((f) => ({ ...f, [k]: v }));
     setNote('');
   };
+  // Review 2 (B5): a new start keeps the appointment's length: the end moves with it (the
+  // type's length when the end was not after the start), never past the end of the day.
+  const moveStart = (start: string) => {
+    setForm((f) => {
+      const length = minutesOf(f.end) - minutesOf(f.start);
+      const keep =
+        length > 0 ? length : (o.types.find((t) => t.id === f.typeId)?.durationMinutes ?? 0);
+      if (!keep) return { ...f, start };
+      const m = Math.min(minutesOf(start) + keep, 23 * 60 + 59);
+      const end = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      return { ...f, start, end };
+    });
+    setNote('');
+  };
   const setReminders = (next: Form['reminders']) => {
     remindersTouched.current = true;
     setReminderNote('');
@@ -1539,7 +1553,7 @@ function FormBody({
               disabled={form.allDay}
               options={timesWith(form.start)}
               value={form.start}
-              onChange={(e) => set('start', e.target.value)}
+              onChange={(e) => moveStart(e.target.value)}
             />
             <Select
               label="End Time *"
