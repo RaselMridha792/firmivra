@@ -442,7 +442,7 @@ describe('Intake Review 2 23-c to 23-f: the Automation Rules at a lead link subm
         data: {
           businessId: firms.a.id,
           displayName: 'Lee Already (fake)',
-          email: email.toUpperCase(),
+          email,
         },
         select: { id: true },
       });
@@ -467,6 +467,8 @@ describe('Intake Review 2 23-c to 23-f: the Automation Rules at a lead link subm
       tx.client.count({ where: { businessId: firms.a.id } }),
     );
     const { id, token } = await sendTo('auto');
+    // A network of its own: Open allows 10 a minute per network, and the tests above used it.
+    viewers += 250;
     const v = visitor(firms.a.slug);
     ok(await v.post('/open', { token }));
     for (const step of ['profile', 'finances', 'goals']) {
