@@ -1,6 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { IntegrationProvider } from '@firmivra/types';
-import { PROVIDERS } from './catalog.js';
+import { PROVIDERS, readinessOf } from './catalog.js';
 import { INTEGRATION_ADAPTERS, type ProviderAdapter } from './provider-adapter.js';
 
 /**
@@ -21,7 +21,8 @@ export class ProviderRegistry {
   }
 
   private resolved(p: IntegrationProvider): IntegrationProvider {
-    return this.adapters.has(p.provider) ? { ...p, comingSoon: false } : p;
+    // I-UA05: a registered adapter makes it Ready, whatever the catalog's table says.
+    return this.adapters.has(p.provider) ? { ...p, comingSoon: false, ...readinessOf(p, true) } : p;
   }
 
   all(): IntegrationProvider[] {

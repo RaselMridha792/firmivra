@@ -387,6 +387,24 @@ describe('the main page and marketplace', () => {
     expect(m.items[0]?.provider.popularity).toBeGreaterThanOrEqual(
       m.items.at(-1)?.provider.popularity ?? 0,
     );
+    // I-UA05: each provider says how close it is to Connect and who acts next.
+    const provider = (key: string) => m.items.find((i) => i.provider.provider === key)?.provider;
+    expect(provider('website_forms')).toMatchObject({
+      readiness: 'READY',
+      nextStep: { who: 'FIRM' },
+    });
+    expect(provider('xero')).toMatchObject({
+      readiness: 'SETUP_PENDING',
+      nextStep: { who: 'FIRMIVRA' },
+    });
+    // This suite registers a QuickBooks adapter: that makes it Ready.
+    expect(provider('quickbooks')).toMatchObject({ readiness: 'READY', nextStep: { who: 'FIRM' } });
+    expect(m.items.every((i) => i.provider.readiness && i.provider.nextStep?.what)).toBe(true);
+    // The overview's cards carry them too.
+    const cards = IntegrationsOverview.parse(ok(await call('get', '/integrations', people.staffA)));
+    expect(cards.items.find((i) => i.provider.provider === 'xero')?.provider.readiness).toBe(
+      'SETUP_PENDING',
+    );
     const byName = IntegrationMarketplace.parse(
       ok(await call('get', '/integrations/marketplace?sort=name&category=PAYMENTS', people.ownerA)),
     );
@@ -765,6 +783,8 @@ describe('sync, pause, test and health', () => {
       ),
     ).toMatchObject({ status: 'PARTIAL', failedCount: 3 });
     await waitFor(async () => (await connectionOf('quickbooks')).status === 'CONNECTED');
+    // I-UA04: the last sync is the last one that worked; a failed attempt does not move it.
+    const lastWorked = (await connectionOf('quickbooks')).lastSyncAt;
 
     behavior.syncError = new AdapterError('authorization_expired');
     const failing = IntegrationSyncRun.parse(
@@ -791,7 +811,15 @@ describe('sync, pause, test and health', () => {
       issue: 'AUTHORIZATION_EXPIRED',
       statusMessage: 'Authorization expired',
       statusAction: 'RECONNECT',
+      // I-UA04: what it stops and what to do next.
+      statusImpact: 'Nothing syncs until you sign in again. What is already in Firmivra stays.',
+      statusNextStep: 'Choose Reconnect and sign in to the provider again.',
     });
+    expect((await connectionOf('quickbooks')).lastSyncAt).toEqual(lastWorked);
+    expect(summary.health.lastSuccessAt).not.toBeNull();
+    expect(Date.parse(summary.health.lastAttemptAt!)).toBeGreaterThan(
+      Date.parse(summary.health.lastSuccessAt!),
+    );
     const health = IntegrationConnectionHealth.parse(
       ok(await call('get', `/integrations/connections/${c.id}/health`, people.staffA)),
     );

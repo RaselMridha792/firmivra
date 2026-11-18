@@ -29,6 +29,7 @@ import { useEffect, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { EnvironmentSwitch } from './environment-switch';
+import { IntegrationsNav, placeHref } from './integrations-nav';
 import { ProviderCard } from './provider-card';
 import { dateLabel, linkClass } from './integration-shared';
 import { useApiQuery } from '../../../../../lib/query';
@@ -197,6 +198,8 @@ export function IntegrationsScreen({
             </div>
           </div>
         </header>
+        {/* I-UA02: browse, manage and follow requests, in the same environment. */}
+        <IntegrationsNav current="connections" environment={environment} />
         <section
           aria-label="Integration summary"
           className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
@@ -382,7 +385,7 @@ export function IntegrationsScreen({
               {data?.canManage ? (
                 <Link
                   className={`${linkClass} !bg-action !text-on-action`}
-                  href="/integrations/marketplace"
+                  href={placeHref('/integrations/marketplace', environment)}
                 >
                   <Plus weight="fill" />
                   Add Integration
@@ -399,7 +402,7 @@ export function IntegrationsScreen({
               )}
               <Link
                 className="text-center text-xs font-semibold text-link underline"
-                href="/integrations/marketplace"
+                href={placeHref('/integrations/marketplace', environment)}
               >
                 View Integration Marketplace
               </Link>

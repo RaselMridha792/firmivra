@@ -696,7 +696,7 @@ export class IntegrationsService {
           ? {
               status: 'NEEDS_ATTENTION',
               statusReason: failedWith!.code,
-              lastSyncAt: now,
+              // I-UA04: a sync that failed is an attempt, not the last sync (its run keeps the time).
               nextSyncAt: null,
             }
           : {

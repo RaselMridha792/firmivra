@@ -392,6 +392,8 @@ export class SettingsService {
       portalName: s?.portalName ?? null,
       portalHeader: s?.portalHeader ?? null,
       welcomeMessage: s?.welcomeMessage ?? null,
+      portalSignInLabel: s?.portalSignInLabel ?? null,
+      portalSignUpLabel: s?.portalSignUpLabel ?? null,
       clientSignUpEnabled: s?.clientSignUpEnabled ?? true,
       entityType: entityType.success ? entityType.data : null,
       einLast4: s?.einLast4 ?? null,

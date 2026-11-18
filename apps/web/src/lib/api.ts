@@ -70,6 +70,7 @@ import {
   createStaffPhoneClient,
   createPaymentsSetupClient,
   createFirmBillingClient,
+  createPortalAnnouncementSettingsClient,
   createPortalContactClient,
   createPortalTabsClient,
   createPaymentPreferencesClient,
@@ -180,6 +181,7 @@ import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
 import { createProfileChangesMock } from '../mocks/profile-changes';
 import { createSupportMessagesMock } from '../mocks/support-messages';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
+import { createPortalAnnouncementSettingsMock } from '../mocks/portal-announcement-settings';
 import { createPortalContactMock } from '../mocks/portal-contact';
 import { createPortalTabsMock } from '../mocks/portal-tabs';
 import { createSettingsMock } from '../mocks/settings';
@@ -310,6 +312,11 @@ export const api = {
       ? createPortalTabsMock({ role: MOCK_ROLE })
       : createPortalTabsClient(request),
   /** Client Portal > Contact Information (PRT-3), and the portal's contact card (`mine`). */
+  /** Settings > Client Portal > Announcements (CP-3c, CP-3d, CP-3i): Owner and Admin. */
+  portalAnnouncementSettings:
+    dev && mocked('portalAnnouncementSettings')
+      ? createPortalAnnouncementSettingsMock({ role: MOCK_ROLE })
+      : createPortalAnnouncementSettingsClient(request),
   portalContact:
     dev && mocked('portalContact')
       ? createPortalContactMock({ role: MOCK_ROLE })

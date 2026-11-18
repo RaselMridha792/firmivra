@@ -3,7 +3,14 @@
 // status becomes the words and action the card shows, and the secret store keeps names, not values.
 import { describe, expect, it } from 'vitest';
 import { IntegrationProvider, IntegrationProviderKey } from '@firmivra/types';
-import { CATEGORY_LABELS, CUSTOM_EVENTS, PROVIDERS } from '../../src/integrations/catalog.js';
+import {
+  CATEGORY_LABELS,
+  CUSTOM_EVENTS,
+  NOT_YET_READY,
+  PROVIDERS,
+} from '../../src/integrations/catalog.js';
+import type { ProviderAdapter } from '../../src/integrations/provider-adapter.js';
+import { ProviderRegistry } from '../../src/integrations/provider-registry.js';
 import {
   cardAction,
   cardStatus,
@@ -39,6 +46,12 @@ describe('the catalog', () => {
         ).toBe(true);
         expect(e.key).toMatch(/^[a-z][a-z0-9_]{0,39}$/);
       }
+      // I-R2-07: and the other way round, every way a provider offers is one some object syncs.
+      for (const d of p.directions)
+        expect(
+          p.entities.some((e) => e.directions.includes(d)),
+          `${p.provider} offers ${d} sync`,
+        ).toBe(true);
       expect(new Set(p.entities.map((e) => e.key)).size).toBe(p.entities.length);
       for (const perm of p.permissions) {
         if (perm.entity)
@@ -79,6 +92,39 @@ describe('the catalog', () => {
     expect(by.get('website_forms')?.comingSoon).toBe(false);
     expect(by.get('quickbooks')?.comingSoon).toBe(true);
     expect(new Set(CUSTOM_EVENTS.map((e) => e.key)).size).toBe(CUSTOM_EVENTS.length);
+  });
+
+  it('says how close each provider is to Connect and who acts next (I-UA05)', () => {
+    const by = new Map(PROVIDERS.map((p) => [p.provider, p]));
+    for (const p of PROVIDERS) {
+      // Every provider is classified on purpose, and Ready exactly when it can connect now.
+      expect(Object.keys(NOT_YET_READY), p.provider).toContain(p.provider);
+      expect(p.readiness === 'READY', p.provider).toBe(!p.comingSoon);
+      expect(p.nextStep?.what, p.provider).toMatch(/\w{3,}/);
+    }
+    expect(by.get('website_forms')).toMatchObject({
+      readiness: 'READY',
+      nextStep: { who: 'FIRM' },
+    });
+    expect(by.get('quickbooks')).toMatchObject({
+      readiness: 'SETUP_PENDING',
+      nextStep: { who: 'FIRMIVRA' },
+    });
+    expect(by.get('textmagic')).toMatchObject({
+      readiness: 'SUPPORTED_NOT_ENABLED',
+      nextStep: { who: 'FIRMIVRA' },
+    });
+    expect(by.get('tax_software')).toMatchObject({
+      readiness: 'UNAVAILABLE',
+      nextStep: { who: 'FIRM' },
+    });
+    // A registered adapter makes a provider Ready, whatever the table says.
+    const registry = new ProviderRegistry([{ provider: 'quickbooks' } as ProviderAdapter]);
+    expect(registry.get('quickbooks')).toMatchObject({
+      comingSoon: false,
+      readiness: 'READY',
+      nextStep: { who: 'FIRM' },
+    });
   });
 });
 
@@ -156,6 +202,31 @@ describe('connection status', () => {
     expect(reasonInfo('permission_missing')?.action).toBe('FIX_PERMISSIONS');
     expect(reasonInfo('something_new')?.issue).toBe('SYNC_FAILED');
     expect(reasonInfo(null)).toBeNull();
+  });
+
+  it('says for each problem what it stops and what to do next (I-UA04)', () => {
+    expect(toSummary(base)).toMatchObject({ statusImpact: null, statusNextStep: null });
+    for (const reason of [
+      'authorization_expired',
+      'authorization_revoked',
+      'permission_missing',
+      'sync_failed',
+      'provider_outage',
+      'rate_limited',
+      'configuration_incomplete',
+      'something_new',
+    ]) {
+      const info = reasonInfo(reason);
+      expect(info?.impact, reason).toMatch(/\w{3,}/);
+      expect(info?.nextStep, reason).toMatch(/\w{3,}/);
+      expect(info?.impact).not.toBe(info?.message);
+    }
+    expect(
+      toSummary({ ...base, status: 'NEEDS_ATTENTION', statusReason: 'permission_missing' }),
+    ).toMatchObject({
+      statusImpact: 'The objects that need that permission do not sync.',
+      statusNextStep: 'Choose Fix permissions and grant the missing permission at the provider.',
+    });
   });
 
   it('the card shows the most urgent status and the action that goes with it', () => {
