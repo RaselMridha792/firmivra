@@ -115,3 +115,56 @@ test('SM17: pay is never saved in a draft, and stays on the page through Back an
   await expect(page).toHaveURL(/\/team\/new\/details\?draft=/, { timeout: 30_000 });
   await expect(page.getByLabel('Pay Rate / Salary')).toHaveValue('52.50');
 });
+
+// SM40: keyboard, focus and narrow screens on Staff Management.
+const HANA = '0199c0a0-0a00-7000-8000-000000000006';
+
+test('SM40: a dialog gives focus back to the button that opened it', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app(`/team/${HANA}/security/sessions`));
+  const open = page
+    .getByTestId('active-sessions')
+    .getByRole('button', { name: 'Sign Out All Sessions' });
+  await open.click({ timeout: 60_000 });
+  const dialog = page.getByRole('dialog', { name: 'Sign Out All Sessions' });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(open).toBeFocused();
+});
+
+test('SM40: Create Staff goes field to field with Tab, and a missing field is announced', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/team/new'));
+  const first = page.getByLabel('First Name *');
+  await first.focus({ timeout: 60_000 });
+  for (const next of ['Last Name *', 'Work Email *', 'Phone Number (Optional)']) {
+    await page.keyboard.press('Tab');
+    await expect(page.getByLabel(next)).toBeFocused();
+  }
+  await page.getByRole('button', { name: 'Next: Role & Permissions' }).click();
+  await expect(first).toHaveAttribute('aria-invalid', 'true');
+  const described = await first.getAttribute('aria-describedby');
+  expect(described).toBeTruthy();
+  await expect(page.locator(`[id="${described?.split(' ')[0]}"]`)).not.toBeEmpty();
+});
+
+for (const width of [768, 375])
+  test(`SM40: Staff Management fits a ${width} px screen with no sideways scroll`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    for (const path of ['/team', '/team/new', `/team/${HANA}`, '/team/settings/security']) {
+      await page.goto(app(path));
+      await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible({
+        timeout: 60_000,
+      });
+      const [scroll, inner] = await page.evaluate(() => [
+        document.documentElement.scrollWidth,
+        window.innerWidth,
+      ]);
+      expect(scroll, `${path} at ${width} px`).toBeLessThanOrEqual(inner);
+    }
+  });
