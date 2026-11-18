@@ -33,6 +33,8 @@ import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { providerDisc } from '../../_components/manage-integration-shared';
 import { SetupOption } from './setup-option';
 import { nextStepLine, notYetLabel } from '../../../_components/readiness';
+import { type SetupFacts, SetupReview } from '../../_components/setup-review';
+import { formatDirection, formatFrequency } from '../../_components/manage-integration-shared';
 import {
   defaultSettings,
   directionLabels,
@@ -151,7 +153,40 @@ function SetupForm({
     provider?.permissions.filter(
       (permission) => permission.entity === null || selected.includes(permission.entity),
     ) ?? [];
+  // I-UA06: Connect first shows what will happen; Confirm connects once.
+  const [reviewing, setReviewing] = useState(false);
+  const reviewFacts: SetupFacts | null = provider
+    ? {
+        environment,
+        destination: provider.name,
+        objects: provider.entities.filter((e) => selected.includes(e.key)).map((e) => e.label),
+        direction: settings.direction ? formatDirection(settings.direction) : 'Not chosen',
+        schedule:
+          settings.syncMode === 'AUTO'
+            ? formatFrequency(settings.syncEveryMinutes ?? null)
+            : 'Manual (Sync Now)',
+        firstRun:
+          provider.provider === 'custom_api'
+            ? 'Connecting saves your choices. Nothing is sent until the endpoint and events are set and one of those events happens.'
+            : `${builtIn ? 'Connecting saves your choices' : `After you ${provider.authMethod === 'API_KEY' ? 'enter the key' : 'authorize'}, Firmivra saves your choices`}${
+                (draft.testAfterConnect ?? true) ? ' and runs a connection test (no data)' : ''
+              }. The first sync runs ${settings.syncMode === 'AUTO' ? 'at its scheduled time' : 'when you choose Sync Now'}.`,
+      }
+    : null;
+  const review = () => {
+    setLocalError('');
+    if (!directionValid) {
+      setLocalError('Choose supported sync settings before connecting.');
+      return;
+    }
+    if (provider?.credentialFields.some((field) => !credentials[field.key]?.trim())) {
+      setLocalError('Enter the required provider-issued credentials.');
+      return;
+    }
+    setReviewing(true);
+  };
   const start = async () => {
+    setReviewing(false);
     setLocalError('');
     const body = ConnectIntegrationRequest.safeParse({
       environment,
@@ -191,6 +226,17 @@ function SetupForm({
   };
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {reviewFacts ? (
+        <SetupReview
+          open={reviewing}
+          title={`Review before connecting ${provider?.name ?? ''}`.trim()}
+          facts={reviewFacts}
+          confirmLabel={builtIn ? 'Confirm and create' : 'Confirm and connect'}
+          busy={busy}
+          onBack={() => setReviewing(false)}
+          onConfirm={() => void start()}
+        />
+      ) : null}
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm text-muted">
         <Link href="/integrations" className="text-link">
           Integrations
@@ -339,7 +385,7 @@ function SetupForm({
                       />
                     ))
                   : null}
-                <Button disabled={blocked} onClick={() => void start()}>
+                <Button disabled={blocked} onClick={review}>
                   <LockKey weight="fill" className="size-5" />
                   {busy
                     ? 'Connecting…'
@@ -620,7 +666,7 @@ function SetupForm({
                 >
                   Cancel
                 </Link>
-                <Button disabled={blocked || !directionValid} onClick={() => void start()}>
+                <Button disabled={blocked || !directionValid} onClick={review}>
                   {busy ? 'Connecting…' : 'Connect & Continue'}
                   <ArrowRight weight="fill" className="size-4" />
                 </Button>

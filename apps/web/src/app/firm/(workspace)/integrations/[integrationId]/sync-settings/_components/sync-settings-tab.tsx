@@ -20,6 +20,7 @@ import {
   formatFrequency,
 } from '../../_components/manage-integration-shared';
 import { integrationError, ManageShell, Notice } from '../../_components/manage-shell';
+import { type SetupFacts, SetupReview } from '../../_components/setup-review';
 import { CustomSetup } from './custom-setup';
 
 /**
@@ -110,6 +111,29 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
     provider.directions.includes(direction) &&
     enabled.every((e) => e.directions.includes(direction));
   const changes = changesOf(saved, draft);
+  // I-UA06: Save first shows what will change and what the next sync does.
+  const [reviewing, setReviewing] = useState(false);
+  const labelsOf = (keys: string[]) =>
+    provider.entities.filter((e) => keys.includes(e.key)).map((e) => e.label);
+  const facts: SetupFacts = {
+    environment: detail.environment,
+    destination: detail.accountLabel ? `${provider.name}: ${detail.accountLabel}` : provider.name,
+    objects: labelsOf(draft.entities),
+    direction: formatDirection(draft.direction),
+    schedule:
+      draft.syncMode === 'AUTO' ? formatFrequency(draft.syncEveryMinutes) : 'Manual (Sync Now)',
+    firstRun:
+      draft.syncMode === 'AUTO'
+        ? 'Saving changes no data. The next automatic sync, or Sync Now, uses these settings.'
+        : 'Saving changes no data. The next Sync Now uses these settings.',
+  };
+  const changed: (keyof SetupFacts)[] = [
+    ...(changes?.entities ? (['objects'] as const) : []),
+    ...(changes?.direction ? (['direction'] as const) : []),
+    ...(changes && ('syncMode' in changes || 'syncEveryMinutes' in changes)
+      ? (['schedule'] as const)
+      : []),
+  ];
 
   function submit() {
     if (!changes) return;
@@ -121,7 +145,7 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
       setProblem('Choose how often to sync automatically.');
       return;
     }
-    save.mutate(changes);
+    setReviewing(true);
   }
 
   return (
@@ -273,6 +297,19 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
           {save.isPending ? 'Saving…' : 'Save Sync Settings'}
         </Button>
       </div>
+      <SetupReview
+        open={reviewing}
+        title="Review sync settings"
+        facts={facts}
+        changed={changed}
+        confirmLabel="Confirm and save"
+        busy={save.isPending}
+        onBack={() => setReviewing(false)}
+        onConfirm={() => {
+          if (!changes || save.isPending) return;
+          save.mutate(changes, { onSettled: () => setReviewing(false) });
+        }}
+      />
     </div>
   );
 }

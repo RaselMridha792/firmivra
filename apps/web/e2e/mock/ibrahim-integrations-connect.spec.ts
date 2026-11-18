@@ -91,9 +91,11 @@ test('connect sends only contract fields and preserves preferences on a failed r
   await page.getByLabel('Sync Frequency').selectOption('30');
   await page.getByLabel('Run a connection test after connecting').uncheck();
   await page.getByRole('button', { name: 'Connect & Continue', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm and connect' }).click();
   await expect(page.getByTestId('setup-complete').getByRole('alert')).toContainText('retry');
   await expect(page.getByLabel('Sync Frequency')).toHaveValue('30');
   await page.getByRole('button', { name: 'Connect & Continue', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm and connect' }).click();
   await expect(page).toHaveURL(base + '/complete');
   expect(attempts).toBe(2);
 });
@@ -141,7 +143,36 @@ test('OAuth redirect uses the API result rather than pretending to connect', asy
   );
   await page.goto(base);
   await page.getByRole('button', { name: 'Sign in with Microsoft 365', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm and connect' }).click();
   await expect(page).toHaveURL('https://authorization.example.test/authorize');
+});
+
+test('I-UA06: Connect first shows a review; Back keeps the choices and sends nothing', async ({
+  page,
+}) => {
+  await mockSetup(page);
+  let attempts = 0;
+  await page.route('**/providers/microsoft365/connect', async (route) => {
+    attempts += 1;
+    await route.fulfill({ json: { mode: 'CONNECTED', connection: setupConnection() } });
+  });
+  await page.goto(base);
+  await page.getByLabel('Sync Frequency').selectOption('30');
+  await page.getByRole('button', { name: 'Connect & Continue', exact: true }).click();
+  const review = page.getByRole('dialog', { name: 'Review before connecting Microsoft 365' });
+  const facts = review.getByTestId('setup-review');
+  await expect(facts).toContainText('DestinationMicrosoft 365');
+  await expect(facts).toContainText('ScheduleEvery 30 minutes');
+  await expect(facts).toContainText('runs a connection test (no data)');
+  await expect(facts).toContainText('The first sync runs at its scheduled time.');
+  await review.getByRole('button', { name: 'Back' }).click();
+  await expect(review).toBeHidden();
+  expect(attempts).toBe(0);
+  await expect(page.getByLabel('Sync Frequency')).toHaveValue('30');
+  await page.getByRole('button', { name: 'Connect & Continue', exact: true }).click();
+  await review.getByRole('button', { name: 'Confirm and connect' }).click();
+  await expect(page).toHaveURL(base + '/complete');
+  expect(attempts).toBe(1);
 });
 
 test('provider-issued credentials stay out of the saved preferences', async ({ page }) => {
@@ -164,6 +195,7 @@ test('provider-issued credentials stay out of the saved preferences', async ({ p
     'synthetic-test-value',
   );
   await page.getByRole('button', { name: 'Connect & Continue' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm and connect' }).click();
   await expect(page).toHaveURL(base + '/complete');
   await expect(page.getByLabel('Provider API key')).toHaveValue('');
 });
@@ -187,6 +219,7 @@ test('unsafe provider redirect is rejected without navigating away', async ({ pa
   );
   await page.goto(base);
   await page.getByRole('button', { name: 'Sign in with Microsoft 365' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm and connect' }).click();
   await expect(page.getByTestId('setup-complete').getByRole('alert')).toContainText(
     'authorization address is unavailable',
   );

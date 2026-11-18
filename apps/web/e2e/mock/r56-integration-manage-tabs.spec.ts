@@ -113,7 +113,23 @@ test('sync settings send only what changed and keep unsupported directions out',
   await page.getByLabel('Sync frequency').selectOption('30');
   await page.getByRole('switch', { name: 'Create clients that do not exist yet' }).click();
   await save.click();
+  // I-UA06: a review first: what changes and what the next sync does; Back keeps the choices.
+  const review = page.getByRole('dialog', { name: 'Review sync settings' });
+  const facts = review.getByTestId('setup-review');
+  await expect(facts).toContainText('EnvironmentLive');
+  await expect(facts).toContainText('Direction(changed)Import to Firmivra');
+  await expect(facts).toContainText('Schedule(changed)Every 30 minutes');
+  await expect(facts).toContainText('Objects(changed)');
+  await expect(facts).toContainText('Chart of Accounts');
+  await expect(facts).toContainText('Saving changes no data.');
+  expect(sent.filter((s) => s.method === 'PATCH')).toHaveLength(0);
+  await review.getByRole('button', { name: 'Back' }).click();
+  await expect(review).toBeHidden();
+  await expect(page.getByLabel('Sync frequency')).toHaveValue('30');
+  await save.click();
+  await review.getByRole('button', { name: 'Confirm and save' }).click();
   await expect(page.getByText('Sync settings saved.')).toBeVisible();
+  expect(sent.filter((s) => s.method === 'PATCH')).toHaveLength(1);
   const patch = sent.find((s) => s.method === 'PATCH');
   expect(patch?.path).toBe(`/connections/${MANAGE_INTEGRATION_ID}/settings`);
   expect(patch?.body).toEqual({
@@ -173,7 +189,7 @@ test('I-R2-06: a connection needing attention offers no Sync Now, and says what 
     { timeout: 60_000 },
   );
   // Both Sync Now buttons (the header and Sync Controls) are off.
-  for (const button of await page.getByRole('button', { name: 'Sync Now' }).all())
+  for (const button of await page.getByRole('button', { name: 'Sync Now', exact: true }).all())
     await expect(button).toBeDisabled();
 });
 
@@ -257,7 +273,7 @@ test('the custom API setup saves, rotates a write-only secret and sends a test',
     events: ['client.created', 'invoice.paid', 'appointment.booked'],
   });
   await setup.getByLabel('New secret (write-only)').fill('synthetic-secret-value-123');
-  await setup.getByRole('button', { name: 'Rotate Secret' }).click();
+  await setup.getByRole('button', { name: 'Rotate Secret', exact: true }).click();
   await expect(setup.getByText(/It ends in a1b2; it is not shown again/)).toBeVisible();
   await expect(setup.getByLabel('New secret (write-only)')).toHaveValue('');
   await setup.getByRole('button', { name: 'Send Test Event' }).click();
