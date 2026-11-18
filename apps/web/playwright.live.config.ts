@@ -18,6 +18,8 @@ const out = `${root}/${process.env['LIVE_RUN'] ?? `run-${Date.now()}-${process.p
 export default defineConfig({
   testDir: 'e2e/live',
   outputDir: `${out}/results`,
+  // Archives the built-in intake forms that LIVE-CHECK services publish (lead, Nov 18).
+  globalTeardown: './e2e/live/teardown.ts',
   fullyParallel: false,
   workers: 1,
   retries: 0,
