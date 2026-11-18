@@ -1196,28 +1196,29 @@ describe('Review 2: Start Correction, Record Extension and amount rounding', () 
   });
 
   it("F16: the year correction and a recorded extension show in the return's Activity", async () => {
+    // Years of its own: the other tests here use the fixture client's 2013 to 2025.
     const fresh = ok(
       await call('post', '/tax-returns', ownerA, {
         clientId: ids.c1,
-        taxYear: 2016,
+        taxYear: 2012,
         filingType: 'INDIVIDUAL',
         formType: '1040',
-        dueOn: '2017-04-18',
+        dueOn: '2013-04-15',
       }),
       TaxReturnDetail,
       201,
     );
     ok(
       await call('post', `/tax-returns/${fresh.id}/tax-year`, ownerA, {
-        taxYear: 2015,
-        reason: 'Fake: entered as 2016 by mistake',
+        taxYear: 2011,
+        reason: 'Fake: entered as 2012 by mistake',
       }),
       TaxReturnDetail,
     );
     ok(
       await call('post', `/tax-returns/${fresh.id}/extension`, ownerA, {
-        extensionFiledOn: '2017-04-10',
-        extendedDueOn: '2017-10-16',
+        extensionFiledOn: '2013-04-10',
+        extendedDueOn: '2013-10-15',
       }),
       TaxReturnDetail,
     );
@@ -1227,8 +1228,8 @@ describe('Review 2: Start Correction, Record Extension and amount rounding', () 
     );
     expect(activity.items.map((i) => [i.kind, i.label])).toEqual(
       expect.arrayContaining([
-        ['UPDATED', 'Tax year corrected from 2016 to 2015'],
-        ['FILING', 'Extension recorded: due 2017-10-16'],
+        ['UPDATED', 'Tax year corrected from 2012 to 2011'],
+        ['FILING', 'Extension recorded: due 2013-10-15'],
       ]),
     );
   });
