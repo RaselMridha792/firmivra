@@ -28,6 +28,7 @@ import { useApiQuery } from '../../../../lib/query';
 import { addDays, todayIn, toInstant } from '../calendar/_components/time';
 import { RevenueOverview, ServiceBreakdown } from './charts';
 import { DashboardAddressContext, DashboardLink } from './dashboard-link';
+import { dashboardCalls, summaryQueryOf, upcomingWindow } from './dashboard-calls';
 import { addressOf, type DashboardPlace } from './dashboard-place';
 import { IconTile } from './icon-tile';
 import { KpiCards } from './kpi-cards';
@@ -121,21 +122,12 @@ export function DashboardScreen({ initial }: { initial: DashboardPlace }) {
     }
     rememberDashboard(address);
   }, [address]);
-  const query = {
-    period: period.period,
-    from: period.from,
-    to: period.to,
-    pipelinePeriod: pipelinePeriod.period,
-    pipelineFrom: pipelinePeriod.from,
-    pipelineTo: pipelinePeriod.to,
-    revenuePeriod: revenuePeriod.period,
-    revenueFrom: revenuePeriod.from,
-    revenueTo: revenuePeriod.to,
-  };
-  // The cards keep the numbers they show while another period loads, then change together.
+  const query = summaryQueryOf(place);
+  // The cards keep the numbers they show while another period loads, then change together. V8:
+  // each widget's first call may already be under way (dashboard-calls.ts).
   const summary = useQuery({
     queryKey: ['dashboard', 'summary', query],
-    queryFn: () => api.dashboard.summary(query),
+    queryFn: () => dashboardCalls.summary(query),
     placeholderData: keepPreviousData,
   });
   const firmToday = summary.data?.today;
@@ -150,20 +142,17 @@ export function DashboardScreen({ initial }: { initial: DashboardPlace }) {
   }, [loaded]);
   // The firm's time zone: from the availability or the summary, whichever answers first (V8),
   // and "today" is the firm's today.
-  const availability = useApiQuery(['availability'], () => api.availability.get());
+  const availability = useApiQuery(['availability'], dashboardCalls.availability);
   const timeZone = availability.data?.timezone ?? summary.data?.timeZone;
   const today = timeZone ? todayIn(timeZone) : null;
   // Dashboard Review Two V8: the lists start with the page; only showing them waits for the time
   // zone. Appointments: the next 15 days, cut at the firm's midnight 14 days ahead once known.
-  const inbox = useApiQuery(['dashboard', 'messages'], () => api.messages.inbox({ limit: 5 }));
-  const [soon] = useState(() => {
-    const at = Date.now();
-    return { from: new Date(at).toISOString(), to: new Date(at + 15 * 86_400_000).toISOString() };
-  });
+  const inbox = useApiQuery(['dashboard', 'messages'], dashboardCalls.inbox);
+  const [soon] = useState(() => upcomingWindow(Date.now()));
   const end = timeZone && today ? Date.parse(toInstant(addDays(today, 14), '00:00', timeZone)) : 0;
   const upcoming = useQuery({
     queryKey: ['dashboard', 'upcoming'],
-    queryFn: () => api.appointments.list(soon),
+    queryFn: () => dashboardCalls.upcoming(soon),
     select: useCallback(
       (rows: Upcoming) => (end ? rows.filter((a) => Date.parse(a.startsAt) < end) : rows),
       [end],

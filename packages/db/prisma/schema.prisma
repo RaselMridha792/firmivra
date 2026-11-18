@@ -3083,6 +3083,8 @@ model Invite {
   /// Set by the database: true for an invite inserted in platform scope with no inviting member
   /// (the owner's activation link from Firmivra). Never set or changed by a request.
   sentByPlatform  Boolean   @default(false) @map("sent_by_platform")
+  /// SM21: when the invitation email actually went out (each real send); null while it never did.
+  emailedAt       DateTime? @map("emailed_at") @db.Timestamptz(3)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   business      Business             @relation(fields: [businessId], references: [id])
@@ -9265,6 +9267,9 @@ enum StaffPayFrequency {
 model StaffProfile {
   membershipId      String               @map("membership_id") @db.Uuid
   businessId        String               @map("business_id") @db.Uuid
+  /// SM20: the first and last name kept apart (users.name stays, kept in sync by the API).
+  firstName         String?              @map("first_name")
+  lastName          String?              @map("last_name")
   employmentType    StaffEmploymentType? @map("employment_type")
   /// Company-defined or custom ("Full-Time", "Mon-Thu"), up to 80 characters.
   workSchedule      String?              @map("work_schedule")

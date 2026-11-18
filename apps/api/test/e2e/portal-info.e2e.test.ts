@@ -55,6 +55,8 @@ beforeAll(async () => {
         city: 'Testville',
         state: 'GA',
         postalCode: '30011',
+        // SM10: the portal header's clock shows the firm's zone.
+        timezone: 'America/Chicago',
       },
     });
     // Company Profile wins over the main office, whose hours are the portal's.
@@ -193,6 +195,7 @@ describe('GET /portal/{firmSlug}/info', () => {
             { weekday: 2, opensAt: '13:00', closesAt: '17:00' },
           ],
         },
+        timezone: 'America/Chicago',
       });
       // Nothing beyond the contract, such as the documents' ids.
       expect(Object.keys((res.body as { legal: { terms: object } }).legal.terms).sort()).toEqual([
