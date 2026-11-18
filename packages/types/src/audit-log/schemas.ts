@@ -93,12 +93,17 @@ export const AuditLogQuery = z
     message: 'Give both from and to, or neither',
     path: ['to'],
   })
+  // Audit Log Review 2, T10a: a reversed range has its own message.
+  .refine((q) => !q.from || !q.to || Date.parse(q.to) >= Date.parse(q.from), {
+    message: 'The To date is before the From date',
+    path: ['to'],
+  })
   .refine(
     (q) =>
       !q.from ||
       !q.to ||
-      (Date.parse(q.to) >= Date.parse(q.from) &&
-        Date.parse(q.to) - Date.parse(q.from) <= 366 * DAY_MS),
+      Date.parse(q.to) < Date.parse(q.from) ||
+      Date.parse(q.to) - Date.parse(q.from) <= 366 * DAY_MS,
     { message: 'Use a range of at most 366 days', path: ['to'] },
   );
 export type AuditLogQuery = z.input<typeof AuditLogQuery>;

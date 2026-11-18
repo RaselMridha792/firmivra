@@ -71,3 +71,12 @@ test('M01b: a record opens on its own page; a gone record has no link', async ({
     .click();
   await expect(page).toHaveURL(/\/clients\/0199b6a1-0000-7000-8000-000000000001$/);
 });
+
+test('T10a: a To date before the From date has its own message', async ({ page }) => {
+  await page.goto(app('/audit-log'));
+  await page.getByLabel('From', { exact: true }).fill('2026-11-15');
+  await page.getByLabel('To', { exact: true }).fill('2026-11-14');
+  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page.getByText('The To date is before the From date')).toBeVisible();
+  await expect(page.getByText('Use a range of at most 366 days')).toHaveCount(0);
+});

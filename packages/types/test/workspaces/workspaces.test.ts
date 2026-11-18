@@ -64,6 +64,11 @@ describe('tasks, reports and audit log schemas', () => {
     expect(AuditLogQuery.safeParse({ action: 'DROP TABLE' }).success).toBe(false);
     const from = '2026-01-01T00:00:00.000Z';
     expect(AuditLogQuery.safeParse({ from, to: '2027-01-03T00:00:00.000Z' }).success).toBe(false);
+    // T10a: a reversed range says so, never "at most 366 days".
+    const messages = (to: string) =>
+      AuditLogQuery.safeParse({ from, to }).error?.issues.map((i) => i.message);
+    expect(messages('2025-12-31T23:59:59.999Z')).toEqual(['The To date is before the From date']);
+    expect(messages('2027-01-03T00:00:00.000Z')).toEqual(['Use a range of at most 366 days']);
   });
 });
 
