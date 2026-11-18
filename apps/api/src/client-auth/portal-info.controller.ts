@@ -151,6 +151,8 @@ export class PortalInfoService {
           portalName: true,
           portalHeader: true,
           welcomeMessage: true,
+          portalSignInLabel: true,
+          portalSignUpLabel: true,
           contactPhone: true,
           contactEmail: true,
           addressLine1: true,
@@ -203,6 +205,8 @@ export class PortalInfoService {
         portalName: settings?.portalName ?? `${firm.name} Client Portal`,
         header: settings?.portalHeader ?? null,
         welcomeMessage: settings?.welcomeMessage ?? null,
+        signInLabel: settings?.portalSignInLabel ?? null,
+        signUpLabel: settings?.portalSignUpLabel ?? null,
         formBranding: intake?.useFirmBranding ?? true,
       },
       // Sign-up needs both documents to accept, and the firm's say-so.
