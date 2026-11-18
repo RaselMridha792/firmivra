@@ -393,14 +393,16 @@ describe('the main page and marketplace', () => {
       readiness: 'READY',
       nextStep: { who: 'FIRM' },
     });
-    expect(provider('quickbooks')).toMatchObject({
+    expect(provider('xero')).toMatchObject({
       readiness: 'SETUP_PENDING',
       nextStep: { who: 'FIRMIVRA' },
     });
+    // This suite registers a QuickBooks adapter: that makes it Ready.
+    expect(provider('quickbooks')).toMatchObject({ readiness: 'READY', nextStep: { who: 'FIRM' } });
     expect(m.items.every((i) => i.provider.readiness && i.provider.nextStep?.what)).toBe(true);
     // The overview's cards carry them too.
     const cards = IntegrationsOverview.parse(ok(await call('get', '/integrations', people.staffA)));
-    expect(cards.items.find((i) => i.provider.provider === 'quickbooks')?.provider.readiness).toBe(
+    expect(cards.items.find((i) => i.provider.provider === 'xero')?.provider.readiness).toBe(
       'SETUP_PENDING',
     );
     const byName = IntegrationMarketplace.parse(
