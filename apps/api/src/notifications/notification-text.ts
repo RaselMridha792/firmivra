@@ -142,6 +142,11 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'New report',
     body: `A new report is ready${text(p, 'title') ? ` for ${text(p, 'title')}` : ''}. Open the service to see it.`,
   }),
+  // CP-3d: the announcement's title only (filled for the client), never its text.
+  'announcement.published': (p) => ({
+    title: 'New announcement',
+    body: text(p, 'title') ?? 'Your firm posted an announcement.',
+  }),
   'tax-return.status-changed': (p) => {
     const year = p['taxYear'];
     const form = text(p, 'formType');

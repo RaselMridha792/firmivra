@@ -644,9 +644,12 @@ describe('firm routes: the member’s own', () => {
       sms: false,
       locked: true,
       emailLocked: true,
+      smsLocked: false,
     });
     // Staff email is always on (Octavia's review of Oct 18): every row locked on.
     expect(before.items.every((i) => i.email && i.emailLocked && !i.sms)).toBe(true);
+    // CP-3d: announcements are for clients; the firm's staff have no such row.
+    expect(before.items.map((i) => i.category)).not.toContain('ANNOUNCEMENTS');
     const after = exact(
       NotificationPreferences,
       await firm('patch', '/notification-preferences', people.staff1, {
@@ -769,6 +772,7 @@ describe('portal routes: the client login’s own', () => {
       sms: false,
       locked: false,
       emailLocked: true,
+      smsLocked: false,
     });
     expect(
       exact(
