@@ -2,13 +2,14 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
 import { appUrl, shotsDir, statePath } from './env';
-import { app, as, portal } from './helpers';
+import { app, as, portal, portalClient } from './helpers';
 
 /**
  * Live checks, Payroll (Octavia's Review Two, every row incl. the green ones), on dev as Test Firm
  * B's Owner and portal Client. Test Firm B has no payroll client, so the run makes one fixture:
- * a "LIVE-CHECK" category, a Custom Quote "LIVE-CHECK Payroll" service (nothing bills), and QA
- * Fixture Client 1 (the portal client) added to Payroll. The fixture is found-or-made per worker
+ * a "LIVE-CHECK" category, a Custom Quote "LIVE-CHECK Payroll" service (nothing bills), and the
+ * harness's own portal client (portalClient(), on the SES simulator; QA Fixture Client 1 until
+ * Nov 19) added to Payroll. The fixture is found-or-made per worker
  * and removed by the last test ("zz cleanup"), with every LIVE-CHECK document and request.
  * Both widths are checked inside the LAYOUT test (390 and 1165 px), so one run makes one fixture.
  */
@@ -16,8 +17,9 @@ test.describe.configure({ timeout: 180_000 });
 test.use(as('owner'));
 
 const TAB = 'payroll';
-const CLIENT1 = '00000000-0000-4a28-8001-000000000002';
-const NAME1 = 'QA Fixture Client 1';
+/** The payroll client: the harness's portal client, looked up in beforeAll. */
+let PAYROLL_CLIENT = '';
+let PAYROLL_NAME = '';
 const SERVICE = 'LIVE-CHECK Payroll';
 const CATEGORY = 'LIVE-CHECK';
 /** One tag per run, kept across worker restarts (a failed test restarts the worker). */
@@ -87,7 +89,7 @@ async function ensureFixture(api: Api): Promise<string> {
   const listed = await api.get('business/payroll/clients');
   expect(listed.ok(), `payroll list ${listed.status()}`).toBe(true);
   const existing = items<{ id: string; client: { id: string } }>(await listed.json()).find(
-    (r) => r.client.id === CLIENT1,
+    (r) => r.client.id === PAYROLL_CLIENT,
   );
   if (existing) return existing.id;
   const cats = items<{ id: string; name: string }>(
@@ -126,7 +128,7 @@ async function ensureFixture(api: Api): Promise<string> {
     expect(made.ok(), `service ${made.status()} ${await made.text()}`).toBe(true);
   }
   const added = await api.post('business/payroll/clients', {
-    clientId: CLIENT1,
+    clientId: PAYROLL_CLIENT,
     frequency: 'WEEKLY',
     providerKey: 'gusto',
     industry: 'LIVE-CHECK',
@@ -146,7 +148,11 @@ async function sendable(api: Api, clientId: string): Promise<{ ok: boolean; why:
   const emails = [...new Set(text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) ?? [])];
   const unsafe = emails.filter((e) => !/@simulator\.amazonses\.com$/i.test(e));
   if (unsafe.length) return { ok: false, why: `non-simulator address(es): ${unsafe.join(', ')}` };
-  if (/"portal(Status)?":"ACTIVE"/.test(text)) return { ok: false, why: 'has a portal login' };
+  // A portal login's address is not in the record: only the harness's own (a simulator one) is safe.
+  const harness = await portalClient();
+  const ownLogin = clientId === harness.id && /@simulator\.amazonses\.com$/i.test(harness.email);
+  if (/"portal(Status)?":"ACTIVE"/.test(text) && !ownLogin)
+    return { ok: false, why: 'has a portal login' };
   return { ok: emails.length > 0, why: emails.length ? 'simulator only' : 'no address' };
 }
 
@@ -154,6 +160,9 @@ async function sendable(api: Api, clientId: string): Promise<{ ok: boolean; why:
 const cleanupOnly = Boolean(process.env['LIVE_PAYROLL_CLEANUP_ONLY']);
 
 test.beforeAll(async ({ browser }) => {
+  const pc = await portalClient();
+  PAYROLL_CLIENT = pc.id;
+  PAYROLL_NAME = pc.name;
   if (cleanupOnly) return;
   const api = await ownerApi(browser);
   pcId = await ensureFixture(api);
@@ -162,7 +171,7 @@ test.beforeAll(async ({ browser }) => {
 
 async function openWorkspace(page: Page, q = '?tab=overview') {
   await page.goto(ws(q));
-  await expect(page.getByTestId('client-title')).toContainText(NAME1);
+  await expect(page.getByTestId('client-title')).toContainText(PAYROLL_NAME);
 }
 
 async function moreActions(page: Page, item: string) {
@@ -172,7 +181,7 @@ async function moreActions(page: Page, item: string) {
 
 async function openList(page: Page, query = '') {
   await page.goto(app(`/payroll${query}`));
-  await expect(page.getByTestId('client-link').filter({ hasText: NAME1 })).toBeVisible();
+  await expect(page.getByTestId('client-link').filter({ hasText: PAYROLL_NAME })).toBeVisible();
 }
 
 /** The portal's row for this run's request (in Your Next Steps). */
@@ -312,7 +321,7 @@ test('F06 chart, tab and Status filter agree; no-match message; Clear Filters', 
   await expect(page.getByText('No clients match these filters')).toBeVisible();
   await page.getByRole('button', { name: 'Clear Filters' }).click();
   await expect(page.getByPlaceholder(SEARCH)).toHaveValue('');
-  await expect(page.getByTestId('client-link').filter({ hasText: NAME1 })).toBeVisible();
+  await expect(page.getByTestId('client-link').filter({ hasText: PAYROLL_NAME })).toBeVisible();
   await snap(page, 'F06-cleared');
 });
 
@@ -328,7 +337,7 @@ test('F02 (green) Request Documents form: client, Payroll, portal login, name an
     .getByRole('button', { name: 'Request Documents' })
     .click();
   const form = page.getByTestId('request-documents');
-  await expect(form).toContainText(NAME1);
+  await expect(form).toContainText(PAYROLL_NAME);
   await expect(form).toContainText('Payroll');
   await expect(form).toContainText(/portal login/);
   await form.getByLabel('Document needed').fill(REQUEST_TITLE);
@@ -336,11 +345,13 @@ test('F02 (green) Request Documents form: client, Payroll, portal login, name an
   await form.getByLabel('Due date').fill(due);
   await expect(page.getByRole('button', { name: 'Send Request' })).toBeEnabled();
   await snap(page, 'F02-request-form');
-  // Send only when every address it reaches is the SES simulator; Client 1 has none.
+  // Send only when every address it reaches is the SES simulator.
   const api = await ownerApi(browser);
-  const gate = await sendable(api, CLIENT1);
+  const gate = await sendable(api, PAYROLL_CLIENT);
   await api.dispose();
-  console.log(`F02 NOTE send to ${NAME1}: ${gate.ok ? 'allowed' : `NOT LIVE (${gate.why})`}`);
+  console.log(
+    `F02 NOTE send to ${PAYROLL_NAME}: ${gate.ok ? 'allowed' : `NOT LIVE (${gate.why})`}`,
+  );
   if (gate.ok) {
     await page.getByRole('button', { name: 'Send Request' }).click();
     await expect(form).toBeHidden();
@@ -350,11 +361,11 @@ test('F02 (green) Request Documents form: client, Payroll, portal login, name an
   }
 });
 
-/** The run's request to Client 1, if one was sent (never, while Client 1 has unsafe addresses). */
+/** The run's request to the payroll client, if one was sent (only to simulator addresses). */
 async function sentRequest(browser: Browser): Promise<boolean> {
   const api = await ownerApi(browser);
   const list = items<{ title: string; status: string }>(
-    await (await api.get(`business/clients/${CLIENT1}/document-requests`)).json(),
+    await (await api.get(`business/clients/${PAYROLL_CLIENT}/document-requests`)).json(),
   );
   await api.dispose();
   return list.some((r) => r.title === REQUEST_TITLE && r.status !== 'CANCELLED');
@@ -363,7 +374,7 @@ async function sentRequest(browser: Browser): Promise<boolean> {
 test('F02 (red) portal shows the request with its due date on its own line', async ({
   browser,
 }) => {
-  test.skip(!(await sentRequest(browser)), 'NOT LIVE: no request may be sent to Client 1');
+  test.skip(!(await sentRequest(browser)), 'NOT LIVE: no request was sent to the payroll client');
   const { ctx, page } = await asClient(browser);
   try {
     await page.goto(portal('/documents'));
@@ -420,7 +431,7 @@ test('UX02 (green) portal: the client uploads its own file and downloads it', as
 });
 
 test('F02 (red) staff file names the request, with a link to it', async ({ page, browser }) => {
-  test.skip(!(await sentRequest(browser)), 'NOT LIVE: no request may be sent to Client 1');
+  test.skip(!(await sentRequest(browser)), 'NOT LIVE: no request was sent to the payroll client');
   await openWorkspace(page, '?tab=documents');
   const doc = page.getByTestId('payroll-document').filter({ hasText: PORTAL_FILE });
   await expect(doc).toBeVisible();
@@ -439,7 +450,7 @@ test('F03 (green) staff upload with sharing off, kept after reload, not in the p
   await openWorkspace(page, '?tab=documents');
   await page.getByTestId('tab-documents').getByRole('button', { name: 'Upload Document' }).click();
   const form = page.getByTestId('upload-document');
-  await expect(form).toContainText(NAME1);
+  await expect(form).toContainText(PAYROLL_NAME);
   await expect(form.getByLabel('Share with the client (shows in their portal)')).not.toBeChecked();
   await form.locator('input[type=file]').setInputFiles({
     name: STAFF_FILE,
@@ -520,7 +531,7 @@ test('F04 Create Task: Payroll service prefilled, Cancel back to the exact page'
   const service = page.locator('#tf-service');
   await expect(service).not.toHaveValue('');
   await expect(service.locator('option:checked')).toHaveText(/Payroll/);
-  await expect(page.locator('body')).toContainText(NAME1);
+  await expect(page.locator('body')).toContainText(PAYROLL_NAME);
   await snap(page, 'F04-task-form');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page).toHaveURL(origin);
@@ -536,18 +547,18 @@ test('F05 Messages: client preselected, selector works, Back returns to Communic
   await open.click();
   await expect(page).toHaveURL(/\/messages\?clientId=[0-9a-f-]{36}&service=Payroll&from=/);
   const select = page.getByTestId('messages-client');
-  await expect(select).toHaveValue(CLIENT1);
+  await expect(select).toHaveValue(PAYROLL_CLIENT);
   const other = await select
     .locator('option')
     .evaluateAll(
       (os, id) => os.map((o) => (o as HTMLOptionElement).value).find((v) => v && v !== id),
-      CLIENT1,
+      PAYROLL_CLIENT,
     );
   if (other) {
     await select.selectOption(other);
     await expect(select).toHaveValue(other);
-    await select.selectOption(CLIENT1);
-    await expect(select).toHaveValue(CLIENT1);
+    await select.selectOption(PAYROLL_CLIENT);
+    await expect(select).toHaveValue(PAYROLL_CLIENT);
   }
   await snap(page, 'F05-messages');
   await page.getByTestId('back-to-origin').click();
@@ -561,18 +572,20 @@ test('F10 (green) in-app Back from Manage Integrations keeps period and search; 
   await openList(page);
   const period = page.getByLabel('Period', { exact: true });
   const search = page.getByPlaceholder(SEARCH);
+  // A word of the payroll client's own name, so the list still shows it.
+  const word = [...PAYROLL_NAME.split(/\s+/)].sort((x, y) => y.length - x.length)[0]!;
   await period.selectOption('LAST_MONTH');
-  await search.fill('Fixture');
-  await expect(page).toHaveURL(/q=Fixture/);
+  await search.fill(word);
+  await expect(page).toHaveURL(new RegExp(`q=${word}`));
   await page.reload();
   await expect(period).toHaveValue('LAST_MONTH');
-  await expect(search).toHaveValue('Fixture');
+  await expect(search).toHaveValue(word);
   await page.getByRole('link', { name: 'Manage Integrations' }).click();
   await expect(page).toHaveURL(/\/integrations/);
   await page.getByTestId('back-to-origin').click();
   await expect(page).toHaveURL(/\/payroll\?.*period=LAST_MONTH/);
-  await expect(search).toHaveValue('Fixture');
-  await expect(page.getByTestId('client-link').filter({ hasText: NAME1 })).toBeVisible();
+  await expect(search).toHaveValue(word);
+  await expect(page.getByTestId('client-link').filter({ hasText: PAYROLL_NAME })).toBeVisible();
   await snap(page, 'F10-in-app-back');
 });
 
@@ -608,7 +621,7 @@ test('F11 Schedule Appointment: client and Payroll prefilled, Cancel to the exac
   const origin = page.url();
   await moreActions(page, 'Schedule Appointment');
   await expect(page).toHaveURL(/\/calendar\/new\?clientId=[0-9a-f-]{36}&engagementId=/);
-  await expect(page.getByTestId('appointment-summary')).toContainText(NAME1);
+  await expect(page.getByTestId('appointment-summary')).toContainText(PAYROLL_NAME);
   await expect(page.getByLabel('Related Service').locator('option:checked')).toHaveText(/Payroll/);
   await snap(page, 'F11-appointment');
   await page
@@ -627,7 +640,7 @@ test('UX01 Reports tab stays selected on reload', async ({ page }) => {
   await page.reload();
   await expect(page.getByTestId('tab-reports')).toBeVisible();
   await expect(tabs.getByRole('tab', { name: 'Reports' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('client-title')).toContainText(NAME1);
+  await expect(page.getByTestId('client-title')).toContainText(PAYROLL_NAME);
   await snap(page, 'UX01-reports-reload');
 });
 
@@ -649,7 +662,7 @@ test('F07 row menu: outside the table, End to Remove, Escape closes and returns 
   page,
 }) => {
   await openList(page);
-  const trigger = page.getByRole('button', { name: `Actions for ${NAME1}` });
+  const trigger = page.getByRole('button', { name: `Actions for ${PAYROLL_NAME}` });
   await trigger.click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
@@ -719,7 +732,7 @@ test('F12 plan: dropdown from Services & Pricing, saved plan survives reload, hi
 }) => {
   const api = await ownerApi(browser);
   const inv = async () => {
-    const r = await api.get(`business/invoices?clientId=${CLIENT1}`);
+    const r = await api.get(`business/invoices?clientId=${PAYROLL_CLIENT}`);
     if (!r.ok()) return -1;
     const body = await r.json();
     return (body.total as number | undefined) ?? items(body).length;
@@ -771,7 +784,7 @@ test('F12 (dialog) Change Payroll Plan/Service opens on the saved plan; untouche
   // Reloaded straight on the Overview (run 2's case): still the saved plan.
   await page.keyboard.press('Escape');
   await page.reload();
-  await expect(page.getByTestId('client-title')).toContainText(NAME1);
+  await expect(page.getByTestId('client-title')).toContainText(PAYROLL_NAME);
   await moreActions(page, 'Change Payroll Plan/Service');
   await expect(
     page
@@ -787,7 +800,7 @@ test('F13 + cross-service: Service & Billing dialog shows each state and its eff
   await openWorkspace(page);
   await moreActions(page, 'Pause or Resume Billing');
   const dialog = page.getByRole('dialog', { name: 'Service & Billing' });
-  await expect(dialog).toContainText(`${NAME1} · Payroll`);
+  await expect(dialog).toContainText(`${PAYROLL_NAME} · Payroll`);
   const state = dialog.getByTestId('service-billing-state');
   await expect(state).toContainText('Service');
   await expect(state).toContainText('Billing');
@@ -921,7 +934,7 @@ test('S04 S06 S07 status shows; runs and reports load; tabs keep the client', as
   await openList(page);
   const row = page
     .getByRole('row')
-    .filter({ has: page.getByTestId('client-link').filter({ hasText: NAME1 }) });
+    .filter({ has: page.getByTestId('client-link').filter({ hasText: PAYROLL_NAME }) });
   await expect(row).toContainText(
     /Not Started|On Track|Processing|Action Required|Past Due|On Hold/,
   );
@@ -961,7 +974,7 @@ test('zz cleanup: LIVE-CHECK documents, request, payroll client, service, catego
   const api = await ownerApi(browser);
   const log: string[] = [];
   const docs = items<{ id: string; name?: string; fileName?: string }>(
-    await (await api.get(`business/documents?clientId=${CLIENT1}&search=LIVE-CHECK`)).json(),
+    await (await api.get(`business/documents?clientId=${PAYROLL_CLIENT}&search=LIVE-CHECK`)).json(),
   );
   for (const d of docs) {
     const r = await api.post(`business/documents/${d.id}/trash`);
@@ -969,7 +982,9 @@ test('zz cleanup: LIVE-CHECK documents, request, payroll client, service, catego
   }
   const packets = items<{ id: string; status: string }>(
     await (
-      await api.get(`business/document-request-packets?clientId=${CLIENT1}&search=LIVE-CHECK`)
+      await api.get(
+        `business/document-request-packets?clientId=${PAYROLL_CLIENT}&search=LIVE-CHECK`,
+      )
     ).json(),
   );
   for (const p of packets.filter((x) => x.status !== 'CANCELLED')) {
@@ -978,7 +993,7 @@ test('zz cleanup: LIVE-CHECK documents, request, payroll client, service, catego
   }
   // Requests made from a workspace (Request Documents) are never deleted: cancel tells nobody.
   const requests = items<{ id: string; title: string; status: string }>(
-    await (await api.get(`business/clients/${CLIENT1}/document-requests`)).json(),
+    await (await api.get(`business/clients/${PAYROLL_CLIENT}/document-requests`)).json(),
   ).filter((r) => r.title.startsWith('LIVE-CHECK') && r.status !== 'CANCELLED');
   for (const r of requests) {
     const c = await api.post(`business/document-requests/${r.id}/cancel`);

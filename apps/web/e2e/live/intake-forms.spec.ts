@@ -40,8 +40,9 @@ import {
  *
  * Sends go only to SES simulator addresses, read on the screen and on the lead's record just before
  * each click: the form's email to the lead (19a) and one follow-up (19b-i); Test Reminder Email only
- * when the Owner's own address is a simulator one (16a). Nothing is sent to QA Fixture Client 1
- * (Octavia's login): the portal rows only read what that login can already see.
+ * when the Owner's own address is a simulator one (16a). The portal rows sign in as the harness's
+ * own portal client (portalClient(), lead Nov 19; QA Fixture Client 1, Octavia's login, before) and
+ * still only read what that login can already see: sends to it are a later pass.
  *
  * Firm-wide settings a row changes are put back in the same test (on the screen, then by the API in
  * a finally block). Publish in client portal (02b) is on only inside its own test.
@@ -632,7 +633,7 @@ async function visitor(browser: Browser, width = 1165) {
   return { ctx, page: await ctx.newPage() };
 }
 
-/** The portal client's browser (QA Fixture Client 1's login: read only). */
+/** The portal client's browser (the harness portal client's login: read only here). */
 async function clientBrowser(browser: Browser): Promise<{ ctx: BrowserContext; page: Page }> {
   const a = await apiAs('client'); // refreshes the saved session
   await a.dispose();
@@ -643,7 +644,7 @@ async function clientBrowser(browser: Browser): Promise<{ ctx: BrowserContext; p
   return { ctx, page: await ctx.newPage() };
 }
 
-/** Client 1's intake notices, newest first (read only: listing marks nothing read). */
+/** The portal client's intake notices, newest first (read only: listing marks nothing read). */
 async function clientIntakeNotices(): Promise<
   { title: string; readAt: string | null; target: { kind: string; id: string } }[]
 > {
@@ -1647,7 +1648,7 @@ test.describe('Builder and Form Templates (Owner)', () => {
         await settled(cl.page);
         const card = cl.page.getByTestId('portal-form').filter({ hasText: FORM });
         await expect(card).toBeVisible({ timeout: 60_000 });
-        // Never clicked: starting it would make a form on Client 1.
+        // Never clicked: starting it would make a form on the portal client (a later pass).
         await expect(card.getByRole('button', { name: `Start ${FORM}` })).toBeVisible();
         await shot(cl.page, TAB, '02b-portal-on', info);
         await setSwitch(inPortal, false);
@@ -2461,7 +2462,7 @@ test.describe('Staff after assignment', () => {
 
 // ================================================================ The portal, as the client (read only)
 
-test.describe('Portal (Client 1, read only)', () => {
+test.describe('Portal (harness client, read only)', () => {
   test.use(as('client'));
   test.skip(() => !hasLogin('client'), 'no client login');
 
@@ -2489,7 +2490,11 @@ test.describe('Portal (Client 1, read only)', () => {
       await expect(form.getByRole('heading', { level: 1 }).first()).toContainText(title);
       await shot(page, TAB, 'ACCESS-01-own-form', info);
     } else {
-      note(info, 'NOT LIVE', 'ACCESS-01 own form: Client 1 has no form from the firm to open');
+      note(
+        info,
+        'NOT LIVE',
+        'ACCESS-01 own form: the portal client has no form from the firm to open',
+      );
     }
     test.skip(!c.recordId, '19a sent nothing: no other form to try');
     await open(page, portal(`/intake/${c.recordId}`), info);
@@ -2507,11 +2512,11 @@ test.describe('Portal (Client 1, read only)', () => {
     const intakeNotices = await clientIntakeNotices();
     test.skip(
       !intakeNotices.length,
-      'Client 1 has no intake notice (a new one needs a send to Client 1)',
+      'the portal client has no intake notice (a new one needs a send to it)',
     );
     test.skip(
       intakeNotices.some((n) => !n.readAt),
-      'an intake notice of Client 1 is unread: opening one would mark it read, so none is opened',
+      'an intake notice of the portal client is unread: opening one would mark it read, so none is opened',
     );
     await open(page, portal('/notifications'), info);
     const title = intakeNotices[0]!.title;
@@ -2707,7 +2712,7 @@ test.describe('Layout (Owner)', () => {
   });
 });
 
-test.describe('Layout (portal, Client 1 read only)', () => {
+test.describe('Layout (portal, harness client read only)', () => {
   test.use(as('client'));
   test.skip(() => !hasLogin('client'), 'no client login');
 
@@ -2718,7 +2723,7 @@ test.describe('Layout (portal, Client 1 read only)', () => {
   test('@narrow layout portal sent form: no sideways scroll', async ({ page }, info) => {
     await open(page, portal('/intake'), info);
     const link = page.getByTestId('sent-intakes').getByRole('link').first();
-    test.skip(!(await link.count()), 'Client 1 has no form from the firm');
+    test.skip(!(await link.count()), 'the portal client has no form from the firm');
     const href = (await link.getAttribute('href')) ?? '';
     await layoutCheck(page, `${portalUrl}${href}`, 'portal-sent-form', info);
   });
@@ -2741,7 +2746,7 @@ test.describe('Layout (visitor, no session)', () => {
 const NOT_LIVE: [string, string][] = [
   [
     '9b submission notifications delivered',
-    'needs a form submitted: Client 1 cannot receive, QA Appointments Client has no portal login, and a lead submits through the token emailed to a simulator inbox no test can read',
+    'needs a form submitted: the run sends none to the harness portal client yet (a later pass), QA Appointments Client has no portal login, and a lead submits through the token emailed to a simulator inbox no test can read',
   ],
   [
     '9b-ii the submitted notice after a lead-link submit',
@@ -2797,11 +2802,11 @@ const NOT_LIVE: [string, string][] = [
   ['24b-i the client never sees a note', 'the run form belongs to a lead with no portal'],
   [
     'INTAKE-ACCESS-01 a new send opens from its email and portal notice',
-    'needs a send to Client 1, who cannot receive (only her existing forms and notices are read)',
+    'needs a send to the harness portal client: a later pass (only its existing forms and notices are read)',
   ],
   [
     'INTAKE-ACCESS-02b a client fills a portal-published form without a send',
-    'Start would make a form on Client 1 (Octavia login): only the listing is checked',
+    'Start would make a form on the portal client: a later pass; only the listing is checked',
   ],
   [
     'INTAKE-ACCESS-02c website embed in an iframe',

@@ -6,6 +6,7 @@ import {
   expectNoSideScroll,
   portal,
   portalApi,
+  portalClient,
   runTag,
   settled,
   shot,
@@ -14,12 +15,14 @@ import {
 /**
  * Client Portal, live on dev (Test Firm B). Rows: docs/qa/client-portal.md (firm side, ids CP-F1,
  * CP-F2, CP-F3, CP-IF, CP-R) plus the portal rows of the Appointments, Tax Returns, Payroll and
- * Bookkeeping reviews (CP-PT). qa-client-b is QA Fixture Client 1's portal login and is also
- * Octavia's: nothing here changes its settings, and every write is on Fixture Client 2 (no login)
- * or is a LIVE-CHECK internal note deleted in the same test.
+ * Bookkeeping reviews (CP-PT). The portal side signs in as the harness's own portal client
+ * (portalClient(), on the SES simulator, lead Nov 19). QA Fixture Client 1's portal login
+ * (qa-client-b) is Octavia's: Client 1 is only read, firm side, and nothing here changes it. Every
+ * write is on the harness client, on Fixture Client 2 (no login), or a LIVE-CHECK internal note
+ * deleted in the same test.
  */
 const TAB = 'client-portal';
-const C1 = '00000000-0000-4a28-8001-000000000002'; // QA Fixture Client 1, CL-10001, has the login
+const C1 = '00000000-0000-4a28-8001-000000000002'; // QA Fixture Client 1, CL-10001: Octavia's login, read only
 const C2 = '00000000-0000-4a28-8001-000000000003'; // QA Fixture Client 2, CL-10002, no login
 const manage = (id: string, sub = '') => app(`/client-portal/${id}${sub ? `/${sub}` : ''}`);
 
@@ -401,8 +404,9 @@ test.describe('firm side as Owner', () => {
   test('CP-F2-07 Portal Content & Visibility: eight areas; a change survives reload', async ({
     page,
   }, info) => {
-    // Client 1 (the login): every area on, and the client's own portal agrees.
-    await open(page, manage(C1, 'content'), info);
+    // The harness portal client (the login): every area on, and the client's own portal agrees.
+    const me = await portalClient();
+    await open(page, manage(me.id, 'content'), info);
     const vis = page.getByTestId('portal-visibility');
     const switches = vis.getByRole('switch');
     await expect(switches).toHaveCount(8);
@@ -555,8 +559,10 @@ test.describe('firm side as Owner', () => {
     const text = `${runTag} internal note, staff only`;
     const owner = await apiAs('owner');
     let noteId: string | undefined;
+    // On the harness portal client: the note is checked against that login's own portal.
+    const me = await portalClient();
     try {
-      await open(page, manage(C1), info);
+      await open(page, manage(me.id), info);
       await page.getByLabel('New note').fill(text);
       await page.getByRole('button', { name: 'Save Note' }).click();
       await expect(page.getByRole('list', { name: 'Internal notes' })).toContainText(text);
@@ -564,7 +570,7 @@ test.describe('firm side as Owner', () => {
       await settled(page);
       await expect(page.getByRole('list', { name: 'Internal notes' })).toContainText(text);
       await shot(page, TAB, 'CP-F2-14', info);
-      const notes = (await (await owner.get(`business/clients/${C1}/notes`)).json()) as {
+      const notes = (await (await owner.get(`business/clients/${me.id}/notes`)).json()) as {
         items?: { id: string; body?: string }[];
       };
       noteId = (notes.items ?? []).find((n) => n.body === text)?.id;
@@ -862,10 +868,12 @@ test.describe('firm side as Staff', () => {
 
 test.describe('the portal as the client', () => {
   test.use(as('client'));
-  // Not opened here (lead, Nov 18): /announcements records each live announcement as opened (a
-  // write on Octavia's login), and #1619 hides Business from an Individual client (Client 1).
+  // /business is not opened: #1619 hides Business from an Individual client, and the harness
+  // portal client is one. /announcements records each live announcement as opened, which is now
+  // a write on the harness's own login (lead, Nov 18: never on Octavia's).
   const pages: [string, string][] = [
     ['documents', 'My Uploaded Documents'],
+    ['announcements', 'Announcement'],
     ['taxes', 'Tax Return'],
     ['invoices', 'Invoice'],
     ['messages', 'Message'],
@@ -893,7 +901,7 @@ test.describe('the portal as the client', () => {
       await expect(page.locator('body')).toContainText(new RegExp(label));
     }
     await expect(menu).toBeVisible();
-    // #1619: Client 1 is an Individual client, so Business Documents is not one of its areas.
+    // #1619: the harness portal client is an Individual client: Business Documents is not its area.
     await expect(page.locator('body')).not.toContainText(/Business Documents/);
     await shot(page, TAB, 'CP-PT-01', info);
   });
@@ -928,9 +936,11 @@ test.describe('the portal as the client', () => {
 /**
  * CP-PT-03b (lead, Nov 18, option B): what the client really sees of a document the firm trashes,
  * archives and restores: the portal list (My Uploads), the document and its download link. It
- * reuses one of this harness's own LIVE-CHECK uploads on Client 1 (the client's own file, in the
- * firm's Trash since Nov 17). Only move actions (untrash, trash, archive, restore): no visibility
- * change, so no notice and no email (tellShared runs only when a file becomes client-visible). It
+ * reuses one of this harness's own LIVE-CHECK uploads on the harness portal client (the client's
+ * own file, uploaded by payroll.spec.ts UX02 and put in the firm's Trash by its cleanup; skipped
+ * until a payroll run has made one). Only move actions (untrash, trash, archive, restore): no
+ * visibility change, so no notice and no email (tellShared runs only when a file becomes
+ * client-visible). It
  * runs after CP-PT-03 (file order, one worker), and ends with the file back in the firm's Trash.
  */
 test.describe('CP-PT-03b trashed, archived and restored document, as the client sees it', () => {
@@ -971,10 +981,11 @@ test.describe('CP-PT-03b trashed, archived and restored document, as the client 
     }
   }
 
-  test('setup: our own LIVE-CHECK upload on Client 1, in the Trash, hidden from the client', async () => {
+  test('setup: our own LIVE-CHECK upload on the harness client, in the Trash, hidden from the client', async () => {
     const o = await apiAs('owner');
     try {
-      const res = await o.get(`business/documents?scope=trash&clientId=${C1}`);
+      const { id: clientId } = await portalClient();
+      const res = await o.get(`business/documents?scope=trash&clientId=${clientId}`);
       expect(res.status()).toBe(200);
       type Row = { id: string; fileName: string; direction: string };
       const items = ((await res.json()) as { items?: Row[] }).items ?? [];
@@ -1044,7 +1055,8 @@ test.describe('CP-PT-03b trashed, archived and restored document, as the client 
       // Whatever a failed step left: out of the Archive, then into the Trash.
       await o.post(firmPath(docId, 'restore'));
       await o.post(firmPath(docId, 'trash'));
-      const res = await o.get(`business/documents?scope=trash&clientId=${C1}`);
+      const { id: clientId } = await portalClient();
+      const res = await o.get(`business/documents?scope=trash&clientId=${clientId}`);
       const items = ((await res.json()) as { items?: { id: string }[] }).items ?? [];
       expect(
         items.some((d) => d.id === docId),

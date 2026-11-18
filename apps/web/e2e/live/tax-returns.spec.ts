@@ -63,9 +63,12 @@ const pdf = (name: string) => ({
   ),
 });
 
-/** Rows that would send the client a notice: QA Fixture Client 1's portal login is a real address. */
+/**
+ * Rows that send the client a notice. They were written for QA Fixture Client 1, whose portal
+ * login is Octavia's real address; they come back on the harness's own portal client.
+ */
 const NO_SEND =
-  "NOT LIVE: it emails QA Fixture Client 1's portal login (qa-client-b@dev.firmivra.com), not a simulator";
+  'NOT LIVE: a send to a portal client; a later pass moves it to the harness portal client';
 
 /** Runs a row and keeps its screenshot (path in the test's annotations). */
 async function finish(page: Page, info: TestInfo, id: string) {
@@ -1588,6 +1591,14 @@ test.describe('staff (the preparer, not the reviewer)', () => {
 test.describe('client (portal)', () => {
   test.use(as('client'));
   test.describe.configure({ timeout: 120_000 });
+  // The run's return is on QA Appointments Client, which has no portal login. These rows passed
+  // only on data from run 1 (Nov 17) on QA Fixture Client 1, Octavia's login, which the harness
+  // no longer signs in as. They come back when the run's return is on the harness's own portal
+  // client (portalClient()).
+  test.skip(
+    true,
+    "NOT LIVE: the run's return is on QA Appointments Client (no portal login), not the harness portal client",
+  );
 
   row(
     'F05-portal',

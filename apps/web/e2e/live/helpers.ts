@@ -40,6 +40,40 @@ export async function apiAs(role: Role): Promise<APIRequestContext> {
 /** The client portal's API paths are under portal/<slug>/. */
 export const portalApi = (path: string) => `portal/${firmSlug}/${path.replace(/^\//, '')}`;
 
+/** QA Fixture Client 1: its portal login is Octavia's. The harness only reads it, firm side. */
+export const FIXTURE_CLIENT_1 = '00000000-0000-4a28-8001-000000000002';
+
+/** The client the run's portal login belongs to, as the firm sees it. */
+export type PortalClient = { id: string; name: string; number: string; email: string };
+
+let portalClientOnce: Promise<PortalClient> | undefined;
+/**
+ * The harness's own portal client (lead, Nov 19): the one Test Firm B client whose email is the
+ * run's client login (LIVE_CLIENT, on the SES simulator), found by the Owner's client search. Its
+ * id and Client ID are looked up, never written in the specs. Never QA Fixture Client 1.
+ */
+export function portalClient(): Promise<PortalClient> {
+  portalClientOnce ??= (async () => {
+    const email = login('client')?.email;
+    if (!email) throw new Error('no client login in this run');
+    const owner = await apiAs('owner');
+    try {
+      const res = await owner.get(`business/clients?search=${encodeURIComponent(email)}`);
+      expect(res.status(), 'client search').toBe(200);
+      type Row = { id: string; displayName: string; clientNumber: string; email: string | null };
+      const rows = ((await res.json()) as { items?: Row[] }).items ?? [];
+      const mine = rows.filter((c) => c.email?.toLowerCase() === email.toLowerCase());
+      expect(mine, 'exactly one Test Firm B client has the portal login email').toHaveLength(1);
+      const c = mine[0]!;
+      if (c.id === FIXTURE_CLIENT_1) throw new Error('the portal login must not be Client 1');
+      return { id: c.id, name: c.displayName, number: c.clientNumber, email };
+    } finally {
+      await owner.dispose();
+    }
+  })();
+  return portalClientOnce;
+}
+
 /**
  * A full-page screenshot under LIVE_SHOTS_DIR/<tab>/, named by row and width. Returns the path for
  * the report. Never take one of a sign-in or MFA screen.

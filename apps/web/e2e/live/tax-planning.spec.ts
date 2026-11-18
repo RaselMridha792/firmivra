@@ -32,7 +32,8 @@ import {
  * Every plan, task, opportunity, strategy and deadline the run makes is on the QA seed's synthetic
  * client "QA Appointments Client (fake)" (its email is the SES simulator's, it has no portal
  * login) and carries the run tag ("LIVE-CHECK yyyymmddhhmm") in its name. QA Fixture Client 1
- * (qa-client-b, Octavia's portal login) is only read, never planned for, sent to or changed.
+ * (qa-client-b, Octavia's portal login) is only read, never planned for, sent to or changed. The
+ * portal row signs in as the harness's own portal client (portalClient(), lead Nov 19).
  *
  * Sends: only to the simulator client. Before each one, every address the send can reach (the
  * client record, its responsible party, every portal login) is read and must be an SES simulator
@@ -2818,7 +2819,7 @@ test.describe('Tax Planning rows not run live', () => {
   const NOT_LIVE: [string, string][] = [
     [
       'P4-8 portal Approve Plan, Ask a Question, Request a Revision, Request a Meeting',
-      "needs a plan sent to a portal client; the only portal login (qa-client-b, QA Fixture Client 1) is Octavia's and nothing may be sent to it",
+      'needs a plan sent to a portal client: a later pass on the harness portal client',
     ],
     [
       'Workflow information requests, portal side (the client asks from the portal)',

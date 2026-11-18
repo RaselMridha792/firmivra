@@ -30,7 +30,8 @@ import { app, as, expectNoSideScroll, hasLogin, portal, settled, shot } from './
  *
  * Sends: only to the run's own clients and lead (simulator addresses), each checked on the record
  * (every address it holds, its portal logins included) right before the send. QA Fixture Client 1
- * (Octavia's portal login) is only read. Nothing here emails a staff member ("Send me a copy" is
+ * (Octavia's portal login) is only read. The portal rows sign in as the harness's own portal client
+ * (portalClient(), lead Nov 19); the rows that need a send to it are a later pass. Nothing here emails a staff member ("Send me a copy" is
  * switched off); rows that would are NOT LIVE.
  */
 test.describe.configure({ timeout: 180_000 });
@@ -3459,7 +3460,7 @@ test.describe('Clients (Admin)', () => {
   });
 });
 
-// ================================================================ Portal (QA Fixture Client 1, read only)
+// ================================================================ Portal (harness portal client, read only)
 test.describe('Clients (portal, read only)', () => {
   test.use(as('client'));
   test.skip(() => !hasLogin('client'), 'no client login');
@@ -3471,7 +3472,7 @@ test.describe('Clients (portal, read only)', () => {
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole('combobox').or(page.getByRole('tablist')).first()).toBeVisible();
     await shot(page, TAB, 'N8-03', info);
-    note(info, 'note', "read only: Client 1 is Octavia's login");
+    note(info, 'note', 'read only: sends to the harness portal client are a later pass');
   });
 
   test('N8-39 Portal notification filter client (read only): the notifications open; clearing is her retest', async ({
@@ -3481,7 +3482,7 @@ test.describe('Clients (portal, read only)', () => {
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 60_000 });
     await expectNoSideScroll(page);
     await shot(page, TAB, 'N8-39', info);
-    note(info, 'NOT LIVE', "clearing notifications would change Octavia's login");
+    note(info, 'NOT LIVE', 'clearing notifications: a later pass on the harness portal client');
   });
 });
 
@@ -3502,23 +3503,23 @@ const NOT_LIVE: [string, string][] = [
   ],
   [
     'C2-053/054 Portal visible upload',
-    "needs a portal login of a run-made client (Client 1 is Octavia's: never changed)",
+    'needs an upload by a portal login: a later pass on the harness portal client',
   ],
   [
     'C2-055 Portal notice when a document is shared',
-    'the notice shows in a client portal: needs a portal login of a run-made client',
+    'the notice shows in a client portal: a later pass on the harness portal client',
   ],
   [
     'N8-01 Replacement request',
-    'the client uploads again in the portal: needs a portal login of a run-made client',
+    'the client uploads again in the portal: a later pass on the harness portal client',
   ],
   [
     'N8-02 / N8-20 Assigned form start',
-    "a form sent to and opened by a portal login: needs a run-made client's login (Client 1 is Octavia's)",
+    'a form sent to and opened by a portal login: a later pass on the harness portal client',
   ],
   [
     'N8-04 Portal message delivery',
-    "a message to a portal login: Client 1 is Octavia's (never sent to)",
+    'a message to a portal login: a later pass on the harness portal client',
   ],
   [
     'N8-11 Text preference and SMS',
@@ -3526,7 +3527,7 @@ const NOT_LIVE: [string, string][] = [
   ],
   [
     'N8-14 Client reply and firm notice',
-    "a reply from a portal login: needs a run-made client's login",
+    'a reply from a portal login: a later pass on the harness portal client',
   ],
   [
     'N8-17 Intake/sign-up with purchase intent creates a New client',

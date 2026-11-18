@@ -9,16 +9,27 @@ import {
   type TestInfo,
 } from '@playwright/test';
 import { firmSlug, portalUrl } from './env';
-import { apiAs, as, expectNoSideScroll, portal, portalApi, settled, shot } from './helpers';
+import {
+  apiAs,
+  as,
+  expectNoSideScroll,
+  portal,
+  portalApi,
+  portalClient,
+  settled,
+  shot,
+} from './helpers';
 
 /**
- * The client portal as the client sees it, live on dev (Test Firm B), signed in as qa-client-b
- * (QA Fixture Client 1, an Individual client). One test per row of the Client Portal Review One
- * check, which is kept outside the repo: rows by ID only.
+ * The client portal as the client sees it, live on dev (Test Firm B), signed in as the harness's
+ * own portal client (portalClient(): an Individual client on the SES simulator, lead Nov 19; until
+ * then Octavia's qa-client-b). One test per row of the Client Portal Review One check, which is
+ * kept outside the repo: rows by ID only.
  *
- * This login is also Octavia's, so every check is read-only: pages, menus and GET requests.
- * Nothing here submits, uploads, sends, books, pays, signs, changes a setting or marks anything
- * read. The Announcements page is never opened here (it counts each announcement as opened).
+ * The checks are still read-only: pages, menus and GET requests. Nothing here submits, uploads,
+ * sends, books, pays, signs, changes a setting or marks anything read, and the Announcements page
+ * is not opened (it counts each announcement as opened). The login is now the harness's own, so
+ * the NOT LIVE rows can get writes in a later pass.
  *
  * - A row not built on origin/main fails with "NOT BUILT" (the lead wants the gaps visible).
  * - A built row whose check needs a write is skipped: "NOT LIVE" and the reason in its title.
@@ -30,7 +41,6 @@ import { apiAs, as, expectNoSideScroll, portal, portalApi, settled, shot } from 
 const TAB = 'client-portal-client';
 /** The origin/main commit the NOT BUILT rows were read from. */
 const MAIN = 'c1740860a';
-const C1 = '00000000-0000-4a28-8001-000000000002'; // QA Fixture Client 1, this login's client
 
 type Json = Record<string, unknown>;
 interface Answer<T> {
@@ -236,7 +246,8 @@ test.describe('the portal as the client: Review One rows', () => {
   // ---------- Settings > Client Portal, as far as the client can tell ----------
 
   test('CP-1 the staff preview of this client is refused to the client (Settings is firm side)', async () => {
-    const res = await get(`business/client-portal/clients/${C1}/preview`);
+    const { id } = await portalClient();
+    const res = await get(`business/client-portal/clients/${id}/preview`);
     expect(refused(res.status), `the staff preview answered ${res.status}`).toBe(true);
   });
 
