@@ -1,6 +1,7 @@
 // Business Advisory (R55): advisory clients and their services, business plans and versions,
 // financial snapshots, goals and milestones, recommendations, action items, resources and
-// settings. A write case runs in a fresh world, so one record serves them all.
+// settings; BA-CP, the client's own read-only view in the portal. A write case runs in a fresh
+// world, so one record serves them all.
 import { randomUUID } from 'node:crypto';
 import type { CaseModule } from '../world.js';
 
@@ -128,6 +129,43 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** BA-CP: a plan whose version 1 was delivered to the world's client (their portal reads it). */
+  advisoryPlanDelivered: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const name = `Fake delivered plan ${tag()}`;
+      const row = await tx.advisoryPlan.create({
+        data: {
+          businessId,
+          advisoryClientId: await get('advisoryClient'),
+          name,
+          targetYear: 2026,
+          status: 'SENT',
+          step: 5,
+          currentVersion: 1,
+          profile: PLAN_PROFILE,
+          strategy: PLAN_STRATEGY,
+          finalizedAt: STAMP,
+          sentAt: STAMP,
+          createdByUserId: owner.id,
+          updatedAt: STAMP,
+        },
+      });
+      await tx.advisoryPlanVersion.create({
+        data: {
+          businessId,
+          planId: row.id,
+          versionNo: 1,
+          createdByUserId: owner.id,
+          content: { planName: name, targetYear: 2026, disclaimer: 'Fake' },
+          deliveredAt: STAMP,
+          deliveredChannel: 'portal',
+          deliveredByUserId: owner.id,
+        },
+      });
+      return row.id;
+    },
+  },
   advisoryGoal: {
     async create({ tx, businessId, get }) {
       const row = await tx.advisoryGoal.create({
@@ -181,6 +219,9 @@ export const records: CaseModule['records'] = {
 };
 
 export const cases: CaseModule['cases'] = {
+  // ---------- BA-CP: the portal's Business Advisory, client X's own delivered plan ----------
+  'GET /api/v1/portal/:firmSlug/me/advisory/plans/:id': { params: { id: 'advisoryPlanDelivered' } },
+
   [`POST ${BASE}/clients`]: {
     params: {},
     bodyIds: {

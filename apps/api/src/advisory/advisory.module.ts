@@ -9,17 +9,19 @@ import { AdvisoryPlansService } from './advisory-plans.service.js';
 import { AdvisoryReadService } from './advisory-read.service.js';
 import { AdvisoryReportsService } from './advisory-reports.service.js';
 import { AdvisoryController } from './advisory.controller.js';
+import { MyAdvisoryController } from './my-advisory.controller.js';
+import { MyAdvisoryService } from './my-advisory.service.js';
 
 /**
  * The Business Advisory & Development module (R55; contract in packages/types/src/advisory): the
  * overview and Advisory Clients tab, client detail with the Business Health Score, services,
  * business plans in five stages with immutable versions and delivery, financial snapshots, goals
  * and milestones, recommendations and action items, meetings, the resource library, settings and
- * the Reports tab's counts.
+ * the Reports tab's counts. BA-CP: the client's own read-only view in the portal (My Services).
  */
 @Module({
   imports: [MessagesModule],
-  controllers: [AdvisoryController],
+  controllers: [AdvisoryController, MyAdvisoryController],
   providers: [
     AdvisoryReadService,
     AdvisoryClientsService,
@@ -29,6 +31,7 @@ import { AdvisoryController } from './advisory.controller.js';
     AdvisoryActionsService,
     AdvisoryOverviewService,
     AdvisoryReportsService,
+    MyAdvisoryService,
   ],
 })
 export class AdvisoryModule {}

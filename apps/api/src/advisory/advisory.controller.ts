@@ -100,8 +100,8 @@ const who = (auth: AuthContext, tenant: TenantContext) => {
  * Business Advisory & Development (contract in packages/types/src/advisory). Owner and Admin reach
  * every advisory client, Staff only the clients assigned to them (any other is 404); the services
  * check the grid's capabilities (403 FORBIDDEN, OVERRIDE_NOT_ALLOWED, FINANCIALS_RESTRICTED).
- * Recommendations and the Business Health Score are advisory tools, not guarantees. Never a portal
- * route.
+ * Recommendations and the Business Health Score are advisory tools, not guarantees. The client's
+ * own view (BA-CP) is MyAdvisoryController, under the portal's routes.
  */
 @Controller('business/advisory')
 @Access('BUSINESS_ADVISORY')
