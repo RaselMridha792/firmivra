@@ -24,8 +24,10 @@ import {
   MyMessageThreadDetail,
   MyMessageThreadList,
   MyNoteResponse,
+  NoteShared,
   SaveMyNoteRequest,
   SendFirmMessageRequest,
+  ShareNoteRequest,
   SendMessageRequest,
   SetNoteReminderRequest,
   UnreadCount,
@@ -307,6 +309,12 @@ export function createClientNotesClient(request: ApiRequest) {
       }),
     remove: async (id: string): Promise<OkResponse> =>
       request(OkResponse, note(id), { method: 'DELETE', body: {} }),
+    /** B32: Share with Client, after the member confirmed the preview of this version. */
+    share: async (id: string, body: ShareNoteRequest): Promise<NoteShared> =>
+      request(NoteShared, `${note(id)}/share`, {
+        method: 'POST',
+        body: parseInput(ShareNoteRequest, body),
+      }),
   };
 }
 

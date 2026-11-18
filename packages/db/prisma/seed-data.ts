@@ -191,6 +191,15 @@ export const SEED_TAX_RETURN_IDS = {
   lvp2025: '00000000-0000-4000-9100-000000000003',
 } as const;
 
+/**
+ * R1 (Client Portal Review One CP-5d, CP-5e): a custom portal tab and the client it is for, so
+ * re-seeding keeps one of each.
+ */
+export const SEED_PORTAL_TAB_IDS = {
+  payrollTab: '00000000-0000-4010-8000-000000000001',
+  payrollTarget: '00000000-0000-4010-8000-000000000002',
+} as const;
+
 /** Fixed ids of seeded intakes and the Begin Online lead, so re-seeding keeps one of each. */
 export const SEED_INTAKE_IDS = {
   taxIntake: '00000000-0000-400f-8000-000000000001',

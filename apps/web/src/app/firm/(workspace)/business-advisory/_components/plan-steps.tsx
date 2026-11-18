@@ -299,7 +299,6 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
               caption="Financial figures"
               dense
               noun="periods"
-              pageSize={10}
               showPagination={false}
               emptyTitle="No figures yet"
               emptyText="Add figures, or connect bookkeeping, payroll or a bank."
@@ -868,7 +867,6 @@ export function ActionStep({ plan }: { plan: Plan }) {
           caption="Tasks in this plan"
           dense
           noun="tasks"
-          pageSize={10}
           showPagination={false}
           emptyTitle="No tasks yet"
           emptyText="Add the steps that carry out the plan."

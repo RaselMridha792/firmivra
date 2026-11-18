@@ -97,3 +97,45 @@ test('SM10: the portal header shows the date, time and the firm’s time zone', 
   // The mock firm is in America/New_York.
   await expect(page.getByTestId('header-clock')).toContainText(/E[SD]T/, { timeout: 60_000 });
 });
+
+test('CP-5a to CP-5c, CP-5h: rename, reorder and switch the tabs, with a preview, and the portal follows', async ({
+  page,
+}) => {
+  await page.goto(app('/settings/portal?panel=features'));
+  const table = page.getByRole('table', { name: 'Default portal tabs' });
+  await expect(table).toBeVisible({ timeout: 60_000 });
+  // CP-5a: Business Documents & Resources has a switch like the others.
+  await expect(
+    table.getByRole('switch', { name: 'Show Business Documents & Resources' }),
+  ).toBeVisible();
+  await table.getByLabel('Name of Intake Form').fill('My Forms');
+  await table.getByRole('button', { name: 'Move Tax Returns up' }).click();
+  const preview = page.getByTestId('tabs-preview-list').getByRole('listitem');
+  await expect(preview).toHaveText([
+    'My Forms',
+    'Business Documents & Resources',
+    'Tax Returns',
+    'My Uploaded Documents',
+    'Receipts & Invoices',
+    'Messages and Notes',
+  ]);
+  // A Personal portal shows no Business tab.
+  await page.getByTestId('tabs-preview').getByRole('button', { name: 'Personal' }).click();
+  await expect(preview).toHaveCount(5);
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText('Changes saved.')).toBeVisible();
+
+  // The mock keeps the layout per origin: the portal (another host) gets the saved one.
+  const saved = await page.evaluate(() =>
+    sessionStorage.getItem('firmivra-mock:portal-tab-layout'),
+  );
+  expect(saved).toContain('My Forms');
+  await page.addInitScript(
+    (value) => sessionStorage.setItem('firmivra-mock:portal-tab-layout', value),
+    saved ?? '',
+  );
+  await page.goto(portal('/lvp/documents'));
+  const folders = page.getByRole('navigation', { name: 'Portal folders' }).getByRole('link');
+  await expect(folders.first()).toHaveText('My Forms', { timeout: 60_000 });
+  await expect(folders.nth(2)).toHaveText('Tax Returns');
+});

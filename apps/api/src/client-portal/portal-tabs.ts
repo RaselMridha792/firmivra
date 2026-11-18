@@ -2,6 +2,7 @@ import {
   applyDecorators,
   Body,
   type CanActivate,
+  ConflictException,
   Controller,
   type ExecutionContext,
   ForbiddenException,
@@ -22,6 +23,7 @@ import {
   PORTAL_TAB_LABELS,
   PortalModule,
   PortalTab,
+  type PortalTabLayoutItem,
   type PortalTabs,
   UpdatePortalTabsRequest,
 } from '@firmivra/types';
@@ -55,6 +57,14 @@ export const messagesClosed = () =>
   });
 
 type Tabs = Record<PortalTab, boolean>;
+type LayoutChange = NonNullable<z.output<typeof UpdatePortalTabsRequest>['layout']>;
+
+/** 409 DUPLICATE_LABEL: two tabs would share a name (CP-5b). */
+const duplicateLabel = () =>
+  new ConflictException({
+    code: 'DUPLICATE_LABEL',
+    message: 'Another tab already has this name. Choose a different one.',
+  });
 /** Each portal area: the firm's switch (on where it has none) and this client's own. */
 export type ClientAreas = Record<PortalModule, { firmOn: boolean; clientOn: boolean }>;
 const isTab = (m: PortalModule): m is PortalTab => (PortalTab.options as string[]).includes(m);
@@ -69,6 +79,85 @@ export class PortalTabsService {
   /** Every tab, on unless the firm switched it off. */
   async tabs(businessId: string): Promise<Tabs> {
     return this.db.withScope({ kind: 'business', businessId }, (tx) => this.read(tx));
+  }
+
+  /** The firm's switches and layout (Settings > Client Portal > Features). */
+  async firm(businessId: string): Promise<PortalTabs> {
+    return this.db.withScope({ kind: 'business', businessId }, async (tx) => ({
+      tabs: await this.read(tx),
+      layout: await this.layout(tx),
+    }));
+  }
+
+  /**
+   * CP-5b, CP-5c: the six built-in tabs in the firm's order (a tab with no row keeps its default
+   * place), each under the firm's name for it or its default name.
+   */
+  async layout(tx: TxClient): Promise<PortalTabLayoutItem[]> {
+    const rows = await tx.portalTab.findMany({
+      where: { kind: 'BUILT_IN' },
+      select: { module: true, label: true, sortOrder: true },
+    });
+    const byTab = new Map(rows.map((r) => [r.module, r]));
+    return PortalTab.options
+      .map((tab, index) => {
+        const row = byTab.get(tab);
+        return {
+          tab,
+          label: row?.label ?? PORTAL_TAB_LABELS[tab],
+          renamed: row?.label != null,
+          at: row?.sortOrder ?? index,
+          index,
+        };
+      })
+      .sort((a, b) => a.at - b.at || a.index - b.index)
+      .map(({ tab, label, renamed }) => ({ tab, label, renamed }));
+  }
+
+  /** CP-5b, CP-5c: saves the whole order and each tab's name; audited by what changed. */
+  private async arrange(
+    tx: TxClient,
+    businessId: string,
+    actorUserId: string,
+    layout: LayoutChange,
+  ): Promise<void> {
+    const names = layout.map((i) => (i.label ?? PORTAL_TAB_LABELS[i.tab]).trim().toLowerCase());
+    if (new Set(names).size !== names.length) throw duplicateLabel();
+    const before = await this.layout(tx);
+    const rows = await tx.portalTab.findMany({
+      where: { kind: 'BUILT_IN' },
+      select: { id: true, module: true },
+    });
+    const ids = new Map(rows.map((r) => [r.module, r.id]));
+    try {
+      for (const [sortOrder, item] of layout.entries()) {
+        const id = ids.get(item.tab);
+        const data = { label: item.label, sortOrder, updatedByUserId: actorUserId };
+        if (id) await tx.portalTab.update({ where: { id }, data });
+        else
+          await tx.portalTab.create({
+            data: { businessId, kind: 'BUILT_IN', module: item.tab, ...data },
+          });
+      }
+    } catch (error) {
+      // A custom tab's name (portal_tabs_live_label).
+      if ((error as { code?: unknown }).code === 'P2002') throw duplicateLabel();
+      throw error;
+    }
+    const after = await this.layout(tx);
+    const moved = after.map((i) => i.tab).join() !== before.map((i) => i.tab).join();
+    const renamed = after
+      .filter((i) => i.label !== before.find((b) => b.tab === i.tab)?.label)
+      .map((i) => i.tab);
+    if (moved || renamed.length > 0) {
+      await this.audit.logIn(
+        tx,
+        'portal.tabs_arranged',
+        { type: 'business', id: businessId },
+        { order: after.map((i) => i.tab), moved, renamed },
+        { businessId },
+      );
+    }
   }
 
   /** CP-4f: 403 MESSAGES_CLOSED when the firm turned Allow Secure Messages off (on by default). */
@@ -95,6 +184,7 @@ export class PortalTabsService {
     businessId: string,
     actorUserId: string,
     changes: Partial<Tabs>,
+    layout?: LayoutChange,
   ): Promise<PortalTabs> {
     return this.db.withScope({ kind: 'business', businessId }, async (tx) => {
       // One save at a time per firm, so two saves never leave two rows for a tab.
@@ -120,7 +210,8 @@ export class PortalTabsService {
           { businessId },
         );
       }
-      return { tabs: await this.read(tx) };
+      if (layout) await this.arrange(tx, businessId, actorUserId, layout);
+      return { tabs: await this.read(tx), layout: await this.layout(tx) };
     });
   }
 
@@ -151,7 +242,8 @@ export class PortalTabsService {
         where: { id: clientAccountId },
         select: { clientId: true },
       });
-      if (!account?.clientId) return { tabs: await this.read(tx), businessPortal: false };
+      if (!account?.clientId)
+        return { tabs: await this.read(tx), layout: await this.layout(tx), businessPortal: false };
       const areas = await this.areasIn(tx, account.clientId);
       const on = (m: PortalModule) => areas[m].firmOn && areas[m].clientOn;
       // CP-9.3: a Personal portal lists no business-only tab (content.service's rule).
@@ -166,9 +258,20 @@ export class PortalTabsService {
           TASKS_REQUESTS: on('TASKS_REQUESTS'),
           REPORTS: on('REPORTS'),
         },
+        layout: await this.layout(tx),
         businessPortal: client?.accountType === 'BUSINESS',
       };
     });
+  }
+
+  /** Whether a signed-in client may open an area: the firm's switch and their own. */
+  async isClientOn(
+    businessId: string,
+    clientAccountId: string,
+    area: PortalModule,
+  ): Promise<boolean> {
+    const mine = await this.forClientAccount(businessId, clientAccountId);
+    return isTab(area) ? mine.tabs[area] : (mine.more?.[area as keyof typeof mine.more] ?? true);
   }
 
   /** A signed-in client's route of a hidden area: 403 MODULE_OFF. */
@@ -232,7 +335,7 @@ export class PortalTabsController {
 
   @Get()
   async get(@CurrentTenant() tenant: TenantContext): Promise<PortalTabs> {
-    return { tabs: await this.tabs.tabs(tenant.businessId) };
+    return this.tabs.firm(tenant.businessId);
   }
 
   @Put()
@@ -242,7 +345,7 @@ export class PortalTabsController {
     @Body(new ZodValidationPipe(UpdatePortalTabsRequest))
     body: z.output<typeof UpdatePortalTabsRequest>,
   ): Promise<PortalTabs> {
-    return this.tabs.update(tenant.businessId, auth.userId, body.tabs);
+    return this.tabs.update(tenant.businessId, auth.userId, body.tabs ?? {}, body.layout);
   }
 }
 
@@ -254,7 +357,7 @@ export class MyPortalTabsController {
 
   @Get()
   async mine(@CurrentTenant() tenant: TenantContext): Promise<PortalTabs> {
-    if (tenant.kind !== 'client') return { tabs: await this.tabs.tabs(tenant.businessId) };
+    if (tenant.kind !== 'client') return this.tabs.firm(tenant.businessId);
     return this.tabs.forClientAccount(tenant.businessId, tenant.clientAccountId);
   }
 }

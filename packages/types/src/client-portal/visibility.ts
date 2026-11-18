@@ -17,7 +17,15 @@ export const PORTAL_MODULE_LABELS: Record<PortalModule, string> = {
   TASKS_REQUESTS: 'Tasks & Requests',
   MESSAGES: 'Messages',
   REPORTS: 'Reports (Client View)',
+  // Client Portal Review One CP-5a (business portals).
+  BUSINESS_RESOURCES: 'Business Documents & Resources',
 };
+
+/**
+ * The areas the Client Portal module switches per client: every portal area, Business Documents
+ * & Resources included (CP-5a: the portal follows its switch).
+ */
+export const PORTAL_AREAS: readonly PortalModule[] = PortalModule.options;
 
 export const ClientPortalArea = z.object({
   module: PortalModule,
