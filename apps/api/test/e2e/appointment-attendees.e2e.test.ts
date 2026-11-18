@@ -743,4 +743,31 @@ describe('booking from a package’s page (S12)', () => {
     );
     expect((await notesOf(booked.id)).internalNotes).toBeNull();
   });
+
+  it('refuses another firm’s package, or none at all, with 404, and books nothing', async () => {
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const theirs = await runInScope(
+      db,
+      { kind: 'business', businessId: ids.firmB },
+      async (tx) =>
+        (
+          await tx.servicePackage.create({
+            data: { businessId: ids.firmB, name: `Their bundle ${run}`, shortDescription: 'Fake' },
+          })
+        ).id,
+    ).finally(() => db.$disconnect());
+    const startsAt = at(freshDay(), '14:00');
+    for (const packageId of [theirs, randomUUID()])
+      expectError(
+        await portal('post', '', people.guest, { typeId: ids.typeA, startsAt, packageId }),
+        404,
+        'NOT_FOUND',
+      );
+    // The time is still free: nothing was booked.
+    exact(
+      MyAppointment,
+      await portal('post', '', people.guest, { typeId: ids.typeA, startsAt }),
+      201,
+    );
+  });
 });
