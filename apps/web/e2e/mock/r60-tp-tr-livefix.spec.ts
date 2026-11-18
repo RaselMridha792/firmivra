@@ -43,3 +43,52 @@ test('390 px: no plan step scrolls sideways', async ({ page }) => {
       .toBeLessThanOrEqual(0);
   }
 });
+
+test('F20b: Record Paper Filing with an open Error says the reason and its blockers, and keeps the dialog open', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/tax-returns'));
+  await page
+    .getByTestId('tr-filters')
+    .getByLabel('Status', { exact: true })
+    .selectOption('READY_FOR_REVIEW');
+  await page.getByTestId('return-link').first().click();
+  await expect(page.getByTestId('return-workspace')).toBeVisible({ timeout: 60_000 });
+  // An open Error issue, raised by Return to Preparer.
+  await page.getByRole('tab', { name: 'Review' }).click();
+  await page
+    .getByTestId('approvals')
+    .getByRole('button', { name: 'Return to Preparer' })
+    .first()
+    .click();
+  const back = page.getByRole('dialog', { name: 'Return to Preparer' });
+  await back.getByLabel('Review note for the preparer').fill('A schedule to fix (fake)');
+  await back.getByLabel('Raise a validation issue').check();
+  const fields = back.getByTestId('issue-fields');
+  await fields.getByLabel('Issue', { exact: true }).fill('Box 1 does not match (fake)');
+  await fields.getByLabel('Version (draft return)').selectOption({ index: 1 });
+  await fields.getByLabel('Checklist line').selectOption({ index: 1 });
+  await page.getByRole('button', { name: 'Return to Preparer', exact: true }).last().click();
+  await expect(back).toBeHidden();
+
+  // A paper filing, refused while the Error is open.
+  await page.getByRole('tab', { name: 'E-File' }).click();
+  const efile = page.getByTestId('efile');
+  await efile.getByRole('button', { name: 'Jurisdictions' }).click();
+  await page.getByLabel('Federal filing method').selectOption('PAPER');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await efile.getByTestId('filing-US').getByRole('button', { name: 'Record Paper Filing' }).click();
+  const paper = page.getByTestId('paper-dialog');
+  await paper.getByLabel('Mail Tracking Number').fill('FAKE 9400 0002');
+  await paper.getByLabel('Date mailed *').fill('2026-11-02');
+  await page.getByRole('dialog').getByRole('button', { name: 'Record' }).click();
+  await expect(
+    page.getByText(
+      'Resolve the validation errors first. Still to do: Resolve the open validation errors.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByText('This return cannot move there yet')).toHaveCount(0);
+  await expect(paper).toBeVisible();
+});
