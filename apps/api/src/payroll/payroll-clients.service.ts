@@ -59,6 +59,7 @@ import {
   syncStatusOf,
   toDay,
 } from './payroll.shared.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type ClientsQuery = z.output<typeof PayrollClientsQuery>;
 type ListQuery = z.output<typeof PayrollListQuery>;
@@ -858,10 +859,8 @@ export class PayrollClientsService {
         tx,
         'payroll.client.updated',
         { type: 'payroll_client', id },
-        {
-          clientId: pc.clientId,
-          fields: Object.keys(body).sort(),
-        },
+        // Audit Log Review 2, R03: each changed field's old and new value.
+        { clientId: pc.clientId, ...auditChanges(pc, data, { fields: Object.keys(data) }) },
       );
     });
     return this.get(businessId, actor, id, false);

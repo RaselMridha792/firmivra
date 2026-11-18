@@ -30,6 +30,10 @@ import {
   requireFirmAdmin,
 } from './pipeline.shared.js';
 import { addSteps, syncNextAction } from './lead-follow-ups.js';
+import { auditChanges } from '../audit/audit-changes.js';
+
+/** A lead's lists, changed by name in its audit row (their own rows hold the items). */
+const LIST_FIELDS = ['serviceIds', 'tags', 'otherContacts'] as const;
 
 type Create = z.output<typeof CreateLeadRequest>;
 type Update = z.output<typeof UpdateLeadRequest>;
@@ -248,7 +252,14 @@ export class LeadPipelineWriteService {
         tx,
         'lead.updated',
         { type: 'lead', id },
-        { fields: Object.keys(body).filter((k) => k !== 'version') },
+        // Audit Log Review 2, R03: each changed field's old and new value (notes as "changed");
+        // services, tags and other contacts by name.
+        {
+          ...auditChanges(lead, data, { fields: Object.keys(data) }),
+          ...(LIST_FIELDS.some((k) => body[k] !== undefined)
+            ? { listsChanged: LIST_FIELDS.filter((k) => body[k] !== undefined) }
+            : {}),
+        },
       );
       return loadProfile(tx, businessId, actor, id, { unrestricted: true });
     });

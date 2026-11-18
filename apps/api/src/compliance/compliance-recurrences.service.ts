@@ -28,6 +28,7 @@ import {
   todayOf,
   toDay,
 } from './compliance.shared.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Create = z.output<typeof CreateComplianceRecurrenceRequest>;
 type Update = z.output<typeof UpdateComplianceRecurrenceRequest>;
@@ -319,11 +320,12 @@ export class ComplianceRecurrencesService {
           data: fields,
           include,
         });
+        // R03a: each changed field's old and new value (free text as "changed").
         await this.audit.logIn(
           tx,
           'compliance.recurrence.updated',
           { type: 'compliance_recurrence', id },
-          { fields: Object.keys(body).sort() },
+          auditChanges(current, updated, { fields: Object.keys(body) }),
         );
         return updated;
       });

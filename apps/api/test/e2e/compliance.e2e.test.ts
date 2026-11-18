@@ -140,6 +140,14 @@ const auditActions = (entityId: string, businessId = ids.firmA) =>
     ),
   );
 
+/** The metadata of a record's rows of one action, oldest first (Audit Log Review 2, R03). */
+const auditMetadata = (entityId: string, action: string, businessId = ids.firmA) =>
+  asOwner(businessId, async (tx) =>
+    (
+      await tx.auditLog.findMany({ where: { entityId, action }, orderBy: { createdAt: 'asc' } })
+    ).map((r) => r.metadata as Record<string, unknown>),
+  );
+
 const DAY = 86_400_000;
 const today = () => new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -1051,6 +1059,38 @@ describe('status actions', () => {
       'compliance.deadline.not-applicable',
       'compliance.deadline.reopened',
     ]);
+    // Audit Log Review 2, R04a: each row holds the status before and after and each value it set
+    // or cleared; the confirmation number is "set", never its value; Reopen keeps the filed-on
+    // day and the number, and says so.
+    const [completed] = await auditMetadata(d.id, 'compliance.deadline.completed');
+    expect(completed).toMatchObject({
+      from: 'WAITING_ON_CLIENT',
+      to: 'COMPLETED',
+      changes: {
+        filedOn: { from: null, to: `${plus(-1)}T00:00:00.000Z` },
+        confirmationNumber: 'set',
+        completedByUserId: { from: null, to: people.staffA.id },
+        completedAt: { from: null, to: expect.any(String) },
+      },
+    });
+    expect(JSON.stringify(completed)).not.toContain('FAKE-123');
+    const [reopenedRow] = await auditMetadata(d.id, 'compliance.deadline.reopened');
+    expect(reopenedRow).toMatchObject({
+      from: 'COMPLETED',
+      to: 'UPCOMING',
+      changes: {
+        completedByUserId: { from: people.staffA.id, to: null },
+        completedAt: { from: expect.any(String), to: null },
+      },
+      kept: ['filedOn', 'confirmationNumber'],
+    });
+    const [notApplicable] = await auditMetadata(d.id, 'compliance.deadline.not-applicable');
+    expect(notApplicable).toMatchObject({
+      from: 'UPCOMING',
+      to: 'NOT_APPLICABLE',
+      changes: { notApplicableReason: 'changed' },
+    });
+    expect(JSON.stringify(notApplicable)).not.toContain('dissolved');
   });
 
   it('shows Overdue and Due Soon from the date, and completing never completes its tasks', async () => {
@@ -2939,6 +2979,20 @@ describe('recurring definitions', () => {
     const other = await mk();
     expectError(await patch({ name: other.name }), 409, 'DUPLICATE');
     expect(await auditActions(r.id)).toContain('compliance.recurrence.updated');
+    // R03a: the first edit's row holds each changed field's old and new value, free text as
+    // "changed", and nothing that did not change.
+    const [first] = await auditMetadata(r.id, 'compliance.recurrence.updated');
+    expect(first).toMatchObject({
+      changes: {
+        name: { from: r.name, to: `Renamed ${run}` },
+        holidayRule: { from: r.holidayRule, to: 'PREVIOUS_BUSINESS_DAY' },
+      },
+    });
+    const changes = first?.['changes'] as Record<string, unknown>;
+    expect(Object.keys(changes).sort()).toEqual(first?.['fields']);
+    expect(changes['frequency']).toBeUndefined();
+    if (r.description) expect(changes['description']).toBe('changed');
+    expect(JSON.stringify(first)).not.toContain(r.description ?? 'no description');
   });
 
   it('pauses, resumes, ends and archives', async () => {
@@ -3281,6 +3335,37 @@ describe('applicability rules and suggestions', () => {
     );
     rule = back;
     expect(await auditActions(rule.id)).toContain('compliance.rule.updated');
+    const rows = await auditMetadata(rule.id, 'compliance.rule.updated');
+    expect(rows).toEqual([
+      expect.objectContaining({
+        fields: ['name'],
+        changes: { name: { from: expect.any(String), to: `Renamed ${run}` } },
+        version: 2,
+      }),
+      // The same states again: nothing changed, nothing listed.
+      expect.objectContaining({ fields: [], changes: {}, version: 2 }),
+      expect.objectContaining({
+        changes: { states: { from: ['GA'], to: ['GA', 'FL'] } },
+        version: 3,
+      }),
+      expect.objectContaining({
+        changes: { states: { from: ['GA', 'FL'], to: ['GA'] } },
+        version: 4,
+      }),
+    ]);
+    // R03b: the active state's old and new value, on a rule of its own (the shared rule's
+    // version is checked below; this name stays out of the run's searches, and it ends inactive,
+    // so no later run of the active rules sees it).
+    const toggled = await mkRule({ name: `Toggle ${randomUUID().slice(0, 8)}` });
+    exact(
+      ComplianceApplicabilityRule,
+      await call('patch', `/compliance/applicability-rules/${toggled.id}`, people.ownerA, {
+        active: false,
+      }),
+    );
+    expect(
+      (await auditMetadata(toggled.id, 'compliance.rule.updated')).map((m) => m['changes']),
+    ).toEqual([{ active: { from: true, to: false } }]);
   });
 
   it('lists rules with filters', async () => {

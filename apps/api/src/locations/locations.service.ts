@@ -45,6 +45,7 @@ import {
   LocationsReadService,
   type ProfileDraft,
 } from './locations-read.service.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 // Settings > Locations' changes (contract: packages/types/src/settings/locations.ts). Owner and
 // Admin; deactivating a location or a manager and editing or cancelling a scheduled change are the
@@ -734,7 +735,8 @@ export class LocationsService {
           actionId: action.id,
           kind: action.kind,
           officeId: action.officeId,
-          fields: Object.keys(data),
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          ...auditChanges(action, saved, { fields: Object.keys(data) }),
           effectiveAt: saved.effectiveAt.toISOString(),
         },
         { businessId },

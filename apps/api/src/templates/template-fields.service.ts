@@ -13,6 +13,7 @@ import { stripTags } from './html.js';
 import { BUILT_IN_FIELDS, builtIn } from './merge-fields.js';
 import type { BrandingBody, CustomFieldBody } from './template-input.js';
 import { isAdmin, templateErrors } from './templates.common.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Field = z.output<typeof CustomFieldBody>;
 type Branding = z.output<typeof BrandingBody>;
@@ -198,21 +199,25 @@ export class TemplateFieldsService {
       updatedByUserId: actor.userId,
     };
     const result = await this.inFirm(businessId, async (tx) => {
+      const before = await tx.templateBranding.findUnique({ where: { businessId } });
       await tx.templateBranding.upsert({
         where: { businessId },
         create: { businessId, ...data },
         update: data,
       });
-      return this.brandingIn(tx, businessId);
+      // Audit Log Review 2, R03: each changed field's old and new value (text as "changed").
+      const changes = auditChanges(before ?? {}, data, {
+        fields: Object.keys(body),
+        text: ['disclaimer'],
+      });
+      return { branding: await this.brandingIn(tx, businessId), changes };
     });
     await this.audit.log(
       'template_branding.updated',
       { type: 'template_branding', id: businessId },
-      {
-        fields: Object.keys(body),
-      },
+      result.changes,
     );
-    return result;
+    return result.branding;
   }
 
   private async brandingIn(tx: TxClient, businessId: string): Promise<TemplateBranding> {

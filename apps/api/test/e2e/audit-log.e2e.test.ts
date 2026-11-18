@@ -98,6 +98,16 @@ async function seed(businessId: string, rows: Prisma.AuditLogCreateManyInput[]):
   await db.$disconnect();
 }
 
+/** M02b: the firm's access.denied rows. */
+async function deniedRows(businessId: string) {
+  const db = owner();
+  const rows = await runInScope(db, { kind: 'business', businessId }, (tx) =>
+    tx.auditLog.findMany({ where: { businessId, action: 'access.denied' } }),
+  );
+  await db.$disconnect();
+  return rows;
+}
+
 async function viewedRows(businessId: string) {
   const db = owner();
   const rows = await runInScope(db, { kind: 'business', businessId }, (tx) =>
@@ -694,11 +704,14 @@ describe('reading the log is audited', () => {
   it('a refused read writes nothing, and nothing in another firm', async () => {
     const beforeA = (await viewedRows(firms.a.id)).length;
     const beforeB = (await viewedRows(firms.b.id)).length;
+    const deniedA = (await deniedRows(firms.a.id)).length;
     await call('', people.staffA);
     await call('', people.ownerB, 'a');
     await call('?limit=0', people.ownerA);
     expect((await viewedRows(firms.a.id)).length).toBe(beforeA);
     expect((await viewedRows(firms.b.id)).length).toBe(beforeB);
+    // M02b: reading the log is not a security-sensitive route, so its 403 writes no row either.
+    expect((await deniedRows(firms.a.id)).length).toBe(deniedA);
   });
 });
 
@@ -748,6 +761,31 @@ describe('the export (Octavia: read-only, authorized export)', () => {
       count: listed.length,
       capped: false,
     });
+  });
+
+  it('M02b: a refused export writes one access.denied row (a retry adds none), in the firm only', async () => {
+    const before = (await deniedRows(firms.a.id)).length;
+    for (let i = 0; i < 3; i++) {
+      const res = await exportCsv('?action=rtest.', people.staffA);
+      expect([res.status, codeOf(res)]).toEqual([403, 'FORBIDDEN']);
+    }
+    const rows = await deniedRows(firms.a.id);
+    expect(rows).toHaveLength(before + 1);
+    expect(rows.at(-1)).toMatchObject({
+      actorUserId: people.staffA.id,
+      entityType: 'route',
+      entityId: 'GET /business/audit-log/export',
+      metadata: {
+        category: 'export',
+        method: 'GET',
+        route: '/business/audit-log/export',
+        code: 'FORBIDDEN',
+        role: 'STAFF',
+      },
+    });
+    // Never the query the request sent.
+    expect(JSON.stringify(rows.at(-1)?.metadata)).not.toContain('rtest');
+    expect(await deniedRows(firms.b.id)).toHaveLength(0);
   });
 
   it('is for Owner and Admin only, in their own firm', async () => {

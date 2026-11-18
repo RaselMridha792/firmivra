@@ -6,7 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import type { ApiError } from '@firmivra/types';
 import { requestContext } from './request-context.js';
 
@@ -44,10 +44,17 @@ const CODES: Partial<Record<number, string>> = {
 const BUSY_CODES = new Set(['P2024', 'P2028']);
 const RETRY_AFTER_SECONDS = 5;
 
+/** Audit Log Review 2, M02b: who hears of a 403 (audit/denied-access.ts). */
+export interface DeniedRecorder {
+  refused(req: Request, code: string): Promise<void>;
+}
+
 /** Every error leaves the API as { error: { code, message, requestId, details? } }. */
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(ApiExceptionFilter.name);
+
+  constructor(private readonly denied?: DeniedRecorder) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
@@ -80,6 +87,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
         res.setHeader('Retry-After', String(Math.min(retryAfter, 3_600)));
       }
       res.status(status).json({ error });
+      // M02b: a refused security-sensitive request is audited, after the answer, never changing it.
+      if (status === 403 && this.denied) {
+        const req = host.switchToHttp().getRequest<Request>();
+        void this.denied.refused(req, error.code).catch(() => undefined);
+      }
       return;
     }
 
