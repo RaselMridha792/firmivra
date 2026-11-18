@@ -21,6 +21,7 @@ import {
   type ClientPortalFormsSummary,
   type ClientPortalPreview,
   type ClientPortalVisibility,
+  PORTAL_AREAS,
   PortalModule,
   UpdateClientPortalVisibilityRequest,
 } from '@firmivra/types';
@@ -89,7 +90,7 @@ export class PortalAccessService {
       const before = await this.tabs.areasIn(tx, clientId);
       const shown: PortalModule[] = [];
       const hidden: PortalModule[] = [];
-      for (const module of PortalModule.options) {
+      for (const module of PORTAL_AREAS) {
         const visible = changes[module];
         if (visible === undefined || visible === before[module].clientOn) continue;
         (visible ? shown : hidden).push(module);
@@ -346,7 +347,7 @@ export class PortalAccessService {
   ): Promise<ClientPortalVisibility> {
     const areas = await this.tabs.areasIn(tx, clientId);
     return {
-      areas: PortalModule.options.map((module) => ({
+      areas: PORTAL_AREAS.map((module) => ({
         module,
         firmOn: areas[module].firmOn,
         clientOn: areas[module].clientOn,
