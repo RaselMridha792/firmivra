@@ -28,6 +28,11 @@ import { NOTIFY_CONFIG } from '../notify/notify.module.js';
 import { mergeValues } from '../communications/merge-values.js';
 import { sanitizeForPortal, toPlainText } from '../templates/html.js';
 import { fill } from '../templates/merge-fields.js';
+import {
+  announcementSettingsIn,
+  PortalAnnouncementSettingsController,
+  PortalAnnouncementSettingsService,
+} from './portal-announcement-settings.js';
 
 // Client Portal guide 3 (Rasel, Oct 24: the parts without schema): announcements are made and
 // published in Communications; the portal shows the ones published to the client, inside their
@@ -123,6 +128,12 @@ export class PortalAnnouncementsService {
       },
     });
     if (!account?.clientId) return { items: [] };
+    // CP-3c: with announcements off the portal shows none (none is deleted); CP-3i: off the
+    // dashboard, the dashboard's are left out.
+    const settings = await this.db.withScope({ kind: 'business', businessId }, (tx) =>
+      announcementSettingsIn(tx, businessId),
+    );
+    if (!settings.enabled) return { items: [] };
     const now = new Date();
     const rows = await scope.communication.findMany({
       where: {
@@ -171,19 +182,20 @@ export class PortalAnnouncementsService {
       firm?.name ?? '',
       custom,
     );
+    const items = rows.map((r): MyAnnouncement => {
+      const html = fill(r.body, values, 'html').text;
+      return {
+        id: r.id,
+        title: r.subject ? fill(r.subject, values, 'text').text.trim() || null : null,
+        body: toPlainText(html),
+        html: sanitizeForPortal(html, images),
+        where: AnnouncementPlace.safeParse(r.visibility).data ?? 'dashboard',
+        publishedAt: (r.publishStartsAt ?? r.sentAt ?? r.createdAt).toISOString(),
+        endsAt: r.publishEndsAt?.toISOString() ?? null,
+      };
+    });
     return {
-      items: rows.map((r): MyAnnouncement => {
-        const html = fill(r.body, values, 'html').text;
-        return {
-          id: r.id,
-          title: r.subject ? fill(r.subject, values, 'text').text.trim() || null : null,
-          body: toPlainText(html),
-          html: sanitizeForPortal(html, images),
-          where: AnnouncementPlace.safeParse(r.visibility).data ?? 'dashboard',
-          publishedAt: (r.publishStartsAt ?? r.sentAt ?? r.createdAt).toISOString(),
-          endsAt: r.publishEndsAt?.toISOString() ?? null,
-        };
-      }),
+      items: settings.onDashboard ? items : items.filter((item) => item.where !== 'dashboard'),
     };
   }
 }
@@ -213,7 +225,8 @@ export class MyAnnouncementsController {
 }
 
 @Module({
-  controllers: [MyAnnouncementsController],
-  providers: [PortalAnnouncementsService],
+  controllers: [MyAnnouncementsController, PortalAnnouncementSettingsController],
+  providers: [PortalAnnouncementsService, PortalAnnouncementSettingsService],
+  exports: [PortalAnnouncementSettingsService],
 })
 export class PortalAnnouncementsModule {}
