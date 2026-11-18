@@ -43,6 +43,8 @@ import { useApiQuery } from '../../../../../../lib/query';
 import { MarketplaceCard, MarketplaceAction } from './marketplace-card';
 import { categories, categoryOptions, categoryLabel } from './marketplace-shared';
 import { RequestIntegrationModal } from './request-integration-modal';
+import { ReadinessFacts } from '../../_components/readiness';
+import { IntegrationsNav } from '../../_components/integrations-nav';
 
 export function MarketplaceScreen({
   initial: fromServer = MARKETPLACE_VIEW,
@@ -114,6 +116,7 @@ export function MarketplaceScreen({
             Add Integration
           </span>
         </nav>
+        <IntegrationsNav current="browse" environment={environment} />
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="[&_h1]:font-sans">
             <PageHeader
@@ -417,6 +420,7 @@ export function MarketplaceScreen({
                 {categoryLabel(details.provider.category)}
               </p>
               <p className="text-sm text-muted">{details.provider.summary}</p>
+              <ReadinessFacts provider={details.provider} />
               <MarketplaceAction item={details} canManage={canManage} />
             </div>
           ) : null}

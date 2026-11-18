@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
+import { IntakeWorkspaceModule } from '../intake-workspace/intake-workspace.module.js';
 import { LeadsModule } from '../leads/leads.controller.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { PortalTabsModule } from '../client-portal/portal-tabs.js';
@@ -35,7 +36,14 @@ import { AppointmentWaitlistService } from './waitlist.service.js';
  */
 @Module({
   // LeadsModule: P4-2's Keep as Lead and Follow Up uses Leads' own follow-up service.
-  imports: [PortalTabsModule, PortalInfoModule, NotificationsModule, LeadsModule],
+  // IntakeWorkspaceModule: A9's intake form sent on booking (IntakeSendService).
+  imports: [
+    PortalTabsModule,
+    PortalInfoModule,
+    NotificationsModule,
+    LeadsModule,
+    IntakeWorkspaceModule,
+  ],
   controllers: [
     AppointmentTypesController,
     AvailabilityController,

@@ -209,8 +209,9 @@ test('A-X12: notes show their audience, and the client’s own files have their 
   await expect(page.getByTestId('note-audience')).toContainText('Internal · staff only', {
     timeout: 60_000,
   });
+  // B32: a note's text reaches the client only through Share with Client, after a preview.
   await expect(page.getByTestId('note-audience')).toContainText(
-    'Sharing a note with the client is not offered.',
+    'Share with Client sends a note’s text to the client as a portal message',
   );
 
   await page.goto(app(`/business-advisory/clients/${MARCUS}/documents`));

@@ -128,6 +128,17 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Tax Returns tab: the assigned staff column (preparer, reviewer, or Unassigned) (instructions 4) | #1546 | e2e `tax-returns` "names each return's assigned staff"; mock `r56-client-portal-gaps` "instructions 4: the Tax Returns tab shows each return's assigned staff" |
 | Layout: nothing overlaps with the side menu open; no sideways scroll at 1440 or 390 | #1480 | `r60-portal-layout`, `r29-firm-sidebar` |
 
+## Client Portal Review One: what reaches the client (R55, #1629)
+
+Rows of the Client Portal Review One check (kept privately, outside the repo) that change what a client gets from the firm. They are not part of the firm-side module above.
+
+| Row | Status | PR | Test |
+| --- | --- | --- | --- |
+| A7: every reminder set on an appointment is sent, by Email, Portal or Text, as configured | Done | #1629 | The reminder job sends each one once, at its time, on its channel (Email: a bell item and its email with the reminder's note; Portal: a bell item; Text: only with the firm's text sender and the client's consent). An appointment with reminders set no longer gets the automatic 24-hour reminder on the client's side; the firm keeps its bell item. e2e `notify-jobs` "A7: every configured appointment reminder is sent": "each one goes once, on its channel, at its time; the automatic reminder then reaches only the firm", "never twice when two runs overlap; a send the Notifier could not write is given back and tried after the back-off", "a reschedule sends it again for the new time; never for a cancelled appointment or a time already past when it was set; a lead's reaches the lead by email only", "firm C's run never touches firm B's reminders; firm B's reach only firm B's client". Unit `notify-templates` "A7: a Text reminder names the firm, the time and the portal link, with the reminder's note and the instructions shown in texts, kept short". Details: `docs/qa/appointments.md` P7. |
+| A9: booking for a service sends its intake form; completion is recorded on the appointment | Done | #1629 | The type's required form goes to the client's portal on booking (by the firm or by the client), linked to the appointment, once; never on a reschedule or for a lead's own appointment. e2e `intake-workspace-actions` "A9 on booking: the type's required form goes to the client's portal, linked to the appointment, once; a reschedule never sends it again; a lead's own appointment gets none". Details: `docs/qa/appointments.md` row 9. |
+| BK-CP2: publishing a report notifies the client through the portal and the approved channels | Done | #1629 | e2e `workspaces` "BK-CP2: a Bookkeeping report published for the first time tells the client" (both tests). Details: `docs/qa/bookkeeping.md`, Client notification. |
+| B32: a firm note reaches the client only after a preview and confirmation; notes are internal by default | Done | #1629 | Decision 5, option B (no schema): Share with Client sends a copy of the note's text as a portal message; the note stays internal. Bookkeeping's Add Note and Business Advisory's notes offer it. e2e `notes` (two B32 tests); mock `r55-note-share` (both tests); isolation case `notes.ts` `POST /api/v1/business/notes/:id/share`. |
+
 ## Tests added (cross-check of Nov 15, done in #1595)
 
 Every row of the Nov 15 list now has a check:
@@ -148,9 +159,12 @@ Octavia's Review One for what a client sees in their portal and for Settings > C
 | Row | Code status | PR | Test |
 | --- | --- | --- | --- |
 | CP-1 Panels and View Client Portal | Done | #1619 | mock `r1-portal-review1` "CP-1: five panels, each by its address, and View Client Portal opens a client's preview" |
-| CP-1g Button text, device preview | **GAP**: next PR (schema in #1626) | | |
+| CP-1g Button text, device preview | Done | #1626 (db), #1631 | e2e `portal-info` (the labels), `settings` (over 30 characters is 400); mock `r1-portal-review1` "CP-1g: …" |
 | CP-3b Go to Communications | Done | #1619 | mock `r1-portal-review1` CP-1 (the link opens the announcement composer) |
-| CP-3c, CP-3d, CP-3h, CP-3i Announcements switch, channel policy, preview, dashboard switch | **GAP**: next PR (schema in #1626) | | |
+| CP-3c Announcements on or off | Done | #1626 (db), #1631 | e2e `portal-announcements` "CP-3c, CP-3i: the firm's switches…"; e2e `portal-contact` "CP-3c, CP-3d, CP-3i: the announcement settings…" |
+| CP-3d Channel policy | Partial: the firm's policy is saved (#1631); clients' preferences following it and the notice on publish: **GAP**, next PR | #1626 (db), #1631 | e2e `portal-contact` (texts never required); mock `r1-portal-review1` CP-3 |
+| CP-3h Announcements preview | Done | #1631 | mock `r1-portal-review1` "CP-3c, CP-3d, CP-3h, CP-3i: …" |
+| CP-3i Dashboard switch | Done | #1626 (db), #1631 | e2e `portal-announcements` "CP-3c, CP-3i: …" |
 | CP-4f Contact switches reached by API | Done (messages); appointments stay the card's button only, by the lead's decision | #1619 | e2e `portal-contact` "CP-4f: with Allow Secure Messages off, a client cannot start a conversation by API either" |
 | CP-5a All six tabs switch | Done | #1626 (db), #1628 | e2e `portal-tabs` "CP-5a: with Business Documents & Resources off, its resources are refused by address too"; mock `r1-portal-review1` CP-5 |
 | CP-5b, CP-5c Rename and reorder | Done | #1626 (db), #1628 | e2e `portal-tabs` "CP-5b, CP-5c: renames and reorders the built-in tabs, for the portal too, audited once"; mock `r1-portal-review1` CP-5 |

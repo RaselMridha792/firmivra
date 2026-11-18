@@ -236,6 +236,8 @@ export class StaffImportService {
         'staff.import_previewed',
         { type: 'staff_import_preview', ...(preview ? { id: preview.id } : {}) },
         {
+          // SM38 (Staff Management Review 2): which file, as the upload guidance names it.
+          fileName: body.fileName,
           rows: body.rows.length,
           toCreate: planned.filter((p) => p.action === 'create').length,
           toUpdate: planned.filter((p) => p.action === 'update').length,
@@ -266,20 +268,33 @@ export class StaffImportService {
     const { businessId } = actor;
     if (!UUID.test(body.previewToken)) throw expired();
     const previewId = body.previewToken.toLowerCase();
-    const rows = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-      const by = await requireManager(tx, actor);
-      const preview = await tx.staffImportPreview.findFirst({
-        where: { businessId, id: previewId },
-        select: { createdById: true, rows: true },
-      });
-      if (!preview || preview.createdById !== by) throw expired();
-      // Used once: a second import of the same preview finds nothing.
-      const { count } = await tx.staffImportPreview.deleteMany({
-        where: { businessId, id: previewId },
-      });
-      if (count !== 1) throw expired();
-      return preview.rows as unknown as PlannedRow[];
-    });
+    const { rows, fileName } = await this.database.withScope(
+      { kind: 'business', businessId },
+      async (tx) => {
+        const by = await requireManager(tx, actor);
+        const preview = await tx.staffImportPreview.findFirst({
+          where: { businessId, id: previewId },
+          select: { createdById: true, rows: true },
+        });
+        if (!preview || preview.createdById !== by) throw expired();
+        // SM38: the file's name, from the preview's own audit row (the preview keeps rows only).
+        const previewed = await tx.auditLog.findFirst({
+          where: { businessId, action: 'staff.import_previewed', entityId: previewId },
+          orderBy: { createdAt: 'desc' },
+          select: { metadata: true },
+        });
+        const named = (previewed?.metadata as { fileName?: unknown } | null)?.fileName;
+        // Used once: a second import of the same preview finds nothing.
+        const { count } = await tx.staffImportPreview.deleteMany({
+          where: { businessId, id: previewId },
+        });
+        if (count !== 1) throw expired();
+        return {
+          rows: preview.rows as unknown as PlannedRow[],
+          fileName: typeof named === 'string' ? named : null,
+        };
+      },
+    );
 
     let created = 0;
     let updated = 0;
@@ -335,7 +350,7 @@ export class StaffImportService {
     await this.audit.log(
       'staff.imported',
       { type: 'staff_import_preview', id: previewId },
-      { created, updated, failed: failures.length, invitationsSent },
+      { fileName, created, updated, failed: failures.length, invitationsSent },
       { businessId },
     );
     const csv = failures.length

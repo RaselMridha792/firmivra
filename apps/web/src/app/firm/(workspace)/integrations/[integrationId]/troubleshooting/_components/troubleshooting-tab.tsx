@@ -1,7 +1,7 @@
 'use client';
 
 import type { IntegrationConnectionDetail, IntegrationConnectionHealth } from '@firmivra/types';
-import { Button, Card } from '@firmivra/ui';
+import { Button, Card, HelpTip } from '@firmivra/ui';
 import {
   ArrowRight,
   ArrowsClockwise,
@@ -96,6 +96,10 @@ function Troubleshooting({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-heading">Connection Health</h2>
+              <HelpTip topic="Connection health">
+                One check of sign-in, the provider&apos;s service, data sync, recent errors and
+                permissions. Run Test checks again now and syncs no data.
+              </HelpTip>
               <p className="text-sm text-muted">
                 {shown?.checkedAt
                   ? `Last checked ${formatDate(shown.checkedAt)}`

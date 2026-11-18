@@ -129,7 +129,7 @@ export function LandingScreen() {
               Already have an account? Sign in to access your documents, messages, and more.
             </p>
             <ButtonLink href={`/${business.slug}/sign-in`} className="max-w-xs">
-              Sign In
+              {branding.signInLabel ?? 'Sign In'}
             </ButtonLink>
             <hr className="mx-auto mt-6 w-1/2 border-folder-border" />
             <Link
@@ -146,7 +146,7 @@ export function LandingScreen() {
             </p>
             {signUpOpen ? (
               <ButtonLink variant="outline" href={`/${business.slug}/sign-up`} className="max-w-xs">
-                Create an Account
+                {branding.signUpLabel ?? 'Create an Account'}
               </ButtonLink>
             ) : (
               <Button variant="outline" disabled className="w-full max-w-xs">

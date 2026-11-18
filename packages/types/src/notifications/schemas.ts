@@ -113,6 +113,12 @@ export const NOTIFICATION_EVENTS = {
   'intake.submitted': { category: 'INTAKE', kind: 'intake', to: 'staff' },
   // ----- Services and tax returns (R10, R12) -----
   'engagement.status-changed': { category: 'SERVICES', kind: 'engagement', to: 'both' },
+  /**
+   * BK-CP2 (Client Portal Review One): the firm published a Bookkeeping report for the first time.
+   * A bell item, and an email when the client's Report Delivery allows email; it names the service,
+   * never the report's figures or file. It opens the portal's My Services, where the report is.
+   */
+  'report.published': { category: 'SERVICES', kind: 'engagement', to: 'client' },
   'tax-return.status-changed': { category: 'SERVICES', kind: 'tax_return', to: 'client' },
   /** A client finished signing up and waits for the firm (R3's queue; Owner and Admin). */
   'client.signup-submitted': { category: 'SERVICES', kind: 'client_account', to: 'staff' },

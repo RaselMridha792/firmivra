@@ -139,3 +139,45 @@ test('CP-5a to CP-5c, CP-5h: rename, reorder and switch the tabs, with a preview
   await expect(folders.first()).toHaveText('My Forms', { timeout: 60_000 });
   await expect(folders.nth(2)).toHaveText('Tax Returns');
 });
+
+test('CP-3c, CP-3d, CP-3h, CP-3i: the announcement switches and channel policy, with a preview', async ({
+  page,
+}) => {
+  await page.goto(app('/settings/portal?panel=announcements'));
+  const panel = page.getByTestId('portal-announcements');
+  const preview = page.getByTestId('announcements-preview');
+  await expect(panel.getByRole('switch', { name: 'Enable announcements' })).toBeChecked({
+    timeout: 60_000,
+  });
+  await expect(preview).toContainText('Extended Office Hours');
+  await panel.getByLabel('General announcements by email').selectOption('REQUIRED');
+  await expect(page.getByTestId('announcements-preview-options')).toContainText(
+    'Always on (required)',
+  );
+  // Texts can never be required: the choice isn't offered.
+  await expect(
+    panel.getByLabel('General announcements by text').locator('option[value="REQUIRED"]'),
+  ).toHaveCount(0);
+  await panel.getByRole('switch', { name: 'Show announcements on client dashboard' }).click();
+  await expect(preview).toContainText('Not shown on the dashboard.');
+  await panel.getByRole('switch', { name: 'Enable announcements' }).click();
+  await expect(preview).toContainText('Announcements are off');
+  await panel.getByRole('button', { name: 'Save changes' }).click();
+  await expect(panel.getByText('Changes saved.')).toBeVisible();
+});
+
+test('CP-1g: the button text and device sizes in General, and Portal Appearance goes to Branding', async ({
+  page,
+}) => {
+  await page.goto(app('/settings/portal'));
+  await expect(page.getByLabel('Sign in button text')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Sign in button text').fill('Log In');
+  const preview = page.getByTestId('brand-preview');
+  await expect(preview).toContainText('Log In');
+  await page.getByRole('button', { name: 'Phone preview' }).click();
+  await expect(preview).toHaveAttribute('data-device', 'phone');
+  await expect(page.getByRole('link', { name: 'Go to Branding' })).toHaveAttribute(
+    'href',
+    '/settings/branding',
+  );
+});

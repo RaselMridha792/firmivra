@@ -520,7 +520,7 @@ test("SM3: Staff Management's Reports tile opens Staff & Team inside Reports, th
     .getByTestId('staff-links')
     .getByRole('link', { name: /^Reports/ })
     .click();
-  await expect(page).toHaveURL(/\/reports\/staff_team$/);
+  await expect(page).toHaveURL(/\/reports\/staff_team\?from=%2Fteam$/);
   await expect(page.getByRole('heading', { name: 'Staff & Team', level: 1 })).toBeVisible();
   for (const name of ['Alex Rivera', 'Sam Staff', 'Mock User', 'Dana Cole'])
     await expect(page.getByTestId('report-table')).toContainText(name);

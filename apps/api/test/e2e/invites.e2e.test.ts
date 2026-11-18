@@ -268,6 +268,13 @@ describe('invite and activate a new person', () => {
         actorUserId: fx.users.ownerA.id,
         metadata: { inviteId: body.id, role: 'STAFF', resent: false },
       },
+      // SM21 (Staff Management Review 2): the email went out, so its send is on record too.
+      {
+        action: 'membership.invite_emailed',
+        businessId: fx.firmA.id,
+        actorUserId: fx.users.ownerA.id,
+        metadata: { inviteId: body.id, resent: false },
+      },
       {
         action: 'membership.activated',
         businessId: fx.firmA.id,

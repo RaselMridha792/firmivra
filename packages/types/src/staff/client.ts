@@ -353,6 +353,8 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
     // Bulk Upload Staff
     /** The CSV template's address (a plain download link). */
     importTemplateUrl: (): string => `${baseUrl}${STAFF}/import/template`,
+    /** SM09: the same template as an Excel workbook. */
+    importTemplateXlsxUrl: (): string => `${baseUrl}${STAFF}/import/template/xlsx`,
     previewImport: async (body: StaffImportPreviewRequest): Promise<StaffImportPreview> =>
       request(
         StaffImportPreview,

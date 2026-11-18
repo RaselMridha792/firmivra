@@ -15,6 +15,7 @@ import {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
 import { LeadFollowUpsService } from '../leads/lead-follow-ups.js';
 import { Notifier } from '../notifications/notifier.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
@@ -101,6 +102,7 @@ export class AppointmentsService {
     private readonly grants: PermissionGrantsService,
     private readonly notifier: Notifier,
     private readonly leadFollowUps: LeadFollowUpsService,
+    private readonly intakes: IntakeSendService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -337,6 +339,8 @@ export class AppointmentsService {
       return created;
     });
     await this.notices.send('appointment.booked', businessId, row.id);
+    // A9: the type's required intake form goes to the client.
+    await this.intakes.sendForAppointment(businessId, row.id, actor.userId);
     return toAppointment(row);
   }
 

@@ -5,7 +5,7 @@ import type {
   CustomIntegrationConfig,
   SaveCustomIntegrationRequest,
 } from '@firmivra/types';
-import { Button, Card, Checkbox, Input, Select, Toggle } from '@firmivra/ui';
+import { Button, Card, Checkbox, HelpTip, Input, Select, Toggle } from '@firmivra/ui';
 import { Copy, Key, PaperPlaneTilt } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
@@ -51,7 +51,14 @@ export function CustomSetup({
   );
   return (
     <Card data-testid="custom-setup" className="p-5!">
-      <CardTitle>Custom API & Webhooks</CardTitle>
+      <CardTitle
+        help={{
+          topic: 'Custom API & Webhooks',
+          text: 'Your endpoint receives the events you choose, each signed with the secret so your system can check it came from Firmivra. Nothing is sent until an event you chose happens.',
+        }}
+      >
+        Custom API & Webhooks
+      </CardTitle>
       {config.data ? (
         <CustomForm
           key={config.data.connectionId}
@@ -289,6 +296,10 @@ function CustomForm({
           <Key aria-hidden weight="fill" className="size-4" />
           {config.secretLast4 ? 'Rotate Secret' : 'Set Secret'}
         </Button>
+        <HelpTip topic="Rotate secret">
+          A new secret works at once and the old one stops: update your system with the new one,
+          which is shown only once.
+        </HelpTip>
       </div>
 
       <div className="flex flex-wrap justify-end gap-3">
