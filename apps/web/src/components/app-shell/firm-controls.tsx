@@ -18,7 +18,14 @@ import { ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { type MouseEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import {
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import { api } from '../../lib/api';
 import { COMPANY } from '../../lib/company';
 import { errorMessage } from '../../lib/errors';
@@ -260,7 +267,7 @@ export function NewMenu({ links }: { links: readonly { label: string; href: stri
    * back to it (`from=`, read at the click so a dashboard's periods come along); one for the page
    * already open adds nothing. A click with a modifier key opens the plain link.
    */
-  const open = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
+  const open = (event: ReactMouseEvent<HTMLAnchorElement>, href: string) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
       return;
     const here = `${window.location.pathname}${window.location.search}`;
