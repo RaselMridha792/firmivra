@@ -26,14 +26,19 @@ test('every menu line is lit on its own page, and only it', async ({ page }) => 
     .getByRole('link')
     .evaluateAll((links) => links.map((a) => a.getAttribute('href') ?? ''));
   expect(hrefs).toEqual(expect.arrayContaining(['/lvp/home', '/lvp/documents', '/lvp/intake']));
-  // Home opens the first My Client Portal tab, Intake Forms, which then lights its own line.
-  const landing: Record<string, string> = { '/lvp/home': '/lvp/intake' };
-  for (const href of hrefs) {
+  // Home first and last: it keeps its own address and stays the one lit line, also after
+  // Intake Forms (its view's first tab) was open.
+  for (const href of [...hrefs, '/lvp/home']) {
     await menuOf(page).locator(`a[href="${href}"]`).click();
-    const at = landing[href] ?? href;
-    await expect(page).toHaveURL(portal(at), { timeout: 60_000 });
-    await litIs(page, at);
+    await expect(page).toHaveURL(portal(href), { timeout: 60_000 });
+    await litIs(page, href);
   }
+  // Home shows the My Client Portal view with its Intake Form tab open.
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Portal folders' })
+      .getByRole('link', { name: 'Intake Form' }),
+  ).toHaveAttribute('aria-current', 'page');
 });
 
 test('a sub-page keeps its line lit, and the tab pages keep Home', async ({ page }) => {
