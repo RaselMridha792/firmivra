@@ -6,12 +6,15 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { EMAIL_IMAGE_SIZING, useEmailImageUpload } from '../../_components/email-image-upload';
 import { COMM_KEY, plain } from './communications-shared';
 
 // CM-F11 (an approved addition): a reusable closing put into the message, from the stores that
 // already exist (MSG-F02): the firm's signature, which an Owner or Admin sets in Messages
-// Settings, and the member's own, which they save here or in the email composer. It is text and
-// formatting only, not FirmSign and not a legal signature, and it sends nothing on its own.
+// Settings, and the member's own, which they save here or in the email composer. The member's own
+// takes text, formatting and an image (C21: the firm's email images, the upload the Leads email
+// uses, so the API keeps it); in an SMS it goes as text only. It is not FirmSign and not a legal
+// signature, and it sends nothing on its own.
 
 const MY_SIGNATURE_KEY = [...COMM_KEY, 'my-signature'] as const;
 const SIGNATURE_ERRORS: Record<string, string> = {
@@ -122,6 +125,7 @@ function MySignatureDialog({
   onSaved: () => void;
 }) {
   const [html, setHtml] = useState(initial);
+  const images = useEmailImageUpload('communications');
   const save = useApiMutation((body: string) => api.leadPipeline.saveSignature({ html: body }), {
     invalidate: [...MY_SIGNATURE_KEY],
   });
@@ -129,7 +133,7 @@ function MySignatureDialog({
     <Modal
       open
       title="My Signature"
-      subtitle="Your own closing: text and formatting only, not a legal signature."
+      subtitle="Your own closing: text, formatting and images. A text message gets the words only. Not a legal signature."
       onClose={onClose}
       footer={
         <>
@@ -137,7 +141,7 @@ function MySignatureDialog({
             Cancel
           </Button>
           <Button
-            disabled={save.isPending}
+            disabled={save.isPending || images.busy}
             onClick={() => save.mutate(html, { onSuccess: onSaved })}
           >
             Save Signature
@@ -146,12 +150,17 @@ function MySignatureDialog({
       }
     >
       <div className="flex flex-col gap-2" data-testid="my-signature">
+        {images.fileInput}
         <RichTextEditor
           label="Signature"
           value={html}
           onChange={setHtml}
           maxLength={1_000}
           noLinks
+          imageSizing={EMAIL_IMAGE_SIZING}
+          onInsertImage={images.insert}
+          hint={images.busy ? 'Uploading the image…' : undefined}
+          error={images.problem ?? undefined}
         />
         {save.isError ? (
           <p role="alert" className="text-sm text-danger">

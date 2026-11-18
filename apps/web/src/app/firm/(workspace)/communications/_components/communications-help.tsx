@@ -37,7 +37,7 @@ const HELP = {
   },
   segments: {
     topic: 'Managing segments and lists',
-    text: 'Owner shows who made each one and Last Refreshed when its rules or people last changed. A segment matches all or any of its rules, with a live count before you save; a list’s people are added and removed by hand. Archiving one never changes a communication already sent.',
+    text: 'Owner is who created the segment or list, and Last Refreshed is when its rules or people last changed. A segment matches all or any of its rules, with a live count before you save; a list’s people are added and removed by hand. Archiving one never changes a communication already sent.',
   },
   composer: {
     topic: 'Writing a communication',

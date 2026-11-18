@@ -33,13 +33,8 @@ export const MESSAGE_ERRORS: Record<string, string> = {
   FORBIDDEN: 'You cannot message these leads.',
 };
 
-/** The email images' and the signature's refusals (lib/upload.ts checks a file first). */
+/** The signature's refusals (the email images' are in `_components/email-image-upload.tsx`). */
 export const EMAIL_EXTRA_ERRORS: Record<string, string> = {
-  FILE_TYPE_NOT_ALLOWED: 'Use a PNG, JPG or GIF image.',
-  FILE_EMPTY: 'That image is empty.',
-  FILE_TOO_LARGE: 'That image is too large: at most 2 MB.',
-  UPLOAD_MISMATCH: 'The image changed while it was uploading. Try again.',
-  UPLOAD_EXPIRED: 'The upload took too long. Try again.',
   SIGNATURE_EMPTY: 'Write a signature first.',
   SIGNATURE_TOO_LONG:
     'The signature is too long to save. Shorten the text or use fewer fonts and sizes.',
