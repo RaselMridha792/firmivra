@@ -1,57 +1,24 @@
 import { Body, Controller, Get, Inject, Injectable, Put } from '@nestjs/common';
-import type { Database, TxClient } from '@firmivra/db';
-import {
-  PORTAL_ANNOUNCEMENT_DEFAULTS,
-  type PortalAnnouncementSettings,
-  UpdatePortalAnnouncementSettings,
-} from '@firmivra/types';
+import type { Database } from '@firmivra/db';
+import { type PortalAnnouncementSettings, UpdatePortalAnnouncementSettings } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { CurrentAuth, CurrentTenant, FIRM_MANAGERS, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { DATABASE } from '../database/database.module.js';
+import {
+  ANNOUNCEMENT_COLUMNS,
+  announcementSettingsIn,
+  announcementView,
+} from './announcement-policy.js';
 
 // Settings > Client Portal > Announcements (Client Portal guide 3; Review One CP-3c, CP-3d, CP-3i):
 // the firm's switches and channel policy on client_portal_settings (migration
 // r1_portal_review1). Announcements themselves are made in Communications. No row means the
 // table's defaults: on, on the dashboard, both channels the client's choice.
 
-const COLUMNS = {
-  announcementsEnabled: true,
-  announcementsOnDashboard: true,
-  announcementEmailPolicy: true,
-  announcementSmsPolicy: true,
-  updatedAt: true,
-} as const;
-
-type Row = {
-  announcementsEnabled: boolean;
-  announcementsOnDashboard: boolean;
-  announcementEmailPolicy: PortalAnnouncementSettings['emailPolicy'];
-  announcementSmsPolicy: string;
-  updatedAt: Date;
-};
-
-const view = (row: Row | null): PortalAnnouncementSettings =>
-  row
-    ? {
-        enabled: row.announcementsEnabled,
-        onDashboard: row.announcementsOnDashboard,
-        emailPolicy: row.announcementEmailPolicy,
-        // The database never allows REQUIRED here (CHECK).
-        smsPolicy: row.announcementSmsPolicy === 'OFF' ? 'OFF' : 'CLIENT_CHOICE',
-        updatedAt: row.updatedAt.toISOString(),
-      }
-    : { ...PORTAL_ANNOUNCEMENT_DEFAULTS, updatedAt: null };
-
-/** The firm's announcement settings, in the caller's firm transaction (other services read them). */
-export async function announcementSettingsIn(
-  tx: TxClient,
-  businessId: string,
-): Promise<PortalAnnouncementSettings> {
-  return view(await tx.clientPortalSettings.findUnique({ where: { businessId }, select: COLUMNS }));
-}
+export { announcementSettingsIn } from './announcement-policy.js';
 
 @Injectable()
 export class PortalAnnouncementSettingsService {
@@ -85,9 +52,9 @@ export class PortalAnnouncementSettingsService {
         where: { businessId },
         create: { businessId, ...data },
         update: data,
-        select: COLUMNS,
+        select: ANNOUNCEMENT_COLUMNS,
       });
-      const after = view(row);
+      const after = announcementView(row);
       const changes = (['enabled', 'onDashboard', 'emailPolicy', 'smsPolicy'] as const).filter(
         (k) => before[k] !== after[k],
       );

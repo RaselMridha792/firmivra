@@ -10,6 +10,7 @@ import {
   CloudUpload,
   CreditCard,
   FileText,
+  Megaphone,
   MessageSquareText,
   NotebookPen,
   ShieldCheck,
@@ -34,7 +35,8 @@ type ActivityGlyph =
   | 'invoice'
   | 'service'
   | 'person'
-  | 'account';
+  | 'account'
+  | 'announcement';
 
 /**
  * Each event's icon and colour. Intake form tab.png and Messages and notes.png colour four of them
@@ -82,6 +84,9 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
       return { glyph: 'person', color: 'text-purple' };
     case 'user':
       return { glyph: 'account', color: 'text-firm-text' };
+    // CP-3d: the firm posted an announcement.
+    case 'announcement':
+      return { glyph: 'announcement', color: 'text-firm-text' };
   }
 }
 
@@ -111,6 +116,8 @@ function ActivityIcon({ item }: { item: NotificationItem }) {
       return <UserRound aria-hidden className={className} />;
     case 'account':
       return <ShieldCheck aria-hidden className={className} />;
+    case 'announcement':
+      return <Megaphone aria-hidden className={className} />;
   }
 }
 

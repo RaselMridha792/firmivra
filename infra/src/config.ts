@@ -147,7 +147,11 @@ const dev: EnvConfig = {
     // Oct 21).
     backupDays: 35,
   },
-  task: { cpu: 256, memoryMiB: 512, spot: true, count: 1 },
+  // Two tasks per service (lead, Nov 18): Octavia reviews on dev, so a deploy or a Spot
+  // interruption must never leave a site with no healthy task. With minHealthyPercent 100 the
+  // rollout starts the new tasks before it stops the old ones. API connections at the peak
+  // (2 tasks, doubled in a rollout, x API_DB_POOL_SIZE) stay inside t3.micro's (checkConnections).
+  task: { cpu: 256, memoryMiB: 512, spot: true, count: 2 },
   apiMemoryMiB: 1024,
   ownsAccountCi: true,
   dmarcRecord: true,

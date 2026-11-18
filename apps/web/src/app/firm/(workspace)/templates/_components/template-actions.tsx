@@ -21,7 +21,7 @@ import { api } from '../../../../../lib/api';
 import { ApiRequestError } from '@firmivra/types';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { PreviewDialog } from './template-dialogs';
+import { DialogLead, PreviewDialog } from './template-dialogs';
 import { TEMPLATES_KEY, TEMPLATE_ERRORS, dayText, quiet } from './templates-shared';
 import { templateUse } from './use-template';
 
@@ -252,6 +252,7 @@ export function ArchiveDialog({
         </>
       }
     >
+      <DialogLead area="archive">What was already sent stays as it was.</DialogLead>
       <div className="flex flex-col gap-3 text-sm text-text" data-testid="archive-dialog">
         <p>
           It leaves the library and every template picker, so no one can use it in a new message or
@@ -362,6 +363,7 @@ function ShareDialog({
         </>
       }
     >
+      <DialogLead area="share">Choose who may use this template.</DialogLead>
       <div className="flex flex-col gap-2" data-testid="share-dialog">
         {members.length === 0 ? (
           <p className={quiet}>{team.isPending ? 'Loading…' : 'No team members to share with.'}</p>

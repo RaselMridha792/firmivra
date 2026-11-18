@@ -32,6 +32,8 @@ const FIRM: Record<NotificationTargetKind, ((clientId: string) => string) | stri
   // By its own id (below): the plan's review step.
   tax_plan: null,
   advisory_plan: null,
+  // CP-3d: announcements are the portal's.
+  announcement: null,
 };
 
 /** Portal pages, by kind, after `/{firmSlug}`. */
@@ -61,6 +63,8 @@ const PORTAL: Record<NotificationTargetKind, string | null> = {
   tax_plan: null,
   // B10: likewise, the client's approval of a business plan.
   advisory_plan: null,
+  // CP-3d: the Announcements page, where every live one shows in full.
+  announcement: '/announcements',
 };
 
 /**

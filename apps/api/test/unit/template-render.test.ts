@@ -2,6 +2,7 @@
 // data, never markup; a field with no value is listed, not blanked), an SMS's length, and what the
 // HTML sanitizer lets through.
 import { describe, expect, it } from 'vitest';
+import { smsSegments } from '@firmivra/types';
 import { sanitize, stripTags, toPlainText } from '../../src/templates/html.js';
 import {
   BUILT_IN_FIELDS,
@@ -101,6 +102,37 @@ describe('smsLength', () => {
     expect(smsLength(`✓${'a'.repeat(70)}`).parts).toBe(2);
     expect(smsLength(`✓${'a'.repeat(133)}`).parts).toBe(2);
     expect(smsLength(`✓${'a'.repeat(134)}`).parts).toBe(3);
+  });
+
+  // Templates Review Two R02: the boundary cases, counted as carriers count them.
+  it('counts Unicode in UTF-16 units: 70 one part, 71 two, 134 two, 135 three', () => {
+    const han = '漢'; // U+6F22
+    expect([70, 71, 134, 135].map((n) => smsLength(han.repeat(n)).parts)).toEqual([1, 2, 2, 3]);
+  });
+
+  it('counts a GSM extension character as two septets, and never splits one', () => {
+    // 80 carets are 160 septets (one text); 81 are 162, in parts of 76 carets (152 septets).
+    expect([80, 81].map((n) => smsLength('^'.repeat(n)))).toEqual([
+      { characters: 80, parts: 1 },
+      { characters: 81, parts: 2 },
+    ]);
+    for (const c of ['{', '}', '[', ']', '~', '\\', '|', '€', '\f'])
+      expect([c, smsLength(c.repeat(81)).parts]).toEqual([c, 2]);
+  });
+
+  it('counts an emoji as two units and never splits one: 35 one part, 36 two', () => {
+    const smile = String.fromCodePoint(0x1f600);
+    expect(smsLength(smile.repeat(35))).toEqual({ characters: 35, parts: 1 });
+    expect(smsLength(smile.repeat(36))).toEqual({ characters: 36, parts: 2 });
+    // 67 units a part: 33 emoji fill 66, so 67 emoji need three parts.
+    expect(smsLength(smile.repeat(67)).parts).toBe(3);
+  });
+
+  it('sends a whole message as Unicode for one character outside the GSM set', () => {
+    expect(smsLength(`${'a'.repeat(69)}漢`).parts).toBe(1);
+    expect(smsLength(`${'a'.repeat(70)}漢`).parts).toBe(2);
+    expect(smsSegments('Café ^ ok').encoding).toBe('GSM_7');
+    expect(smsSegments('Ça va? ✓')).toMatchObject({ encoding: 'UCS_2', units: 8 });
   });
 });
 

@@ -1015,12 +1015,25 @@ function TemplatePicker({
   onClose: () => void;
   onPick: (kind: CommunicationRow['channel'], id: string) => void;
 }) {
-  const list = useApiQuery([...COMM_KEY, 'template-picker'], () =>
-    api.templates.list({ tab: 'all', page: 1, pageSize: 50 }),
+  // Templates Review Two P03: each kind filtered by the server (active only), not the first 50.
+  const list = useApiQuery([...COMM_KEY, 'template-picker'], async () =>
+    (
+      await Promise.all(
+        (['EMAIL', 'CAMPAIGN', 'SMS', 'ANNOUNCEMENT'] as const).map((kind) =>
+          api.templates.list({
+            tab: 'all',
+            kind,
+            status: 'ACTIVE',
+            sort: 'name',
+            direction: 'asc',
+            page: 1,
+            pageSize: 100,
+          }),
+        ),
+      )
+    ).flatMap((page) => page.items),
   );
-  const items = (list.data?.items ?? []).filter(
-    (t) => ['EMAIL', 'SMS', 'ANNOUNCEMENT', 'CAMPAIGN'].includes(t.kind) && t.status === 'ACTIVE',
-  );
+  const items = list.data ?? [];
   return (
     <Modal
       open

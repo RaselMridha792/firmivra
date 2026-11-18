@@ -161,6 +161,11 @@ const TEXT: Record<NotificationEvent, Writer> = {
       `${text(p, 'title') ?? 'Bookkeeping'}: the terms were declined in the portal and are back to draft.`,
     ),
   }),
+  // CP-3d: the announcement's title only (filled for the client), never its text.
+  'announcement.published': (p) => ({
+    title: 'New announcement',
+    body: text(p, 'title') ?? 'Your firm posted an announcement.',
+  }),
   'tax-return.status-changed': (p) => {
     const year = p['taxYear'];
     const form = text(p, 'formType');

@@ -264,10 +264,15 @@ describe('dev keeps its settings', () => {
     });
   });
 
-  it('runs one task per service on Spot, with no auto scaling', () => {
+  it('runs two tasks per service on Spot (one always serves during a deploy), with no auto scaling', () => {
     const app = Template.fromStack(dev.app);
     app.allResourcesProperties('AWS::ECS::Service', {
-      DesiredCount: { 'Fn::If': ['HasImage', 1, 0] },
+      DesiredCount: { 'Fn::If': ['HasImage', 2, 0] },
+      DeploymentConfiguration: Match.objectLike({
+        MinimumHealthyPercent: 100,
+        MaximumPercent: 200,
+      }),
+      HealthCheckGracePeriodSeconds: 60,
       CapacityProviderStrategy: [{ CapacityProvider: 'FARGATE_SPOT', Weight: 1 }],
     });
     app.resourceCountIs('AWS::ApplicationAutoScaling::ScalableTarget', 0);

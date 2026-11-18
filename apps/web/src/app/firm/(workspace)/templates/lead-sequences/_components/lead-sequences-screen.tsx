@@ -18,6 +18,7 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { TemplateHelp } from '../../_components/template-help';
 
 export const SEQUENCES_KEY = ['lead-sequences'] as const;
 
@@ -68,8 +69,9 @@ export function LeadSequencesScreen() {
             <ListNumbers aria-hidden weight="fill" className="size-7" />
           </span>
           <div>
-            <h1 className="font-display text-3xl font-bold text-heading">
+            <h1 className="flex items-center gap-2 font-display text-3xl font-bold text-heading">
               Lead follow-up sequences
+              <TemplateHelp area="leadSequences" />
             </h1>
             <p className="text-muted">
               Reusable follow-up steps for a lead. Applying one never sends anything by itself.

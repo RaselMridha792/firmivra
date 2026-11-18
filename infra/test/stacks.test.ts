@@ -351,7 +351,7 @@ describe('app', () => {
       'Fn::Not': [{ 'Fn::Equals': [{ Ref: 'ImageTag' }, 'none'] }],
     });
     t('app').allResourcesProperties('AWS::ECS::Service', {
-      DesiredCount: { 'Fn::If': ['HasImage', 1, 0] },
+      DesiredCount: { 'Fn::If': ['HasImage', 2, 0] },
     });
   });
 

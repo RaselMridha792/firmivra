@@ -279,3 +279,22 @@ test('CP-5d, CP-5e: custom tabs: add, choose who sees them, switch and archive; 
   await expect(page.getByText("This tab isn't available")).toBeVisible({ timeout: 60_000 });
   await expect(folders).toHaveCount(5);
 });
+
+test('CP-3d: the client chooses announcement email; other notices keep email on; staff have no such row', async ({
+  page,
+}) => {
+  await page.goto(portal('/lvp/profile'));
+  await page.getByText('Notification Preferences', { exact: true }).click();
+  // The mock firm leaves both channels to the client (the API's default policy).
+  const email = page.getByLabel('Announcements by email');
+  await expect(email).toBeChecked({ timeout: 60_000 });
+  await expect(email).toBeEnabled();
+  await email.click();
+  await expect(email).not.toBeChecked();
+  await expect(page.getByLabel('Announcements by text')).toBeEnabled();
+  await expect(page.getByLabel('Documents by email')).toBeDisabled();
+
+  await page.goto(app('/settings/notifications'));
+  await expect(page.getByLabel(/^Documents by email/)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByLabel(/^Announcements by email/)).toHaveCount(0);
+});

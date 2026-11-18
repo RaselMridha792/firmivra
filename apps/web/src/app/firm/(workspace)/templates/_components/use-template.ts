@@ -3,6 +3,14 @@ import type { MessageTemplateRow, MessageTemplateStatus } from '@firmivra/types'
 /** What a template's Use does: opens `href`, or is switched off for `reason`. */
 export type TemplateUse = { href: string } | { reason: string };
 
+/** The Communications channel a message template starts a draft on (P03, P04). */
+const CHANNEL: Partial<Record<MessageTemplateRow['kind'], 'EMAIL' | 'SMS' | 'ANNOUNCEMENT'>> = {
+  EMAIL: 'EMAIL',
+  CAMPAIGN: 'EMAIL',
+  SMS: 'SMS',
+  ANNOUNCEMENT: 'ANNOUNCEMENT',
+};
+
 /** TP-F08: the module template a Task, Document Request or Intake template stands for. */
 const LINKED: Partial<
   Record<MessageTemplateRow['kind'], { noun: string; href: (id: string) => string }>
@@ -29,6 +37,8 @@ const NOT_YET: Partial<Record<MessageTemplateRow['kind'], string>> = {
 /**
  * Where a template's Use goes, why it is switched off, or null when the kind has no Use here.
  * - Email and SMS: a new Communications draft copied from it (the API's `templateId`).
+ * - Campaign: an email draft (a campaign is an email to many); Announcement: an announcement
+ *   draft (Templates Review Two P03, P04: Communications is where both are used by hand).
  * - Task, Document Request and Intake: their module's own start, from the template they stand for
  *   (TP-F08): a task, a document request, a form to send.
  * - Tax Workflow and Bookkeeping: off, with the reason.
@@ -40,7 +50,7 @@ export function templateUse(
 ): TemplateUse | null {
   const linked = LINKED[row.kind];
   const notYet = NOT_YET[row.kind];
-  const message = row.kind === 'EMAIL' || row.kind === 'SMS';
+  const message = row.kind in CHANNEL;
   if (!message && !linked && !notYet) return null;
   const blocked = blockedUseReason(row.status, canActivate);
   if (blocked) return { reason: blocked };
@@ -50,7 +60,7 @@ export function templateUse(
       ? { href: linked.href(row.linkedTemplateId) }
       : { reason: `Choose the ${linked.noun} it stands for under Structure in the editor first.` };
   }
-  return { href: `/communications/new?channel=${row.kind}&template=${row.id}` };
+  return { href: `/communications/new?channel=${CHANNEL[row.kind]}&template=${row.id}` };
 }
 
 /**

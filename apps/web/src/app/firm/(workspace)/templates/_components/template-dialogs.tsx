@@ -31,7 +31,7 @@ const GROUP_LABEL: Record<MergeField['group'], string> = {
 };
 
 /** A tool dialog's line under its title, with the Help icon of its area (TP-F02). */
-function DialogLead({ area, children }: { area: TemplateHelpArea; children: string }) {
+export function DialogLead({ area, children }: { area: TemplateHelpArea; children: string }) {
   return (
     <p className="-mt-5 mb-4 flex items-center gap-2 text-sm text-muted">
       {children} <TemplateHelp area={area} />
@@ -79,6 +79,7 @@ export function PreviewDialog({
         </Button>
       }
     >
+      <DialogLead area="preview">Sample data only. Preview sends nothing.</DialogLead>
       <div className="flex flex-col gap-3" data-testid="preview-dialog">
         {!p ? (
           <p className={quiet}>
