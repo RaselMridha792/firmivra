@@ -26,6 +26,16 @@ const people = {
   ownerB: person('owner-b'),
 };
 type Person = (typeof people)[keyof typeof people];
+/**
+ * The summary as a member who may view every module gets it (Owner, Admin, Staff by default):
+ * since Dashboard Review Two V5 the API leaves out what a member may not view.
+ */
+type FullSummary = Omit<DashboardSummary, 'kpis' | 'pipeline' | 'revenue' | 'tasksDue'> & {
+  kpis: Required<DashboardSummary['kpis']>;
+  pipeline: Required<DashboardSummary['pipeline']>;
+  revenue: NonNullable<DashboardSummary['revenue']>;
+  tasksDue: NonNullable<DashboardSummary['tasksDue']>;
+};
 const firms = {} as Record<'a' | 'b', { id: string; slug: string }>;
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(Date.now() - days * DAY);
@@ -80,7 +90,7 @@ async function totalOf(who: Person, path: string): Promise<number> {
 const read = async (who: Person, firm: 'a' | 'b', query = '') => {
   const res = await summary(who, firm, 'STAFF', query);
   expect(res.status, JSON.stringify(res.body)).toBe(200);
-  return DashboardSummary.parse(res.body);
+  return DashboardSummary.parse(res.body) as FullSummary;
 };
 const day = (offset: number) => new Date(`${nyDay(offset)}T00:00:00.000Z`);
 
@@ -363,6 +373,26 @@ describe('GET /business/dashboard/summary', () => {
     expect(viewAll).not.toContain('Fake task archived');
     // The open tasks a client's Tasks list reads (GET /business/tasks) leave it out too.
     expect(await get('/tasks?status=OPEN&limit=100')).not.toContain('Fake task archived');
+  });
+
+  it('T6: a task completed leaves Tasks Due at once and is Done, not deleted', async () => {
+    const { token } = await app.get(TokenService).signLocal(people.ownerA.id, 'STAFF');
+    const api = (method: 'get' | 'post', path: string) =>
+      request(app.getHttpServer())
+        [method](`/api/v1/business${path}`)
+        .set('x-business-id', firms.a.id)
+        .set('authorization', `Bearer ${token}`);
+    const due = async () => ((await read(people.ownerA, 'a')).tasksDue ?? []).map((t) => t.id);
+    const [first] = await due();
+    expect(first).toBeDefined();
+    const done = await api('post', `/tasks/${first}/complete`);
+    expect(done.status, JSON.stringify(done.body)).toBeLessThan(300);
+    expect(await due()).not.toContain(first);
+    const completed = await api('get', '/tasks/overview?view=completed&pageSize=100');
+    expect((completed.body as { items: { id: string }[] }).items.map((t) => t.id)).toContain(first);
+    // Back as it was, for the tests after this one.
+    expect((await api('post', `/tasks/${first}/reopen`)).status).toBeLessThan(300);
+    expect(await due()).toContain(first);
   });
 
   it('gives Staff the numbers of the clients assigned to them only', async () => {

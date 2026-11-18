@@ -71,14 +71,25 @@ test('the appointments call fails: only Upcoming Appointments says so, and Try a
   await working(page, 'Upcoming Appointments');
 });
 
-test("the firm's time zone fails: messages and appointments wait with Try again; the numbers still show", async ({
+// Dashboard Review Two V8: the summary carries the firm's time zone too, so the lists no longer
+// wait for the availability call alone.
+test("the firm's time zone call fails: messages and appointments still load with the summary's zone", async ({
   page,
 }) => {
   await failing(page, 'availability.get');
-  const lists = page.getByText("We couldn't load messages and appointments.");
-  await expect(lists).toBeVisible();
+  await working(page, 'Recent Messages');
+  await working(page, 'Upcoming Appointments');
   await working(page, 'Client Pipeline');
   await expect(page.getByTestId('kpi-error')).toHaveCount(0);
+  await expect(page.getByText("We couldn't load messages and appointments.")).toHaveCount(0);
+});
+
+test('the time zone and the summary both fail: messages and appointments wait with Try again', async ({
+  page,
+}) => {
+  await failing(page, 'availability.get,dashboard.summary');
+  const lists = page.getByText("We couldn't load messages and appointments.");
+  await expect(lists).toBeVisible();
 
   await heal(page);
   await page

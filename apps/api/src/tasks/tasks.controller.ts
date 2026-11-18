@@ -22,6 +22,7 @@ import {
   TaskAttachmentId,
   type TaskCalendar,
   type TaskDetail,
+  type TaskNotices,
   type TaskSeriesDetail,
   type TaskTemplate,
   TaskId,
@@ -148,6 +149,16 @@ export class TasksController {
     @Param('id', idPipe) id: string,
   ): Promise<TaskDetail> {
     return this.reader.detail(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** Dashboard Review Two §9: the task's reminder history. */
+  @Get(':id/notices')
+  notices(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<TaskNotices> {
+    return this.reader.notices(tenant.businessId, actorOf(auth, tenant), id);
   }
 
   @Patch(':id')
