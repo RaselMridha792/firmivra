@@ -20,6 +20,7 @@ import {
   SummaryCards,
 } from '../../_components/appointments-parts';
 import { AppointmentsSide } from '../../_components/appointments-side';
+import { CALENDAR_ERRORS } from '../../_components/shared';
 
 const DAY = 86_400_000;
 const PERIODS = [
@@ -41,6 +42,7 @@ function range(period: Period) {
 }
 
 const LIST_ERRORS: Record<string, string> = {
+  ...CALENDAR_ERRORS,
   NOT_FOUND: 'This appointment was changed or removed. The list is up to date again.',
 };
 

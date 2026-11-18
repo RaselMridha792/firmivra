@@ -23,6 +23,8 @@ let app: INestApplication;
 const slug = `r3-portal-${randomUUID().slice(0, 8)}`;
 /** A firm whose Company Profile has no contact details: its main office fills them. */
 const officeSlug = `r55-portal-${randomUUID().slice(0, 8)}`;
+/** Intake Review 2 23-g: a firm whose intake forms outside the portal carry no branding. */
+const plainSlug = `r1-plain-${randomUUID().slice(0, 8)}`;
 const time = (hhmm: string) => new Date(`1970-01-01T${hhmm}:00.000Z`);
 
 const get = (path: string) => request(app.getHttpServer()).get(path);
@@ -121,6 +123,15 @@ beforeAll(async () => {
       },
     });
   });
+  const plain = await runInScope(owner, { kind: 'platform' }, (tx) =>
+    tx.business.create({
+      data: { slug: plainSlug, name: 'R1 Plain Forms Firm', status: 'ACTIVE' },
+      select: { id: true },
+    }),
+  );
+  await runInScope(owner, { kind: 'business', businessId: plain.id }, (tx) =>
+    tx.intakeSettings.create({ data: { businessId: plain.id, useFirmBranding: false } }),
+  );
   await owner.$disconnect();
 
   const env = loadEnv({
@@ -164,6 +175,8 @@ describe('GET /portal/{firmSlug}/info', () => {
           portalName: 'R3 Portal',
           header: 'Welcome to R3',
           welcomeMessage: 'Your documents, in one place.',
+          // Intake Review 2 23-g: no intake settings yet, so the forms carry the firm's branding.
+          formBranding: true,
         },
         signUpOpen: true,
         legal: {
@@ -202,6 +215,12 @@ describe('GET /portal/{firmSlug}/info', () => {
       signUpOpen: false,
       legal: { terms: null, privacy: null },
     });
+  });
+
+  it("23-g: says when the firm's intake forms outside the portal carry no branding", async () => {
+    const res = await get(`/api/v1/portal/${plainSlug}/info`).expect(200);
+    expect(PortalInfo.parse(res.body).branding.formBranding).toBe(false);
+    expect((res.body as { branding: { formBranding: boolean } }).branding.formBranding).toBe(false);
   });
 
   it("fills the contact Company Profile leaves empty from the main office, never a branch's", async () => {

@@ -314,6 +314,15 @@ describe("a lead's secure intake link", () => {
       await inFirmA((tx) => firmWideVersion(tx, firms.a.id)),
       'Lee Lead',
     );
+    // Review Two 9b: the firm's listed addresses hear of a lead's submit too (set before it).
+    const notified = `intake-ops-${run}@firm.test`;
+    await inFirmA((tx) =>
+      tx.intakeSettings.upsert({
+        where: { businessId: firms.a.id },
+        create: { businessId: firms.a.id, notifyAdditionalEmails: [notified] },
+        update: { notifyAdditionalEmails: [notified] },
+      }),
+    );
     // Review Two row 21: the firm asks for consent (the setting's default); none is refused.
     expect(LinkIntake.parse(ok(await v.get())).consentRequired).toBe(true);
     expectError(await v.post('/submit', { answers: {}, signature }), 400, 'CONSENT_REQUIRED');
@@ -329,6 +338,13 @@ describe("a lead's secure intake link", () => {
     );
     expect(confirmed).toHaveLength(1);
     expect(confirmed[0]!.data).toEqual({ formTitle: 'Tax Planning Intake' });
+    // 9b: the listed address gets the submitted notice, once, with a link to Intake Forms.
+    const notices = outbox.filter(
+      (m) => m.template === 'intake.submitted-notice' && m.to === notified,
+    );
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.data).toMatchObject({ formTitle: 'Tax Planning Intake' });
+    expect(String((notices[0]!.data as { link: string }).link)).toMatch(/\/intake-forms$/);
     const stored = await inFirmA((tx) =>
       tx.intake.findUniqueOrThrow({
         where: { id },

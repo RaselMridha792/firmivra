@@ -48,6 +48,7 @@ import {
   VerifyCodeRequest,
 } from '@firmivra/types';
 import lvpLogoDark from './assets/lvp-logo-dark.png';
+import { mockFormBranding } from './intake-forms';
 import lvpLogoLight from './assets/lvp-logo-light.png';
 
 // ---------- Fixtures (parsed on first use, so one that breaks the contract fails then) ----------
@@ -468,7 +469,11 @@ export function createPortalAuthMock(
     info: async () => {
       await pause();
       firm();
-      return copy(portalInfo);
+      // Intake Review 2 23-g, as the API: the firm's Intake Form Settings switch, read now.
+      return copy({
+        ...portalInfo,
+        branding: { ...portalInfo.branding, formBranding: mockFormBranding() },
+      });
     },
     legal: async (kind) => {
       await pause();

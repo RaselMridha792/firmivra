@@ -421,9 +421,26 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
     endsAt: string;
     excludeAppointmentId?: string;
     equipmentIds?: readonly string[];
+    /** The client being booked: one already booked then is a hard conflict (W10), as the API. */
+    clientId?: string | undefined;
   }): ConflictResult {
     const found: ConflictResult['conflicts'] = [];
     const date = localDate(Date.parse(input.startsAt));
+    if (input.clientId) {
+      for (const r of s.records) {
+        if (r.id === input.excludeAppointmentId || r.status === 'CANCELED' || r.status === 'DRAFT')
+          continue;
+        if (r.contact.kind === 'CLIENT' && r.contact.id === input.clientId && overlaps(r, input)) {
+          found.push({
+            kind: 'CLIENT_DOUBLE_BOOKED',
+            staff: null,
+            startsAt: r.startsAt,
+            endsAt: r.endsAt,
+            message: 'This client already has an appointment at this time',
+          });
+        }
+      }
+    }
     // Review 2 (A2): an item another live appointment holds then; never overridden.
     for (const r of s.records) {
       if (r.id === input.excludeAppointmentId || r.status === 'CANCELED' || r.status === 'DRAFT')
@@ -482,7 +499,10 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       ok: found.length === 0,
       conflicts: found,
       alternatives,
-      canOverride: role !== 'STAFF' && !found.some((c) => c.kind === 'EQUIPMENT'),
+      // As the API: a hard conflict (an item held, the client already booked) is never overridden.
+      canOverride:
+        role !== 'STAFF' &&
+        !found.some((c) => c.kind === 'EQUIPMENT' || c.kind === 'CLIENT_DOUBLE_BOOKED'),
     };
   }
   /** 409 SCHEDULING_CONFLICT with the check's answer in its details, as the API sends it. */
@@ -699,6 +719,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         startsAt: input.startsAt,
         endsAt: input.endsAt,
         equipmentIds: input.equipmentIds ?? [],
+        clientId: input.contact.kind === 'CLIENT' ? input.contact.id : undefined,
       });
       if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
         throw conflictError(check);
@@ -872,6 +893,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           endsAt,
           excludeAppointmentId: id,
           equipmentIds: equipment.map((e) => e.id),
+          clientId: r.contact.kind === 'CLIENT' ? (r.contact.id ?? undefined) : undefined,
         });
         if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
           throw conflictError(check);
