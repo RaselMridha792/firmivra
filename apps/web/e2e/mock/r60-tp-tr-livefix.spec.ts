@@ -18,3 +18,28 @@ test('C18: the Tax Planning reports open in Reports, without a comparison their 
     await expect(page.getByText('This report is not available')).toHaveCount(0);
   }
 });
+
+test('390 px: no plan step scrolls sideways', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/tax-planning/clients'));
+  await page.getByTestId('tp-clients').getByLabel('Search clients or plans').fill('Sarah');
+  await page
+    .getByRole('link', { name: `${new Date().getFullYear()} Tax Plan` })
+    .first()
+    .click();
+  await expect(page).toHaveURL(/\/tax-planning\/plans\/[0-9a-f-]{36}/, { timeout: 60_000 });
+  const plan = /\/tax-planning\/plans\/([0-9a-f-]{36})/.exec(page.url())![1];
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const step of ['', '/financials', '/goals', '/implementation', '/review']) {
+    await page.goto(app(`/tax-planning/plans/${plan}/edit${step}`));
+    await expect(page.getByRole('navigation', { name: 'Plan steps' })).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth), {
+        message: `step ${step || '/'}`,
+      })
+      .toBeLessThanOrEqual(0);
+  }
+});
