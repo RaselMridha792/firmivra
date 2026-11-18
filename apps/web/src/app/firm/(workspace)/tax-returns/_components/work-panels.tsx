@@ -633,8 +633,14 @@ function ReturnServiceDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const service = serviceId || taxServices[0]?.id || '';
+  // F08-S: the services' own state, never "no active tax service" while they load or fail.
+  const servicesNote = catalog.isPending
+    ? 'Loading the services…'
+    : catalog.isError
+      ? 'The services could not be loaded. Close and try again.'
+      : 'No active tax service in Services & Pricing';
   const title = `${detail.taxYear}${detail.quarter ? ` Q${detail.quarter}` : ''} ${detail.formType ?? 'Tax'} Return`;
-  const ready = mode === 'existing' ? !!engagementId : !!service;
+  const ready = mode === 'existing' ? !!engagementId : !!service && catalog.isSuccess;
   const save = async () => {
     setBusy(true);
     setError(undefined);
@@ -697,7 +703,7 @@ function ReturnServiceDialog({
           options={
             taxServices.length
               ? taxServices.map((c) => ({ value: c.id, label: c.name }))
-              : [{ value: '', label: 'No active tax service in Services & Pricing' }]
+              : [{ value: '', label: servicesNote }]
           }
         />
       ) : (
