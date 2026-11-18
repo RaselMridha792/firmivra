@@ -30,6 +30,7 @@ import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { CreateBody, ListQuery, MyListQuery, UpdateBody } from './content.input.js';
 import { ContentService } from './content.service.js';
+import { PortalTabsModule, PortalTabsService, tabOff } from '../client-portal/portal-tabs.js';
 
 const idPipe = new ZodValidationPipe(ContentId);
 
@@ -109,7 +110,10 @@ export class ContentController {
 @Controller('portal/:firmSlug/me/content')
 @Roles('CLIENT')
 export class MyContentController {
-  constructor(private readonly content: ContentService) {}
+  constructor(
+    private readonly content: ContentService,
+    private readonly tabs: PortalTabsService,
+  ) {}
 
   @Get()
   async list(
@@ -118,11 +122,22 @@ export class MyContentController {
   ): Promise<MyContentList> {
     if (tenant.kind !== 'client')
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
-    return { items: await this.content.mine(tenant.businessId, tenant.clientAccountId, query) };
+    const items = await this.content.mine(tenant.businessId, tenant.clientAccountId, query);
+    // CP-5a: with Business Documents & Resources off (the firm's switch or the client's own),
+    // its resources and links are 403 MODULE_OFF by address, and a whole list keeps tips only.
+    const on = await this.tabs.isClientOn(
+      tenant.businessId,
+      tenant.clientAccountId,
+      'BUSINESS_RESOURCES',
+    );
+    if (on) return { items };
+    if (query.kind && query.kind !== 'TIP') throw tabOff('BUSINESS_RESOURCES');
+    return { items: items.filter((item) => item.kind === 'TIP') };
   }
 }
 
 @Module({
+  imports: [PortalTabsModule],
   controllers: [ContentController, MyContentController],
   providers: [ContentService],
 })
