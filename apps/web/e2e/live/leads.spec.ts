@@ -482,7 +482,9 @@ const bulkBar = (page: Page) => page.getByRole('toolbar', { name: 'Bulk actions'
 const lead = (id: string, tab = '') => app(`/leads/${id}${tab ? `/${tab}` : ''}`);
 
 const signInHeading = (page: Page) => page.getByRole('heading', { name: 'Welcome Back' });
-const noMatch = (page: Page) => page.getByRole('heading', { name: 'No leads match these filters' });
+// The table's empty title (leads-table.tsx), whatever element shows it.
+const noMatch = (page: Page) =>
+  page.getByText('No leads match these filters', { exact: true }).first();
 
 /** A lost session: leave the sign-in screen (no screenshot of it) and say so plainly. */
 async function failIfSignedOut(page: Page) {
