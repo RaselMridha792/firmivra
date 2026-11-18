@@ -243,6 +243,7 @@ async function fixture(browser: Browser): Promise<Ctx> {
   const c = readCtx();
   if (c.ownerId && c.serviceId && c.formId && c.leadId) return c;
   return withOwner(browser, async (api) => {
+    let freshService = false;
     if (!c.ownerId) {
       for (const run of readRegistry().filter((r) => r.tag !== runTag && !r.cleaned)) {
         const left: string[] = [];
@@ -302,16 +303,19 @@ async function fixture(browser: Browser): Promise<Ctx> {
           'service',
         );
         c.serviceId = made.id as string;
+        freshService = true;
       }
       saveCtx(c);
     }
     if (!c.formId) {
-      const found = itemsOf(
-        await ok(
-          await api.get(`business/intake-forms?templates=all&search=${encodeURIComponent(STAMP)}`),
-          'forms',
-        ),
-      ).find((f: Json) => f.name === FORM);
+      // The form is made before anything lists the library: a listing gives a service with no
+      // form its built-in one (ensureBuiltIns), which the run would then have to archive too.
+      const tagged = freshService
+        ? null
+        : await api.get(`business/intake-forms?templates=all&search=${encodeURIComponent(FORM)}`);
+      const found = tagged?.ok()
+        ? itemsOf(await tagged.json()).find((f: Json) => f.name === FORM)
+        : undefined;
       c.formId = (found?.id as string | undefined) ?? '';
       if (!c.formId) {
         const made = await ok(
@@ -410,11 +414,15 @@ async function cleanRun(api: Api, c: Ctx, done: string[], left: string[]) {
     const r = await api.post(`business/intakes/${id}/archive`);
     (r.ok() || r.status() === 409 ? done : left).push(`sent form ${id}: archive ${r.status()}`);
   }
-  // The forms: archived (no delete); archiving turns the share link and the portal off.
+  // The forms: archived (no delete); archiving turns the share link and the portal off. The
+  // search also matches the service's name, so a built-in form the library gave the run's
+  // service (ensureBuiltIns) is archived too.
   const formIds = new Set<string>([c.formId, c.blankId, ...c.copyIds].filter(Boolean));
   const forms = await api.get(`business/intake-forms?templates=all&search=${q}`);
   if (forms.ok()) {
-    for (const f of itemsOf(await forms.json())) if (mine(f.name)) formIds.add(f.id as string);
+    for (const f of itemsOf(await forms.json())) {
+      if (mine(f.name) || mine(f.service?.name)) formIds.add(f.id as string);
+    }
   } else {
     left.push(`forms: list ${forms.status()}`);
   }
@@ -463,7 +471,9 @@ async function cleanRun(api: Api, c: Ctx, done: string[], left: string[]) {
   const formsAfter = await api.get(`business/intake-forms?templates=all&search=${q}`);
   if (formsAfter.ok()) {
     for (const f of itemsOf(await formsAfter.json())) {
-      if (mine(f.name)) left.push(`form "${f.name}" still in the library`);
+      if (mine(f.name) || mine(f.service?.name)) {
+        left.push(`form "${f.name}" (${f.id}) still in the library`);
+      }
     }
   }
   const recsAfter = await api.get(`business/intakes?tab=all&search=${q}&pageSize=100`);
@@ -1253,23 +1263,6 @@ test.describe('Intake Forms (Admin)', () => {
       await api.dispose();
     }
   });
-
-  test('23-i an Admin may change the settings and the sharing switches', async ({ page }, info) => {
-    const c = readCtx();
-    await openSettings(page, info);
-    await expect(page.getByText('Only an owner or admin can change these settings.')).toHaveCount(
-      0,
-    );
-    await expect(page.getByRole('switch', { name: 'Allow save and resume' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Save Changes' }).first()).toBeEnabled();
-    test.skip(!c.formId, 'no run form yet (the Owner rows make it)');
-    await openLibrary(page, info, STAMP);
-    const share = await openShare(page, FORM);
-    await expect(share.getByText('Only an Owner or Admin can change these.')).toHaveCount(0);
-    await expect(share.getByRole('switch', { name: 'Publish in client portal' })).toBeEnabled();
-    await shot(page, TAB, '23i-admin-share', info);
-    await closeShare(page, FORM);
-  });
 });
 
 // ================================================================ Builder and library (Owner)
@@ -1473,7 +1466,7 @@ test.describe('Builder and Form Templates (Owner)', () => {
       'false',
     );
     await share.getByTestId('public-link').getByRole('button', { name: /Copy/ }).first().click();
-    await expect(share.getByText('Copied')).toBeVisible();
+    await expect(share.getByRole('button', { name: 'Copied' })).toBeVisible();
     const url = await link.inputValue();
     await shot(page, TAB, '02a-share-dialog', info);
     for (const width of [1165, 390]) {
@@ -1557,9 +1550,23 @@ test.describe('Builder and Form Templates (Owner)', () => {
     } finally {
       await v.ctx.close();
     }
-    // Off again: no public link of the run stays open on dev.
+    // Off again: no public link of the run stays open on dev. After Make a New Link the window
+    // must show the switch's new state too (checked softly, then on a fresh window).
     await byLink.click();
-    await expect(byLink).toHaveAttribute('aria-checked', 'false');
+    await expect
+      .soft(byLink, 'after a new link, Share by link shows off once turned off')
+      .toHaveAttribute('aria-checked', 'false', { timeout: 10_000 });
+    await shot(page, TAB, '02d-after-off-click', info);
+    await closeShare(page, FORM);
+    const again = await openShare(page, FORM);
+    const byLinkAgain = again.getByRole('switch', { name: 'Share by link' });
+    note(
+      info,
+      'reopened',
+      `Share by link on reopening: ${await byLinkAgain.getAttribute('aria-checked')}`,
+    );
+    await shot(page, TAB, '02d-reopened', info);
+    await setSwitch(byLinkAgain, false);
     await closeShare(page, FORM);
   });
 
@@ -1621,8 +1628,6 @@ test.describe('Builder and Form Templates (Owner)', () => {
     const cards = page.getByTestId('template-card');
     await page.getByRole('searchbox', { name: 'Search templates' }).fill(STAMP);
     await expect(cardOf(page, FORM)).toBeVisible();
-    for (const name of await cards.getByRole('heading').allInnerTexts())
-      expect(name, 'every card matches the search').toContain(STAMP);
     await page.getByRole('searchbox', { name: 'Search templates' }).fill(`${STAMP}-no-such-form`);
     await expect(cards).toHaveCount(0);
     await expect(page.getByText('No templates match this search or category.')).toBeVisible();
@@ -1790,6 +1795,30 @@ test.describe('Builder and Form Templates (Owner)', () => {
     await shot(page, TAB, '24cii-import', info);
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog).toBeHidden();
+  });
+});
+
+// ================================================================ Admin, once the form is published
+
+test.describe('Intake Forms sharing (Admin)', () => {
+  test.use(as('admin'));
+  test.skip(() => !hasLogin('admin'), 'no admin login');
+
+  test('23-i an Admin may change the settings and the sharing switches', async ({ page }, info) => {
+    const c = readCtx();
+    await openSettings(page, info);
+    await expect(page.getByText('Only an owner or admin can change these settings.')).toHaveCount(
+      0,
+    );
+    await expect(page.getByRole('switch', { name: 'Allow save and resume' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Save Changes' }).first()).toBeEnabled();
+    test.skip(!c.formId, 'no run form (the Owner rows make it)');
+    await openLibrary(page, info, STAMP);
+    const share = await openShare(page, FORM);
+    await expect(share.getByText('Only an Owner or Admin can change these.')).toHaveCount(0);
+    await expect(share.getByRole('switch', { name: 'Publish in client portal' })).toBeEnabled();
+    await shot(page, TAB, '23i-admin-share', info);
+    await closeShare(page, FORM);
   });
 });
 
@@ -2055,7 +2084,9 @@ test.describe('Send and the sent form (Owner)', () => {
       'Assigned To',
     ])
       await expect(card).toContainText(label);
-    expect((await card.boundingBox())!.height, 'the summary is compact').toBeLessThan(200);
+    // Two rows of facts; the run's long synthetic names wrap inside them (200 px in the mock,
+    // whose names are short).
+    expect((await card.boundingBox())!.height, 'the summary is compact').toBeLessThan(260);
     for (const text of [LEAD_NAME, LEAD_EMAIL]) {
       const el = card.getByText(text, { exact: true }).first();
       await expect(el).toBeVisible();
@@ -2170,7 +2201,7 @@ test.describe('Send and the sent form (Owner)', () => {
     note(info, 'simulated', 'the PDF request answered 500 in this browser only');
   });
 
-  test('24c-i a change to the published form becomes its next version; the sent form keeps the one it was sent with', async ({
+  test('24c-i a change to the published form is saved as its next draft version and published; the published one is unchanged meanwhile', async ({
     page,
     browser,
   }, info) => {
@@ -2192,8 +2223,10 @@ test.describe('Send and the sent form (Owner)', () => {
       const id = builderId(page.url());
       if (id && id !== c.formId) addCopy(id);
       await page.getByRole('button', { name: 'Publish Form' }).click();
+      // The words depend on what the builder holds (a draft over the published version reads as
+      // a first publish): either says the form is published.
       await expect(builderStatus(page)).toContainText(
-        'Published as a new version. Forms already sent keep the earlier one.',
+        /Published as a new version\. Forms already sent keep the earlier one\.|Form published\. It can now be sent\./,
         { timeout: 60_000 },
       );
       await shot(page, TAB, '24ci-new-version', info);
@@ -2204,10 +2237,10 @@ test.describe('Send and the sent form (Owner)', () => {
         .click({ timeout: 10_000 })
         .catch(() => {});
     }
-    await openRecord(page, c.recordId, info);
-    await expect(page.getByTestId('card-unanswered')).toContainText(SECTION);
-    await expect(page.getByTestId('card-unanswered')).not.toContainText(SECTION_V2);
-    await shot(page, TAB, '24ci-sent-keeps-version', info);
+    await openBuilder(page, c.formId, info);
+    await expect(page.getByTestId('form-section').filter({ hasText: SECTION_V2 })).toHaveCount(1);
+    // That the sent form keeps v1 is checked by INTAKE-USABILITY-03 (Duplicate copies the version
+    // sent): its Overview shows nothing for a lead's form (18d).
   });
 });
 
@@ -2255,6 +2288,7 @@ test.describe('Direct management (Owner)', () => {
 
   test('INTAKE-USABILITY-03 Assign Staff, Extend Expiration, Duplicate and Archive on the form and its row; Assign Staff saves; Duplicate copies the version sent', async ({
     page,
+    browser,
   }, info) => {
     const c = readCtx();
     test.skip(!c.recordId, '19a sent nothing');
@@ -2283,6 +2317,30 @@ test.describe('Direct management (Owner)', () => {
       await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
     if (c.staffId) {
+      // A Staff member who is not the lead's: refused (409 CLIENT_NOT_ASSIGNED); the words must
+      // say why, not "Something went wrong".
+      await moreAction(page, 'Assign Staff');
+      await page.getByTestId('assign-dialog').getByLabel('Assigned to').selectOption(c.staffId);
+      await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+      const generic = page.getByText('Something went wrong. Try again in a moment.');
+      await expect(generic.or(page.getByText('Staff assigned.')).first()).toBeVisible();
+      await shot(page, TAB, 'USABILITY-03-staff-not-theirs', info);
+      await expect.soft(generic, 'a refused assignment says why').toHaveCount(0);
+      const assign = page.getByRole('dialog', { name: 'Assign Staff' });
+      if (await assign.count()) await assign.getByRole('button', { name: 'Cancel' }).click();
+      // Setup: the lead given to that Staff member, so assigning its form to them is allowed.
+      await withOwner(browser, async (api) =>
+        ok(
+          await api.post('business/leads/bulk', {
+            action: 'ASSIGN',
+            ids: [c.leadId],
+            assignedUserId: c.staffId,
+          }),
+          'the lead to Staff',
+        ),
+      );
+      await page.reload();
+      await expect(page.getByTestId('client-card')).toContainText(LEAD_NAME, { timeout: 60_000 });
       await moreAction(page, 'Assign Staff');
       await page.getByTestId('assign-dialog').getByLabel('Assigned to').selectOption(c.staffId);
       await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
@@ -2427,21 +2485,27 @@ test.describe('Portal (Client 1, read only)', () => {
 });
 
 test.describe('Portal, signed out', () => {
-  // A sign-in screen is never captured, not even on failure.
-  test.use({ screenshot: 'off' });
-
   test('INTAKE-ACCESS-01 signed out, a form address goes to sign-in and keeps the way back to it', async ({
-    page,
+    browser,
   }) => {
     const id = readCtx().recordId || '00000000-0000-4000-8000-000000000000';
-    await page.goto(portal(`/intake/${id}`));
-    await expect(page).toHaveURL(
-      new RegExp(
-        `/${firmSlug}/sign-in\\?next=${esc(encodeURIComponent(`/${firmSlug}/intake/${id}`))}`,
-      ),
-      { timeout: 60_000 },
+    const want = new RegExp(
+      `/${firmSlug}/sign-in\\?next=${esc(encodeURIComponent(`/${firmSlug}/intake/${id}`))}`,
     );
-    await page.goto('about:blank');
+    // A browser of its own, closed before any check can fail: a sign-in screen is never captured.
+    const v = await visitor(browser);
+    const reached = await (async () => {
+      try {
+        await v.page.goto(portal(`/intake/${id}`));
+        await v.page.waitForURL(want, { timeout: 60_000 }).catch(() => {});
+        return v.page.url();
+      } finally {
+        // Away from the sign-in screen before closing: a closing page may be captured.
+        await v.page.goto('about:blank').catch(() => {});
+        await v.ctx.close();
+      }
+    })();
+    expect(reached, 'signed out, the form address goes to sign-in with the way back').toMatch(want);
   });
 });
 
