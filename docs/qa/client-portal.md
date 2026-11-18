@@ -159,9 +159,12 @@ Octavia's Review One for what a client sees in their portal and for Settings > C
 | Row | Code status | PR | Test |
 | --- | --- | --- | --- |
 | CP-1 Panels and View Client Portal | Done | #1619 | mock `r1-portal-review1` "CP-1: five panels, each by its address, and View Client Portal opens a client's preview" |
-| CP-1g Button text, device preview | **GAP**: next PR (schema in #1626) | | |
+| CP-1g Button text, device preview | Done | #1626 (db), #1631 | e2e `portal-info` (the labels), `settings` (over 30 characters is 400); mock `r1-portal-review1` "CP-1g: …" |
 | CP-3b Go to Communications | Done | #1619 | mock `r1-portal-review1` CP-1 (the link opens the announcement composer) |
-| CP-3c, CP-3d, CP-3h, CP-3i Announcements switch, channel policy, preview, dashboard switch | **GAP**: next PR (schema in #1626) | | |
+| CP-3c Announcements on or off | Done | #1626 (db), #1631 | e2e `portal-announcements` "CP-3c, CP-3i: the firm's switches…"; e2e `portal-contact` "CP-3c, CP-3d, CP-3i: the announcement settings…" |
+| CP-3d Channel policy | Partial: the firm's policy is saved (#1631); clients' preferences following it and the notice on publish: **GAP**, next PR | #1626 (db), #1631 | e2e `portal-contact` (texts never required); mock `r1-portal-review1` CP-3 |
+| CP-3h Announcements preview | Done | #1631 | mock `r1-portal-review1` "CP-3c, CP-3d, CP-3h, CP-3i: …" |
+| CP-3i Dashboard switch | Done | #1626 (db), #1631 | e2e `portal-announcements` "CP-3c, CP-3i: …" |
 | CP-4f Contact switches reached by API | Done (messages); appointments stay the card's button only, by the lead's decision | #1619 | e2e `portal-contact` "CP-4f: with Allow Secure Messages off, a client cannot start a conversation by API either" |
 | CP-5a All six tabs switch | Done | #1626 (db), #1628 | e2e `portal-tabs` "CP-5a: with Business Documents & Resources off, its resources are refused by address too"; mock `r1-portal-review1` CP-5 |
 | CP-5b, CP-5c Rename and reorder | Done | #1626 (db), #1628 | e2e `portal-tabs` "CP-5b, CP-5c: renames and reorders the built-in tabs, for the portal too, audited once"; mock `r1-portal-review1` CP-5 |
