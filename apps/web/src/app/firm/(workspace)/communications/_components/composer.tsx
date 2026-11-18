@@ -7,6 +7,8 @@ import {
   TEMPLATE_ATTACHMENT_MAX_BYTES,
   type CommunicationDetail,
   type CommunicationRow,
+  smsCountText,
+  type MessageTemplateKind,
 } from '@firmivra/types';
 import {
   Button,
@@ -714,9 +716,9 @@ function ComposerForm({
                 disabled={readOnly}
                 onChange={(e) => set({ body: e.target.value })}
               />
+              {/* Templates Review Two R02: parts as carriers count them, shared with the API. */}
               <p className="mt-1 text-xs text-muted" data-testid="sms-count">
-                {form.body.length} characters · {Math.max(1, Math.ceil(form.body.length / 160))}{' '}
-                text part(s). Plain text only.
+                {smsCountText(form.body)}. Plain text only.
               </p>
             </div>
           ) : (
@@ -1303,18 +1305,32 @@ function TemplateDialog({
   onUsed: (d: CommunicationDetail) => void;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
-  const kinds: string[] =
+  const kinds: MessageTemplateKind[] =
     detail.channel === 'SMS'
       ? ['SMS']
       : detail.channel === 'ANNOUNCEMENT'
         ? ['ANNOUNCEMENT']
         : ['EMAIL', 'CAMPAIGN'];
-  const list = useApiQuery([...COMM_KEY, 'composer-templates', detail.channel], () =>
-    api.templates.list({ tab: 'all', page: 1, pageSize: 50 }),
+  // Templates Review Two P03: the server filters each kind (active only), not the first 50 of
+  // every kind filtered here, so no template of the channel is left out.
+  const list = useApiQuery([...COMM_KEY, 'composer-templates', detail.channel], async () =>
+    (
+      await Promise.all(
+        kinds.map((kind) =>
+          api.templates.list({
+            tab: 'all',
+            kind,
+            status: 'ACTIVE',
+            sort: 'name',
+            direction: 'asc',
+            page: 1,
+            pageSize: 100,
+          }),
+        ),
+      )
+    ).flatMap((page) => page.items),
   );
-  const items = (list.data?.items ?? []).filter(
-    (t) => kinds.includes(t.kind) && t.status === 'ACTIVE',
-  );
+  const items = list.data ?? [];
   return (
     <Modal
       open

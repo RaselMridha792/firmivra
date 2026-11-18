@@ -33,6 +33,21 @@ describe('the starter templates', () => {
     }
   });
 
+  it('each has a body and a description saying what it is for (Templates Review Two Y02)', () => {
+    for (const s of STARTERS) {
+      // A body of words, not only markup or blank space.
+      expect(s.body.replace(/<[^>]*>/g, '').trim().length, s.key).toBeGreaterThan(20);
+      expect(s.description.trim().length, s.key).toBeGreaterThan(10);
+    }
+  });
+
+  it('offers Automations neither a Campaign nor an Announcement, nor a Tax Workflow (P03, P04)', () => {
+    for (const kind of ['ANNOUNCEMENT', 'CAMPAIGN', 'TAX_WORKFLOW', 'LETTER_NOTICE'] as const)
+      expect([kind, AUTOMATION_KINDS.has(kind)]).toEqual([kind, false]);
+    for (const kind of ['EMAIL', 'SMS', 'PORTAL_MESSAGE', 'TASK'] as const)
+      expect([kind, AUTOMATION_KINDS.has(kind)]).toEqual([kind, true]);
+  });
+
   it('use only built-in merge fields, have a subject where the kind needs one, and keep plain kinds plain', () => {
     for (const s of STARTERS) {
       for (const field of fieldsIn(s.subject, s.body)) {

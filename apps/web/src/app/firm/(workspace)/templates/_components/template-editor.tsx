@@ -8,6 +8,7 @@ import {
   type MergeField,
   TEMPLATE_ATTACHMENT_MAX_BYTES,
   TEMPLATE_ATTACHMENT_ACCEPT,
+  smsCountText,
 } from '@firmivra/types';
 import {
   Button,
@@ -85,6 +86,8 @@ const GROUPS: { id: 'ALL' | MergeField['group']; label: string }[] = [
 
 interface Form {
   name: string;
+  /** Y06: what the template is for, shown under its name in the lists. */
+  description: string;
   categoryId: string;
   status: 'DRAFT' | 'ACTIVE';
   subject: string;
@@ -98,6 +101,7 @@ interface Form {
 }
 const blank = (kind: MessageTemplateKind): Form => ({
   name: '',
+  description: '',
   categoryId: '',
   status: 'DRAFT',
   subject: '',
@@ -126,6 +130,7 @@ const REJECTED: Record<'type' | 'size' | 'count', (name: string) => string> = {
 
 const fromDetail = (d: MessageTemplateDetail): Form => ({
   name: d.name,
+  description: d.description ?? '',
   categoryId: d.category?.id ?? '',
   status: d.status === 'ACTIVE' ? 'ACTIVE' : 'DRAFT',
   subject: d.subject ?? '',
@@ -144,13 +149,12 @@ export function TemplateEditorScreen({ id, kindSlug }: { id?: string; kindSlug?:
   const detail = useApiQuery([...TEMPLATES_KEY, 'detail', id ?? 'new'], async () =>
     id ? api.templates.get(id) : null,
   );
+  // R01: a template that cannot be opened goes back to the list it was opened from.
+  const back = safeOrigin(useSearchParams().get(ORIGIN_PARAM)) ?? '/templates';
   if (id && !detail.data) {
     return (
       <div className="flex flex-col gap-4">
-        <Link
-          href="/templates"
-          className="flex w-fit items-center gap-2 text-sm font-medium text-link"
-        >
+        <Link href={back} className="flex w-fit items-center gap-2 text-sm font-medium text-link">
           <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back to Templates
         </Link>
         <p className={`${card} ${quiet}`}>
@@ -264,6 +268,7 @@ function Editor({
     const common = {
       categoryId: form.categoryId || null,
       name: form.name.trim(),
+      description: form.description.trim() || null,
       subject: hasSubject ? form.subject.trim() || null : null,
       body: form.body,
       status: v.status,
@@ -445,6 +450,16 @@ function Editor({
               onChange={(e) => set({ name: e.target.value })}
               {...(errors.name ? { error: errors.name } : {})}
             />
+            {/* Y06: what it is for, shown under its name in the library and Recent (optional). */}
+            <div className="md:col-span-3 md:row-start-2">
+              <Input
+                label="Description"
+                value={form.description}
+                maxLength={500}
+                hint="What this template is for. Shown under its name in the lists; up to 500 characters."
+                onChange={(e) => set({ description: e.target.value })}
+              />
+            </div>
             <Select
               label="Category"
               value={form.categoryId}
@@ -502,9 +517,9 @@ function Editor({
                   onFocus={() => setTarget('body')}
                   {...(errors.body ? { error: errors.body } : {})}
                 />
-                <p className="mt-1 text-xs text-muted">
-                  {form.body.length} characters · {Math.max(1, Math.ceil(form.body.length / 160))}{' '}
-                  text part(s). Plain text only.
+                {/* R02: parts as carriers count them (GSM-7 or Unicode), not length / 160. */}
+                <p className="mt-1 text-xs text-muted" data-testid="sms-count">
+                  {smsCountText(form.body)}. Plain text only.
                 </p>
               </div>
             ) : (
@@ -756,8 +771,11 @@ function Editor({
             <TemplateHelp area="automations" />
           </div>
           {!eligible ? (
-            <p className="-mt-2 text-xs text-muted">
-              This kind of template cannot be used in automations.
+            <p className="-mt-2 text-xs text-muted" data-testid="automation-ineligible">
+              {/* P04: why, in the kind's own terms (AUTOMATION_TEMPLATE_KINDS, packages/types). */}
+              {kind === 'ANNOUNCEMENT' || kind === 'CAMPAIGN'
+                ? 'Automations send one client a message about their own event; an announcement or a campaign goes to many clients at once, by hand, from Communications.'
+                : 'This kind of template is started by hand, so automations cannot use it.'}
             </p>
           ) : form.status === 'DRAFT' && form.automations ? (
             <p className="-mt-2 text-xs text-muted">
@@ -782,9 +800,12 @@ function Editor({
             />
           ) : null}
           <div>
-            <label htmlFor="te-tags" className="text-sm font-medium text-text">
-              Tags (Optional)
-            </label>
+            <span className="flex items-center gap-2">
+              <label htmlFor="te-tags" className="text-sm font-medium text-text">
+                Tags (Optional)
+              </label>
+              <TemplateHelp area="tags" />
+            </span>
             <input
               id="te-tags"
               value={tagText}

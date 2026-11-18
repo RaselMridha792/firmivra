@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
-import { ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
+import { ORIGIN_PARAM, originLabel, safeOrigin, withOrigin } from '../../../../../lib/origin';
 import { ChannelNotice } from './channel-notice';
 import { COMM_ERRORS, quiet } from './communications-shared';
 import { NewComposer } from './composer';
@@ -57,8 +57,8 @@ export function NewCommunication({
     return (
       <div className="flex max-w-xl flex-col gap-3">
         <ChannelNotice channel={channel} from={`/communications/new?channel=${channel}`} />
-        <Link href="/communications" className="text-sm font-medium text-link">
-          ← Back to Communications
+        <Link href={from ?? '/communications'} className="text-sm font-medium text-link">
+          ← Back to {from ? originLabel(from) : 'Communications'}
         </Link>
       </div>
     );
@@ -68,8 +68,8 @@ export function NewCommunication({
         <p role="alert" className={quiet}>
           {error}
         </p>
-        <Link href="/communications" className="text-sm font-medium text-link">
-          ← Back to Communications
+        <Link href={from ?? '/communications'} className="text-sm font-medium text-link">
+          ← Back to {from ? originLabel(from) : 'Communications'}
         </Link>
       </div>
     );
