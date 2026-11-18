@@ -187,6 +187,8 @@ beforeAll(async () => {
         tokenHash: createHash('sha256').update(`token-${run}`).digest('hex'),
         email: invitedA.email,
         expiresAt: new Date(Date.now() + 5 * 86_400_000),
+        // SM21: an invite whose email went out (the list says "Invited" only then).
+        emailedAt: new Date(),
       },
     });
   });
@@ -336,6 +338,27 @@ describe('summary, options and the template', () => {
     expect(text.split('\r\n')[0]).toBe(
       'firstName,lastName,email,phone,jobTitle,role,department,employmentType,office,hireDate,employeeId',
     );
+  });
+
+  it('SM09: serves the same template as an Excel workbook', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/business/staff/import/template/xlsx')
+      .set('x-business-id', firms.a)
+      .set('x-forwarded-for', viewer())
+      .set('authorization', `Bearer ${await tokenFor(ownerA.email)}`)
+      .buffer(true)
+      .parse((r, done) => {
+        const parts: Buffer[] = [];
+        r.on('data', (c: Buffer) => parts.push(c));
+        r.on('end', () => done(null, Buffer.concat(parts)));
+      });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/spreadsheetml\.sheet/);
+    expect(res.headers['content-disposition']).toMatch(/staff-import-template\.xlsx/);
+    // A zip: an XLSX workbook.
+    const bytes = res.body as Buffer;
+    expect(bytes.subarray(0, 2).toString('latin1')).toBe('PK');
+    expect(bytes.length).toBeGreaterThan(500);
   });
 });
 

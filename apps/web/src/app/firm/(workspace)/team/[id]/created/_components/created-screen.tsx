@@ -72,7 +72,7 @@ export function CreatedScreen({ id, documentsFailed }: { id: string; documentsFa
   const m = member.data;
   const invited = m?.status === 'INVITED';
   const subtitle = m
-    ? m.invite
+    ? m.invite?.sentAt
       ? `${m.name} has been added to your team and will receive a welcome email with login instructions shortly.`
       : `${m.name} has been added to your team. No welcome email was sent yet; use Resend Invitation when you are ready.`
     : member.isError
