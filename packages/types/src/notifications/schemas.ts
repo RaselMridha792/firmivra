@@ -65,6 +65,8 @@ export const NotificationTargetKind = z.enum([
   'task',
   /** A recurring task series (T-D15): the firm site only, its overview. */
   'task_series',
+  /** A tax plan (P4-8): the firm site only, the plan itself. */
+  'tax_plan',
 ]);
 export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
 
@@ -172,6 +174,12 @@ export const NOTIFICATION_EVENTS = {
    * the outbox), to its assignees, ACTIVE members only. It opens the task.
    */
   'task.reminder': { category: 'SERVICES', kind: 'task', to: 'staff' },
+  /**
+   * P4-8 (Tax Planning Review 2): the client asked a question, requested a revision or a meeting,
+   * or approved the plan in the portal. To the plan's assigned staff (the caller names them).
+   */
+  'tax-plan.client-request': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
+  'tax-plan.client-approved': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
   /**
    * Tasks Review Two T-D15: an occurrence of a recurring series could not be made after its
    * retries (FAILED). Owners and Admins only (the series is the record, not the client's). It
