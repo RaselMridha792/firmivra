@@ -7,7 +7,7 @@ import { isActive } from '../../../../../components/app-shell/types';
 import { RecentActivity } from './_components/recent-activity';
 import { QuickLinks, RightColumn } from './_components/side-cards';
 import { PortalPageHeader } from '../_components/portal-page-header';
-import { usePortalTabs } from '../_components/portal-tabs';
+import { BUSINESS_PAGE, usePortalTabs } from '../_components/portal-tabs';
 import { usePortal } from '../../layout';
 import { Card } from '@firmivra/ui';
 
@@ -32,10 +32,13 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   // shows why instead of its content, also when opened by its address.
   const tabOn = usePortalTabs(firmSlug);
   const shownTabs = tabs.filter(([, path]) => tabOn(path));
-  const hidden = tabs.find(
-    ([, path]) => !tabOn(path) && isActive(pathname, `/${firmSlug}/${path}`),
-  );
-  const intakeActive = isActive(pathname, `/${firmSlug}/intake`);
+  // Home (/home) is the My Client Portal view with its first tab, Intake Form, open.
+  const onHome = isActive(pathname, `/${firmSlug}/home`);
+  const tabActive = (path: string) =>
+    isActive(pathname, `/${firmSlug}/${path}`) || (path === 'intake' && onHome);
+  // A firm's switch, not the portal type: the Business page tells a Personal client itself.
+  const hidden = tabs.find(([, path]) => path !== BUSINESS_PAGE && !tabOn(path) && tabActive(path));
+  const intakeActive = tabActive('intake');
   const documentsPage = !hidden && isActive(pathname, `/${firmSlug}/documents`);
   const isMessagesPage = !hidden && isActive(pathname, `/${firmSlug}/messages`);
   const taxReturns = !hidden && isActive(pathname, `/${firmSlug}/taxes`);
@@ -63,7 +66,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
         >
           {shownTabs.map(([label, path]) => {
             const href = `/${firmSlug}/${path}`;
-            const active = isActive(pathname, href);
+            const active = tabActive(path);
             const activeBorder =
               path === 'business' ||
               path === 'messages' ||

@@ -21,6 +21,7 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../../lib/unsaved';
 
 const QUERY = ['portal-tabs'];
 
@@ -100,6 +101,8 @@ function FeaturesForm({ saved }: { saved: PortalTabs['tabs'] }) {
     },
   );
   const changed = (Object.keys(tabs) as PortalTab[]).filter((tab) => tabs[tab] !== saved[tab]);
+  // CP-7.1: leaving with unsaved switches asks first (components/leave-guard.tsx).
+  useUnsavedChanges(changed.length > 0);
   const set = (tab: PortalTab, on: boolean) => {
     setDone(false);
     setTabs({ ...tabs, [tab]: on });

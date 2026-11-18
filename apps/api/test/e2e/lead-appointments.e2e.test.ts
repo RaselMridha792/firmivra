@@ -19,8 +19,10 @@ import {
   ClientTimelinePage,
   ConvertLeadToClientResult,
   DashboardSummary,
+  LeadActivityPage,
   LeadAppointment,
   LeadMessageThreadList,
+  LeadProfile,
   RemindersSent,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -431,9 +433,13 @@ describe('booking a lead (item 2)', () => {
     );
     expect(cancelled.status).toBe('CANCELLED');
     const past = await seedLeadAppointment(ids.lead, -2);
+    // P4-2: with its outcome (the outcome tests are below).
     const done = exact(
       Changed,
-      await call('post', `/appointments/${past}/complete`, people.ownerA, {}),
+      await call('post', `/appointments/${past}/complete`, people.ownerA, {
+        outcome: 'KEEP_LEAD',
+        notes: 'Fake: still deciding',
+      }),
     );
     expect(done).toMatchObject({ status: 'COMPLETED', client: null });
     const detail = exact(
@@ -682,5 +688,315 @@ describe('conversion (item 6)', () => {
       404,
       'NOT_FOUND',
     );
+  });
+});
+
+// ---- P4-2 ----
+describe('outcomes of a completed appointment with a lead (P4-2, Clients Review 2 N8-18, N8-19)', () => {
+  const leadStatus = (id: string) =>
+    asOwner(ids.firmA, (tx) =>
+      tx.lead.findUniqueOrThrow({ where: { id }, select: { status: true, clientId: true } }),
+    );
+  const outcomeAudit = (appointmentId: string) =>
+    asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: ids.firmA,
+          entityId: appointmentId,
+          action: 'appointment.outcome_recorded',
+        },
+        select: { metadata: true },
+      }),
+    );
+  const fieldsOf = (res: Response) =>
+    (res.body as { error?: { details?: { path: string }[] } }).error?.details?.map((d) => d.path);
+  const activity = async (lead: string) =>
+    exact(LeadActivityPage, await call('get', `/leads/${lead}/activity`, people.ownerA)).items;
+
+  it('a lead’s own appointment needs its outcome and notes (400, the field named)', async () => {
+    const lead = await newLead('Nell Needsoutcome', { assignedUserId: people.staffA.id });
+    const past = await seedLeadAppointment(lead, -3);
+    const path = `/appointments/${past}/complete`;
+    for (const [body, field] of [
+      [{}, 'outcome'],
+      [{ notes: 'Fake: no outcome' }, 'outcome'],
+      [{ outcome: 'KEEP_LEAD' }, 'notes'],
+      [{ outcome: 'KEEP_LEAD', notes: '   ' }, 'notes'],
+      [{ outcome: 'MAYBE', notes: 'Fake' }, 'outcome'],
+      [{ outcome: 'KEEP_LEAD', notes: 'Fake', followUpOn: addDays(today, 2) }, 'followUpOn'],
+    ] as const) {
+      const res = await call('post', path, people.ownerA, body);
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(res), JSON.stringify(body)).toContain(field);
+    }
+    const row = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({ where: { id: past }, select: { status: true } }),
+    );
+    expect(row.status).toBe('SCHEDULED');
+    // Another firm's member never reaches it.
+    expectError(
+      await call('post', path, people.ownerB, { outcome: 'KEEP_LEAD', notes: 'x' }, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('Keep as Lead: no status changes; the outcome and notes are on the appointment and the lead; audited by code', async () => {
+    const lead = await newLead('Kim Keeplead', { assignedUserId: people.staffA.id });
+    const past = await seedLeadAppointment(lead, -8);
+    // The lead's own Staff member completes it (they see it in full).
+    const done = exact(
+      Changed,
+      await call('post', `/appointments/${past}/complete`, people.staffA, {
+        outcome: 'KEEP_LEAD',
+        notes: 'Fake: compared two services, will decide later',
+      }),
+    );
+    expect(done).toMatchObject({ status: 'COMPLETED', client: null, lead: { id: lead } });
+    expect(await leadStatus(lead)).toEqual({ status: 'SUBMITTED', clientId: null });
+    const record = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${past}/record`, people.ownerA),
+    );
+    expect(record.internalNotes).toContain(
+      'Outcome: Keep as Lead. Fake: compared two services, will decide later',
+    );
+    const rows = await asOwner(ids.firmA, (tx) =>
+      tx.leadActivity.findMany({
+        where: { businessId: ids.firmA, leadId: lead, kind: 'MEETING' },
+        select: { summary: true, body: true, metadata: true },
+      }),
+    );
+    expect(rows).toEqual([
+      {
+        summary: 'Appointment completed: Keep as Lead',
+        body: 'Fake: compared two services, will decide later',
+        metadata: { appointmentId: past, outcome: 'KEEP_LEAD' },
+      },
+    ]);
+    expect((await activity(lead)).map((a) => a.label)).toContain(
+      'Meeting: Appointment completed: Keep as Lead',
+    );
+    const audits = await outcomeAudit(past);
+    expect(audits.map((a) => a.metadata)).toEqual([{ leadId: lead, outcome: 'KEEP_LEAD' }]);
+    expect(JSON.stringify(audits)).not.toContain('compared two services');
+    // Final: a second completion is 409.
+    expectError(
+      await call('post', `/appointments/${past}/complete`, people.ownerA, {
+        outcome: 'KEEP_LEAD',
+        notes: 'Fake: again',
+      }),
+      409,
+      'APPOINTMENT_CLOSED',
+    );
+  });
+
+  it('Keep as Lead and Follow Up needs a date, today or later, and sets the lead’s next follow-up', async () => {
+    const lead = await newLead('Fran Followup', { assignedUserId: people.staffA.id });
+    const past = await seedLeadAppointment(lead, -4);
+    const path = `/appointments/${past}/complete`;
+    const res = await call('post', path, people.ownerA, {
+      outcome: 'KEEP_LEAD_FOLLOW_UP',
+      notes: 'Fake: call back next week',
+    });
+    expectError(res, 400, 'VALIDATION_FAILED');
+    expect(fieldsOf(res)).toEqual(['followUpOn']);
+    const yesterday = await call('post', path, people.ownerA, {
+      outcome: 'KEEP_LEAD_FOLLOW_UP',
+      notes: 'Fake: call back next week',
+      followUpOn: addDays(today, -1),
+    });
+    expectError(yesterday, 400, 'VALIDATION_FAILED');
+    expect(fieldsOf(yesterday)).toEqual(['followUpOn']);
+
+    const on = addDays(today, 5);
+    exact(
+      Changed,
+      await call('post', path, people.ownerA, {
+        outcome: 'KEEP_LEAD_FOLLOW_UP',
+        notes: 'Fake: call back next week',
+        followUpOn: on,
+      }),
+    );
+    const profile = exact(LeadProfile, await call('get', `/leads/${lead}/profile`, people.ownerA));
+    expect(profile.stage).toBe('SUBMITTED');
+    expect(profile.nextAction).toMatchObject({
+      type: 'FOLLOW_UP',
+      dueAt: new Date(zonedInstant(TZ, on, minutesOf('10:00'))).toISOString(),
+    });
+    expect(profile.followUps.filter((f) => !f.doneAt).map((f) => f.type)).toEqual(['FOLLOW_UP']);
+    const record = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${past}/record`, people.ownerA),
+    );
+    expect(record.internalNotes).toContain(
+      `Outcome: Keep as Lead and Follow Up (follow up on ${on}). Fake: call back next week`,
+    );
+    const added = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, entityId: lead, action: 'lead.follow_up_added' },
+        select: { metadata: true },
+      }),
+    );
+    expect(added.map((a) => a.metadata)).toEqual([{ type: 'FOLLOW_UP' }]);
+  });
+
+  it('Keep as Lead and Follow Up on a closed lead is refused, and nothing is saved', async () => {
+    const lead = await newLead('Lou Lostlead', { assignedUserId: people.staffA.id });
+    const past = await seedLeadAppointment(lead, -5);
+    await asOwner(ids.firmA, (tx) =>
+      tx.lead.update({ where: { id: lead }, data: { status: 'LOST' } }),
+    );
+    expectError(
+      await call('post', `/appointments/${past}/complete`, people.ownerA, {
+        outcome: 'KEEP_LEAD_FOLLOW_UP',
+        notes: 'Fake: try later',
+        followUpOn: addDays(today, 3),
+      }),
+      409,
+      'LEAD_CLOSED',
+    );
+    const row = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({
+        where: { id: past },
+        select: { status: true, internalNotes: true },
+      }),
+    );
+    expect(row).toEqual({ status: 'SCHEDULED', internalNotes: null });
+  });
+
+  it('Convert to New client converts nothing by itself: the lead stays a lead, with no client', async () => {
+    const lead = await newLead('Cody Convertlater', { assignedUserId: people.staffA.id });
+    const past = await seedLeadAppointment(lead, -6);
+    // This file's own firm only: the database is shared with test files running at the same time.
+    const firmClients = () =>
+      asOwner(ids.firmA, (tx) => tx.client.count({ where: { businessId: ids.firmA } }));
+    const clientsBefore = await firmClients();
+    const done = exact(
+      Changed,
+      await call('post', `/appointments/${past}/complete`, people.ownerA, {
+        outcome: 'CONVERT_NEW',
+        notes: 'Fake: chose Annual Tax',
+      }),
+    );
+    expect(done).toMatchObject({ status: 'COMPLETED', client: null, lead: { id: lead } });
+    expect(await leadStatus(lead)).toEqual({ status: 'SUBMITTED', clientId: null });
+    expect(await firmClients()).toBe(clientsBefore);
+    expect((await activity(lead)).map((a) => a.label)).toContain(
+      'Meeting: Appointment completed: Convert to New client',
+    );
+    expect((await outcomeAudit(past)).map((a) => a.metadata)).toEqual([
+      { leadId: lead, outcome: 'CONVERT_NEW' },
+    ]);
+  });
+
+  it('the appointment’s Staff member without the lead: Keep as Lead and Follow Up, never Convert (403); the record and the list say so', async () => {
+    // The lead is Staff B's; Staff A holds the appointment (the meeting was theirs).
+    const lead = await newLead('Odin Otherowner', { assignedUserId: people.staffB.id });
+    const day = -9;
+    const past = await seedLeadAppointment(lead, day, people.staffA.id);
+    const record = (who: (typeof people)[keyof typeof people]) =>
+      call('get', `/appointments/${past}/record`, who).then((res) => exact(AppointmentRecord, res));
+    expect((await record(people.staffA)).contact).toMatchObject({
+      kind: 'LEAD',
+      id: lead,
+      leadReach: false,
+    });
+    expect((await record(people.ownerA)).contact.leadReach).toBe(true);
+    const range = `from=${encodeURIComponent(at(day, '00:00'))}&to=${encodeURIComponent(at(day + 1, '00:00'))}`;
+    const listed = async (who: (typeof people)[keyof typeof people]) =>
+      exact(AppointmentList, await call('get', `/appointments?${range}`, who)).items.find(
+        (a) => a.id === past,
+      );
+    expect(await listed(people.staffA)).toMatchObject({ lead: { id: lead, reach: false } });
+    expect(await listed(people.ownerA)).toMatchObject({ lead: { id: lead, reach: true } });
+
+    const path = `/appointments/${past}/complete`;
+    const refused = await call('post', path, people.staffA, {
+      outcome: 'CONVERT_NEW',
+      notes: 'Fake: chose a service',
+    });
+    expectError(refused, 403, 'FORBIDDEN');
+    expect(JSON.stringify(refused.body)).toContain("The lead's owner can convert this lead.");
+    const still = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({ where: { id: past }, select: { status: true } }),
+    );
+    expect(still.status).toBe('SCHEDULED');
+    expect(await outcomeAudit(past)).toEqual([]);
+
+    const done = exact(
+      Changed,
+      await call('post', path, people.staffA, {
+        outcome: 'KEEP_LEAD_FOLLOW_UP',
+        notes: 'Fake: call back next week',
+        followUpOn: addDays(today, 3),
+      }),
+    );
+    expect(done.status).toBe('COMPLETED');
+    expect((await outcomeAudit(past)).map((a) => a.metadata)).toEqual([
+      { leadId: lead, outcome: 'KEEP_LEAD_FOLLOW_UP' },
+    ]);
+  });
+
+  it('the lead’s own Staff member is offered and may choose Convert to New client', async () => {
+    const lead = await newLead('Opal Ownlead', { assignedUserId: people.staffA.id });
+    const past = await seedLeadAppointment(lead, -10, people.staffA.id);
+    const record = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${past}/record`, people.staffA),
+    );
+    expect(record.contact.leadReach).toBe(true);
+    const done = exact(
+      Changed,
+      await call('post', `/appointments/${past}/complete`, people.staffA, {
+        outcome: 'CONVERT_NEW',
+        notes: 'Fake: chose bookkeeping',
+      }),
+    );
+    expect(done.status).toBe('COMPLETED');
+    expect(await leadStatus(lead)).toEqual({ status: 'SUBMITTED', clientId: null });
+  });
+
+  it('a client’s appointment completes as before, and takes no outcome (400)', async () => {
+    const clientId = await asOwner(ids.firmA, async (tx) => {
+      const row = await tx.client.create({
+        data: {
+          businessId: ids.firmA,
+          displayName: 'Carla Client (fake)',
+          email: `carla-${randomUUID().slice(0, 8)}@p41.test`,
+        },
+        select: { id: true },
+      });
+      return row.id;
+    });
+    const start = new Date(at(-7, '10:00'));
+    const past = await asOwner(ids.firmA, async (tx) => {
+      const row = await tx.appointment.create({
+        data: {
+          businessId: ids.firmA,
+          clientId,
+          staffUserId: people.ownerA.id,
+          typeId: ids.type,
+          startsAt: start,
+          endsAt: new Date(start.getTime() + 30 * 60_000),
+          locationKind: 'PHONE',
+          bookedByUserId: people.ownerA.id,
+        },
+        select: { id: true },
+      });
+      return row.id;
+    });
+    const refused = await call('post', `/appointments/${past}/complete`, people.ownerA, {
+      outcome: 'KEEP_LEAD',
+      notes: 'Fake: not a lead',
+    });
+    expectError(refused, 400, 'VALIDATION_FAILED');
+    expect(fieldsOf(refused)).toEqual(['outcome']);
+    const done = exact(
+      Changed,
+      await call('post', `/appointments/${past}/complete`, people.ownerA, {}),
+    );
+    expect(done).toMatchObject({ status: 'COMPLETED', client: { id: clientId }, lead: null });
+    expect(await outcomeAudit(past)).toEqual([]);
   });
 });

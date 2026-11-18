@@ -1,26 +1,30 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
-import type {
-  Appointment,
-  AppointmentDetail,
-  AppointmentsQuery,
-  BookAppointmentRequest,
-  CalendarAppointment,
-  RescheduleAppointmentRequest,
-  SlotList,
-  SlotsQuery,
-  UpdateAppointmentRequest,
+import {
+  type Appointment,
+  type AppointmentDetail,
+  type AppointmentsQuery,
+  type BookAppointmentRequest,
+  type CalendarAppointment,
+  LEAD_APPOINTMENT_OUTCOME_LABELS,
+  type LeadAppointmentOutcome,
+  type RescheduleAppointmentRequest,
+  type SlotList,
+  type SlotsQuery,
+  type UpdateAppointmentRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { LeadFollowUpsService } from '../leads/lead-follow-ups.js';
 import { Notifier } from '../notifications/notifier.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { returnReassignAuthority } from '../tax-returns/return-authority.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
+import { reachesLead } from './appointment-party.js';
 import { AppointmentNotices } from './appointment-notices.js';
-import { inCalendarYears } from './appointments.input.js';
-import { freeStarts, MINUTE } from './calendar.js';
+import { type CompleteBody as CompleteSchema, inCalendarYears } from './appointments.input.js';
+import { freeStarts, MINUTE, zonedDate, zonedInstant } from './calendar.js';
 import {
   activeMember,
   activeMembers,
@@ -41,6 +45,7 @@ import {
 } from './calendar-data.js';
 import { lockAppointment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import { errors, isSlotConflict } from './errors.js';
+import { appendInternalNote } from './scheduling-actions.service.js';
 import { typeMethods } from './scheduling-map.js';
 import {
   detailsAfterStaffChange,
@@ -54,6 +59,10 @@ type SlotsQ = z.output<typeof SlotsQuery>;
 type BookBody = z.output<typeof BookAppointmentRequest>;
 type RescheduleBody = z.output<typeof RescheduleAppointmentRequest>;
 type UpdateBody = z.output<typeof UpdateAppointmentRequest>;
+type CompleteBody = z.output<typeof CompleteSchema>;
+
+/** P4-2: a follow-up from an appointment's outcome is due at 10:00 that day (as the Lead page). */
+const FOLLOW_UP_MINUTES = 10 * 60;
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -91,6 +100,7 @@ export class AppointmentsService {
     @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
     private readonly grants: PermissionGrantsService,
     private readonly notifier: Notifier,
+    private readonly leadFollowUps: LeadFollowUpsService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -165,9 +175,13 @@ export class AppointmentsService {
         select: appointmentSelect,
       });
     });
-    const items = rows.map((row): CalendarAppointment =>
-      seesInFull(actor, row) ? { ...toAppointment(row), restricted: false } : toBusy(row),
-    );
+    const items = rows.map((row): CalendarAppointment => {
+      if (!seesInFull(actor, row)) return toBusy(row);
+      const a = toAppointment(row);
+      // P4-2: whether this member may convert the lead (Convert to New client when completing).
+      const lead = a.lead && row.lead ? { ...a.lead, reach: reachesLead(actor, row.lead) } : a.lead;
+      return { ...a, lead, restricted: false };
+    });
     await this.audit.log(
       'appointments.listed',
       { type: 'appointment' },
@@ -491,25 +505,108 @@ export class AppointmentsService {
     return toAppointment(after);
   }
 
-  /** Completed or a no-show: final, like a cancel. */
+  /**
+   * Completed or a no-show: final, like a cancel. P4-2 (Clients Review 2 N8-18): completing a
+   * lead's own appointment (a lead, no client yet) records what came of it (CompleteBody), which a
+   * client's appointment never takes (400 at `outcome`).
+   */
   async finish(
     businessId: string,
     actor: FirmActor,
     id: string,
     status: 'COMPLETED' | 'NO_SHOW',
+    body: CompleteBody = {},
   ): Promise<Appointment> {
     const after = await this.write(businessId, async (tx) => {
       const current = await this.openForChange(tx, businessId, actor, id);
       // Only once it has started: before that, a mistaken tap would close the slot for good.
       if (Date.now() < current.startsAt.getTime()) throw errors.notStarted();
+      const leadId = current.clientId === null ? current.leadId : null;
+      if (status === 'COMPLETED' && leadId && !body.outcome) {
+        throw errors.invalidField('outcome', 'Choose what came of the appointment with this lead');
+      }
+      if (body.outcome && (status !== 'COMPLETED' || !leadId)) {
+        throw errors.invalidField('outcome', 'Only an appointment with a lead has an outcome');
+      }
+      // The lead's Convert flow is its owner's: the appointment's own staff member who does not
+      // reach the lead records Keep as Lead and Follow Up only (the lead's answer, Nov 18).
+      if (body.outcome === 'CONVERT_NEW' && current.lead && !reachesLead(actor, current.lead)) {
+        throw errors.leadOwnerConverts();
+      }
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: { status },
         select: appointmentSelect,
       });
       await this.history.record(tx, status, updated, { by: 'STAFF', from: current, to: null });
+      if (leadId && body.outcome) {
+        await this.leadOutcome(tx, businessId, actor, current.id, leadId, {
+          outcome: body.outcome,
+          notes: body.notes ?? '',
+          followUpOn: body.followUpOn ?? null,
+        });
+      }
       return updated;
     });
     return toAppointment(after);
+  }
+
+  /**
+   * P4-2: what came of a lead's own appointment. The outcome and notes go on the appointment's own
+   * notes and on the lead's timeline (a meeting, titled with the outcome, the notes as its text);
+   * Keep as Lead and Follow Up sets the lead's next follow-up through Leads' own follow-up rules,
+   * that day at 10:00 in the firm's time zone (the Lead page's default time). Nothing converts or
+   * activates anyone here: Convert to New client is the lead's Convert flow, which staff open next.
+   * The lead's status never changes. The audit row has the outcome code and the lead's id only.
+   */
+  private async leadOutcome(
+    tx: TxClient,
+    businessId: string,
+    actor: FirmActor,
+    appointmentId: string,
+    leadId: string,
+    result: { outcome: LeadAppointmentOutcome; notes: string; followUpOn: string | null },
+  ): Promise<void> {
+    const timeZone = await firmTimeZone(tx, businessId);
+    const label = LEAD_APPOINTMENT_OUTCOME_LABELS[result.outcome];
+    let followUpAt: number | null = null;
+    if (result.outcome === 'KEEP_LEAD_FOLLOW_UP') {
+      const day = result.followUpOn;
+      if (!day) throw errors.invalidField('followUpOn', 'Choose the follow-up date');
+      if (day < zonedDate(timeZone, Date.now())) {
+        throw errors.invalidField('followUpOn', 'Choose today or a later date');
+      }
+      followUpAt = zonedInstant(timeZone, day, FOLLOW_UP_MINUTES);
+    }
+    const row = await tx.appointment.findFirstOrThrow({
+      where: { businessId, id: appointmentId },
+      select: { id: true, internalNotes: true },
+    });
+    const title = `Outcome: ${label}${result.followUpOn ? ` (follow up on ${result.followUpOn})` : ''}`;
+    await appendInternalNote(tx, businessId, actor, row, `${title}. ${result.notes}`, timeZone);
+    await tx.leadActivity.create({
+      data: {
+        businessId,
+        leadId,
+        kind: 'MEETING',
+        actorUserId: actor.userId,
+        summary: `Appointment completed: ${label}`,
+        body: result.notes,
+        metadata: { appointmentId, outcome: result.outcome },
+      },
+    });
+    if (followUpAt !== null) {
+      await this.leadFollowUps.addWithin(tx, businessId, actor.userId, leadId, {
+        type: 'FOLLOW_UP',
+        dueAt: new Date(followUpAt).toISOString(),
+        notes: null,
+      });
+    }
+    await this.audit.logIn(
+      tx,
+      'appointment.outcome_recorded',
+      { type: 'appointment', id: appointmentId },
+      { leadId, outcome: result.outcome },
+    );
   }
 }

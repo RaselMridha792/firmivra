@@ -363,6 +363,34 @@ export const ClientsSummary = z.object({
 export type ClientsSummary = z.infer<typeof ClientsSummary>;
 
 /**
+ * GET /business/clients/{id}/summary (Clients Review 2 N8-12): the client's Overview summaries,
+ * each counted from the source its click-through lists, with the client's reach (Staff: their own
+ * clients; 404 otherwise). The same rules as the clients list's columns:
+ * - `balanceDueCents`: what OPEN invoices still owe (the Invoices tab's Balance due);
+ *   `openInvoices`: those of them with something still owed.
+ * - `missingDocuments`: document requests still owed (REQUESTED or REJECTED: Requested, Missing).
+ * - `unreadMessages`: the client's messages the firm has not read (the Messages tab's Unread).
+ * - `openIntakeForms`: intake forms sent and not finished (Sent, In Progress, Needs Correction,
+ *   Submitted, Under Review); Completed, Expired, Archived and drafts are not counted.
+ * - `activeServices`: enrollments Pending or Active, as the Overview's Active Services lists them.
+ * - `nextAppointment`: the client's next scheduled appointment, from now; its date is shown in
+ *   `timeZone`, the firm's.
+ */
+export const ClientOverviewSummary = z.object({
+  balanceDueCents: z.number().int().nonnegative(),
+  openInvoices: z.number().int().nonnegative(),
+  missingDocuments: z.number().int().nonnegative(),
+  unreadMessages: z.number().int().nonnegative(),
+  openIntakeForms: z.number().int().nonnegative(),
+  activeServices: z.number().int().nonnegative(),
+  nextAppointment: z
+    .object({ id: z.uuid(), startsAt: DateTime, typeName: z.string().nullable() })
+    .nullable(),
+  timeZone: z.string(),
+});
+export type ClientOverviewSummary = z.infer<typeof ClientOverviewSummary>;
+
+/**
  * POST /business/clients/bulk (the list's Bulk Actions), Owner and Admin: the same change to up
  * to 100 clients. ASSIGN sets (or with null clears) the assignee; ARCHIVE and RESTORE as for one
  * client. An id that is not one of the firm's clients, or an assignee who is not an active
@@ -408,6 +436,14 @@ export const BulkClientsResponse = z.object({
 });
 export type BulkClientsResponse = z.infer<typeof BulkClientsResponse>;
 
+/** P4-6: one soft warning about a saved field (ClientProfile.warnings). */
+export const ClientProfileWarning = z.object({
+  path: z.string(),
+  code: z.enum(['ZIP_STATE_MISMATCH', 'ZIP_UNVERIFIED']),
+  message: z.string(),
+});
+export type ClientProfileWarning = z.infer<typeof ClientProfileWarning>;
+
 /** The profile as the firm sees it. */
 export const ClientProfile = z.object({
   firstName: z.string().nullable(),
@@ -442,6 +478,16 @@ export const ClientProfile = z.object({
    */
   responsibleParty: z.object({ name: z.string(), email: z.string(), phone: z.string() }).nullable(),
   updatedAt: DateTime.nullable(),
+  /**
+   * Clients Review 2 §5 (P4-6): soft warnings about the address just saved, only on the answer to
+   * a change that sent the address (POST /business/clients with `profile.address`, PUT .../profile
+   * with `address`); never on a read. The ZIP's first three digits against the state, by the same
+   * table as the forms (zipStateCheck): ZIP_STATE_MISMATCH or ZIP_UNVERIFIED (a prefix the table
+   * doesn't know), each naming its field (`profile.address.postalCode` on create,
+   * `address.postalCode` on the profile route). A warning never blocks the save; the city is not
+   * checked.
+   */
+  warnings: z.array(ClientProfileWarning).optional(),
 });
 export type ClientProfile = z.infer<typeof ClientProfile>;
 
@@ -640,6 +686,26 @@ export function clientFormIssues(body: ClientFormFields): { path: string[]; mess
     need(rp('phone'), party?.phone, "Enter the responsible party's phone");
   }
   return out;
+}
+
+/**
+ * Clients Review 2 (Edit validation, on the server): of the fields clientFormIssues requires, the
+ * ones a change clears: sent as null or blank, or inside an object sent as null (a responsible
+ * party). A field left out keeps what is stored, so a record saved before these rules (no address
+ * yet) can still change its other fields; a format issue of a value sent is not a clearing. The
+ * Business rules apply when `accountType` (the stored one, or the new one) is BUSINESS.
+ */
+export function clearedFieldIssues(body: ClientFormFields): { path: string[]; message: string }[] {
+  const cleared = (path: string[]): boolean => {
+    let at: unknown = body;
+    for (const key of path) {
+      if (at === null) return true;
+      if (typeof at !== 'object' || !(key in at)) return false;
+      at = (at as Record<string, unknown>)[key];
+    }
+    return at === null || (typeof at === 'string' && !at.trim());
+  };
+  return clientFormIssues(body).filter((issue) => cleared(issue.path));
 }
 
 /** The firm's new-client form (Octavia's D1 and E5): CreateClientRequest plus clientFormIssues. */

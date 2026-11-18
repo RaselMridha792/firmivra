@@ -154,6 +154,12 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
                     <PencilSimple aria-hidden weight="fill" className="size-4" />
                   </button>
                 </div>
+                {/* Leads Review Two row 3: the business or company from Add New Lead. */}
+                {lead?.businessName ? (
+                  <p data-testid="lead-business" className="text-base font-medium text-text">
+                    {lead.businessName}
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-text">
                   <span>Lead ID: {lead?.number ?? '—'}</span>
                   {lead ? (
@@ -173,7 +179,7 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-                  <span>Added: {lead ? dayText(lead.createdAt) : '—'}</span>
+                  <span>Added: {lead ? dayText(lead.createdAt, timeZone) : '—'}</span>
                   <span aria-hidden>|</span>
                   <span>
                     Last Contact: {lead?.lastContact ? stamp(lead.lastContact.at, timeZone) : '—'}

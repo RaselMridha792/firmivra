@@ -34,6 +34,12 @@ export const PortalTabs = z.object({
   more: z
     .object({ APPOINTMENTS: z.boolean(), TASKS_REQUESTS: z.boolean(), REPORTS: z.boolean() })
     .optional(),
+  /**
+   * `mine` only (Client Portal guide 9.3, CP-9.3): false for a Personal (Individual) portal, which
+   * never lists business-only tabs; the API refuses their content too (403 BUSINESS_ONLY). A
+   * client with no client record counts as Individual, as there.
+   */
+  businessPortal: z.boolean().optional(),
 });
 export type PortalTabs = z.infer<typeof PortalTabs>;
 

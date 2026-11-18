@@ -21,6 +21,7 @@ import {
   ClientTaxYear,
   ClientTaxYearHistory,
   ClientTaxYearList,
+  ClientOverviewSummary,
   ClientsSummary,
   CreateClientRequest,
   ListClientsQuery,
@@ -69,6 +70,9 @@ export function createClientsClient(request: ApiRequest) {
         body: parseInput(BulkClientsRequest, body),
       }),
     get: async (id: string): Promise<ClientRecord> => request(ClientRecord, clientPath(id)),
+    /** N8-12: the client's Overview summaries, each from the source its click-through lists. */
+    overviewSummary: async (id: string): Promise<ClientOverviewSummary> =>
+      request(ClientOverviewSummary, `${clientPath(id)}/summary`),
     /** The client's tags (tags/schemas.ts), by name. */
     tags: async (id: string): Promise<ClientTags> => request(ClientTags, `${clientPath(id)}/tags`),
     /** MSG-F16: the client's Activity timeline, newest first. */

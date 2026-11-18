@@ -63,6 +63,7 @@ import {
   createMyReportsClient,
   createMyServicesClient,
   createMySignaturesClient,
+  createMyTaxPlansClient,
   createSigningClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
@@ -148,6 +149,7 @@ import {
   MOCK_ESIGN_ROLE,
   mySignaturesMock,
 } from '../mocks/esign';
+import { myTaxPlansMock } from '../mocks/my-tax-plans';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { intakeLinkMock } from '../mocks/intake-link';
@@ -753,6 +755,11 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** P4-8: the signed-in client's tax plans (portal Tax Plans). */
+  myTaxPlans: (firmSlug: string) =>
+    dev && mocked('myTaxPlans')
+      ? myTaxPlansMock(firmSlug)
+      : createMyTaxPlansClient(request, firmSlug),
   /** The signed-out invitation page at /{slug}/invitation (Business Advisory B3). */
   portalInvitation: (firmSlug: string) =>
     dev && mocked('portalInvitation')

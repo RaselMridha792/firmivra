@@ -1,13 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { clientFixtures } from '../../src/mocks/clients';
+
+// Mock mode (playwright.mock.config.ts): every API call is answered in the browser by the mocks,
+// so the client's state comes from the mock data, never from page.route.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}`;
 const client = `${base}/clients/0199b6a1-0000-7000-8000-000000000001/invoices`;
-test.beforeEach(async ({ page }) => {
-  await page.route('**/api/v1/business/clients/0199b6a1-0000-7000-8000-000000000001', (route) =>
-    route.fulfill({ json: clientFixtures()[0] }),
-  );
-});
 for (const width of [375, 768, 1024, 1440]) {
   test(`invoice list fits ${width}px and status filter works`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 1000 });
@@ -72,13 +69,23 @@ test('a draft can be cancelled with a required reason', async ({ page }) => {
 });
 
 test('archived client hides creation and Send', async ({ page }) => {
-  await page.route('**/api/v1/business/clients/0199b6a1-0000-7000-8000-000000000001', (route) =>
-    route.fulfill({ json: { ...clientFixtures()[0], archivedAt: '2026-01-01T00:00:00Z' } }),
-  );
+  // Jamie Sample (mock client 1) has a draft: New invoice and its Send show while the client is
+  // active. Archived through the mock (its Archive client action, in this page's session), the
+  // draft stays listed with no New invoice and no Send.
   await page.goto(client);
-  await expect(page.getByTestId('invoices-table')).toBeVisible();
+  const table = page.getByTestId('invoices-table');
+  await expect(table).toContainText('Draft');
+  await expect(page.getByTestId('invoice-new')).toBeVisible();
+  await expect(table.getByTestId('invoice-send').first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Archive client' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Archive Jamie Sample?' });
+  await confirm.getByRole('button', { name: 'Archive', exact: true }).click();
+  await expect(confirm).toBeHidden();
+
   await expect(page.getByTestId('invoice-new')).toHaveCount(0);
   await expect(page.getByTestId('invoice-send')).toHaveCount(0);
+  await expect(table).toContainText('Draft');
   await expect(page.getByTestId('page-title')).toHaveCount(1);
 });
 

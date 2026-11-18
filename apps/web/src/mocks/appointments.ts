@@ -23,6 +23,7 @@ import {
   type CalendarAppointment,
   CancelAppointmentRequest,
   CancelMyAppointmentRequest,
+  CompleteAppointmentRequest,
   CreateAppointmentTypeRequest,
   CreateBlockedTimeRequest,
   type MemberRef,
@@ -45,6 +46,7 @@ import {
   publicItemUrl,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { completeMockRecord } from './appointments-scheduling';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 
 /**
@@ -719,11 +721,39 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
   const open = (a: Appointment) => {
     if (a.status !== 'SCHEDULED') throw errors.closed();
   };
-  const finish = async (appointmentId: string, status: 'COMPLETED' | 'NO_SHOW') => {
+  const finish = async (
+    appointmentId: string,
+    status: 'COMPLETED' | 'NO_SHOW',
+    body: CompleteAppointmentRequest = {},
+  ) => {
     await mockDelay();
+    // P4-2: the Appointments workspace's records (its detail page) are the scheduling mock's.
+    if (status === 'COMPLETED') {
+      const record = completeMockRecord(appointmentId, body, options.role ?? 'OWNER');
+      if (record) return record;
+    }
     const a = find(appointmentId);
     open(a);
     if (Date.now() < Date.parse(a.startsAt)) throw errors.notStarted();
+    // P4-2, as the API: a lead's own appointment needs its outcome; a client's takes none.
+    const input = parseInput(CompleteAppointmentRequest, body);
+    const leadOwn = a.client === null && a.lead !== null;
+    if (status === 'COMPLETED' && leadOwn !== !!input.outcome)
+      throw new ApiRequestError(
+        400,
+        'VALIDATION_FAILED',
+        'Check the outcome',
+        undefined,
+        undefined,
+        [
+          {
+            path: 'outcome',
+            message: leadOwn
+              ? 'Choose what came of the appointment with this lead'
+              : 'Only an appointment with a lead has an outcome',
+          },
+        ],
+      );
     const before = copy(a);
     a.status = status;
     record(db(), a, status, staffBy, before, null);
@@ -885,7 +915,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       record(db(), a, 'CANCELLED', staffBy, before, reason ?? null);
       return copy(a);
     },
-    complete: (appointmentId) => finish(appointmentId, 'COMPLETED'),
+    complete: (appointmentId, body) => finish(appointmentId, 'COMPLETED', body),
     noShow: (appointmentId) => finish(appointmentId, 'NO_SHOW'),
   };
 }

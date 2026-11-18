@@ -64,7 +64,7 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
       return { glyph: 'invoice', color: 'text-success' };
     case 'tax_return':
       return { glyph: 'return', color: portalIconTones.orange };
-    // 'automation_run', 'project_deadline', 'task' and 'task_series' are staff-only (an
+    // 'automation_run', 'project_deadline', 'task', 'task_series' and 'tax_plan' are staff-only (an
     // automation's notice, a member's deadline, a task reminder, a series that failed): never in
     // the portal.
     case 'engagement':
@@ -72,6 +72,7 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
     case 'project_deadline':
     case 'task':
     case 'task_series':
+    case 'tax_plan':
       return { glyph: 'service', color: 'text-firm-text' };
     case 'client_account':
     case 'membership':

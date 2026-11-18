@@ -85,12 +85,17 @@ export function fullName(firstName: string, lastName: string, fallback: string) 
   return `${firstName} ${lastName}`.trim() || fallback;
 }
 
-export function dateLabel(value: string, withTime = false) {
-  const date = new Date(value);
-  return date.toLocaleString('en-US', {
-    ...(withTime
-      ? { dateStyle: 'medium' as const, timeStyle: 'short' as const }
-      : { dateStyle: 'medium' as const }),
+/**
+ * "Nov 17, 2026" or "Nov 17, 2026, 2:15 PM EST": in the firm's time zone, a time labelled with it
+ * (Leads Review Two row 26); before the zone loads, the device's.
+ */
+export function dateLabel(value: string, withTime = false, timeZone?: string) {
+  return new Date(value).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    ...(withTime ? { hour: 'numeric' as const, minute: '2-digit' as const } : {}),
+    ...(timeZone ? { timeZone, ...(withTime ? { timeZoneName: 'short' as const } : {}) } : {}),
   });
 }
 

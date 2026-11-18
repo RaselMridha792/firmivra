@@ -34,8 +34,12 @@ import {
   TaxPlanningOverview,
   TaxScenario,
   TaxScenarioPage,
+  MyTaxPlan,
+  MyTaxPlanList,
+  type NotificationEvent,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { storedType } from '../../src/notifications/notification-text.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -615,13 +619,14 @@ describe('plans', () => {
     expect(adjusted.staleData).toBe(false);
     // C06 (Review 2): the firm's own additional item, labelled from its key, with its source and
     // as-of date; any other unknown key is still refused.
+    const asOf = '2026-10-31T12:00:00.000Z';
     const extra = TaxPlanDetail.parse(
       ok(
         await saveInputs(id, [
           {
             ...money('custom_home_office_costs', 120_000),
             source: 'Client estimate',
-            asOf: new Date().toISOString(),
+            asOf,
           },
         ]),
       ),
@@ -630,7 +635,11 @@ describe('plans', () => {
       label: 'Home office costs',
       source: 'Client estimate',
       amountCents: 120_000,
+      asOf,
     });
+    // C06 (test gap): the as-of date is kept, read back with the plan.
+    const reread = await plan(id);
+    expect(reread.inputs?.find((i) => i.key === 'custom_home_office_costs')?.asOf).toBe(asOf);
     expectError(await saveInputs(id, [money('custom_', 1_000)]), 400, 'VALIDATION_FAILED');
   });
 });
@@ -1559,6 +1568,21 @@ describe('opportunity reasoning (Review 2 C10)', () => {
     );
     expect(edited.whyExplanation).toBe('Edited reasoning (fake).');
     expect(edited.eligibility).toHaveLength(2);
+    // C10 (test gap): Client Data Used and the recommended actions are edited the same way.
+    const data = TaxOpportunityDetail.parse(
+      ok(
+        await call('patch', `/opportunities/${created.id}`, ownerA, {
+          clientDataUsed: [{ label: '2026 W-2 wages (projected)', amountCents: 9_500_000 }],
+          recommendedActions: ['Raise the deferral', 'Add a catch-up contribution'],
+          etag: edited.etag,
+        }),
+      ),
+    );
+    expect(data.clientDataUsed).toEqual([
+      { label: '2026 W-2 wages (projected)', amountCents: 9_500_000, text: null },
+    ]);
+    expect(data.recommendedActions).toEqual(['Raise the deferral', 'Add a catch-up contribution']);
+    expect((await opp(created.id)).recommendedActions).toEqual(data.recommendedActions);
     expect(edited.documentsNeeded.map((d) => [d.label, d.received])).toEqual([
       ['Latest pay stub', true],
       ['Beneficiary form', false],
@@ -1710,8 +1734,23 @@ describe('plan lifecycle (Review 2 C08, C11, C27)', () => {
     const opp = await newOpp({ clientId: clients.c2, name: mark('Reopenable') });
     await acted(opp.id, { action: 'START_REVIEW' });
     await acted(opp.id, { action: 'CLOSE', note: 'Not now (fake)' });
+    // C11 (test gap): a closed opportunity is found under the Closed filter, to reopen it there.
+    const listed = async (group: 'open' | 'closed') =>
+      TaxOpportunityPage.parse(
+        ok(
+          await call(
+            'get',
+            `/opportunities?group=${group}&clientId=${clients.c2}&pageSize=100`,
+            ownerA,
+          ),
+        ),
+      ).items.map((o) => o.id);
+    expect(await listed('closed')).toContain(opp.id);
+    expect(await listed('open')).not.toContain(opp.id);
     const reopened = await acted(opp.id, { action: 'REOPEN', note: 'Client asked again (fake)' });
     expect(reopened.status).toBe('UNDER_REVIEW');
+    expect(await listed('open')).toContain(opp.id);
+    expect(await listed('closed')).not.toContain(opp.id);
     const events = TaxOpportunityEventList.parse(
       ok(await call('get', `/opportunities/${opp.id}/events`, ownerA)),
     ).items;
@@ -2236,6 +2275,36 @@ describe('the overview, Clients tab, calendar and resources', () => {
     expectError(await call('get', '/clients?status=NOPE', ownerA), 400, 'VALIDATION_FAILED');
   });
 
+  it('C08 and C22 (test gaps): each row shows its plan’s own status; year, staff and entity filter the list', async () => {
+    const page = async (q = '') =>
+      PlanningClientPage.parse(ok(await call('get', `/clients?pageSize=100${q}`, ownerA))).items;
+    const all = await page();
+    // C08: one status everywhere: the Clients list says what the plan itself says.
+    const withPlan = all.filter((r) => r.planId !== null);
+    expect(withPlan.length).toBeGreaterThan(0);
+    for (const r of withPlan) {
+      expect([r.client.id, r.status]).toEqual([r.client.id, (await plan(r.planId!)).status]);
+    }
+    const ids = (rows: typeof all) => rows.map((r) => r.client.id).sort();
+    // C22: the plan year.
+    const year = await page('&planYear=2026');
+    expect(ids(year)).toEqual(ids(all.filter((r) => r.planYear === 2026)));
+    expect(year.length).toBeGreaterThan(0);
+    expect(await page('&planYear=2031')).toEqual([]);
+    // The staff member.
+    const staffId = withPlan.find((r) => r.assignedTo)?.assignedTo?.userId;
+    expect(staffId).toBeTruthy();
+    const byStaff = await page(`&assignedUserId=${staffId}`);
+    expect(ids(byStaff)).toEqual(ids(all.filter((r) => r.assignedTo?.userId === staffId)));
+    // The entity, as the screen labels it.
+    const business = await page('&entityType=Business');
+    expect(ids(business)).toContain(clients.c2);
+    expect(business.every((r) => r.entityLabel === 'Business')).toBe(true);
+    expect(ids(await page('&entityType=Individual'))).toEqual(
+      ids(all.filter((r) => r.entityLabel === 'Individual')),
+    );
+  });
+
   it("opens the overview's KPI lists, finds a plan by its name and names the planning service (Review 2 C01, C02, C22)", async () => {
     const overview = TaxPlanningOverview.parse(ok(await call('get', '/overview', ownerA)));
     // C01: each KPI's list counts the clients the KPI counts.
@@ -2723,5 +2792,227 @@ describe('the approved workflow (Review 2)', () => {
       original.strategies.map((s) => [s.name, s.status === 'DECLINED' ? 'DECLINED' : 'PROPOSED']),
     );
     expect((await plan(p.id)).etag).toBe(original.etag);
+  });
+});
+
+describe("the client's plans in the portal (P4-8)", () => {
+  // Casey (c3) has a portal login; Nora (c4) has one too, and never sees Casey's plans.
+  const login = { id: randomUUID(), email: `r55t-portal-c3-${run}@r55.test` };
+  const other = { id: randomUUID(), email: `r55t-portal-c4-${run}@r55.test` };
+  const slugOf = (firm: 'a' | 'b') => `r55t-${firm}-${run}`;
+  const portal = async (
+    method: 'get' | 'post',
+    path: string,
+    who: { email: string },
+    body?: object,
+    firm: 'a' | 'b' = 'a',
+  ) => {
+    const req = request(app.getHttpServer())
+      [method](`/api/v1/portal/${slugOf(firm)}/me/tax-plans${path}`)
+      .set('authorization', `Bearer ${await tokenFor(who.email)}`)
+      .set('x-forwarded-for', viewer());
+    return body === undefined ? req : req.send(body);
+  };
+  const step = async (pid: string, path: string, body: object = {}) =>
+    TaxPlanDetail.parse(ok(await call('post', `/plans/${pid}/${path}`, ownerA, body)));
+  const bells = (planId: string, event: NotificationEvent) =>
+    inFirm('a', (tx) =>
+      tx.notification.findMany({
+        where: { businessId: firms.a, entityId: planId, type: storedType(event) },
+        select: { recipientUserId: true },
+      }),
+    );
+
+  beforeAll(async () => {
+    await asOwner({ kind: 'platform' }, async (tx) => {
+      for (const [p, key] of [
+        [login, 'c3'],
+        [other, 'c4'],
+      ] as const) {
+        await tx.user.create({
+          data: { id: p.id, cognitoSub: p.id, pool: 'CLIENT', email: p.email, name: `Fake ${key}` },
+        });
+      }
+    });
+    await inFirm('a', async (tx) => {
+      for (const [p, key] of [
+        [login, 'c3'],
+        [other, 'c4'],
+      ] as const) {
+        await tx.clientAccount.create({
+          data: {
+            businessId: firms.a,
+            userId: p.id,
+            clientId: clients[key],
+            email: p.email,
+            status: 'ACTIVE',
+          },
+        });
+      }
+    });
+  });
+
+  /** A plan of Casey's, assigned to the Admin, finalized and sent for review. */
+  const sentPlan = async () => {
+    const p = await createPlan({
+      clientId: clients.c3,
+      name: mark('Portal plan'),
+      assignedUserId: adminA.id,
+    });
+    ok(
+      await call('post', `/plans/${p.id}/strategies`, ownerA, {
+        kind: 'CUSTOM',
+        name: mark('Portal strategy'),
+        category: 'DEDUCTIONS',
+      }),
+      201,
+    );
+    await step(p.id, 'finalize', await withEtag(p.id));
+    const sent = await step(p.id, 'send', { channel: 'PORTAL_MESSAGE' });
+    expect(sent.status).toBe('AWAITING_CLIENT');
+    return { id: p.id, version: sent.workflow.sentVersion ?? 0, name: sent.name };
+  };
+
+  it('lists only the plans sent to the client, opens the version sent, and links it from the message', async () => {
+    const draft = await createPlan({ clientId: clients.c3, name: mark('Never sent') });
+    const p = await sentPlan();
+    const list = MyTaxPlanList.parse(ok(await portal('get', '', login)));
+    expect(list.items.map((r) => r.id)).toContain(p.id);
+    expect(list.items.map((r) => r.id)).not.toContain(draft.id);
+    expect(list.items.find((r) => r.id === p.id)).toMatchObject({
+      version: p.version,
+      state: 'AWAITING_REVIEW',
+    });
+    expectError(await portal('get', `/${draft.id}`, login), 404, 'NOT_FOUND');
+
+    const res = await portal('get', `/${p.id}`, login);
+    const mine = MyTaxPlan.parse(ok(res));
+    expect(mine).toMatchObject({
+      id: p.id,
+      version: p.version,
+      state: 'AWAITING_REVIEW',
+      approval: null,
+      requests: [],
+      can: { approve: true, request: true },
+    });
+    expect(mine.strategies.map((s) => s.name)).toEqual([
+      expect.stringContaining('Portal strategy'),
+    ]);
+    // Only what the client may see: no notes, sources, overrides or screening.
+    expect(Object.keys(res.body as object).sort()).toEqual(Object.keys(mine).sort());
+    for (const word of ['internalNotes', 'overrideReason', 'source', 'opportunit', 'note']) {
+      expect(JSON.stringify(res.body)).not.toContain(word);
+    }
+
+    // The plan's message opens it in the portal.
+    const linked = await inFirm('a', (tx) =>
+      tx.message.count({
+        where: { businessId: firms.a, body: { contains: `/${slugOf('a')}/tax-plans/${p.id}` } },
+      }),
+    );
+    expect(linked).toBe(1);
+
+    // Another client, and another firm, never reach it.
+    expect(MyTaxPlanList.parse(ok(await portal('get', '', other))).items).toEqual([]);
+    expectError(await portal('get', `/${p.id}`, other), 404, 'NOT_FOUND');
+    expect((await portal('get', `/${p.id}`, login, undefined, 'b')).status).toBeGreaterThanOrEqual(
+      400,
+    );
+  });
+
+  it("takes the client's request: Needs Review, the staff's bell, audited; nothing on a closed plan", async () => {
+    const p = await sentPlan();
+    expectError(
+      await portal('post', `/${p.id}/requests`, login, { kind: 'REVISION', body: ' ' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await portal('post', `/${p.id}/requests`, login, { kind: 'DOCUMENT', body: 'Fake' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await portal('post', `/${p.id}/requests`, other, { kind: 'QUESTION', body: 'Fake' }),
+      404,
+      'NOT_FOUND',
+    );
+    const asked = MyTaxPlan.parse(
+      ok(
+        await portal('post', `/${p.id}/requests`, login, {
+          kind: 'REVISION',
+          body: 'Please add the HSA (fake).',
+        }),
+      ),
+    );
+    expect(asked.state).toBe('REQUEST_WITH_FIRM');
+    expect(asked.requests).toEqual([
+      expect.objectContaining({
+        kind: 'REVISION',
+        body: 'Please add the HSA (fake).',
+        status: 'OPEN',
+      }),
+    ]);
+    const staff = await plan(p.id);
+    expect(staff.status).toBe('READY_FOR_REVIEW');
+    expect(staff.workflow.requests[0]).toMatchObject({
+      direction: 'CLIENT_TO_FIRM',
+      kind: 'REVISION',
+      status: 'OPEN',
+    });
+    expect((await auditRows(p.id)).map((a) => a.action)).toContain('tax_plan.client_request');
+    expect(await bells(p.id, 'tax-plan.client-request')).toEqual([{ recipientUserId: adminA.id }]);
+
+    const meeting = MyTaxPlan.parse(
+      ok(
+        await portal('post', `/${p.id}/requests`, login, {
+          kind: 'MEETING',
+          body: 'Call me (fake).',
+        }),
+      ),
+    );
+    expect(meeting.requests.map((r) => r.kind)).toEqual(['MEETING', 'REVISION']);
+    expect((await plan(p.id)).status).toBe('READY_FOR_REVIEW');
+
+    await call('post', `/plans/${p.id}/status`, ownerA, await withEtag(p.id, { status: 'CLOSED' }));
+    expectError(
+      await portal('post', `/${p.id}/requests`, login, { kind: 'QUESTION', body: 'Fake?' }),
+      409,
+      'INVALID_STATUS',
+    );
+  });
+
+  it('approves exactly the version sent, once, dated today: Client Approved, the bell, audited', async () => {
+    const p = await sentPlan();
+    expectError(
+      await portal('post', `/${p.id}/approve`, other, { version: p.version }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await portal('post', `/${p.id}/approve`, login, { version: p.version + 1 }),
+      409,
+      'INVALID_STATUS',
+    );
+    const approved = MyTaxPlan.parse(
+      ok(await portal('post', `/${p.id}/approve`, login, { version: p.version })),
+    );
+    expect(approved).toMatchObject({
+      state: 'APPROVED',
+      approval: { version: p.version, method: 'PORTAL', approvedOn: firmDay() },
+      can: { approve: false, request: true },
+    });
+    const staff = await plan(p.id);
+    expect(staff.status).toBe('CLIENT_APPROVED');
+    expect(staff.workflow.approvals).toEqual([
+      expect.objectContaining({ version: p.version, method: 'PORTAL' }),
+    ]);
+    expect((await auditRows(p.id)).map((a) => a.action)).toContain('tax_plan.approval_recorded');
+    expect(await bells(p.id, 'tax-plan.client-approved')).toEqual([{ recipientUserId: adminA.id }]);
+    expectError(
+      await portal('post', `/${p.id}/approve`, login, { version: p.version }),
+      409,
+      'INVALID_STATUS',
+    );
   });
 });

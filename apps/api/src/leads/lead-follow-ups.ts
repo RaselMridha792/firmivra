@@ -107,6 +107,15 @@ export async function addSteps(
   }
 }
 
+/** A lead that takes a follow-up: 404 archived, 409 ALREADY_CONVERTED or LEAD_CLOSED. */
+function openForFollowUp(lead: { status: string; archivedAt: Date | null }): void {
+  if (lead.archivedAt) throw notFound();
+  if (lead.status === 'CONVERTED')
+    throw conflict('ALREADY_CONVERTED', 'This lead is already a client');
+  if (CLOSED_STATUSES.includes(lead.status as (typeof CLOSED_STATUSES)[number]))
+    throw conflict('LEAD_CLOSED', 'A closed lead has no follow-up');
+}
+
 /** The lead's next action is its next unfinished step; none for a closed lead. */
 export async function syncNextAction(
   tx: TxClient,
@@ -146,6 +155,38 @@ export class LeadFollowUpsService {
   add(businessId: string, actor: PipelineActor, id: string, body: FollowUpInput) {
     return this.change(businessId, actor, id, 'lead.follow_up_added', { type: body.type }, (tx) =>
       addSteps(tx, businessId, id, actor.userId, [body]),
+    );
+  }
+
+  /**
+   * P4-2 (Clients Review 2 N8-18): Keep as Lead and Follow Up on a completed appointment with the
+   * lead: one more step, by add's rules (404 archived, 409 LEAD_CLOSED or ALREADY_CONVERTED), in
+   * the appointment's own transaction. The member reached the lead through that appointment (they
+   * see it in full: its staff member, or the lead's), so the lead's row is locked here without the
+   * lead pages' Staff rule. Audited as add is: the step's type only.
+   */
+  async addWithin(
+    tx: TxClient,
+    businessId: string,
+    userId: string,
+    leadId: string,
+    body: FollowUpInput,
+  ): Promise<void> {
+    const [lead] = await tx.$queryRaw<{ status: string; archived_at: Date | null }[]>`
+      SELECT status::text AS status, archived_at FROM leads
+      WHERE business_id = ${businessId}::uuid AND id = ${leadId}::uuid
+        AND status::text NOT IN ('DRAFT', 'EXPIRED')
+      FOR UPDATE`;
+    if (!lead) throw notFound();
+    openForFollowUp({ status: lead.status, archivedAt: lead.archived_at });
+    await adoptLegacy(tx, businessId, leadId, userId);
+    await addSteps(tx, businessId, leadId, userId, [body]);
+    await syncNextAction(tx, businessId, leadId, userId);
+    await this.audit.logIn(
+      tx,
+      'lead.follow_up_added',
+      { type: 'lead', id: leadId },
+      { type: body.type },
     );
   }
 
@@ -217,12 +258,7 @@ export class LeadFollowUpsService {
     work: (tx: TxClient) => Promise<void>,
   ): Promise<LeadProfile> {
     const profile = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-      const lead = await lockLead(tx, businessId, actor, id);
-      if (lead.archivedAt) throw notFound();
-      if (lead.status === 'CONVERTED')
-        throw conflict('ALREADY_CONVERTED', 'This lead is already a client');
-      if (CLOSED_STATUSES.includes(lead.status as (typeof CLOSED_STATUSES)[number]))
-        throw conflict('LEAD_CLOSED', 'A closed lead has no follow-up');
+      openForFollowUp(await lockLead(tx, businessId, actor, id));
       await adoptLegacy(tx, businessId, id, actor.userId);
       await work(tx);
       await syncNextAction(tx, businessId, id, actor.userId);

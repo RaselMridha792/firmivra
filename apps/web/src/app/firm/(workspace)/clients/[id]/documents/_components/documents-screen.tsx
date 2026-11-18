@@ -6,17 +6,18 @@ import { UploadSimple } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useFirm } from '../../../../../../../components/firm-context';
-import { useOriginNavigate } from '../../../../../../../components/origin-link';
 import { PageState } from '../../../../../../../components/page-state';
 import { YearSelect } from '../../../../../../../components/year-select';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
+import { ClientTabHeader } from '../../_components/client-tab-header';
 import { DocumentList } from './document-list';
+import { RequestDocumentForm } from './request-document-form';
 import { RequestList } from './request-list';
 
 export function DocumentsScreen({ clientId }: { clientId: string }) {
   const { role } = useFirm();
-  const navigate = useOriginNavigate();
+  const [requesting, setRequesting] = useState(false);
   const [category, setCategory] = useState('');
   const [year, setYear] = useState('');
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
@@ -36,19 +37,29 @@ export function DocumentsScreen({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-4" data-testid="client-documents-screen">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-semibold text-heading">Client documents</h2>
-        {/* E8: Documents' own upload, with this client chosen, and Back here. */}
-        {role && roleCan(role, 'DOCUMENTS', 'VIEW') ? (
-          <Button
-            data-testid="upload-document"
-            onClick={() => navigate(`/documents/upload?clientId=${encodeURIComponent(clientId)}`)}
-          >
-            <UploadSimple aria-hidden weight="bold" className="size-4" /> Upload Document
+      {/* P4-7: the profile's one heading row. Clients Review 2 (N8-37): Request a document at the
+          top of the tab, its primary action; E8's Upload Document (Documents' own upload, with
+          this client chosen, and Back here) in More Actions. */}
+      <ClientTabHeader
+        title="Documents"
+        primary={
+          <Button data-testid="request-document-open" onClick={() => setRequesting(true)}>
+            Request a document
           </Button>
-        ) : null}
-      </div>
-      {/* Clients Review 2 (N8-37): Request a Document and the open requests come first. */}
+        }
+        secondary={
+          role && roleCan(role, 'DOCUMENTS', 'VIEW')
+            ? [
+                {
+                  label: 'Upload Document',
+                  icon: UploadSimple,
+                  href: `/documents/upload?clientId=${encodeURIComponent(clientId)}`,
+                },
+              ]
+            : []
+        }
+      />
+      {/* N8-37: the open requests come first. */}
       <RequestList clientId={clientId} />
       <PageState query={categories}>
         {(items) => (
@@ -132,6 +143,9 @@ export function DocumentsScreen({ clientId }: { clientId: string }) {
           </>
         )}
       </PageState>
+      {requesting ? (
+        <RequestDocumentForm clientId={clientId} onClose={() => setRequesting(false)} />
+      ) : null}
     </div>
   );
 }

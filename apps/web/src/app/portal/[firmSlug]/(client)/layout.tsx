@@ -7,6 +7,7 @@ import {
   LogOut,
   ChartColumn,
   PenLine,
+  ClipboardList,
   CloudUpload,
   FileText,
   House,
@@ -36,13 +37,15 @@ import { useApiQuery } from '../../../../lib/query';
 const DEFAULT_MOTTO = ['Plan', 'Prepare', 'Prosper'];
 
 // Client menu (docs/junior/PAGE-MAP.md). Messages shows the unread firm messages. "Signatures" shows
-// when the firm uses Firm Sign, "Tax Calculators" when the firm shares at least one calculator. A
+// when the firm uses Firm Sign, "Tax Calculators" when the firm shares at least one calculator,
+// "Tax Plans" once the firm sent the client a tax plan (P4-8). A
 // tab the firm turned off (Settings > Client Portal > Features) leaves the menu.
 const sections = (
   slug: string,
   extra: {
     signatures: boolean;
     calculators: boolean;
+    taxPlans: boolean;
     unread: number;
     tabOn: (page: string) => boolean;
   },
@@ -65,6 +68,10 @@ const sections = (
       : []),
     ...(extra.calculators
       ? [{ label: 'Tax Calculators', icon: Calculator, href: `/${slug}/calculator` }]
+      : []),
+    // P4-8: once the firm sent this client a tax plan.
+    ...(extra.taxPlans
+      ? [{ label: 'Tax Plans', icon: ClipboardList, href: `/${slug}/tax-plans` }]
       : []),
     { label: 'My Profile', icon: UserRound, href: `/${slug}/profile` },
   ].filter((item) => extra.tabOn(item.href.split('/')[2] ?? '')),
@@ -144,7 +151,7 @@ function ClientArea({ slug, children }: { slug: string; children: ReactNode }) {
  * on the left (a drawer below 768 px), and a full-width footer.
  */
 function PortalShell({ children, slug }: { children: ReactNode; slug: string }) {
-  const { business, branding } = usePortal();
+  const { business, branding, timezone } = usePortal();
   const { me, signOut } = useMe();
   const pathname = usePathname();
   // The first name in the greeting: the firm's button blue on the Business, My Uploaded Documents,
@@ -158,6 +165,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
     api.mySignatures(slug).status(),
   );
   const calculators = useApiQuery(['my-calculators', slug], () => api.myCalculators(slug).list());
+  const taxPlans = useApiQuery(['my-tax-plans', slug], () => api.myTaxPlans(slug).list());
   const unread = useApiQuery(['my-messages', slug, 'unread'], () =>
     api.myMessages(slug).unreadCount(),
   );
@@ -167,6 +175,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   const nav = sections(slug, {
     signatures: signatures.data?.enabled === true,
     calculators: (calculators.data?.length ?? 0) > 0,
+    taxPlans: (taxPlans.data?.length ?? 0) > 0,
     unread: unread.data?.count ?? 0,
     tabOn,
   });
@@ -249,6 +258,9 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
           <Header
             roleLabel="Client"
             hideRole
+            // SM10: the date, time and the firm's time zone, as on every firm page.
+            clock
+            clockZone={timezone}
             onOpenMenu={() => setDrawer(true)}
             bell={<PortalBell slug={slug} />}
             greeting={

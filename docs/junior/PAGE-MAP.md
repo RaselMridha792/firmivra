@@ -364,7 +364,7 @@ Signed-in pages (sidebar, header, footer), in `portal/[firmSlug]/(client)/`:
 | --- | --- | --- | --- | --- |
 | shell | `(client)/layout.tsx` | R17 (Rasel) | N01 | `My docs tab.png` |
 | folder tabs and right column | `(client)/(tabs)/layout.tsx` | R17 (Rasel) | N01 | `My docs tab.png` |
-| `/{firm}/home` | `(client)/home/route.ts` (opens Intake Forms) | R1 | | |
+| `/{firm}/home` | `(client)/(tabs)/home/page.tsx` (the My Client Portal view, Intake Form tab open; Home lit) | R1 | | |
 | `/{firm}/intake` | `(client)/(tabs)/intake/page.tsx` | R17 (Rasel) | N06 | `Intake form tab.png` |
 | `/{firm}/business` | `(client)/(tabs)/business/page.tsx` | R17 (Rasel) | N09 | `Business Tab.png` |
 | `/{firm}/documents` | `(client)/(tabs)/documents/page.tsx` | R17 (Rasel) | N05 | `My docs tab.png`, `Upload docs popup.png` |

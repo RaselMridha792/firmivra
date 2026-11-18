@@ -27,7 +27,8 @@ test('a client signs in with email and password and lands on home', async ({ pag
 
   await form.getByLabel('Password', { exact: true }).fill('Sample-pass-2026');
   await form.getByRole('button', { name: 'Sign In' }).click();
-  await expect(page).toHaveURL(portal('/lvp/intake'));
+  // Home keeps its own address (Octavia's Client Portal review, Nov 18), its Intake Form tab open.
+  await expect(page).toHaveURL(portal('/lvp/home'));
   await expect(page.getByTestId('firm-name').first()).toBeVisible();
 });
 

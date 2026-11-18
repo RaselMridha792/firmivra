@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
 import { CardFrame, EmptyPanel, outlineButton } from './profile-cards';
 import { useProfile } from './profile-frame';
 import { dayText, wsKey } from './profile-shared';
@@ -24,6 +25,8 @@ const scanTone = (status: string) =>
  * Leads R2 4) and the forms sent to them. Upload Document opens on this lead.
  */
 export function DocumentsTab() {
+  // Leads time zone: the days are the firm's.
+  const timeZone = useFirmTimeZone();
   const { id, profile } = useProfile();
   const query = useApiQuery(wsKey(id, 'documents'), () => api.leadPipeline.documentsAndForms(id));
   const download = useApiMutation(async (fileId: string) => {
@@ -76,7 +79,7 @@ export function DocumentsTab() {
                     </span>
                     <span className="text-xs text-muted">
                       {d.addedBy ? `Added by ${d.addedBy.name}` : 'From the lead'},{' '}
-                      {dayText(d.uploadedAt)}
+                      {dayText(d.uploadedAt, timeZone)}
                     </span>
                   </span>
                 </span>
@@ -147,7 +150,7 @@ export function DocumentsTab() {
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate text-sm font-semibold text-heading">{f.name}</span>
                   <span className="text-xs text-muted">
-                    {f.sentAt ? `Sent ${dayText(f.sentAt)}` : 'Not sent yet'}
+                    {f.sentAt ? `Sent ${dayText(f.sentAt, timeZone)}` : 'Not sent yet'}
                   </span>
                 </span>
                 <Badge tone="info">{words(f.status)}</Badge>
