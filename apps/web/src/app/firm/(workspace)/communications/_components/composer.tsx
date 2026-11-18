@@ -8,6 +8,7 @@ import {
   type CommunicationDetail,
   type CommunicationRow,
   smsCountText,
+  type MessageTemplateKind,
 } from '@firmivra/types';
 import {
   Button,
@@ -1304,18 +1305,32 @@ function TemplateDialog({
   onUsed: (d: CommunicationDetail) => void;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
-  const kinds: string[] =
+  const kinds: MessageTemplateKind[] =
     detail.channel === 'SMS'
       ? ['SMS']
       : detail.channel === 'ANNOUNCEMENT'
         ? ['ANNOUNCEMENT']
         : ['EMAIL', 'CAMPAIGN'];
-  const list = useApiQuery([...COMM_KEY, 'composer-templates', detail.channel], () =>
-    api.templates.list({ tab: 'all', page: 1, pageSize: 50 }),
+  // Templates Review Two P03: the server filters each kind (active only), not the first 50 of
+  // every kind filtered here, so no template of the channel is left out.
+  const list = useApiQuery([...COMM_KEY, 'composer-templates', detail.channel], async () =>
+    (
+      await Promise.all(
+        kinds.map((kind) =>
+          api.templates.list({
+            tab: 'all',
+            kind,
+            status: 'ACTIVE',
+            sort: 'name',
+            direction: 'asc',
+            page: 1,
+            pageSize: 100,
+          }),
+        ),
+      )
+    ).flatMap((page) => page.items),
   );
-  const items = (list.data?.items ?? []).filter(
-    (t) => kinds.includes(t.kind) && t.status === 'ACTIVE',
-  );
+  const items = list.data ?? [];
   return (
     <Modal
       open
