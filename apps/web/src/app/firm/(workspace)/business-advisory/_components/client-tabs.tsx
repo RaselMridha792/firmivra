@@ -259,7 +259,6 @@ export function ClientPlanTab({ advisoryClientId }: { advisoryClientId: string }
             caption="Plan versions"
             dense
             noun="versions"
-            pageSize={20}
             showPagination={false}
             loading={Boolean(currentId) && versions.isPending}
             emptyTitle={
@@ -293,7 +292,6 @@ export function ClientPlanTab({ advisoryClientId }: { advisoryClientId: string }
           caption="Business plans"
           dense
           noun="plans"
-          pageSize={50}
           showPagination={false}
           loading={plans.isPending}
           emptyTitle={plans.isError ? 'Plans are not available' : 'No business plans yet'}
