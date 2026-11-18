@@ -264,8 +264,8 @@ export class StaffRecordsService {
 
   async deleteDraft(actor: StaffActor, draftId: string): Promise<OkResponse> {
     const { businessId } = actor;
-    // SM17: its stored files go first (a storage failure is 503 and the draft stays).
-    await this.files.removeAllFor(actor, draftId);
+    // SM17: its files, read first; their stored copies go once the draft is deleted.
+    const files = await this.files.filesOf(actor, draftId);
     await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       const by = await requireManager(tx, actor);
       const { count } = await tx.staffDraft.deleteMany({
@@ -280,6 +280,7 @@ export class StaffRecordsService {
         { businessId },
       );
     });
+    await this.files.dropAll(businessId, files);
     return { ok: true };
   }
 }

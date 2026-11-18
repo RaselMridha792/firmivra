@@ -125,8 +125,9 @@ export const draftFilesToMove = (
  * tenant/{businessId}/staff-drafts/{draftId}/), with the same three-step upload and checks as a
  * member's documents. A draft and its files are its creator's alone: every route checks the draft
  * is the actor's own (404 otherwise), as the firm's RLS does for the firm. Removing a file or the
- * draft deletes the stored file first (a storage failure is 503 and nothing is deleted). When the
- * account is created, the CLEAN files become the member's documents and the draft's copies go.
+ * draft deletes its rows and the stored files; a stored file storage could not delete (or never
+ * had) is logged with ids and left for a sweep, never an error for the person. When the account
+ * is created, the CLEAN files become the member's documents and the draft's copies go.
  * The audit log gets ids and types, never a file name.
  */
 @Injectable()
@@ -287,7 +288,7 @@ export class StaffDraftFilesService {
     });
   }
 
-  /** Remove: the stored file first, then its row. Another's draft or file is 404. */
+  /** Remove: the row and the stored file (see dropStored). Another's draft or file is 404. */
   async remove(actor: StaffActor, draftId: string, fileId: string): Promise<{ ok: true }> {
     const { businessId } = actor;
     const file = await this.inFirm(actor, async (tx) => {
@@ -299,7 +300,6 @@ export class StaffDraftFilesService {
       if (!row) throw notFound();
       return row;
     });
-    await this.s3(() => this.storage.remove(file.s3Key));
     await this.inFirm(actor, async (tx) => {
       await tx.staffDraftAttachment.deleteMany({ where: { businessId, id: file.id } });
       await this.audit.logIn(
@@ -310,22 +310,40 @@ export class StaffDraftFilesService {
         { businessId },
       );
     });
+    await this.dropStored(businessId, file.id, file.s3Key);
     return { ok: true };
   }
 
   /**
-   * Before a draft is deleted (Delete Draft): its stored files go first, so none is left behind;
-   * a storage failure is 503 and the draft stays. The rows go with the draft (cascade).
+   * Deletes a draft file's stored copy. A missing one is already gone (S3 answers a delete of a
+   * missing key with success); any other failure is logged with ids and left for a sweep, never
+   * an error for the person: the row is already gone.
    */
-  async removeAllFor(actor: StaffActor, draftId: string): Promise<void> {
-    const keys = await this.inFirm(actor, async (tx) => {
+  private async dropStored(businessId: string, fileId: string, key: string): Promise<void> {
+    await this.storage.remove(key).catch((error: unknown) => {
+      this.logger.warn(
+        `Draft file ${fileId}'s stored copy in firm ${businessId} was not deleted (${(error as Error).name}); left for a sweep`,
+      );
+    });
+  }
+
+  /**
+   * Delete Draft: the draft's files, read before the draft goes (its rows go with it, cascade),
+   * for `dropAll` once it is deleted.
+   */
+  filesOf(actor: StaffActor, draftId: string): Promise<{ id: string; s3Key: string }[]> {
+    return this.inFirm(actor, async (tx) => {
       await this.ownDraft(tx, actor, draftId);
       return tx.staffDraftAttachment.findMany({
         where: { businessId: actor.businessId, staffDraftId: draftId },
-        select: { s3Key: true },
+        select: { id: true, s3Key: true },
       });
     });
-    for (const { s3Key } of keys) await this.s3(() => this.storage.remove(s3Key));
+  }
+
+  /** After Delete Draft: each stored file deleted, or logged and left for a sweep. */
+  async dropAll(businessId: string, files: readonly { id: string; s3Key: string }[]) {
+    for (const f of files) await this.dropStored(businessId, f.id, f.s3Key);
   }
 
   /**
@@ -394,9 +412,7 @@ export class StaffDraftFilesService {
           `Draft file ${f.id} did not move to member ${membershipId} (${(error as Error).name})`,
         );
       }
-      await this.storage.remove(f.s3Key).catch(() => {
-        this.logger.warn(`Draft file ${f.id}'s stored copy was not deleted in firm ${businessId}`);
-      });
+      await this.dropStored(businessId, f.id, f.s3Key);
     }
     return moved;
   }

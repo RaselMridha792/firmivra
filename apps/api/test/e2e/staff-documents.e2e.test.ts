@@ -57,7 +57,10 @@ class MemoryStorage implements DocumentStorage {
   read(key: string) {
     return Promise.resolve(this.objects.get(key) ?? null);
   }
+  /** SM17: storage down for deletes (a draft file's copy is then left for a sweep). */
+  failRemoves = false;
   remove(key: string) {
+    if (this.failRemoves) return Promise.reject(new Error('storage down'));
     this.objects.delete(key);
     return Promise.resolve();
   }
@@ -621,6 +624,28 @@ describe('draft files (SM17)', () => {
       ]),
     );
     expect(JSON.stringify(audit.map((a) => a.metadata))).not.toContain('Fake W-4');
+  });
+
+  it('removes the row even when storage cannot delete the stored file (left for a sweep)', async () => {
+    const draft = StaffDraft.parse(
+      ok(await call('post', '/staff-drafts', ownerA, { step: 4, data: {} }), 201),
+    );
+    const file = StaffDraftAttachment.parse(ok(await save(ownerA, draft.id, PDF), 201));
+    const key = (await draftKey(file.id))!;
+    storage.failRemoves = true;
+    try {
+      expect(
+        ok(await call('delete', `/staff-drafts/${draft.id}/attachments/${file.id}`, ownerA)),
+      ).toEqual({ ok: true });
+      expect(await draftKey(file.id)).toBeUndefined();
+      expect(storage.objects.has(key)).toBe(true);
+      // Delete Draft too: the draft goes whatever storage says.
+      const other = StaffDraftAttachment.parse(ok(await save(ownerA, draft.id, PDF), 201));
+      expect(ok(await call('delete', `/staff-drafts/${draft.id}`, ownerA))).toEqual({ ok: true });
+      expect(await draftKey(other.id)).toBeUndefined();
+    } finally {
+      storage.failRemoves = false;
+    }
   });
 
   it('deletes the stored files with the draft', async () => {
