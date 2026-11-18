@@ -438,6 +438,16 @@ export function TemplatesScreen() {
                       {r.name}
                     </OriginLink>
                     {/* TP-F15: the category and who updated it, at every width. */}
+                    {/* Y06: what it is for, when the template says. */}
+                    {r.description ? (
+                      <span
+                        className="block truncate text-xs text-text"
+                        data-testid="recent-description"
+                        title={r.description}
+                      >
+                        {r.description}
+                      </span>
+                    ) : null}
                     <span className="block truncate text-xs text-muted" data-testid="recent-meta">
                       {r.category?.name ?? 'Uncategorized'} · Updated by{' '}
                       {r.updatedBy?.name ?? r.owner.name}
