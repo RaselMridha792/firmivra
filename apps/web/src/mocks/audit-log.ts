@@ -82,25 +82,37 @@ export function auditFixtures(): readonly AuditEntry[] {
 
 const copy = <T>(value: T): T => structuredClone(value);
 
+/** The fixtures a query matches, as the API filters them. */
+function matching(q: ReturnType<typeof parseInput<typeof AuditLogQuery>>) {
+  return auditFixtures().filter(
+    (e) =>
+      (!q.action ||
+        (q.action.endsWith('.') ? e.action.startsWith(q.action) : e.action === q.action)) &&
+      (!q.actorUserId || e.actor?.userId === q.actorUserId) &&
+      (!q.entityType || e.entity.type === q.entityType) &&
+      (!q.entityId || e.entity.id === q.entityId) &&
+      (!q.from || e.at >= q.from) &&
+      (!q.to || e.at <= q.to),
+  );
+}
+
+/** One CSV cell, quoted when it holds a comma, a quote or a line break (as the API writes). */
+const cell = (value: string | null) =>
+  value === null ? '' : /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+
 /** An in-memory `api.auditLog`; Owner (the default) and Admin read it. */
 export function createAuditLogMock(options: { role?: MockFirmRole } = {}): AuditLogClient {
+  const refuseStaff = () => {
+    if (options.role === 'STAFF') {
+      throw new ApiRequestError(403, 'FORBIDDEN', 'Only the Owner and Admins read the audit log');
+    }
+  };
   return {
     list: async (query = {}) => {
       await mockDelay();
-      if (options.role === 'STAFF') {
-        throw new ApiRequestError(403, 'FORBIDDEN', 'Only the Owner and Admins read the audit log');
-      }
+      refuseStaff();
       const q = parseInput(AuditLogQuery, query);
-      const all = auditFixtures().filter(
-        (e) =>
-          (!q.action ||
-            (q.action.endsWith('.') ? e.action.startsWith(q.action) : e.action === q.action)) &&
-          (!q.actorUserId || e.actor?.userId === q.actorUserId) &&
-          (!q.entityType || e.entity.type === q.entityType) &&
-          (!q.entityId || e.entity.id === q.entityId) &&
-          (!q.from || e.at >= q.from) &&
-          (!q.to || e.at <= q.to),
-      );
+      const all = matching(q);
       const start = mockOffset(q.cursor);
       const items = all.slice(start, start + q.limit);
       return copy({
@@ -108,15 +120,36 @@ export function createAuditLogMock(options: { role?: MockFirmRole } = {}): Audit
         nextCursor: start + q.limit < all.length ? String(start + q.limit) : null,
       });
     },
-    // A small CSV of the fixtures (the API builds the real one from the same filters).
-    exportUrl: () =>
-      `data:text/csv;charset=utf-8,${encodeURIComponent(
-        [
-          'Time,Actor,Action,Record type',
-          ...auditFixtures().map((e) =>
-            [e.at, e.actor?.name ?? 'System', e.action, e.entity.type].join(','),
-          ),
-        ].join(String.fromCharCode(10)),
-      )}`,
+    // The same filters as the list, every page, as the API's CSV columns.
+    export: async (query = {}) => {
+      await mockDelay();
+      refuseStaff();
+      const rows = matching(parseInput(AuditLogQuery, query));
+      const lines = [
+        'Time,Actor,Actor type,Action,Record type,Record id,IP,Request id,Details',
+        ...rows.map((e) =>
+          [
+            e.at,
+            e.actor?.name ?? 'System',
+            e.actor?.kind ?? 'SYSTEM',
+            e.action,
+            e.entity.type,
+            e.entity.id,
+            e.ip,
+            e.requestId,
+            Object.keys(e.metadata).length ? JSON.stringify(e.metadata) : null,
+          ]
+            .map(cell)
+            .join(','),
+        ),
+      ];
+      const crlf = String.fromCharCode(13, 10);
+      return {
+        name: 'audit-log.csv',
+        type: 'text/csv; charset=utf-8',
+        text: `${lines.join(crlf)}${crlf}`,
+        entries: rows.length,
+      };
+    },
   };
 }

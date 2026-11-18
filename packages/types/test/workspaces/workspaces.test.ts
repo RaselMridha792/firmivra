@@ -5,6 +5,7 @@ import {
   CreateReportRequest,
   CreateTaskRequest,
   createAuditLogClient,
+  createDownload,
   createMyReportsClient,
   createRequest,
   createTasksClient,
@@ -150,19 +151,28 @@ describe('clients', () => {
     expect(mine.calls[0]?.url).toBe(`/portal/lvp/me/services/${id}/reports?cursor=next&limit=25`);
 
     const audit = fakeFetch(200, { items: [], nextCursor: null });
-    await createAuditLogClient(createRequest({ baseUrl: '', fetch: audit.fn })).list({
-      action: 'appointment.',
-    });
-    expect(audit.calls[0]?.url).toBe('/business/audit-log?action=appointment.&limit=50');
-    // The export link: the same filters, never the paging, no request sent.
-    const exporting = createAuditLogClient(
+    const csv: string[] = [];
+    const csvFn = (async (url: string) => {
+      csv.push(url);
+      // Two entries, one of them with a line break inside its quoted Details cell.
+      const text = 'Time,Action,Details\r\nt1,a.b,"{""note"":""x\ny""}"\r\nt2,a.c,\r\n';
+      return new Response(`\uFEFF${text}`, {
+        status: 200,
+        headers: { 'content-disposition': 'attachment; filename="audit-log.csv"' },
+      });
+    }) as unknown as typeof fetch;
+    const client = createAuditLogClient(
       createRequest({ baseUrl: '', fetch: audit.fn }),
-      '/api/v1',
+      createDownload({ baseUrl: '/api/v1', fetch: csvFn }),
     );
-    expect(exporting.exportUrl({ action: 'staff.', cursor: 'next', limit: 10 })).toBe(
-      '/api/v1/business/audit-log/export?action=staff.',
-    );
-    expect(() => exporting.exportUrl({ action: 'Not An Action' })).toThrow();
+    await client.list({ action: 'appointment.' });
+    expect(audit.calls[0]?.url).toBe('/business/audit-log?action=appointment.&limit=50');
+    // The export: the same filters, never the paging, through the session's fetch.
+    const file = await client.export({ action: 'staff.', cursor: 'next', limit: 10 });
+    expect(csv).toEqual(['/api/v1/business/audit-log/export?action=staff.']);
+    expect(file).toMatchObject({ name: 'audit-log.csv', entries: 2 });
+    await expect(client.export({ action: 'Not An Action' })).rejects.toThrow();
+    expect(csv).toHaveLength(1);
     expect(audit.calls).toHaveLength(1);
   });
 });

@@ -8,7 +8,8 @@ import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
 import { api } from '../../../../../lib/api';
-import { useApiQuery } from '../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { exportFailure, saveFile } from '../../../../../lib/save-file';
 import { AuditLogFilters, addressFilters, type AuditFilters } from './audit-filters';
 
 const when = (iso: string) =>
@@ -136,6 +137,19 @@ export function AuditLogScreen() {
   const query = { ...filters, ...(cursor ? { cursor } : {}) };
   const log = useApiQuery(['audit-log', query], () => api.auditLog.list(query));
   const area = filters.action ?? '';
+  // R02a: the export downloads through the session (an expired access cookie is refreshed, not
+  // shown as raw JSON); it says how many entries it saved, or why it failed.
+  const exporter = useApiMutation((f: AuditFilters) => api.auditLog.export(f));
+  const [exported, setExported] = useState<number | null>(null);
+  const runExport = () => {
+    setExported(null);
+    exporter.mutate(filters, {
+      onSuccess: (file) => {
+        saveFile(file);
+        setExported(file.entries);
+      },
+    });
+  };
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -159,17 +173,28 @@ export function AuditLogScreen() {
         </div>
         <RequireRole roles={['OWNER', 'ADMIN']}>
           {/* The filters shown, every page of them, as CSV (the export itself is logged). */}
-          <a
-            href={api.auditLog.exportUrl(filters)}
+          <button
+            type="button"
+            onClick={runExport}
+            disabled={exporter.isPending}
             data-testid="audit-export"
-            className="ml-auto inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface"
+            className="ml-auto inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface disabled:opacity-60"
           >
             <DownloadSimple aria-hidden weight="bold" className="size-5" />
-            Export
-          </a>
+            {exporter.isPending ? 'Exporting…' : 'Export'}
+          </button>
         </RequireRole>
       </header>
       <RequireRole roles={['OWNER', 'ADMIN']}>
+        {exporter.error ? (
+          <p role="alert" data-testid="audit-export-result" className="text-sm text-danger">
+            {exportFailure(exporter.error)}
+          </p>
+        ) : exported !== null ? (
+          <p role="status" data-testid="audit-export-result" className="text-sm text-success">
+            Downloaded {exported} {exported === 1 ? 'entry' : 'entries'}.
+          </p>
+        ) : null}
         <nav aria-label="Audit log areas" className="flex flex-wrap gap-2">
           {AREAS.map((a) => (
             <button
