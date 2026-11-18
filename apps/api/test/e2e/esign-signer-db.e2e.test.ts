@@ -137,6 +137,45 @@ describe('Firm Sign signing on PostgreSQL', () => {
     expect(rows.map((r) => r.recipientId)).toContain(d.signer);
     const dl = await w.call('get', `${center}/${d.signer}/download?file=final`, w.a.people.client);
     expect(dl.status).toBe(200);
+
+    // CP-PT-03 (the lead, Nov 18): the signed copy and its certificate are the signer's own legal
+    // record. The firm trashes both: its library hides them, and the client's My Documents too,
+    // but the signer still downloads both, from the Signature center and the copy link.
+    const filedIds = [filed.request.finalDocumentId!, filed.request.certificateDocumentId!];
+    for (const id of filedIds) {
+      const trashed = await w.call(
+        'post',
+        `/api/v1/business/documents/${id}/trash`,
+        w.a.people.owner,
+      );
+      expect(trashed.status, JSON.stringify(trashed.body)).toBe(200);
+    }
+    const library = await w.call(
+      'get',
+      '/api/v1/business/documents?pageSize=100',
+      w.a.people.owner,
+    );
+    expect(library.status, JSON.stringify(library.body)).toBe(200);
+    const listed = (library.body as { items: { id: string }[] }).items.map((x) => x.id);
+    expect(listed.filter((id) => filedIds.includes(id))).toEqual([]);
+    const myDocs = await w.call(
+      'get',
+      `/api/v1/portal/${w.a.slug}/me/documents?source=FIRM`,
+      w.a.people.client,
+    );
+    expect(myDocs.status, JSON.stringify(myDocs.body)).toBe(200);
+    const mineIds = (myDocs.body as { items: { id: string }[] }).items.map((x) => x.id);
+    expect(mineIds.filter((id) => filedIds.includes(id))).toEqual([]);
+    for (const file of ['final', 'certificate']) {
+      const fromCenter = await w.call(
+        'get',
+        `${center}/${d.signer}/download?file=${file}`,
+        w.a.people.client,
+      );
+      expect([file, fromCenter.status]).toEqual([file, 200]);
+      const fromCopy = await copy.call('get', `/copy/download?file=${file}`);
+      expect([file, fromCopy.status]).toEqual([file, 200]);
+    }
     // Firm B's client sees none of it.
     const theirs = await w.call(
       'get',

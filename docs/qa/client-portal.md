@@ -96,6 +96,7 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Tabs: All Documents, Client Uploaded, Firm Shared, Pending Review, Requested | #1410 | `r60-client-portal-documents` |
 | Table columns: Name, Type, Category, Source, Uploaded By, Date, Status | #1410 | `r60-client-portal-documents` |
 | Row menu: View, Download, Mark Reviewed, Request Replacement, Share to or Remove from Portal, Archive, Move to Trash | #1410 | `r60-client-portal-documents` |
+| CP-PT-03: a file the firm moved to Trash, archived or replaced leaves the client's portal (list, view, download, message and invoice attachments, service reports, the tax return PDF, intake uploads, the signed copy) and the firm's portal counts, by one rule (`LIVE_DOCUMENT`); restored, it comes back | #1605 | `documents-portal` "CP-PT-03: a file the firm trashed or archived leaves the client's portal and its counts, and comes back when restored"; unit `tax-returns` "…the PDF only when CLEAN, shared and live" |
 | Row menu: Link to Record, Reclassify and Rename (instructions 19) | #1551 | `r56-client-portal-documents` (both tests) |
 | Pagination with 10, 25 or 50 per page | #1410 | `r60-client-portal-documents` |
 | Document Requests panel, with Request New Document | #1410 | `r60-client-portal-documents` |

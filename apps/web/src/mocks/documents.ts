@@ -217,6 +217,22 @@ const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
  */
 let documentLimitMb = 100;
 export const mockDocumentLimitMb = () => documentLimitMb;
+
+/**
+ * CP-PT-03: the files the firm moved to Trash or archived (Documents' library mock writes here), as
+ * the API's LIVE_DOCUMENT: the client's portal never lists, opens or downloads one.
+ */
+let removed: Map<string, { trashed: boolean; archived: boolean }> | undefined;
+export function setMockDocumentRemoved(
+  id: string,
+  change: Partial<{ trashed: boolean; archived: boolean }>,
+): void {
+  removed ??= new Map();
+  const next = { trashed: false, archived: false, ...removed.get(id), ...change };
+  if (next.trashed || next.archived) removed.set(id, next);
+  else removed.delete(id);
+}
+const isRemoved = (id: string) => removed?.has(id) ?? false;
 export function setMockDocumentLimitMb(mb: number): void {
   documentLimitMb = mb;
 }
@@ -699,8 +715,9 @@ export function createMyDocumentsMock(): MyDocumentsClient {
     INFECTED: 'BLOCKED',
     FAILED: 'BLOCKED',
   } as const;
-  // Never INTERNAL, never another client's.
-  const mine = () => s.documents.filter((d) => d.clientId === me && d.direction !== 'INTERNAL');
+  // Never INTERNAL, never another client's, never one the firm trashed or archived (as the API).
+  const mine = () =>
+    s.documents.filter((d) => d.clientId === me && d.direction !== 'INTERNAL' && !isRemoved(d.id));
   const toMine = (d: FirmDocument): MyDocument => ({
     id: d.id,
     source: sourceOf(d),

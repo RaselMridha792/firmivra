@@ -68,7 +68,16 @@ const myReturnSelect = {
   status: true,
   filedOn: true,
   document: {
-    select: { id: true, fileName: true, clientId: true, direction: true, scanStatus: true },
+    select: {
+      id: true,
+      fileName: true,
+      clientId: true,
+      direction: true,
+      scanStatus: true,
+      trashedAt: true,
+      archivedAt: true,
+      supersededAt: true,
+    },
   },
 } satisfies Prisma.TaxReturnSelect;
 

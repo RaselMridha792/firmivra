@@ -14,6 +14,7 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { z } from 'zod';
 import {
+  ClientPortalDocumentsSummary,
   FirmDocument,
   FirmDocumentRequest,
   FirmDocumentRequestList,
@@ -709,6 +710,64 @@ describe('portal lists, views and downloads', () => {
     // Staff sessions never reach the portal routes (401), clients never the firm's (403).
     expect((await call('get', '/me/documents', people.ownerA)).status).toBe(401);
     expect((await call('get', `/clients/${ids.c1}/documents`, people.primary)).status).toBe(403);
+  });
+
+  it("CP-PT-03: a file the firm trashed or archived leaves the client's portal and its counts, and comes back when restored", async () => {
+    const shared = await firmFile({ shareWithClient: true, fileName: 'Trash_Me.pdf' });
+    const firmShared = async () =>
+      ClientPortalDocumentsSummary.parse(
+        (await call('get', `/client-portal/clients/${ids.c1}/documents/summary`, people.ownerA))
+          .body,
+      ).firmShared;
+    const listed = async () =>
+      (await myList(people.primary, '?source=FIRM')).items.map((d) => d.id).includes(shared.id);
+    const seen = async () => {
+      const view = await call('get', `/me/documents/${shared.id}`, people.primary);
+      const download = await call('get', `/me/documents/${shared.id}/download`, people.primary);
+      return [await listed(), view.status, download.status];
+    };
+    const move = async (action: 'trash' | 'untrash' | 'archive' | 'restore') =>
+      expect((await call('post', `/documents/${shared.id}/${action}`, people.ownerA)).status).toBe(
+        200,
+      );
+    expect(await seen()).toEqual([true, 200, 200]);
+    const counted = await firmShared();
+
+    await move('trash');
+    expect(await seen()).toEqual([false, 404, 404]);
+    expect(await firmShared()).toBe(counted - 1);
+    await move('untrash');
+    expect(await seen()).toEqual([true, 200, 200]);
+    expect(await firmShared()).toBe(counted);
+
+    await move('archive');
+    expect(await seen()).toEqual([false, 404, 404]);
+    expect(await firmShared()).toBe(counted - 1);
+    await move('restore');
+    expect(await seen()).toEqual([true, 200, 200]);
+
+    // A new version supersedes it: the client sees the current one only, the count stays.
+    const bytes = pdf(randomUUID());
+    const start = await call('post', '/documents/uploads', people.ownerA, {
+      clientId: ids.c1,
+      serviceId: ids.e1,
+      ...facts(bytes, 'Trash_Me_v2.pdf'),
+      shareWithClient: true,
+      replacesId: shared.id,
+    });
+    expect([200, 201], JSON.stringify(start.body)).toContain(start.status);
+    const ticket = UploadTicket.parse(start.body);
+    storage.uploads.send(ticket, bytes);
+    const v2 = exact(
+      FirmDocument,
+      await call('post', '/documents/uploads/confirm', people.ownerA, {
+        uploadToken: ticket.uploadToken,
+      }),
+    );
+    expect(await seen()).toEqual([false, 404, 404]);
+    const current = await call('get', `/me/documents/${v2.id}`, people.primary);
+    expect(current.status, JSON.stringify(current.body)).toBe(200);
+    expect(await firmShared()).toBe(counted);
   });
 
   it('downloads a CLEAN file with the login in the audit, and refuses a pending or changed one', async () => {

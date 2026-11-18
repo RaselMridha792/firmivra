@@ -13,6 +13,7 @@ import {
   Put,
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
+import { LIVE_DOCUMENT } from '../storage/document-records.js';
 import {
   ClientId,
   type ClientPortalAccessResult,
@@ -267,7 +268,8 @@ export class PortalAccessService {
   ): Promise<ClientPortalDocumentsSummary> {
     return this.inFirm(tenant, async (tx) => {
       await this.client(tx, tenant, userId, clientId);
-      const live = { clientId, trashedAt: null, archivedAt: null, supersededAt: null };
+      // CP-PT-03: the same rule as the client's own portal.
+      const live = { clientId, ...LIVE_DOCUMENT };
       const [total, clientUploaded, firmShared, pendingReview, requested] = await Promise.all([
         tx.document.count({ where: live }),
         tx.document.count({ where: { ...live, direction: 'CLIENT_TO_FIRM' } }),
