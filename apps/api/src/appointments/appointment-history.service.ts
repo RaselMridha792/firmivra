@@ -36,12 +36,16 @@ export class AppointmentHistory {
   async record(
     tx: TxClient,
     action: AppointmentAction,
-    appointment: { id: string; clientId: string | null },
+    /** P4-1: a lead's own appointment (no client yet) names its lead's id. */
+    appointment: { id: string; clientId: string | null; leadId?: string | null },
     change: { by: 'STAFF' | 'CLIENT'; from: Placed | null; to: Placed | null; reason?: unknown },
   ): Promise<void> {
     const metadata: HistoryMetadata = {
       by: change.by,
       clientId: appointment.clientId,
+      ...(appointment.clientId === null && appointment.leadId
+        ? { leadId: appointment.leadId }
+        : {}),
       from: change.from && placement(change.from),
       to: change.to && placement(change.to),
       ...(action === 'CANCELLED' ? { reasonGiven: typeof change.reason === 'string' } : {}),

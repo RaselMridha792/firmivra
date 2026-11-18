@@ -35,6 +35,8 @@ function AppointmentRow({ appointment: a }: { appointment: LeadAppointment }) {
           <span className="text-sm font-semibold text-heading">{a.type ?? 'Appointment'}</span>
           <span className="text-sm text-muted">
             {stamp(a.startsAt, timeZone)} · {shortName(a.staff.name)}
+            {/* P4-1: booked as a lead, now the client's (the lead converted). */}
+            {a.client ? ` · Client: ${a.client.name}` : ''}
           </span>
         </div>
       </div>

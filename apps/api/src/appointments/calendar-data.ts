@@ -1,5 +1,5 @@
 import type { Prisma, TxClient } from '@firmivra/db';
-import type { Appointment, BusyAppointment, MemberRef } from '@firmivra/types';
+import type { Appointment, AppointmentLeadRef, BusyAppointment, MemberRef } from '@firmivra/types';
 import {
   addDays,
   type Interval,
@@ -10,7 +10,7 @@ import {
 } from './calendar.js';
 import { errors } from './errors.js';
 import { legacyKind } from './scheduling-map.js';
-import { withClient } from './appointment-party.js';
+import { clientOrLeadName } from './appointment-party.js';
 
 // Database reads shared by the appointment services (locks are in calendar-locks.ts). Every
 // function takes the transaction of the firm's business scope (row-level security: this firm
@@ -102,6 +102,9 @@ export const appointmentSelect = {
   clientInstructions: true,
   instructionsInPortal: true,
   client: { select: { displayName: true, assignedUserId: true } },
+  // P4-1: the lead it was booked for (a lead's own appointment, or a converted lead's).
+  leadId: true,
+  lead: { select: { id: true, firstName: true, lastName: true, assignedUserId: true } },
   staff: { select: memberSelect },
   type: { select: { id: true, name: true } },
   // A1: the other clients who attend (ids only: a new time must suit them too).
@@ -110,12 +113,22 @@ export const appointmentSelect = {
 
 export type AppointmentRow = Prisma.AppointmentGetPayload<{ select: typeof appointmentSelect }>;
 
-export function toAppointment(appointment: AppointmentRow): Appointment {
-  // P4-1: the contract names a client; a lead's own appointment is refused here until it has one.
-  const row = withClient(appointment);
+/** P4-1: the lead an appointment was booked for, by name; null for a client's own. */
+export function leadRefOf(row: {
+  lead: { id: string; firstName: string; lastName: string } | null;
+}): AppointmentLeadRef | null {
+  return row.lead
+    ? { id: row.lead.id, name: clientOrLeadName({ client: null, lead: row.lead }) }
+    : null;
+}
+
+export function toAppointment(row: AppointmentRow): Appointment {
   return {
     id: row.id,
-    client: { id: row.clientId, displayName: row.client.displayName },
+    // P4-1: a lead's own appointment has no client yet; its lead names who it is with.
+    client:
+      row.clientId && row.client ? { id: row.clientId, displayName: row.client.displayName } : null,
+    lead: leadRefOf(row),
     staff: memberRef(row.staff),
     type: row.type ? { id: row.type.id, name: row.type.name } : null,
     engagementId: row.engagementId,
@@ -146,21 +159,29 @@ export function toBusy(row: AppointmentRow): BusyAppointment {
 
 /**
  * The calendar rule (#63, R12 Decisions): Owner and Admin see every appointment in full; Staff
- * the ones they are the staff member of, or whose client is assigned to them.
+ * the ones they are the staff member of, or whose client is assigned to them. P4-1: a lead's own
+ * appointment (no client yet) by the lead pages' rule: Staff see it in full when the lead is
+ * assigned to them (leads.assigned_user_id), and as Busy otherwise.
  */
 export function seesInFull(actor: FirmActor, row: AppointmentRow): boolean {
   return (
     actor.role !== 'STAFF' ||
     row.staffUserId === actor.userId ||
-    // P4-1: a lead's own appointment has no client to be assigned (only its staff member sees it).
-    (row.client !== null && row.client.assignedUserId === actor.userId)
+    (row.client !== null && row.client.assignedUserId === actor.userId) ||
+    (row.clientId === null && row.lead !== null && row.lead.assignedUserId === actor.userId)
   );
 }
 
 /** The same rule as a filter, for the routes that read or change one appointment. */
 export function inFullWhere(actor: FirmActor): Prisma.AppointmentWhereInput {
   return actor.role === 'STAFF'
-    ? { OR: [{ staffUserId: actor.userId }, { client: { assignedUserId: actor.userId } }] }
+    ? {
+        OR: [
+          { staffUserId: actor.userId },
+          { client: { assignedUserId: actor.userId } },
+          { clientId: null, lead: { assignedUserId: actor.userId } },
+        ],
+      }
     : {};
 }
 

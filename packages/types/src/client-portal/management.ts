@@ -64,7 +64,7 @@ export const ClientPortalHeader = z.object({
     portalSince: DateTime.nullable(),
     /** The latest successful sign-in of any of the client's logins; never made up. */
     lastLogin: DateTime.nullable(),
-    /** The latest event in the client's portal activity. */
+    /** The client's own latest portal event; a member's action (a preview) never counts. */
     lastActivity: z.object({ at: DateTime, type: z.string() }).nullable(),
     /** The primary login's authenticator app; null with no login. */
     mfa: z.enum(['ENABLED', 'NOT_ENROLLED']).nullable(),

@@ -17,7 +17,7 @@ import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { activityOf, dayText, timeText } from './activity-labels';
+import { activityOf, activityText, dayText, timeText } from './activity-labels';
 import type { PortalTabId } from './client-panel';
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -247,7 +247,7 @@ function RecentActivity({ clientId }: { clientId: string }) {
                       </td>
                       <td className="py-2 pr-4">
                         <span className="flex items-center gap-2 text-text">
-                          <Glyph aria-hidden className="size-4 text-action" /> {kind.label}
+                          <Glyph aria-hidden className="size-4 text-action" /> {activityText(e)}
                         </span>
                       </td>
                       <td className="py-2 text-muted">

@@ -1,6 +1,6 @@
 'use client';
 
-import { type Appointment, type DashboardSummary, roleCan } from '@firmivra/types';
+import { type Appointment, appointmentWith, type DashboardSummary, roleCan } from '@firmivra/types';
 import { Button, Modal } from '@firmivra/ui';
 import { MapPin, Phone, VideoCamera } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -199,6 +199,7 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
   const { role } = useFirm();
   const canChange = role ? roleCan(role, 'APPOINTMENTS', 'EDIT') : false;
   const canOpenClient = role ? roleCan(role, 'CLIENTS', 'VIEW') : false;
+  const canOpenLead = role ? roleCan(role, 'LEADS', 'VIEW') : false;
   const [now] = useState(() => new Date().toISOString());
   const [ask, setAsk] = useState<{ ask: Ask; a: Appointment }>();
   const [message, setMessage] = useState<string>();
@@ -235,9 +236,12 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
           { label: 'Cancel', danger: true, onSelect: () => setAsk({ ask: 'cancel', a }) },
         ]
       : []),
-    ...(canOpenClient
-      ? [{ label: 'Open Client', onSelect: () => go(`/clients/${a.client.id}`) }]
-      : []),
+    // P4-1: a lead's own appointment opens its lead (the lead pages' own rules apply).
+    ...(a.client && canOpenClient
+      ? [{ label: 'Open Client', onSelect: () => go(`/clients/${a.client?.id ?? ''}`) }]
+      : !a.client && a.lead && canOpenLead
+        ? [{ label: 'Open Lead', onSelect: () => go(`/leads/${a.lead?.id ?? ''}`) }]
+        : []),
   ];
   return (
     <Widget
@@ -269,7 +273,7 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
                 const Icon = ICONS[a.locationKind];
                 const at = new Date(a.startsAt);
                 const join = meetingLink(a);
-                const what = `${a.type?.name ?? 'Appointment'} with ${a.client.displayName}`;
+                const what = `${a.type?.name ?? 'Appointment'} with ${appointmentWith(a)}`;
                 return (
                   <li key={a.id} data-testid="upcoming-row" className="flex items-center gap-2">
                     <Link
@@ -290,7 +294,7 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
                           {a.type?.name ?? 'Appointment'}
                         </span>
                         <span className="truncate text-xs text-muted">
-                          {a.client.displayName} · {LOCATION_LABELS[a.locationKind]}
+                          {appointmentWith(a)} · {LOCATION_LABELS[a.locationKind]}
                         </span>
                       </span>
                     </Link>
@@ -316,7 +320,7 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
             <CloseModal
               id={ask.a.id}
               ask={ask.ask}
-              name={ask.a.client.displayName}
+              name={appointmentWith(ask.a)}
               onClose={() => setAsk(undefined)}
               onDone={(text) => {
                 setAsk(undefined);

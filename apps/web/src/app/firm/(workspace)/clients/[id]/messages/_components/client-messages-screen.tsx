@@ -9,6 +9,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { PendingMessages } from '../../../../messages/_components/pending-messages';
+import { LeadThreadsCard } from './lead-threads-card';
 import { NotesCard } from './notes-card';
 import { NewThreadDialog, ThreadDialog } from './thread-dialogs';
 import { when } from './parts';
@@ -166,6 +167,8 @@ export function ClientMessagesScreen() {
         </PageState>
         {/* M24/M30: this client's drafts and scheduled messages, with Edit and Cancel. */}
         <PendingMessages clientId={id} />
+        {/* P4-1: the conversations from when this client was a lead (they stay on the lead). */}
+        <LeadThreadsCard clientId={id} />
       </Card>
       {/* Hidden, not removed: a note being typed is still there when the notes come back. */}
       <div id="client-internal-notes" className={notesOpen ? 'min-w-0' : 'hidden'}>

@@ -5,6 +5,7 @@ import {
   LEAD_STATUS_LABELS,
   leadScoreActivitySince,
   type LeadActivity,
+  type LeadAppointment,
   type LeadFollowUp,
   type LeadPipelineStatus,
   type LeadProfile,
@@ -18,6 +19,7 @@ import {
   scoreLead,
 } from '@firmivra/types';
 import { legacyFirmRole, type TenantRole } from '../common/request-context.js';
+import { displayStatus } from '../appointments/scheduling-map.js';
 import { notFound } from './leads.service.js';
 
 /** The member acting: Staff reach only the leads assigned to them (Owner and Admin: all). */
@@ -498,8 +500,8 @@ export async function loadProfile(
     mergedInto: r.mergedInto ? leadRef(r.mergedInto) : null,
     bestTimeToContact: r.bestTimeToContact,
     recentActivity: recent.map((a) => toActivity(a, r.source)),
-    // Appointments have no lead link yet (see the PR's gaps).
-    upcomingAppointments: [],
+    // P4-1: the lead's appointments still to come (a converted lead's too).
+    upcomingAppointments: await leadAppointmentsOf(tx, businessId, id, { upcoming: true }),
     openTasks: (await leadTasksOf(tx, businessId, id)).filter((t) => !t.done),
     client: r.engagement
       ? { id: r.engagement.client.id, name: r.engagement.client.displayName }
@@ -606,6 +608,52 @@ export async function lockLead(tx: TxClient, businessId: string, actor: Pipeline
   });
   if (!lead) throw notFound();
   return lead;
+}
+
+/**
+ * P4-1: the lead's appointments (appointments.lead_id): its own (no client yet) and, once it
+ * converted, the ones that took its client. Newest first; `upcoming`: the scheduled ones still to
+ * come, soonest first, at most five. Times, type, staff member, status and the client it went to:
+ * never notes or instructions.
+ */
+export async function leadAppointmentsOf(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+  { upcoming = false } = {},
+): Promise<LeadAppointment[]> {
+  const rows = await tx.appointment.findMany({
+    where: {
+      businessId,
+      leadId,
+      ...(upcoming ? { status: 'SCHEDULED' as const, startsAt: { gte: new Date() } } : {}),
+    },
+    orderBy: upcoming
+      ? [{ startsAt: 'asc' }, { id: 'asc' }]
+      : [{ startsAt: 'desc' }, { id: 'desc' }],
+    take: upcoming ? 5 : 200,
+    select: {
+      id: true,
+      startsAt: true,
+      endsAt: true,
+      status: true,
+      rescheduleCount: true,
+      confirmedAt: true,
+      clientId: true,
+      client: { select: { displayName: true } },
+      type: { select: { name: true } },
+      staff: { select: { userId: true, user: { select: { name: true } } } },
+    },
+  });
+  return rows.map((a) => ({
+    id: a.id,
+    startsAt: a.startsAt.toISOString(),
+    endsAt: a.endsAt.toISOString(),
+    type: a.type?.name ?? null,
+    staff: { userId: a.staff.userId, name: a.staff.user.name },
+    status: displayStatus(a),
+    client: a.clientId && a.client ? { id: a.clientId, name: a.client.displayName } : null,
+  }));
 }
 
 /** An active member of the firm (404 for anyone else: another firm's, invited or deactivated). */
