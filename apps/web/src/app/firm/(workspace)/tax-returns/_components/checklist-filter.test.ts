@@ -38,13 +38,16 @@ describe('the Document Checklist of a return (ACC-DOC)', () => {
     ).toEqual(['W-2 for this return', '1099 for the same year and service']);
   });
 
-  it('with no engagement, the year decides for an unlinked request', () => {
+  it("with no service, only the requests sent for this return, never another service's", () => {
     expect(
       checklistRequests(all, { id: ret, taxYear: 2021, engagement: null }).map((r) => r.title),
-    ).toEqual([
-      'W-2 for this return',
-      '1099 for the same year and service',
-      'Payroll register for 2021',
-    ]);
+    ).toEqual(['W-2 for this return']);
+    // None sent for it: the checklist is empty (its usual empty state).
+    expect(
+      checklistRequests(
+        all.filter((r) => r.taxReturn?.id !== ret),
+        { id: ret, taxYear: 2021, engagement: null },
+      ),
+    ).toEqual([]);
   });
 });
