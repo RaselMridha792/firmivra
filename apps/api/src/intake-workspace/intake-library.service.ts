@@ -106,6 +106,8 @@ export class IntakeLibraryService {
         : t.updatedAt
       ).toISOString(),
       owner,
+      // 24c-i: an archived one shows in the Archived view, with Restore.
+      archived: t.archivedAt !== null,
     };
   }
 
@@ -156,7 +158,8 @@ export class IntakeLibraryService {
       const rows = await tx.intakeTemplate.findMany({
         where: {
           businessId,
-          archivedAt: null,
+          // 24c-i: the Archived view lists only the archived ones; every other view, none.
+          archivedAt: q.archived === 'true' ? { not: null } : null,
           ...(q.templates === 'all' ? {} : { serviceDefault: q.templates === 'true' }),
         },
         include: templateInclude,
@@ -192,7 +195,11 @@ export class IntakeLibraryService {
   }
 
   async summary(tenant: TenantContext): Promise<IntakeFormLibrarySummary> {
-    const { items } = await this.list(tenant, { templates: 'all', sort: 'updated' });
+    const { items } = await this.list(tenant, {
+      templates: 'all',
+      sort: 'updated',
+      archived: 'false',
+    });
     const since = Date.now() - 30 * 86_400_000;
     const most = Math.max(0, ...items.map((i) => i.usageCount));
     const byCategory = new Map<FormCategory, number>();
@@ -240,7 +247,8 @@ export class IntakeLibraryService {
         settings: {
           requireAllQuestions: flag('requireAllQuestions', false),
           allowFileUploads: flag('allowFileUploads', hasUpload),
-          requireSignature: flag('requireSignature', settings?.requireSignature ?? true),
+          // 23-h: always on (every submission signs the firm's agreements).
+          requireSignature: true,
           showProgressBar: flag('showProgressBar', settings?.showProgressBar ?? true),
           expiresAfterDays:
             saved['expiresAfterDays'] === null || typeof saved['expiresAfterDays'] === 'number'
@@ -325,6 +333,7 @@ export class IntakeLibraryService {
         archivedAt: true,
         portalPublished: true,
         shareTokenHash: true,
+        shareLinkVersion: true,
         service: { select: { name: true, status: true, archivedAt: true, beginOnline: true } },
         forms: { select: { title: true, status: true }, orderBy: { version: 'desc' } },
       },
@@ -344,12 +353,13 @@ export class IntakeLibraryService {
       };
     }
     const sharing =
-      t.shareTokenHash !== null && t.shareTokenHash === intakeShareHash(this.env, t.id);
+      t.shareTokenHash !== null &&
+      t.shareTokenHash === intakeShareHash(this.env, t.id, t.shareLinkVersion);
     const firm = await tx.business.findUniqueOrThrow({
       where: { id: businessId },
       select: { slug: true },
     });
-    const url = intakeShareUrl(this.env, firm.slug, t.id);
+    const url = intakeShareUrl(this.env, firm.slug, t.id, t.shareLinkVersion);
     const title = (live ?? t.forms[0])?.title ?? t.service.name;
     return {
       templateId: t.id,
@@ -395,10 +405,14 @@ export class IntakeLibraryService {
         throw conflict('NOT_SHAREABLE', 'Publish the form before you share it');
       }
       const sharing = body.sharing && !before.main;
+      const { shareLinkVersion } = await tx.intakeTemplate.findUniqueOrThrow({
+        where: { id },
+        select: { shareLinkVersion: true },
+      });
       await tx.intakeTemplate.update({
         where: { id },
         data: {
-          shareTokenHash: sharing ? intakeShareHash(this.env, id) : null,
+          shareTokenHash: sharing ? intakeShareHash(this.env, id, shareLinkVersion) : null,
           portalPublished: body.portalPublished,
         },
       });
@@ -409,6 +423,37 @@ export class IntakeLibraryService {
       { type: 'intake_form', id },
       { sharing: share.sharing, portalPublished: share.portalPublished },
     );
+    return share;
+  }
+
+  /**
+   * POST /business/intake-forms/{id}/share/rotate (Owner and Admin; Intake Review 2 P4-16): Make
+   * a New Link. The link's generation goes up by one: the old link stops at once (its visitors see
+   * the closed-link page) and, while sharing is on, the new one works now. A main form (its link
+   * is its Begin Online page) has none to rotate (409 NOT_SHAREABLE). Audited with the generation.
+   */
+  async rotateShare(tenant: TenantContext, id: string): Promise<IntakeShare> {
+    const businessId = tenant.businessId;
+    const { share, version } = await this.inFirm(tenant, async (tx) => {
+      await tx.$executeRaw`SELECT 1 FROM intake_templates
+        WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+      const before = await this.shareIn(tx, businessId, id);
+      if (before.main)
+        throw conflict('NOT_SHAREABLE', 'This form is reached through its Begin Online page');
+      const t = await tx.intakeTemplate.update({
+        where: { id },
+        data: { shareLinkVersion: { increment: 1 } },
+        select: { shareLinkVersion: true },
+      });
+      await tx.intakeTemplate.update({
+        where: { id },
+        data: {
+          shareTokenHash: before.sharing ? intakeShareHash(this.env, id, t.shareLinkVersion) : null,
+        },
+      });
+      return { share: await this.shareIn(tx, businessId, id), version: t.shareLinkVersion };
+    });
+    await this.audit.log('intake_form.share_rotated', { type: 'intake_form', id }, { version });
     return share;
   }
 }

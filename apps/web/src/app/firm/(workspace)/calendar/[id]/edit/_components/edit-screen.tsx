@@ -6,8 +6,10 @@ import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { NOT_LOADED, SCHEDULING } from '../../../_components/appointments-parts';
 import { ScheduleForm, ScheduleHeader } from '../../../_components/schedule-form';
+import { CALENDAR_ERRORS } from '../../../_components/shared';
 
 const EDIT_ERRORS: Record<string, string> = {
+  ...CALENDAR_ERRORS,
   NOT_FOUND:
     'This appointment was not found. It may have been removed, or you may not have access.',
 };

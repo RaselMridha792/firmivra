@@ -28,7 +28,6 @@ import { ButtonLink } from '../../../../(public)/_components/button-link';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
-import { FORMS } from './forms';
 
 /** Each card's icon and circle colour, measured from Intake form tab.png (R61). */
 const CARD_ICONS: Record<IntakeFormKey, { icon: LucideIcon; tint: PortalTint }> = {
@@ -82,31 +81,8 @@ export function IntakeCards() {
             </p>
           </div>
         </header>
-        <ul aria-label="Intake forms" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          {FORMS.slice(0, 4).map((form) => (
-            <IntakeFormOption key={form.path} form={form} slug={slug} />
-          ))}
-        </ul>
-        <ul
-          aria-label="More intake forms"
-          className="grid gap-2 sm:grid-cols-2 xl:mx-auto xl:w-3/4 xl:grid-cols-3"
-        >
-          {FORMS.slice(4).map((form) => (
-            <IntakeFormOption key={form.path} form={form} slug={slug} />
-          ))}
-          <li className="col-span-full flex min-w-0 flex-col items-center gap-2 rounded-card border border-folder-border bg-surface p-3 text-center shadow-card sm:col-span-1">
-            <IconCircle icon={FileText} tint="slate" />
-            <h2 className="flex-1 font-display text-base font-bold leading-tight text-heading">
-              Other Tax Services Intake Form
-            </h2>
-            <span
-              aria-disabled="true"
-              className={`inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-control px-2 py-1 text-xs font-semibold text-on-action ${primaryButton}`}
-            >
-              Go to Intake Form <ArrowRight aria-hidden className="size-4" />
-            </span>
-          </li>
-        </ul>
+        {/* Intake Review 2 ACCESS-02e (lead, Nov 17): only the forms the firm published to the
+            portal, no fixed cards. */}
         <PublishedForms slug={slug} />
       </Card>
       <IntakeOverview slug={slug} />
@@ -172,12 +148,21 @@ function PublishedForms({ slug }: { slug: string }) {
     invalidate: ['portal', slug],
   });
   const items = forms.data ?? [];
-  if (!items.length) return null;
+  if (forms.isPending) return <p className="text-sm text-muted">Loading your firm&apos;s forms…</p>;
+  if (forms.isError)
+    return (
+      <p role="alert" className="text-sm text-danger">
+        Your firm&apos;s forms can&apos;t be shown right now. Try again in a moment.
+      </p>
+    );
+  if (!items.length)
+    return (
+      <p className="text-base text-text" data-testid="no-portal-forms">
+        Your firm hasn&apos;t published any forms yet.
+      </p>
+    );
   return (
-    <ul
-      aria-label="More forms from your firm"
-      className="grid gap-2 sm:grid-cols-2 xl:mx-auto xl:w-3/4 xl:grid-cols-3"
-    >
+    <ul aria-label="Intake forms" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
       {items.map((f) => {
         const { icon, tint } = CARD_ICONS[f.form];
         return (
@@ -223,25 +208,6 @@ function PublishedForms({ slug }: { slug: string }) {
         );
       })}
     </ul>
-  );
-}
-
-function IntakeFormOption({ form, slug }: { form: (typeof FORMS)[number]; slug: string }) {
-  const { icon, tint } = CARD_ICONS[form.key];
-  return (
-    <li className="col-span-full flex min-w-0 flex-col items-center gap-2 rounded-card border border-folder-border bg-surface p-3 text-center shadow-card sm:col-span-1">
-      <IconCircle icon={icon} tint={tint} />
-      <h2 className="flex-1 font-display text-base font-bold leading-tight text-heading">
-        {form.title}
-      </h2>
-      <ButtonLink
-        href={`/${slug}/intake/${form.path}`}
-        aria-label={`Go to ${form.title}`}
-        className={primaryButton}
-      >
-        Go to Intake Form
-      </ButtonLink>
-    </li>
   );
 }
 

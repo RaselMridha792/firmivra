@@ -1,3 +1,4 @@
+import { isLiveDocument } from '../storage/document-records.js';
 import {
   BadRequestException,
   ConflictException,
@@ -163,14 +164,19 @@ interface LinkedDocument {
   clientId: string;
   direction: string;
   scanStatus: string;
+  trashedAt: Date | null;
+  archivedAt: Date | null;
+  supersededAt: Date | null;
 }
 
 /**
  * The PDF as the client sees it: only their own document, never an internal one, and only once
  * its virus scan is CLEAN. The database already refuses another client's or an internal one.
+ * CP-PT-03: never one the firm trashed, archived or replaced.
  */
 export function visibleDocument(doc: LinkedDocument | null, clientId: string): DocumentRef | null {
   if (!doc || doc.clientId !== clientId || doc.direction === 'INTERNAL') return null;
+  if (!isLiveDocument(doc)) return null;
   return doc.scanStatus === 'CLEAN' ? { id: doc.id, fileName: doc.fileName } : null;
 }
 

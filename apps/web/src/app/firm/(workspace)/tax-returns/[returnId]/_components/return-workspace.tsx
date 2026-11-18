@@ -127,7 +127,9 @@ export function ReturnWorkspace({ returnId }: { returnId: string }) {
       scroll: false,
     });
 
-  if (q.isError) {
+  // F08-S (R61's live check): only when there is no return to show. A failed background
+  // refresh (one 503 under load) keeps the page, and any dialog open on it, as it was.
+  if (q.isError && !r) {
     return (
       <div className="flex flex-col gap-4" data-testid="return-workspace">
         <Crumbs />

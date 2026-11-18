@@ -28,6 +28,7 @@ import {
   loadConflictData,
   toResult,
 } from './scheduling-conflicts.js';
+import { leadToBook } from './appointment-party.js';
 import { errors } from './errors.js';
 import { attendeeClients } from './scheduling-data.js';
 import { expandRecurrence } from './scheduling-recurrence.js';
@@ -86,7 +87,7 @@ export class SchedulingAvailabilityService {
       const members: MemberRef[] = [];
       for (const userId of body.staffUserIds)
         members.push(await activeMember(tx, businessId, userId));
-      const clientId = await this.clientOf(tx, businessId, actor, body.contact);
+      const { clientId, leadId } = await this.partyOf(tx, businessId, actor, body.contact);
       // A1: who attends already (an edit) stays checkable; a new one only as the client would be.
       let attending: string[] = [];
       if (body.excludeAppointmentId) {
@@ -150,6 +151,7 @@ export class SchedulingAvailabilityService {
         occurrences: expansion.occurrences,
         allDay: false,
         clientId,
+        leadId,
         attendeeClientIds: attendees,
         roomId: body.roomId ?? null,
         equipmentIds,
@@ -166,6 +168,7 @@ export class SchedulingAvailabilityService {
         candidate.roomId,
         attendees,
         equipmentIds,
+        leadId,
       );
       return toResult(data, candidate, actor).result;
     });
@@ -177,18 +180,37 @@ export class SchedulingAvailabilityService {
     return result;
   }
 
-  /** The client behind the contact, for the double-booking check; leads and new contacts have none. */
-  private async clientOf(
+  /**
+   * Who the contact is, for the double-booking check: a client the member may see, or (P4-1) a
+   * lead the member reaches, which counts as its client once converted (404 otherwise). A new
+   * contact has neither.
+   */
+  private async partyOf(
     tx: TxClient,
     businessId: string,
     actor: FirmActor,
     contact: ConflictsReq['contact'],
-  ): Promise<string | null> {
-    if (contact?.kind !== 'CLIENT') return null;
+  ): Promise<{ clientId: string | null; leadId: string | null }> {
+    if (contact?.kind === 'LEAD') {
+      const lead = await leadToBook(tx, businessId, actor, contact.id);
+      if (!lead.clientId) return { clientId: null, leadId: lead.id };
+      return { clientId: await this.clientOf(tx, businessId, actor, lead.clientId), leadId: null };
+    }
+    if (contact?.kind !== 'CLIENT') return { clientId: null, leadId: null };
+    return { clientId: await this.clientOf(tx, businessId, actor, contact.id), leadId: null };
+  }
+
+  /** A client the member may see (Staff: their assigned clients), else 404. */
+  private async clientOf(
+    tx: TxClient,
+    businessId: string,
+    actor: FirmActor,
+    clientId: string,
+  ): Promise<string> {
     const client = await tx.client.findFirst({
       where: {
         businessId,
-        id: contact.id,
+        id: clientId,
         ...(actor.role === 'STAFF' ? { assignedUserId: actor.userId } : {}),
       },
       select: { id: true },

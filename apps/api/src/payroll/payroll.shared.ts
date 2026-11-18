@@ -41,6 +41,12 @@ export const errors = {
   notThisClients: (what: string) =>
     conflict('NOT_THIS_CLIENTS', `The ${what} does not belong to this payroll client`),
   duplicate: (message: string) => conflict('DUPLICATE', message),
+  /** F01: a save with no plan never clears a saved one; Remove Plan does. */
+  planRemoveExplicit: () =>
+    conflict(
+      'PLAN_REMOVE_EXPLICIT',
+      'The client has a plan: choose a plan, or use Remove Plan to clear it',
+    ),
   /** A request that passed the contract but cannot be stored. */
   invalid: (path: string, message: string) =>
     new BadRequestException({

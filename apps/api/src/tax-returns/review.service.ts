@@ -18,6 +18,7 @@ import type {
   TaxReturnDocumentList,
   TaxReturnExportLink,
   TaxReturnFilingList,
+  DownloadLink,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -28,6 +29,8 @@ import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { isUniqueViolation, memberNames, memberRef, notAMember } from '../workspaces/common.js';
 import { ISSUES_BLOCK, openErrorIssues, TaxReturnIssuesService } from './issues.service.js';
 import { notFound } from './tax-return-rules.js';
+import { documentSelect } from '../storage/document-records.js';
+import { UploadsService } from '../storage/uploads.service.js';
 import {
   backToReview,
   blockersOf,
@@ -87,6 +90,7 @@ export class TaxReturnReviewService {
     private readonly returns: TaxReturnWorkspaceService,
     @Inject(REPORT_FILES) private readonly files: ReportFiles,
     private readonly issues: TaxReturnIssuesService,
+    private readonly uploads: UploadsService,
   ) {}
 
   private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -1237,6 +1241,29 @@ export class TaxReturnReviewService {
       addedBy: memberRef(names, r.createdByUserId),
       createdAt: r.createdAt.toISOString(),
     }));
+  }
+
+  /**
+   * F18: a 5-minute link to a document linked to this return, for anyone who reaches the return
+   * (its preparer or reviewer too, without the client): 404 for a document not linked to it, then
+   * 409 SCAN_PENDING or FILE_BLOCKED. Audited as every download link is.
+   */
+  async documentDownload(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    documentId: string,
+  ): Promise<DownloadLink> {
+    const doc = await this.inFirm(tenant, async (tx) => {
+      await this.reach(tx, tenant, userId, id);
+      const link = await tx.taxReturnDocument.findFirst({
+        where: { businessId: tenant.businessId, taxReturnId: id, documentId },
+        select: { document: { select: documentSelect } },
+      });
+      if (!link) throw notFound();
+      return link.document;
+    });
+    return this.uploads.downloadLink(doc);
   }
 
   documents(tenant: TenantContext, userId: string, id: string) {

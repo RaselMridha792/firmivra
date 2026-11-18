@@ -119,6 +119,17 @@ export class IntakeFormsController {
     return this.library.saveShare(tenant, id, body);
   }
 
+  /** Intake Review 2 P4-16: Make a New Link; the old one stops at once. */
+  @Post(':id/share/rotate')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  rotateShare(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+  ): Promise<IntakeShare> {
+    return this.library.rotateShare(tenant, id);
+  }
+
   @Post(':id/publish')
   @HttpCode(200)
   @Roles(...FIRM_MANAGERS)
@@ -148,6 +159,18 @@ export class IntakeFormsController {
     @Param('id', formIdPipe) id: string,
   ): Promise<IntakeFormDetail> {
     return this.builder.archive(tenant, id);
+  }
+
+  /** Intake Review 2 24c-i: an archived form or template back in the library, as a draft. */
+  @Post(':id/restore')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  restore(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+  ): Promise<IntakeFormDetail> {
+    return this.builder.restore(tenant, auth.userId, id);
   }
 }
 

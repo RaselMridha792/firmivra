@@ -38,7 +38,7 @@ import { useFirm } from '../../../../../components/firm-context';
 import { OriginLink } from '../../../../../components/origin-link';
 import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
-import { errorCode, errorMessage } from '../../../../../lib/errors';
+import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { MultiPick } from '../../team/new/_components/multi-pick';
 import { METHOD_LABELS, NOT_LOADED, SCHEDULING, STATUS_LOOKS } from './appointments-parts';
@@ -46,10 +46,11 @@ import { TONE_DOTS, TONE_NAMES, colourTone } from './colour';
 import { remindersFromType } from './reminder-defaults';
 import { addedType } from './new-type';
 import { AttendeePicker } from './attendee-picker';
-import { equipmentChoices, equipmentClashes } from './equipment';
+import { conflictOf, equipmentChoices, equipmentClashes } from './equipment';
 import { StaffDayPanel } from './staff-day-panel';
 import { localParts, todayIn, toInstant } from './time';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
+import { CALENDAR_ERRORS } from './shared';
 
 const TIME_ZONES: [string, string][] = [
   ['America/New_York', '(GMT-05:00) Eastern Time (ET)'],
@@ -90,6 +91,7 @@ const UNITS: [ReminderUnit, string][] = [
 ];
 
 const SCHEDULE_ERRORS: Record<string, string> = {
+  ...CALENDAR_ERRORS,
   SCHEDULING_CONFLICT: 'This time conflicts with the staff member’s calendar.',
   SAVE_CONFLICT:
     'Someone saved this appointment while you were editing. Reload to see their changes, then make yours again.',
@@ -1016,6 +1018,20 @@ function FormBody({
     setForm((f) => ({ ...f, [k]: v }));
     setNote('');
   };
+  // Review 2 (B5): a new start keeps the appointment's length: the end moves with it (the
+  // type's length when the end was not after the start), never past the end of the day.
+  const moveStart = (start: string) => {
+    setForm((f) => {
+      const length = minutesOf(f.end) - minutesOf(f.start);
+      const keep =
+        length > 0 ? length : (o.types.find((t) => t.id === f.typeId)?.durationMinutes ?? 0);
+      if (!keep) return { ...f, start };
+      const m = Math.min(minutesOf(start) + keep, 23 * 60 + 59);
+      const end = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      return { ...f, start, end };
+    });
+    setNote('');
+  };
   const setReminders = (next: Form['reminders']) => {
     remindersTouched.current = true;
     setReminderNote('');
@@ -1164,7 +1180,11 @@ function FormBody({
   const failure = schedule.error ?? update.error ?? draft.error;
   // Review 2 (A2): an item another appointment holds then, named; it can't be booked anyway.
   const heldItems = equipmentClashes(failure);
-  const conflict = errorCode(schedule.error) === 'SCHEDULING_CONFLICT' && heldItems.length === 0;
+  // Review 2 (W10): Book Anyway only when the member may override this conflict; a hard one (the
+  // client already booked then, a room) says so in its own words and offers no way around it.
+  const clash = conflictOf(schedule.error);
+  const conflict = clash?.canOverride === true && heldItems.length === 0;
+  const hardClash = clash !== null && !clash.canOverride && heldItems.length === 0;
 
   const submit = () => {
     if (!check()) return;
@@ -1537,7 +1557,7 @@ function FormBody({
               disabled={form.allDay}
               options={timesWith(form.start)}
               value={form.start}
-              onChange={(e) => set('start', e.target.value)}
+              onChange={(e) => moveStart(e.target.value)}
             />
             <Select
               label="End Time *"
@@ -2109,7 +2129,9 @@ function FormBody({
                 ? `${heldItems.join('. ')}. Choose another time, or leave the item out.`
                 : conflict
                   ? `${SCHEDULE_ERRORS.SCHEDULING_CONFLICT} Choose another time in the Staff Availability panel, or book anyway with a reason.`
-                  : errorMessage(failure, SCHEDULE_ERRORS)}
+                  : hardClash && clash.messages.length > 0
+                    ? `${clash.messages.join('. ')}. Choose another time.`
+                    : errorMessage(failure, SCHEDULE_ERRORS)}
             </Callout>
             {conflict ? (
               <Input

@@ -21,6 +21,7 @@ import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { RowMenu, type RowMenuItem } from '../../team/_components/row-menu';
 import { NOT_LOADED, SCHEDULING, initials } from './appointments-parts';
 import { timeLabel, toInstant, todayIn } from './time';
+import { CALENDAR_ERRORS } from './shared';
 
 /** A firm-local 'YYYY-MM-DD' as a Date at local midnight, for the kit's calendar. */
 export const dayDate = (date: string) => {
@@ -242,7 +243,7 @@ function RemindersModal({
         </p>
         {send.error ? (
           <p role="alert" className="text-sm text-danger">
-            {errorMessage(send.error)}
+            {errorMessage(send.error, CALENDAR_ERRORS)}
           </p>
         ) : null}
         <div className="flex justify-end gap-3">

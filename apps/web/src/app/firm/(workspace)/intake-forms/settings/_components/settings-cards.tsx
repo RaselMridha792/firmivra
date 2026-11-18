@@ -14,6 +14,7 @@ import Image from 'next/image';
 import { useId, useState } from 'react';
 import {
   FixedRow,
+  SIGN_NOTE,
   InputRow,
   SelectRow,
   SettingsCard,
@@ -128,13 +129,8 @@ export function GeneralFields({
             disabled={readOnly}
             onChange={(on) => set('general', { allowSaveAndResume: on })}
           />
-          <ToggleRow
-            label="Require e-signature"
-            width={w}
-            checked={g.requireSignature}
-            disabled={readOnly}
-            onChange={(on) => set('general', { requireSignature: on })}
-          />
+          {/* Intake Review 2 23-h (lead, Nov 17): fixed, like encryption. */}
+          <FixedRow label="Require e-signature" value="Always on" width={w} note={SIGN_NOTE} />
           <ToggleRow
             label="Auto-generate submission ID"
             width={w}
@@ -470,7 +466,6 @@ export function AutomationFields({
           <ToggleRow
             label="Auto-create client record"
             width="w-20"
-            notActive
             checked={a.autoCreateClient}
             disabled={readOnly}
             onChange={(on) => set('automation', { autoCreateClient: on })}
@@ -478,7 +473,6 @@ export function AutomationFields({
           <ToggleRow
             label="Auto-create follow-up task"
             width="w-20"
-            notActive
             checked={a.autoCreateFollowUpTask}
             disabled={readOnly}
             onChange={(on) => set('automation', { autoCreateFollowUpTask: on })}
@@ -486,7 +480,6 @@ export function AutomationFields({
           <ToggleRow
             label="Route by service type"
             width="w-20"
-            notActive
             checked={a.routeByServiceType}
             disabled={readOnly}
             onChange={(on) => set('automation', { routeByServiceType: on })}
@@ -494,13 +487,19 @@ export function AutomationFields({
           <SelectRow
             label="Default follow-up owner"
             width="w-32"
-            notActive
             value={a.defaultFollowUpOwnerUserId ?? ''}
             options={ownerOptions(members, savedOwner)}
             disabled={readOnly}
             error={errors['automation.defaultFollowUpOwnerUserId']}
             onChange={(v) => set('automation', { defaultFollowUpOwnerUserId: v || null })}
           />
+          {/* Intake Review 2 23-c to 23-f: what the rules do, once per form. */}
+          <p className="text-xs text-muted" data-testid="automation-rules-help">
+            When a form is submitted: a lead becomes a client (an existing client with the same
+            email is linked, never a second one), and one follow-up task is made for the form&apos;s
+            assignee, else the client&apos;s staff for the service (Route by service type), else the
+            default follow-up owner. A correction or resubmit makes nothing new.
+          </p>
         </>
       ) : null}
     </>
@@ -765,13 +764,7 @@ export function SubmissionRulesFields({ draft, set, errors, readOnly }: FieldsPr
   if (!g || !s) return null;
   return (
     <>
-      <ToggleRow
-        label="Require e-signature"
-        width="w-20"
-        checked={g.requireSignature}
-        disabled={readOnly}
-        onChange={(on) => set('general', { requireSignature: on })}
-      />
+      <FixedRow label="Require e-signature" value="Always on" width="w-20" note={SIGN_NOTE} />
       <ToggleRow
         label="Consent checkbox required"
         width="w-20"

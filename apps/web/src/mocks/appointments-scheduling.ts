@@ -34,6 +34,7 @@ import {
 import { mockDelay } from '../lib/mock';
 import { appointmentIntakes } from './appointment-intakes';
 import { liveEquipment, liveRooms, resourceStore } from './appointment-resources';
+import { addMockLeadAppointment, mockLeadToBook } from './leads-pipeline';
 
 /**
  * Mock data for `api.scheduling` (R42 contract, the Appointments workspace). Synthetic people
@@ -420,9 +421,26 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
     endsAt: string;
     excludeAppointmentId?: string;
     equipmentIds?: readonly string[];
+    /** The client being booked: one already booked then is a hard conflict (W10), as the API. */
+    clientId?: string | undefined;
   }): ConflictResult {
     const found: ConflictResult['conflicts'] = [];
     const date = localDate(Date.parse(input.startsAt));
+    if (input.clientId) {
+      for (const r of s.records) {
+        if (r.id === input.excludeAppointmentId || r.status === 'CANCELED' || r.status === 'DRAFT')
+          continue;
+        if (r.contact.kind === 'CLIENT' && r.contact.id === input.clientId && overlaps(r, input)) {
+          found.push({
+            kind: 'CLIENT_DOUBLE_BOOKED',
+            staff: null,
+            startsAt: r.startsAt,
+            endsAt: r.endsAt,
+            message: 'This client already has an appointment at this time',
+          });
+        }
+      }
+    }
     // Review 2 (A2): an item another live appointment holds then; never overridden.
     for (const r of s.records) {
       if (r.id === input.excludeAppointmentId || r.status === 'CANCELED' || r.status === 'DRAFT')
@@ -481,7 +499,10 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       ok: found.length === 0,
       conflicts: found,
       alternatives,
-      canOverride: role !== 'STAFF' && !found.some((c) => c.kind === 'EQUIPMENT'),
+      // As the API: a hard conflict (an item held, the client already booked) is never overridden.
+      canOverride:
+        role !== 'STAFF' &&
+        !found.some((c) => c.kind === 'EQUIPMENT' || c.kind === 'CLIENT_DOUBLE_BOOKED'),
     };
   }
   /** 409 SCHEDULING_CONFLICT with the check's answer in its details, as the API sends it. */
@@ -698,6 +719,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         startsAt: input.startsAt,
         endsAt: input.endsAt,
         equipmentIds: input.equipmentIds ?? [],
+        clientId: input.contact.kind === 'CLIENT' ? input.contact.id : undefined,
       });
       if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
         throw conflictError(check);
@@ -728,13 +750,58 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       if (!type) throw fail(404, 'NOT_FOUND', 'Appointment type not found');
       const staff = staffByIds(input.staffUserIds);
       const createdAt = new Date().toISOString();
+      // P4-1: a lead books as itself until it converts (then as its client), as the API.
+      let contact = contactOf(input.contact);
+      let leadOnly: string | null = null;
+      if (input.contact.kind === 'LEAD') {
+        const lead = mockLeadToBook(input.contact.id, role === 'STAFF' ? me.userId : null);
+        contact = !lead
+          ? contact
+          : lead.client
+            ? {
+                kind: 'CLIENT',
+                id: lead.client.id,
+                name: lead.client.name,
+                businessName: null,
+                email: lead.email,
+                phone: lead.phone,
+                clientType: 'INDIVIDUAL',
+              }
+            : {
+                kind: 'LEAD',
+                id: lead.id,
+                name: lead.name,
+                businessName: lead.businessName,
+                email: lead.email,
+                phone: lead.phone,
+                clientType: null,
+              };
+        if (!lead?.client) leadOnly = input.contact.id;
+      }
+      if (leadOnly) {
+        const convertFirst = (what: string) =>
+          fail(
+            400,
+            'VALIDATION_FAILED',
+            `A lead's appointment ${what}. Convert the lead to a client first.`,
+          );
+        if (input.related?.taxReturnId) throw convertFirst('cannot link a tax return');
+        if (input.taxPlanId) throw convertFirst('cannot link a tax plan');
+        if (input.attendeeClientIds?.length) throw convertFirst('has no other attendees');
+        if (input.reminders.some((r) => r.channel === 'SMS'))
+          throw fail(
+            400,
+            'SMS_UNAVAILABLE',
+            'Text reminders are not sent to leads. Use email, or convert the lead to a client.',
+          );
+      }
       const r: AppointmentRecord = {
         restricted: false,
         id: uuid('0a10', s.next++),
         startsAt: input.startsAt,
         endsAt: input.endsAt,
         allDay: input.allDay,
-        contact: contactOf(input.contact),
+        contact,
         attendees: attendeesOf(input.attendeeClientIds).filter(
           (a) => input.contact.kind === 'CONTACT' || a.id !== input.contact.id,
         ),
@@ -792,6 +859,17 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       };
       s.records.push(r);
       s.idempotent.set(input.idempotencyKey, r.id);
+      if (leadOnly) {
+        addMockLeadAppointment(leadOnly, {
+          id: r.id,
+          startsAt: r.startsAt,
+          endsAt: r.endsAt,
+          type: type.name,
+          staff: r.staff[0] ?? me,
+          status: r.status,
+          client: null,
+        });
+      }
       return copy(r);
     },
     updateDetails: async (id, body) => {
@@ -815,6 +893,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           endsAt,
           excludeAppointmentId: id,
           equipmentIds: equipment.map((e) => e.id),
+          clientId: r.contact.kind === 'CLIENT' ? (r.contact.id ?? undefined) : undefined,
         });
         if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
           throw conflictError(check);
@@ -891,6 +970,13 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       const input = parseInput(SendReminderRequest, body);
       const r = find(id);
       const channels = input.channels ?? ['EMAIL'];
+      // P4-1: a lead's own appointment reminds its lead by email only, as the API.
+      if (r.contact.kind === 'LEAD' && channels.includes('SMS'))
+        throw fail(
+          400,
+          'SMS_UNAVAILABLE',
+          'Text reminders are not sent to leads. Use email, or convert the lead to a client.',
+        );
       for (const c of channels) r.notices.push(notice('REMINDER', c));
       return {
         sent: r.contact.email ? channels.length : 0,

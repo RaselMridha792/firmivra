@@ -1,3 +1,4 @@
+import { LIVE_DOCUMENT } from '../storage/document-records.js';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
@@ -8,7 +9,7 @@ import {
 } from '@firmivra/types';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { minutesOf, timeOfDayFromDb, zonedInstant } from '../appointments/calendar.js';
-import { noticeWords } from '../appointments/notice-words.js';
+import { leadNotice, noticeWords } from '../appointments/notice-words.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
@@ -154,6 +155,11 @@ interface RecordInfo {
    * to "PRIMARY only", q27 (5)).
    */
   noteOwner?: true;
+  /**
+   * P4-1: a lead's own appointment (no client yet). Its staff side is the lead's, as a client's
+   * is the client's: the lead's assigned member and every Owner and Admin, with the lead's name.
+   */
+  lead?: { name: string; assignedUserId: string | null };
 }
 
 type Loader = (tx: TxClient, businessId: string, id: string) => Promise<RecordInfo | null>;
@@ -168,8 +174,9 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
     return r && { clientId: r.clientId, values: { title: short(r.title), dueOn: day(r.dueOn) } };
   },
   document: async (tx, businessId, id) => {
+    // CP-PT-03: never about a file the firm trashed, archived or replaced.
     const r = await tx.document.findFirst({
-      where: { businessId, id },
+      where: { businessId, id, ...LIVE_DOCUMENT },
       select: { clientId: true },
     });
     return r && { clientId: r.clientId, values: {} };
@@ -232,11 +239,20 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
         startsAt: true,
         type: { select: { name: true } },
         attendees: { select: { clientId: true } },
+        lead: { select: { firstName: true, lastName: true, assignedUserId: true } },
       },
     });
     if (!r) return null;
     return {
       clientId: r.clientId,
+      ...(!r.clientId && r.lead
+        ? {
+            lead: {
+              name: `${r.lead.firstName} ${r.lead.lastName}`.trim(),
+              assignedUserId: r.lead.assignedUserId,
+            },
+          }
+        : {}),
       alsoClientIds: r.attendees.map((a) => a.clientId),
       values: {
         title: short(r.type?.name) ?? 'Appointment',
@@ -595,6 +611,10 @@ async function recipientsOf(
           })
         )?.displayName,
       );
+    } else if (record.lead) {
+      // P4-1: a lead's own appointment: the lead's member, as a client's (q27).
+      assigned = record.lead.assignedUserId;
+      clientName = short(record.lead.name);
     }
     // q27 (Rasel, Oct 8): news about a client goes to its assigned member AND every Owner and
     // Admin; a record without a client to the Owners and Admins; a personal one to that person.
@@ -606,7 +626,7 @@ async function recipientsOf(
           where: {
             ...active,
             userId: { in: [...chosen] },
-            ...(record.clientId
+            ...(record.clientId || record.lead
               ? { OR: [managers, ...(assigned ? [{ userId: assigned }] : [])] }
               : {}),
           },
@@ -818,11 +838,30 @@ export class Notifier {
           values: item.values,
         });
       }
+      // P4-1: a lead's own appointment has no login to reach: its reminder goes to the lead's
+      // email, without the portal link and never as a text (`leadNotice`).
+      if (event === 'appointment.reminder' && sides.includes('client')) {
+        await this.sendLeadReminder(businessId, target.id);
+      }
     }
     if (text && reached.clients.length > 0) {
       await this.sendTexts(text, businessId, reached.clients, target);
     }
     return { written: written.length };
+  }
+
+  /** P4-1: the lead's reminder of its own appointment, when it has one to get; ids-only log. */
+  private async sendLeadReminder(businessId: string, appointmentId: string): Promise<void> {
+    try {
+      const message = await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+        leadNotice(tx, businessId, appointmentId, 'appointment.reminder'),
+      );
+      if (message) await this.sender.send(message);
+    } catch (error) {
+      this.logger.warn(
+        `appointment.reminder for appointment ${appointmentId}: the lead's copy failed (${errorName(error)})`,
+      );
+    }
   }
 
   /**
