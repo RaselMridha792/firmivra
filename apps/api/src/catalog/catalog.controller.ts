@@ -27,6 +27,7 @@ import {
   type Promotion,
   PromotionId,
   type PromotionList,
+  type PublicLink,
   ReorderCategoriesRequest,
   SavePromotionRequest,
   SaveServiceCategoryRequest,
@@ -286,6 +287,15 @@ export class CatalogPackagesController {
     @Param('id', packageId) id: string,
   ): Promise<ServicePackage> {
     return this.packages.get(tenant.businessId, id);
+  }
+
+  /** SP-1 (S12): the package's public link and button code, whatever its state. */
+  @Get(':id/public-link')
+  publicLink(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', packageId) id: string,
+  ): Promise<PublicLink> {
+    return this.packages.publicLink(tenant.businessId, id);
   }
 
   @Patch(':id')

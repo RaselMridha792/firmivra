@@ -50,6 +50,7 @@ import {
   createMyContentClient,
   createMyDocumentsClient,
   createMyTasksClient,
+  createPublicPackagesClient,
   createMyIntakesClient,
   createIntakeLinkClient,
   createLeadRoutingClient,
@@ -505,6 +506,8 @@ export const api = {
     dev && mocked('myDocuments')
       ? myDocumentsMock(firmSlug)
       : createMyDocumentsClient(request, firmSlug),
+  /** Client Portal Review One SP-1: a package's public page, read without signing in. */
+  publicPackages: (firmSlug: string) => createPublicPackagesClient(request, firmSlug),
   /** Client Portal Review One T16: the tasks the firm shows this client (portal Requests area). */
   myTasks: (firmSlug: string) => createMyTasksClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */

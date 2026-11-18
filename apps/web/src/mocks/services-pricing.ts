@@ -1,4 +1,6 @@
 import {
+  publicButtonCode,
+  publicItemUrl,
   ApiRequestError,
   type CatalogService,
   type CatalogServiceRow,
@@ -20,7 +22,11 @@ import {
   UpdateCatalogServiceRequest,
   UpdateServicePackageRequest,
 } from '@firmivra/types';
+
 import { mockDelay } from '../lib/mock';
+
+/** The portal's address in mock mode (as the other mocks' public links). */
+const MOCK_PORTAL_URL = process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? 'http://portal.localhost:3000';
 
 /**
  * Mock data for `api.servicesPricing` (R43 contract, Services & Pricing). Sample prices only:
@@ -961,6 +967,28 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
     package: async (id) => {
       await mockDelay();
       return copy(pkg(id));
+    },
+    // SP-1 (S12): the package's booking link and button code, with the API's state rule.
+    packagePublicLink: async (id) => {
+      await mockDelay();
+      const p = pkg(id);
+      const url = publicItemUrl(MOCK_PORTAL_URL, 'lvp', 'PACKAGE', p.id);
+      return {
+        kind: 'PACKAGE',
+        itemId: p.id,
+        url,
+        embedCode: publicButtonCode(url, `View ${p.name}`),
+        state:
+          p.status === 'ARCHIVED'
+            ? 'ARCHIVED'
+            : p.status === 'DRAFT'
+              ? 'DRAFT'
+              : p.status === 'INACTIVE'
+                ? 'INACTIVE'
+                : p.visibleToClients && p.displayOnWebsite
+                  ? 'LIVE'
+                  : 'HIDDEN',
+      };
     },
     createPackage: async (body) => {
       await mockDelay();
