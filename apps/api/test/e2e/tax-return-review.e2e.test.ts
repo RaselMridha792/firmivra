@@ -1195,6 +1195,44 @@ describe('Review 2: Start Correction, Record Extension and amount rounding', () 
     ]);
   });
 
+  it("F16: the year correction and a recorded extension show in the return's Activity", async () => {
+    const fresh = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2016,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+        dueOn: '2017-04-18',
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    ok(
+      await call('post', `/tax-returns/${fresh.id}/tax-year`, ownerA, {
+        taxYear: 2015,
+        reason: 'Fake: entered as 2016 by mistake',
+      }),
+      TaxReturnDetail,
+    );
+    ok(
+      await call('post', `/tax-returns/${fresh.id}/extension`, ownerA, {
+        extensionFiledOn: '2017-04-10',
+        extendedDueOn: '2017-10-16',
+      }),
+      TaxReturnDetail,
+    );
+    const activity = ok(
+      await call('get', `/tax-returns/${fresh.id}/activity`, ownerA),
+      TaxReturnActivityList,
+    );
+    expect(activity.items.map((i) => [i.kind, i.label])).toEqual(
+      expect.arrayContaining([
+        ['UPDATED', 'Tax year corrected from 2016 to 2015'],
+        ['FILING', 'Extension recorded: due 2017-10-16'],
+      ]),
+    );
+  });
+
   it('records an extension (the event only) after the due date, never on a filed return', async () => {
     const fresh = ok(
       await call('post', '/tax-returns', ownerA, {
