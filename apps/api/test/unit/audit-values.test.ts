@@ -72,7 +72,14 @@ describe('which keys are secrets, tax ids or free text', () => {
   });
 
   it('finds free text', () => {
-    for (const key of ['notes', 'description', 'messageBody', 'internalNote', 'details'])
+    for (const key of [
+      'notes',
+      'description',
+      'messageBody',
+      'internalNote',
+      'details',
+      'notApplicableReason',
+    ])
       expect([key, isFreeTextKey(key)]).toEqual([key, true]);
     for (const key of ['status', 'noteId', 'dueOn', 'name'])
       expect([key, isFreeTextKey(key)]).toEqual([key, false]);

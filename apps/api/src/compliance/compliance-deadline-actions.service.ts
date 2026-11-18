@@ -48,6 +48,7 @@ import {
   OPEN_STATUSES,
   toDay,
 } from './compliance.shared.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Create = z.output<typeof CreateComplianceDeadlineRequest>;
 type Update = z.output<typeof UpdateComplianceDeadlineRequest>;
@@ -89,6 +90,43 @@ const plain = (v: unknown, key: string): Plain => {
   if (typeof v === 'number' || typeof v === 'boolean') return v;
   return null;
 };
+/**
+ * Audit Log Review 2, R04a (the lead's DECISIONS.md, "Audit Log" 5): a status action's row holds
+ * the status before and after and each value it set or cleared (the filed-on day, who completed
+ * it and when, the assignee). The confirmation number is "set", "changed" or "cleared", never its
+ * value. Reopen keeps the filed-on day and the confirmation number, and says so (`kept`).
+ */
+export function statusChange(
+  current: {
+    status: string;
+    confirmationNumber: string | null;
+    filedOn: Date | null;
+  },
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  const { status, confirmationNumber, ...rest } = data;
+  const { fields, changes } = auditChanges(current, rest, { fields: Object.keys(rest) });
+  const number =
+    confirmationNumber === undefined || (confirmationNumber ?? null) === current.confirmationNumber
+      ? undefined
+      : current.confirmationNumber === null
+        ? 'set'
+        : confirmationNumber === null
+          ? 'cleared'
+          : 'changed';
+  const all = number ? [...fields, 'confirmationNumber'].sort() : fields;
+  const kept = [
+    ...(rest['filedOn'] === undefined && current.filedOn ? ['filedOn'] : []),
+    ...(confirmationNumber === undefined && current.confirmationNumber ? ['confirmationNumber'] : []),
+  ];
+  return {
+    from: current.status,
+    ...(typeof status === 'string' ? { to: status } : {}),
+    ...(all.length ? { fields: all, changes: { ...changes, ...(number ? { confirmationNumber: number } : {}) } } : {}),
+    ...(status === 'UPCOMING' && kept.length ? { kept } : {}),
+  };
+}
+
 export function changesOf(
   current: Record<string, unknown>,
   body: Partial<Record<string, unknown>>,
@@ -368,7 +406,18 @@ export class ComplianceDeadlineActionsService {
   ) {
     const current = await tx.complianceDeadline.findFirst({
       where: { AND: [{ businessId, id }, reachWhere(actor)] },
-      select: { id: true, clientId: true, status: true, archivedAt: true },
+      select: {
+        id: true,
+        clientId: true,
+        status: true,
+        archivedAt: true,
+        assignedUserId: true,
+        completedAt: true,
+        completedByUserId: true,
+        filedOn: true,
+        confirmationNumber: true,
+        notApplicableReason: true,
+      },
     });
     if (!current) throw errors.notFound();
     if (current.archivedAt) throw errors.deadlineState('This deadline is archived');
@@ -386,7 +435,7 @@ export class ComplianceDeadlineActionsService {
       tx,
       action,
       { type: 'compliance_deadline', id },
-      { clientId: current.clientId, from: current.status, ...meta },
+      { clientId: current.clientId, ...statusChange(current, data), ...meta },
     );
     return current;
   }

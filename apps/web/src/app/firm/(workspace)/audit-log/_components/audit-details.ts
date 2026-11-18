@@ -35,7 +35,7 @@ export function detailLines(metadata: Record<string, unknown>): DetailLine[] {
     if (paired && (key === 'from' || key === 'to' || key === 'fields')) continue;
     // A free-text change is recorded as "changed", never its text (R03).
     const entryOf = (v: unknown) =>
-      v === 'changed' ? 'changed' : isChange(v) ? changeText(v) : null;
+      typeof v === 'string' ? v : isChange(v) ? changeText(v) : null;
     if (
       key === 'changes' &&
       isObject(value) &&

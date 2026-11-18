@@ -109,6 +109,7 @@ const TEXT_NOUNS = new Set([
   'memo',
   'text',
   'html',
+  'reason',
 ]);
 
 /** A key of free text: a change to it is "changed", never its text. */
