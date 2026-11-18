@@ -373,7 +373,8 @@ export const PROVIDERS: readonly IntegrationProvider[] = [
       'Connect a system Firmivra does not support yet with your own endpoint, events and a signing secret.',
     popularity: 60,
     authMethod: 'NONE',
-    directions: ['EXPORT', 'IMPORT'],
+    // I-R2-07 (Integrations Review Two): it only sends events out, so it offers only that way.
+    directions: ['EXPORT'],
     entities: [entity('events', 'Events', 'Events sent to your endpoint', ['EXPORT'])],
     multipleConnections: false,
     live: true,

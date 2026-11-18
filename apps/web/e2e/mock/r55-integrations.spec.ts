@@ -182,3 +182,74 @@ test('connecting shows the provider’s facts first, in its own words (IN-Y11, Y
   await expect(page.getByText("You'll be redirected to your provider")).toHaveCount(0);
   await page.screenshot({ path: 'e2e/mock/r55-screenshots/integrations/connect-facts.png' });
 });
+
+test('API & Webhooks: one direction, built-in wording, what it needs, and the true first run (I-R2-07)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await fixtures(page);
+  // The catalog's API & Webhooks: built in, events out only (synthetic fixture).
+  const base = setupFixture('data');
+  const customApi = {
+    ...base,
+    provider: {
+      ...base.provider,
+      provider: 'custom_api',
+      name: 'API & Webhooks',
+      category: 'CUSTOM',
+      logo: 'custom_api',
+      authMethod: 'NONE',
+      environments: ['LIVE'],
+      directions: ['EXPORT'],
+      entities: [
+        {
+          key: 'events',
+          label: 'Events',
+          description: 'Events sent to your endpoint',
+          defaultEnabled: true,
+          directions: ['EXPORT'],
+        },
+      ],
+      permissions: [],
+      options: [],
+      credentialFields: [],
+    },
+  };
+  await page.route('**/api/v1/business/integrations/providers/**', (route) =>
+    route.fulfill({ json: customApi }),
+  );
+  await page.goto(app('/integrations/custom_api/connect'));
+  await expect(page.getByRole('heading', { name: 'Set Up API & Webhooks' })).toBeVisible({
+    timeout: 60_000,
+  });
+  const facts = page.getByTestId('provider-facts');
+  await expect(facts).toContainText('Out of Firmivra');
+  await expect(facts).not.toContainText('Into Firmivra');
+  const note = page.getByTestId('api-webhooks-note');
+  for (const term of ['Endpoint', 'Events', 'Signing secret', 'First send'])
+    await expect(note.getByText(term, { exact: true })).toBeVisible();
+  await expect(page.getByText('Secure Authorization')).toHaveCount(0);
+  await expect(page.getByText('Built into Firmivra')).toBeVisible();
+  await expect(page.getByText('Create the connection here', { exact: true })).toBeVisible();
+  const complete = page.getByTestId('setup-complete');
+  await expect(complete).toContainText('Nothing is sent until you set the endpoint and events');
+  await expect(complete).not.toContainText('initial sync');
+  await expect(complete).toContainText('Create the connection to complete setup.');
+  await expect(complete.getByLabel('Run a connection test after connecting')).toBeVisible();
+});
+
+test('a provider sign-in setup says what connecting really does: a test, then the scheduled sync (I-R2-07)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await fixtures(page);
+  await page.goto(app('/integrations/microsoft365/connect'));
+  const complete = page.getByTestId('setup-complete');
+  await expect(complete).toContainText(
+    'The first sync runs at its scheduled time, or when you choose Sync Now.',
+    { timeout: 60_000 },
+  );
+  await expect(complete).not.toContainText('starts the initial sync');
+  await expect(complete).toContainText('No data is synced by the test.');
+  await expect(page.getByText('Secure Authorization')).toBeVisible();
+});

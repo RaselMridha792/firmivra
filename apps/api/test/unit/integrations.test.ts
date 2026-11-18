@@ -39,6 +39,12 @@ describe('the catalog', () => {
         ).toBe(true);
         expect(e.key).toMatch(/^[a-z][a-z0-9_]{0,39}$/);
       }
+      // I-R2-07: and the other way round, every way a provider offers is one some object syncs.
+      for (const d of p.directions)
+        expect(
+          p.entities.some((e) => e.directions.includes(d)),
+          `${p.provider} offers ${d} sync`,
+        ).toBe(true);
       expect(new Set(p.entities.map((e) => e.key)).size).toBe(p.entities.length);
       for (const perm of p.permissions) {
         if (perm.entity)

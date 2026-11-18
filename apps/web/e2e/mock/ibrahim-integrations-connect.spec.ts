@@ -89,7 +89,7 @@ test('connect sends only contract fields and preserves preferences on a failed r
   await page.goto(base);
   await page.getByLabel('Email (Outlook)', { exact: true }).uncheck();
   await page.getByLabel('Sync Frequency').selectOption('30');
-  await page.getByLabel('Run a test sync after connection').uncheck();
+  await page.getByLabel('Run a connection test after connecting').uncheck();
   await page.getByRole('button', { name: 'Connect & Continue', exact: true }).click();
   await expect(page.getByTestId('setup-complete').getByRole('alert')).toContainText('retry');
   await expect(page.getByLabel('Sync Frequency')).toHaveValue('30');
