@@ -334,6 +334,26 @@ function refuseCleared(issues: { path: string[]; message: string }[], prefix?: s
 }
 
 /**
+ * Clients Review 2 §5 (duplicate safeguards, P4-5): a client created or saved past the duplicate
+ * warning (Create Anyway, Save Anyway) is audited with the clients it matched, by id only (never a
+ * name, email or phone), and why (PHONE, NAME); nothing when it matched none.
+ */
+function overrideOf(
+  byPhone: string[],
+  byName: string[],
+): { matchedClientIds: string[]; reasons: ('PHONE' | 'NAME')[] } | null {
+  const ids = [...new Set([...byPhone, ...byName])];
+  if (ids.length === 0) return null;
+  return {
+    matchedClientIds: ids,
+    reasons: [
+      ...(byPhone.length ? (['PHONE'] as const) : []),
+      ...(byName.length ? (['NAME'] as const) : []),
+    ],
+  };
+}
+
+/**
  * The firm's clients (R10 step 3; contract in packages/types/src/clients). Every query runs in
  * the firm's business scope with `businessId` from TenantGuard. Owner and Admin reach every
  * client; Staff only those assigned to them (others are 404). Every read and change is audited
@@ -1175,10 +1195,10 @@ export class ClientsService {
     // Sealed before the transaction, to the id the client is then created with.
     const id = uuidv7();
     const secrets = body.profile ? await secretColumns(this.fe, businessId, id, body.profile) : {};
-    const row = await this.write(businessId, async (tx) => {
+    const created = await this.write(businessId, async (tx) => {
       if (assignedUserId) await this.activeMember(tx, businessId, assignedUserId);
       await this.uniqueEmail(tx, businessId, body.email ?? null);
-      await this.phoneInUse(
+      const byPhone = await this.phoneInUse(
         tx,
         businessId,
         actor,
@@ -1186,7 +1206,7 @@ export class ClientsService {
         null,
         body.allowDuplicatePhone,
       );
-      await this.companyInUse(
+      const byName = await this.companyInUse(
         tx,
         businessId,
         actor,
@@ -1215,17 +1235,21 @@ export class ClientsService {
           ...secrets,
         } as Prisma.ClientProfileUncheckedCreateInput,
       });
-      return this.find(tx, businessId, actor, client.id);
+      return { row: await this.find(tx, businessId, actor, client.id), byPhone, byName };
     });
+    const anyway = overrideOf(created.byPhone, created.byName);
     await this.audit.log(
       'client.created',
-      { type: 'client', id: row.id },
+      { type: 'client', id: created.row.id },
       {
         fields: Object.keys(body).sort(),
         profileFields: changedFields(body.profile ?? {}),
+        ...(anyway ? { createdAnyway: anyway } : {}),
       },
     );
-    return this.record(businessId, row, { dateOfBirth: body.profile?.dateOfBirth ?? null });
+    return this.record(businessId, created.row, {
+      dateOfBirth: body.profile?.dateOfBirth ?? null,
+    });
   }
 
   async update(
@@ -1243,18 +1267,20 @@ export class ClientsService {
       const current = await this.findForChange(tx, businessId, actor, id);
       if (current.archivedAt) throw archived();
       if (body.assignedUserId) await this.activeMember(tx, businessId, body.assignedUserId);
-      if (body.phone && body.phone !== current.phone) {
-        await this.phoneInUse(tx, businessId, actor, body.phone, id, allowDuplicatePhone);
-      }
+      const byPhone =
+        body.phone && body.phone !== current.phone
+          ? await this.phoneInUse(tx, businessId, actor, body.phone, id, allowDuplicatePhone)
+          : [];
       if (body.email !== undefined && body.email !== current.email) {
         await this.uniqueEmail(tx, businessId, body.email);
       }
       // §6: a business renamed (or made a business) to a likely match pauses too.
       const type = body.accountType ?? current.accountType;
       const name = body.displayName ?? current.displayName;
-      if (name !== current.displayName || type !== current.accountType) {
-        await this.companyInUse(tx, businessId, actor, type, name, id, allowDuplicatePhone);
-      }
+      const byName =
+        name !== current.displayName || type !== current.accountType
+          ? await this.companyInUse(tx, businessId, actor, type, name, id, allowDuplicatePhone)
+          : [];
       await tx.client.update({ where: { businessId_id: { businessId, id } }, data });
       // A new assignee: the open tasks the previous Staff assignee held move along (R12).
       const before = current.assignedMember?.userId ?? null;
@@ -1262,7 +1288,11 @@ export class ClientsService {
       const tasksMoved = reassigned
         ? await reassignClientTasks(tx, businessId, id, before, body.assignedUserId ?? null)
         : undefined;
-      return { row: await this.find(tx, businessId, actor, id), tasksMoved };
+      return {
+        row: await this.find(tx, businessId, actor, id),
+        tasksMoved,
+        anyway: overrideOf(byPhone, byName),
+      };
     });
     await this.audit.log(
       'client.updated',
@@ -1270,6 +1300,7 @@ export class ClientsService {
       {
         fields: Object.keys(data).sort(),
         ...(row.tasksMoved === undefined ? {} : { tasksMoved: row.tasksMoved }),
+        ...(row.anyway ? { savedAnyway: row.anyway } : {}),
       },
     );
     return this.record(businessId, row.row, {});
@@ -1440,7 +1471,8 @@ export class ClientsService {
    * Clients Review 2 §6: a business client whose name likely matches another business client's
    * (companyKey) pauses Add and Edit with 409 POSSIBLE_DUPLICATE until the person confirms it (the
    * same Create Anyway as the phone). Named matches are the ones the caller may see; nothing is
-   * merged. Individuals are matched by phone and email only.
+   * merged. Individuals are matched by phone and email only. Once confirmed (`allow`), the
+   * matched clients' ids, for the audit row (§5 safeguards, P4-5).
    */
   private async companyInUse(
     tx: TxClient,
@@ -1450,10 +1482,10 @@ export class ClientsService {
     name: string,
     exceptId: string | null,
     allow: boolean | undefined,
-  ): Promise<void> {
-    if (accountType !== 'BUSINESS' || allow) return;
+  ): Promise<string[]> {
+    if (accountType !== 'BUSINESS') return [];
     const key = companyKey(name);
-    if (key.length < 2) return;
+    if (key.length < 2) return [];
     const found = await tx.$queryRaw<{ id: string }[]>`
       SELECT id::text AS id FROM clients
       WHERE business_id = ${businessId}::uuid AND account_type = 'BUSINESS'
@@ -1465,7 +1497,7 @@ export class ClientsService {
               '[[:space:]]+', '', 'g') = ${key}
       ORDER BY created_at, id
       LIMIT 20`;
-    if (found.length === 0) return;
+    if (found.length === 0 || allow) return found.map((f) => f.id);
     const rows = await tx.client.findMany({
       where: { businessId, id: { in: found.map((f) => f.id) } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -1488,7 +1520,7 @@ export class ClientsService {
    * pauses Add and Edit with 409 DUPLICATE_PHONE until the person confirms it. Phones are kept as
    * E.164, so "(202) 555-0103" and "2025550103" are the same number here. The answer names only
    * the matches the caller may see (Staff: their own clients) and counts them all; nothing is
-   * merged.
+   * merged. Once confirmed (`allow`), the matched clients' ids, for the audit row (P4-5).
    */
   private async phoneInUse(
     tx: TxClient,
@@ -1497,15 +1529,15 @@ export class ClientsService {
     phone: string | null,
     exceptId: string | null,
     allow: boolean | undefined,
-  ): Promise<void> {
-    if (!phone || allow) return;
+  ): Promise<string[]> {
+    if (!phone) return [];
     const rows = await tx.client.findMany({
       where: { businessId, phone, ...(exceptId ? { id: { not: exceptId } } : {}) },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: 20,
       select: duplicateSelect,
     });
-    if (rows.length === 0) return;
+    if (rows.length === 0 || allow) return rows.map((r) => r.id);
     const visible =
       actor.role === 'STAFF' ? rows.filter((r) => r.assignedUserId === actor.userId) : rows;
     throw new ConflictException({

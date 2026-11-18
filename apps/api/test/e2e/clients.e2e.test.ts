@@ -984,3 +984,96 @@ describe('Edit validation on the server (Clients Review 2 §3, P4-4)', () => {
     expect(Profile.parse(part.body).address).toMatchObject({ line1: '3 Late Lane', city: null });
   });
 });
+
+describe('Create Anyway in the audit (Clients Review 2 §5 duplicate safeguards, P4-5)', () => {
+  const auditOf = (id: string, action: string) =>
+    inFirmA((tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, entityId: id, action },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { metadata: true },
+      }),
+    );
+
+  it('a client created past the phone warning names the matched clients, by id only', async () => {
+    const phone = '+13125550171';
+    const first = await create({ displayName: `Audit Phone One ${run}`, phone });
+    const second = await create({
+      displayName: `Audit Phone Two ${run}`,
+      phone: '(312) 555-0171',
+      email: email('audit-phone-two'),
+      allowDuplicatePhone: true,
+    });
+    const [row] = await auditOf(second.id, 'client.created');
+    expect(row?.metadata).toMatchObject({
+      createdAnyway: { matchedClientIds: [first.id], reasons: ['PHONE'] },
+    });
+    // Ids only: no name, email or phone of either client.
+    const text = JSON.stringify(row);
+    for (const value of [phone, '3125550171', 'Audit Phone', email('audit-phone-two')]) {
+      expect(text).not.toContain(value);
+    }
+    // Confirming with nothing to match writes no override.
+    const lone = await create({
+      displayName: `Audit Lone ${run}`,
+      phone: '+13125550172',
+      allowDuplicatePhone: true,
+    });
+    const [plain] = await auditOf(lone.id, 'client.created');
+    expect(plain?.metadata).not.toHaveProperty('createdAnyway');
+  });
+
+  it('a business saved past the name warning, on Add and on Edit, names the matches by id', async () => {
+    const first = await create({
+      accountType: 'BUSINESS',
+      displayName: `Lantern Works LLC ${run}`,
+    });
+    const second = await create({
+      accountType: 'BUSINESS',
+      displayName: `lantern works, inc. ${run}`,
+      allowDuplicatePhone: true,
+    });
+    const [created] = await auditOf(second.id, 'client.created');
+    expect(created?.metadata).toMatchObject({
+      createdAnyway: { matchedClientIds: [first.id], reasons: ['NAME'] },
+    });
+
+    const third = await create({ accountType: 'BUSINESS', displayName: `Dockside Co ${run}` });
+    const renamed = await call('patch', `/${third.id}`, people.ownerA, 'a', {
+      displayName: `Lantern-Works ${run}`,
+      allowDuplicatePhone: true,
+    });
+    expect(renamed.status, JSON.stringify(renamed.body)).toBe(200);
+    const [updated] = await auditOf(third.id, 'client.updated');
+    expect(updated?.metadata).toMatchObject({
+      fields: ['displayName'],
+      savedAnyway: { matchedClientIds: [first.id, second.id], reasons: ['NAME'] },
+    });
+    expect(JSON.stringify(updated)).not.toContain('Lantern');
+  });
+
+  it('an Edit to a phone another client has, saved anyway, names that client; another firm never counts', async () => {
+    const phone = '+13125550173';
+    await create({ displayName: `Firm B Same Phone ${run}`, phone }, people.ownerB, 'b');
+    const first = await create({ displayName: `Edit Phone One ${run}`, phone });
+    const other = await create({ displayName: `Edit Phone Two ${run}`, phone: '+13125550174' });
+    const saved = await call('patch', `/${other.id}`, people.ownerA, 'a', {
+      phone,
+      allowDuplicatePhone: true,
+    });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    const [row] = await auditOf(other.id, 'client.updated');
+    expect(row?.metadata).toMatchObject({
+      fields: ['phone'],
+      savedAnyway: { matchedClientIds: [first.id], reasons: ['PHONE'] },
+    });
+    // A change that matches nothing has no override, even when confirmed.
+    const plain = await call('patch', `/${other.id}`, people.ownerA, 'a', {
+      displayName: `Edit Phone Two Renamed ${run}`,
+      allowDuplicatePhone: true,
+    });
+    expect(plain.status).toBe(200);
+    const rows = await auditOf(other.id, 'client.updated');
+    expect(rows.at(-1)?.metadata).not.toHaveProperty('savedAnyway');
+  });
+});
