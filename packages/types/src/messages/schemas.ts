@@ -358,6 +358,8 @@ export const SHARED_NOTE_SUBJECT = 'A note from your firm';
  * its usual notice); the note itself stays internal. `updatedAt` is the version of the note the
  * preview showed: a note changed since is 409 NOTE_CHANGED (preview it again). Whoever may see
  * the note shares it (Staff: their own clients'); an archived client is 409 CLIENT_ARCHIVED.
+ * A note of a Bookkeeping service whose Portal Defaults leave notes out is 409
+ * NOTES_HIDDEN_IN_PORTAL (Client Portal BK-CP4).
  */
 export const ShareNoteRequest = z.strictObject({ updatedAt: DateTime });
 export type ShareNoteRequest = z.input<typeof ShareNoteRequest>;
