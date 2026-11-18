@@ -1,7 +1,7 @@
 import type { DashboardSummaryQuery } from '@firmivra/types';
 import { api } from '../../../../lib/api';
-import { startEarly, takeEarly } from '../../../../lib/early';
-import { type DashboardPlace, placeFrom } from './dashboard-place';
+import { type PageCallUrls, startEarly, takeEarly } from '../../../../lib/early';
+import { DEFAULT_PLACE, type DashboardPlace, placeFrom } from './dashboard-place';
 
 // Dashboard Review Two V8: the calls the dashboard's widgets wait for. When the dashboard is the
 // page opened, the workspace starts them as its code loads, side by side with the user and the
@@ -23,9 +23,39 @@ export function summaryQueryOf(place: DashboardPlace): DashboardSummaryQuery {
   };
 }
 
-/** Upcoming Appointments asks for the next 15 days (cut at the firm's midnight once known). */
+const UPCOMING_DAYS = 15;
+
+/**
+ * Upcoming Appointments asks for the next 15 days from this minute (cut at the firm's midnight
+ * once known). From the minute, so the page's first script and the code ask for the same range.
+ */
 export function upcomingWindow(at: number): { from: string; to: string } {
-  return { from: new Date(at).toISOString(), to: new Date(at + 15 * 86_400_000).toISOString() };
+  const from = Math.floor(at / 60_000) * 60_000;
+  return {
+    from: new Date(from).toISOString(),
+    to: new Date(from + UPCOMING_DAYS * 86_400_000).toISOString(),
+  };
+}
+
+/**
+ * The GETs the page's first script sends (lib/early.ts): the user and the firm on every workspace
+ * page, and on a plain `/` the dashboard's widget calls for its default periods. The API client
+ * asks for exactly these (dashboard-calls.test.ts), so each is taken instead of sent again.
+ */
+export function pageCallUrls(): PageCallUrls {
+  const summary = new URLSearchParams();
+  for (const [key, value] of Object.entries(summaryQueryOf(DEFAULT_PLACE)))
+    if (value !== undefined) summary.set(key, String(value));
+  return {
+    always: ['/api/v1/me', '/api/v1/business'],
+    dashboard: [
+      `/api/v1/business/dashboard/summary?${summary.toString()}`,
+      '/api/v1/business/availability',
+      '/api/v1/business/message-threads?limit=5',
+    ],
+    upcoming: '/api/v1/business/appointments',
+    upcomingDays: UPCOMING_DAYS,
+  };
 }
 
 const summaryKey = (query: DashboardSummaryQuery) => `dashboard:summary:${JSON.stringify(query)}`;

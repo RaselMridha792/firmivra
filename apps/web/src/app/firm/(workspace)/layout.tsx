@@ -61,8 +61,9 @@ import { portalAuth } from '../../../lib/auth';
 import { useApiQuery } from '../../../lib/query';
 import { applyFirmTheme } from '../../../lib/theme';
 import { claimCache } from '../../../lib/session';
-import { startEarly, takeEarly } from '../../../lib/early';
-import { startDashboardCalls } from './_components/dashboard-calls';
+import { pageCallsScript, startEarly, takeEarly } from '../../../lib/early';
+import { mocked } from '../../../lib/mock';
+import { pageCallUrls, startDashboardCalls } from './_components/dashboard-calls';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
 // show only to Owner and Admin; the API still checks every request.
@@ -131,6 +132,9 @@ const items: MenuItem[] = [
  * <SignedIn>, FirmArea and the dashboard take them (lib/early.ts). The API knows the firm from the
  * session, so no call waits for another.
  */
+/** The page's first script (V8): the same GETs, sent from the HTML before this code has loaded. */
+const PAGE_CALLS = pageCallsScript(pageCallUrls());
+
 if (typeof window !== 'undefined') {
   startEarly('firm:me', () => api.me());
   startEarly('firm:business', () => api.currentBusiness());
@@ -159,9 +163,17 @@ const FIRM_ERRORS: Record<string, string> = {
 /** Every firm workspace page with the sidebar: the sign-in check, the firm, then the shell. */
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   return (
-    <SignedIn site="firm" signInPath="/sign-in" signedOutHome="/welcome">
-      <FirmArea>{children}</FirmArea>
-    </SignedIn>
+    <>
+      {/* V8: runs from the server's HTML only (a script React adds later never runs); the mock
+          API answers in the browser, so with mocks there is nothing to send early. */}
+      {mocked('me') ? null : (
+        // eslint-disable-next-line @eslint-react/dom-no-dangerously-set-innerhtml -- fixed text from constants (lib/early.ts), never from input
+        <script dangerouslySetInnerHTML={{ __html: PAGE_CALLS }} />
+      )}
+      <SignedIn site="firm" signInPath="/sign-in" signedOutHome="/welcome">
+        <FirmArea>{children}</FirmArea>
+      </SignedIn>
+    </>
   );
 }
 
