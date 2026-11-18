@@ -17,15 +17,21 @@ import {
 export interface RetentionRef {
   engagementId?: string | null;
   taskId?: string | null;
+  /**
+   * Intake Review 2 14b-ii (the lead's decision of Nov 17): the record's own date (uploaded,
+   * submitted or sent), where its minimum starts when it belongs to no job or task.
+   */
+  recordDate?: Date | null;
 }
 
 /** Today as a calendar date (UTC), as the holds are counted. */
 const utcToday = (now: Date) => now.toISOString().slice(0, 10);
 
 /**
- * When the record's job or task was completed: the latest completion of the ones given, or null
- * when any of them is not completed (a reopened service is not), is not the firm's, or none is
- * given. Read in the caller's transaction, in the firm's scope.
+ * When the record's minimum starts: its job's or task's completion (the latest of the ones
+ * given), or null when any of them is not completed (a reopened service is not) or is not the
+ * firm's. With no job or task (14b-ii), the record's own date, else null. Read in the caller's
+ * transaction, in the firm's scope.
  */
 async function completedAt(
   tx: TxClient,
@@ -49,15 +55,15 @@ async function completedAt(
     if (task?.status !== 'DONE' || !task.completedAt) return null;
     dates.push(task.completedAt);
   }
-  if (dates.length === 0) return null;
+  if (dates.length === 0) return ref.recordDate ?? null;
   return new Date(Math.max(...dates.map((d) => d.getTime())));
 }
 
 /**
  * Intake Forms Review Two 14b: the minimum-retention guard. A record of one of the six categories
  * is kept until its job or task was completed plus its category's effective years (its own, else
- * Apply to all); one whose job or task isn't completed, or that has none, is kept (the default
- * until Octavia decides when its minimum starts). A category with no minimum holds nothing.
+ * Apply to all); one whose job or task isn't completed is kept; one with no job or task counts
+ * from its own date (14b-ii), and without one is kept. A category with no minimum holds nothing.
  *
  * Today nothing in the six categories can be removed (documents go to a Trash they come back
  * from; intakes, messages and emails are never deleted; see apps/api/test/unit/retention-paths
