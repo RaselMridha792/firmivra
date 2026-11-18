@@ -61,6 +61,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
             const href = `/${firmSlug}/${path}`;
             const active = tabActive(path);
             const activeBorder =
+              path.startsWith('tab/') ||
               path === 'business' ||
               path === 'messages' ||
               path === 'taxes' ||

@@ -17,7 +17,12 @@ import { BusinessDocuments } from './business-documents';
  * resource pages. An INDIVIDUAL client gets 403 BUSINESS_ONLY from the resources, so the whole
  * tab shows as for business clients only.
  */
-export function BusinessScreen() {
+export function BusinessScreen({
+  title = 'Business Documents & Resources',
+}: {
+  /** CP-5e: a custom business resources tab shows its own name. */
+  title?: string;
+} = {}) {
   const { firmSlug: slug } = useParams<{ firmSlug: string }>();
   const gate = useApiQuery(['my-content', slug, 'RESOURCE'], () =>
     api.myContent(slug).list({ kind: 'RESOURCE' }),
@@ -32,9 +37,7 @@ export function BusinessScreen() {
               {/* A solid navy folder and a one-line title (Business Tab.png, R61). */}
               <Folder aria-hidden className="size-14 shrink-0 fill-folder-hover text-firm-text" />
               <div className="flex-1">
-                <h1 className="font-display text-2xl font-bold text-heading">
-                  Business Documents &amp; Resources
-                </h1>
+                <h1 className="font-display text-2xl font-bold text-heading">{title}</h1>
                 <p className="text-sm text-text">
                   Access important business documents, helpful resources, and tools to keep your
                   business organized and growing.

@@ -31,6 +31,9 @@ export const PAGE_OF: Record<PortalTab, string> = {
 /** The business-only tab's page (Business Documents & Resources). */
 export const BUSINESS_PAGE = 'business';
 
+/** CP-5d, CP-5e: a custom tab's page is `tab/{id}`. */
+export const customPage = (id: string) => `tab/${id}`;
+
 function useMine(slug: string) {
   return useApiQuery(['portal-tabs', slug], () => api.portalTabs.mine(slug));
 }
@@ -59,15 +62,32 @@ export function usePortalTabs(slug: string) {
 }
 
 /**
- * The portal's folder tabs in the firm's order and under the firm's names (CP-5b, CP-5c), as
- * `[label, page]`, with whether the firm switched each page off (its page then says so instead of
- * its content). The default order and names show until the firm's answer arrives.
+ * The portal's folder tabs in the firm's order and under the firm's names (CP-5b, CP-5c), then
+ * the custom tabs this client sees (CP-5d, CP-5e), as `[label, page]`, with whether the firm
+ * switched each page off (its page then says so instead of its content). The default order and
+ * names show until the firm's answer arrives.
  */
 export function usePortalMenu(slug: string) {
   const query = useMine(slug);
   const layout = query.data?.layout ?? DEFAULT_PORTAL_LAYOUT;
   return {
-    items: layout.map((item): [label: string, page: string] => [item.label, PAGE_OF[item.tab]]),
+    items: [
+      ...layout.map((item): [label: string, page: string] => [item.label, PAGE_OF[item.tab]]),
+      ...(query.data?.custom ?? []).map((t): [label: string, page: string] => [
+        t.label,
+        customPage(t.id),
+      ]),
+    ],
     firmOff: (page: string) => switchedOff(query.data, page),
   };
+}
+
+/**
+ * CP-5d, CP-5e: one of the custom tabs this client sees, by id: `undefined` while loading, `null`
+ * when they don't see it (off, archived, not for them, or a Personal portal).
+ */
+export function usePortalCustomTab(slug: string, id: string) {
+  const query = useMine(slug);
+  const tab = query.data ? (query.data.custom.find((t) => t.id === id) ?? null) : undefined;
+  return { query, tab };
 }

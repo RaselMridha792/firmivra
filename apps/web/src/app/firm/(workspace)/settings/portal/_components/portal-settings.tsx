@@ -22,6 +22,7 @@ import { ClientPicker } from '../../../documents/upload/_components/client-picke
 import { PortalFields, portalSettingsValues } from '../../../../setup/_components/portal-step';
 import { SettingsForm, SettingsScreen } from '../../../../setup/_components/settings-form';
 import { PortalContactCard } from './portal-contact';
+import { PortalCustomTabs } from './portal-custom-tabs';
 import { PortalFeatures } from './portal-features';
 
 type Panel = 'general' | 'registration' | 'announcements' | 'contact' | 'features';
@@ -83,7 +84,10 @@ export function PortalSettings() {
             <PortalContactCard />
           </section>
           <section hidden={panel !== 'features'} aria-label="Features">
-            <PortalFeatures />
+            <div className="grid gap-4">
+              <PortalFeatures />
+              <PortalCustomTabs />
+            </div>
           </section>
           {previewing ? <PreviewDialog onClose={() => setPreviewing(false)} /> : null}
         </div>
