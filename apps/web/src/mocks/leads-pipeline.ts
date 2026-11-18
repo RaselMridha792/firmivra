@@ -1142,7 +1142,18 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
     },
     saveSignature: async (body) => {
       await mockDelay();
-      const { html } = parseInput(SaveMessageSignatureRequest, body);
+      // As the API's cleaner: only the firm's own images stay (an uploaded one or its logo), any
+      // other image is dropped, and a signature with nothing left to show is refused.
+      const html = parseInput(SaveMessageSignatureRequest, body).html.replace(
+        /<img\b[^>]*>/gi,
+        (tag) => {
+          const src = /\ssrc="([^"]*)"/i.exec(tag)?.[1]?.replace(/&amp;/g, '&');
+          return src === mockPicture() || src === mockLogo() ? tag : '';
+        },
+      );
+      const text = html.replace(/<[^>]*>|&nbsp;|\s/gi, '');
+      if (!text && !/<img\b/i.test(html))
+        throw fail(400, 'SIGNATURE_EMPTY', 'Write a signature first');
       if (html.length > EMAIL_SIGNATURE_MAX)
         throw fail(400, 'SIGNATURE_TOO_LONG', 'Shorten the signature to save it');
       signature = { ...signature, html, updatedAt: new Date().toISOString() };
