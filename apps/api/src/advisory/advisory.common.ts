@@ -44,6 +44,12 @@ export const advErrors = {
   clientArchived: () => refusal('CLIENT_ARCHIVED', 'Restore the advisory client first'),
   /** B10, B28: the client has no active portal login (the words say what it stops). */
   noPortalLogin: (message: string) => refusal('NO_PORTAL_LOGIN', message),
+  /** B10 (the lead's decision B): a client with a portal login approves before finalization. */
+  clientApprovalRequired: () =>
+    refusal(
+      'CLIENT_APPROVAL_REQUIRED',
+      'The client approves this plan first. Send it for approval; their approval finalizes it.',
+    ),
   /** B28: the resource is not offered in that format. */
   formatNotAvailable: (message: string) => refusal('FORMAT_NOT_AVAILABLE', message),
   overrideNotAllowed: () =>

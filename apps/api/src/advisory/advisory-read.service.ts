@@ -272,6 +272,8 @@ export class AdvisoryReadService {
       include: { advisoryClient: { include: typeof clientInclude } };
     }> & { clientApprovedBy: { name: string } | null },
     names: Map<string, string>,
+    /** B10: the client has an active portal login (Finalize waits for their approval). */
+    clientApprovalRequired: boolean,
   ): AdvisoryPlanRow {
     return {
       id: p.id,
@@ -295,6 +297,7 @@ export class AdvisoryReadService {
               approvedBy: p.clientApprovedBy?.name ?? null,
             }
           : null,
+      clientApprovalRequired,
       archived: p.archivedAt !== null,
       updatedAt: p.updatedAt.toISOString(),
     };

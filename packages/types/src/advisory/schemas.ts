@@ -587,6 +587,12 @@ export const AdvisoryPlanRow = z.object({
       approvedBy: z.string().nullable(),
     })
     .nullable(),
+  /**
+   * B10 (the lead's decision B): the client has an active portal login, so Finalize waits for
+   * their approval (409 CLIENT_APPROVAL_REQUIRED until `clientApproval` is set; Send for Client
+   * Approval instead). Without a login, Finalize works as before.
+   */
+  clientApprovalRequired: z.boolean(),
   archived: z.boolean(),
   updatedAt: DateTime,
 });
@@ -730,12 +736,13 @@ export const SetAdvisoryPlanStatusRequest = z.strictObject({
 export type SetAdvisoryPlanStatusRequest = z.input<typeof SetAdvisoryPlanStatusRequest>;
 
 /**
- * POST .../plans/{id}/finalize (Stage 5): keeps an immutable version (profile, assessment,
- * strategy, goals, recommendations, service workstreams, financial assumptions and the source
- * data date). 409 PLAN_NOT_READY with what is missing (a required part, a stale or missing
- * figure). POST .../send delivers the client-facing version by the channel (`PORTAL`, `EMAIL`,
- * `DOWNLOAD`) and records who, when and how; only client-visible recommendations and action items
- * are in it, and it needs "Send plans" (403 FORBIDDEN).
+ * POST .../plans/{id}/finalize (Stage 5; B10: for a client with an active portal login, only once
+ * the client approved the plan, else 409 CLIENT_APPROVAL_REQUIRED): keeps an immutable version
+ * (profile, assessment, strategy, goals, recommendations, service workstreams, financial
+ * assumptions and the source data date). 409 PLAN_NOT_READY with what is missing (a required
+ * part, a stale or missing figure). POST .../send delivers the client-facing version by the
+ * channel (`PORTAL`, `EMAIL`, `DOWNLOAD`) and records who, when and how; only client-visible
+ * recommendations and action items are in it, and it needs "Send plans" (403 FORBIDDEN).
  */
 export const FinalizeAdvisoryPlanRequest = z.strictObject({ etag: Etag });
 export type FinalizeAdvisoryPlanRequest = z.input<typeof FinalizeAdvisoryPlanRequest>;
@@ -1322,5 +1329,10 @@ export const AdvisoryErrorCode = z.enum([
   'NO_PORTAL_LOGIN',
   /** 409 (B28): the resource is not offered in that format. */
   'FORMAT_NOT_AVAILABLE',
+  /**
+   * 409 (B10, the lead's decision B): the client has a portal login, so they approve the plan
+   * before it is finalized; send it for approval.
+   */
+  'CLIENT_APPROVAL_REQUIRED',
 ]);
 export type AdvisoryErrorCode = z.infer<typeof AdvisoryErrorCode>;

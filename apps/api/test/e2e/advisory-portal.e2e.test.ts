@@ -954,6 +954,93 @@ describe("B10: the client's approval of the business plan, before it is finalize
       MyAdvisoryPlan.parse(ok(await portal('get', `/plans/${other}`, logins.x))),
     ).toMatchObject({ state: 'IN_PREPARATION', can: { approve: false } });
   });
+
+  it('Finalize waits for the client’s approval when the client has a portal login; without one it finalizes as before', async () => {
+    const finalize = async (id: string) =>
+      firm('post', `/plans/${id}/finalize`, staff.ownerA, { etag: (await detail(id)).etag });
+    // With a login (c1): refused until the client approves; the approval finalizes the plan.
+    const id = await readyPlan('Gated plan');
+    expect(await detail(id)).toMatchObject({ clientApprovalRequired: true, clientApproval: null });
+    const refused = await finalize(id);
+    expectError(refused, 409, 'CLIENT_APPROVAL_REQUIRED');
+    expect(JSON.stringify(refused.body)).toContain('Send it for approval');
+    expect((await detail(id)).status).toBe('IN_REVIEW');
+    ok(await ask(id));
+    ok(await portal('post', `/plans/${id}/approve`, logins.x, { version: 1 }));
+    expect(await detail(id)).toMatchObject({
+      status: 'FINALIZED',
+      currentVersion: 1,
+      clientApproval: { version: 1 },
+    });
+    // The approval stands until a revision: then Finalize waits for a new one.
+    ok(await setStatus(id, 'DRAFT'));
+    expectError(await finalize(id), 409, 'CLIENT_APPROVAL_REQUIRED');
+
+    // Without a login (c3): Finalize works as before.
+    const a3 = await inFirm('a', async (tx) => {
+      const found = await tx.advisoryClient.findFirst({
+        where: { clientId: clients.c3 },
+        select: { id: true },
+      });
+      const advisoryClientId =
+        found?.id ??
+        (
+          await tx.advisoryClient.create({
+            data: { businessId: firms.a.id, clientId: clients.c3 },
+            select: { id: true },
+          })
+        ).id;
+      const figures = await tx.advisoryFinancialSnapshot.count({ where: { advisoryClientId } });
+      if (figures === 0) {
+        await tx.advisoryFinancialSnapshot.create({
+          data: {
+            businessId: firms.a.id,
+            advisoryClientId,
+            periodStart: new Date('2025-01-01T00:00:00Z'),
+            periodEnd: new Date('2025-12-31T00:00:00Z'),
+            revenueCents: 1_000,
+            asOf: new Date(`${day(-5)}T00:00:00Z`),
+            createdByUserId: staff.ownerA.id,
+          },
+        });
+      }
+      const plan = await tx.advisoryPlan.create({
+        data: {
+          businessId: firms.a.id,
+          advisoryClientId,
+          name: `Ungated plan ${run}`,
+          targetYear: 2026,
+          planType: 'growth',
+          status: 'IN_REVIEW',
+          profile: { businessName: 'Casey Co (fake)' },
+          strategy: { summary: 'Fake.', noFocusArea: true },
+          createdByUserId: staff.ownerA.id,
+        },
+        select: { id: true },
+      });
+      await tx.advisoryGoal.create({
+        data: {
+          businessId: firms.a.id,
+          advisoryClientId,
+          planId: plan.id,
+          title: 'Fake goal',
+        },
+      });
+      return plan.id;
+    });
+    expect((await detail(a3)).clientApprovalRequired).toBe(false);
+    expect(AdvisoryPlanDetail.parse(ok(await finalize(a3)))).toMatchObject({
+      status: 'FINALIZED',
+      currentVersion: 1,
+      clientApproval: null,
+    });
+    // The list says the same, per plan.
+    const rows = (await firm('get', `/plans?pageSize=100&search=${run}`, staff.ownerA)).body as {
+      items: { id: string; clientApprovalRequired: boolean }[];
+    };
+    expect(rows.items.find((r) => r.id === id)?.clientApprovalRequired).toBe(true);
+    expect(rows.items.find((r) => r.id === a3)?.clientApprovalRequired).toBe(false);
+  });
 });
 
 describe('B28: advisory resources by portal or email, as a Secure Link or a PDF, with a preview', () => {

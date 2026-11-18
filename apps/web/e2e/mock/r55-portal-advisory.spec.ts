@@ -3,7 +3,9 @@
 // read-only, recommendations shown, tasks not hidden, resources sent, advisory files shared); a
 // plan that isn't the client's is the not-found state. B10: the client approves the plan sent for
 // their approval, at exactly that version; on the firm side a plan in review goes for approval and
-// waits, locked. Mock mode, as client Jamie and the firm's Owner. Synthetic data.
+// waits, locked; for a client with a portal login, Finalize waits for that approval (the lead's
+// decision B), and without one it works as before. Mock mode, as client Jamie and the firm's
+// Owner. Synthetic data.
 import { expect, test } from '@playwright/test';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
@@ -133,31 +135,61 @@ test('B10: the client approves the plan sent for their approval, at exactly that
   await expect(page.getByRole('button', { name: 'Approve Plan' })).toHaveCount(0);
 });
 
-test('B10 (firm): a plan in review goes for client approval and waits, locked', async ({
+test('B10 (firm): with a portal login, the plan goes for the client’s approval in place of Finalize', async ({
   page,
 }) => {
   await page.goto(app('/business-advisory/plans'));
   const list = page.getByTestId('ba-plans');
-  await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click({
+  // A finalized plan of a client with a portal login (Alicia Park): Modify Plan starts a revision.
+  await list.getByRole('button', { name: 'Actions for Operations Efficiency Plan' }).click({
     timeout: 60_000,
   });
-  await page.getByRole('menuitem', { name: 'Send for Client Approval' }).click();
+  await page.getByRole('menuitem', { name: 'Modify Plan' }).click();
+  await page.getByTestId('confirm-action').click();
+  await expect(page).toHaveURL(/\/business-advisory\/plans\/[0-9a-f-]{36}\/edit$/, {
+    timeout: 60_000,
+  });
+  await page.getByRole('button', { name: /Step 5: Review & Save/ }).click();
+  await expect(page.getByTestId('step-readiness')).toBeVisible({ timeout: 60_000 });
+  // Finalize waits for the client's approval: the hint says so, Finalize is off.
+  await expect(page.getByTestId('finalize-needs-approval')).toContainText(
+    'Alicia Park has a portal login, so they approve this plan before it is finalized.',
+  );
+  await expect(page.getByTestId('wizard-next')).toBeDisabled();
+  await page.getByRole('button', { name: 'Submit for Review' }).click();
+  await expect(page.getByText('Plan submitted for review.')).toBeVisible();
+  await expect(page.getByTestId('finalize-needs-approval')).toContainText(
+    'Send it for their approval; their approval finalizes it.',
+  );
+  await expect(page.getByTestId('wizard-next')).toBeDisabled();
+  await page.getByRole('button', { name: /Send for Client\s+Approval/ }).click();
   const dialog = page.getByTestId('request-approval');
   await expect(dialog).toContainText('Their approval finalizes the plan.');
   await dialog.getByLabel('Message to the client (optional)').fill('Please read it (fake).');
   await page.getByTestId('send-for-approval').click();
   await expect(
-    page.getByText('Fleet Expansion Plan sent to Kevin Martin for approval.'),
+    page.getByText('Operations Efficiency Plan sent to Alicia Park for approval.'),
   ).toBeVisible();
-  const row = list.getByRole('row').filter({ hasText: 'Fleet Expansion Plan' });
-  await expect(row).toContainText('Awaiting Client Approval');
-  // Locked while the client reads it: no finalize or send; Modify Plan withdraws the request.
-  await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Finalize Plan' })).toHaveCount(0);
-  await expect(page.getByRole('menuitem', { name: 'Send to Client' })).toHaveCount(0);
+  await expect(page.getByTestId('plan-awaiting-approval')).toContainText(
+    'Awaiting client approval',
+  );
+  await expect(page.getByTestId('wizard-next')).toBeDisabled();
+});
+
+test('B10 (firm): without a portal login, Finalize works as before and no approval is asked', async ({
+  page,
+}) => {
+  await page.goto(app('/business-advisory/plans'));
+  const list = page.getByTestId('ba-plans');
+  // Kevin Martin has no portal login: his plan in review finalizes directly.
+  await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click({
+    timeout: 60_000,
+  });
   await expect(page.getByRole('menuitem', { name: 'Send for Client Approval' })).toHaveCount(0);
-  await page.getByRole('menuitem', { name: 'Modify Plan' }).click();
-  await expect(page.getByRole('dialog')).toContainText(
-    "the client's approval request is withdrawn",
+  await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
+  await page.getByTestId('confirm-action').click();
+  await expect(page.getByText('Fleet Expansion Plan finalized.')).toBeVisible();
+  await expect(list.getByRole('row').filter({ hasText: 'Fleet Expansion Plan' })).toContainText(
+    'Finalized',
   );
 });

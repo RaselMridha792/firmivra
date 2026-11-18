@@ -3,7 +3,6 @@ import type { Database, Prisma } from '@firmivra/db';
 import type {
   AdvisoryPlanDetail,
   AdvisoryPlanPage,
-  AdvisoryPlanRow,
   AdvisoryVersionDetail,
   AdvisoryVersionRow,
 } from '@firmivra/types';
@@ -185,9 +184,22 @@ export class AdvisoryPlansService {
     return p;
   }
 
-  private async row(ctx: AdvisoryCtx, p: PlanShape): Promise<AdvisoryPlanRow> {
-    const names = await memberNames(ctx.tx, ctx.businessId, [p.advisoryClient.advisorUserId]);
-    return this.read.planRow(p, names);
+  /**
+   * B10: the clients (of these) with an active household portal login: they approve a plan in
+   * the portal, and Finalize waits for that approval (the lead's decision B).
+   */
+  private async withPortalLogin(ctx: AdvisoryCtx, clientIds: string[]): Promise<Set<string>> {
+    if (clientIds.length === 0) return new Set();
+    const rows = await ctx.tx.clientAccount.findMany({
+      where: {
+        businessId: ctx.businessId,
+        clientId: { in: [...new Set(clientIds)] },
+        status: 'ACTIVE',
+        portalRole: { in: ['PRIMARY', 'SPOUSE'] },
+      },
+      select: { clientId: true },
+    });
+    return new Set(rows.flatMap((r) => (r.clientId ? [r.clientId] : [])));
   }
 
   async detail(ctx: AdvisoryCtx, p: PlanShape): Promise<AdvisoryPlanDetail> {
@@ -221,7 +233,13 @@ export class AdvisoryPlansService {
       ? (Date.parse(`${ctx.today}T00:00:00Z`) - asOf.getTime()) / 86_400_000
       : null;
     return {
-      ...this.read.planRow(p, names),
+      ...this.read.planRow(
+        p,
+        names,
+        (await this.withPortalLogin(ctx, [p.advisoryClient.clientId])).has(
+          p.advisoryClient.clientId,
+        ),
+      ),
       profile: p.profile as AdvisoryPlanDetail['profile'],
       assessment: p.assessment as AdvisoryPlanDetail['assessment'],
       strategy: p.strategy as AdvisoryPlanDetail['strategy'],
@@ -299,13 +317,19 @@ export class AdvisoryPlansService {
           take: q.pageSize,
         }),
       ]);
-      const names = await memberNames(
-        ctx.tx,
-        businessId,
-        rows.map((r) => r.advisoryClient.advisorUserId),
-      );
+      const [names, logins] = await Promise.all([
+        memberNames(
+          ctx.tx,
+          businessId,
+          rows.map((r) => r.advisoryClient.advisorUserId),
+        ),
+        this.withPortalLogin(
+          ctx,
+          rows.map((r) => r.advisoryClient.clientId),
+        ),
+      ]);
       return {
-        items: rows.map((r) => this.read.planRow(r, names)),
+        items: rows.map((r) => this.read.planRow(r, names, logins.has(r.advisoryClient.clientId))),
         total,
         page: q.page,
         pageSize: q.pageSize,
@@ -599,6 +623,15 @@ export class AdvisoryPlansService {
       // B10: the client is reading this plan to approve it; their Approve finalizes it.
       if (p.status === 'AWAITING_CLIENT_APPROVAL') throw awaitingClient();
       const { content, asOf } = await this.ready(ctx, p);
+      // B10 (the lead's decision B): a client with a portal login approves the plan before it is
+      // finalized (their Approve finalizes it); without a login, Finalize works as before. An
+      // approval stands until Modify Plan clears it.
+      const clientId = p.advisoryClient.clientId;
+      if (
+        p.clientApprovedVersion === null &&
+        (await this.withPortalLogin(ctx, [clientId])).has(clientId)
+      )
+        throw advErrors.clientApprovalRequired();
       const versionNo = await this.nextVersionNo(ctx, id);
       await tx.advisoryPlanVersion.create({
         data: {
@@ -810,16 +843,8 @@ export class AdvisoryPlansService {
             : `A plan that is ${p.status.toLowerCase().replace(/_/g, ' ')} cannot be sent for approval`,
         );
       const { content, asOf } = await this.ready(ctx, p);
-      const login = await tx.clientAccount.findFirst({
-        where: {
-          businessId,
-          clientId: p.advisoryClient.clientId,
-          status: 'ACTIVE',
-          portalRole: { in: ['PRIMARY', 'SPOUSE'] },
-        },
-        select: { id: true },
-      });
-      if (!login)
+      const clientId = p.advisoryClient.clientId;
+      if (!(await this.withPortalLogin(ctx, [clientId])).has(clientId))
         throw advErrors.noPortalLogin(
           `${p.advisoryClient.client.displayName} has no active portal login, so they cannot approve the plan in the portal. Send them a portal invitation first.`,
         );

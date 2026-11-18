@@ -1024,6 +1024,8 @@ export function ReviewStep({ plan }: { plan: Plan }) {
   const [dialog, setDialog] = useState<'versions' | 'send' | 'approval'>();
   // B10: waiting for the client's approval in the portal: their Approve finalizes it.
   const awaiting = plan.status === 'AWAITING_CLIENT_APPROVAL';
+  // B10 (the lead's decision B): with a portal login, the client's approval finalizes the plan.
+  const approvalFirst = plan.clientApprovalRequired && !plan.clientApproval;
   const checks = readiness(plan);
   const missing = checks.filter((c) => !c.done);
   const p = plan.profile;
@@ -1068,7 +1070,7 @@ export function ReviewStep({ plan }: { plan: Plan }) {
       onReload={reload}
       onSaveDraft={() => save({ step: 5 })}
       nextLabel="Finalize Plan"
-      nextDisabled={missing.length > 0 || !plan.canEdit || awaiting}
+      nextDisabled={missing.length > 0 || !plan.canEdit || awaiting || approvalFirst}
       onNext={() =>
         void run(
           () => api.advisory.finalizePlan(plan.id, { etag: plan.etag }),
@@ -1087,6 +1089,14 @@ export function ReviewStep({ plan }: { plan: Plan }) {
         {missing.length ? (
           <p className="mt-2 text-sm text-danger" data-testid="still-needed">
             Still needed: {missing.map((m) => m.todo).join('; ')}.
+          </p>
+        ) : null}
+        {approvalFirst && !awaiting ? (
+          <p className="mt-2 text-sm text-text" data-testid="finalize-needs-approval">
+            {plan.client.name} has a portal login, so they approve this plan before it is finalized.
+            {plan.status === 'IN_REVIEW'
+              ? ' Send it for their approval; their approval finalizes it.'
+              : ' Submit it for review, then send it for their approval.'}
           </p>
         ) : null}
       </section>
@@ -1163,7 +1173,7 @@ export function ReviewStep({ plan }: { plan: Plan }) {
             {plan.finalizedAt ? ` · finalized ${dayText(plan.finalizedAt)}` : ''}
             {plan.sentAt ? ` · sent ${dayText(plan.sentAt)}` : ''}
           </span>
-          {plan.canSend && plan.status === 'IN_REVIEW' ? (
+          {plan.canSend && plan.status === 'IN_REVIEW' && plan.clientApprovalRequired ? (
             <button
               type="button"
               className={`${outlined} min-h-9 px-3`}

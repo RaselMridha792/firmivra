@@ -184,12 +184,15 @@ export function BusinessPlans() {
       list.push(
         item('Back to Draft', ArrowCounterClockwise, () => move(p, 'DRAFT', 'Plan back to draft.')),
       );
-    // B10: staff review, then the client's approval before finalization.
-    if (canSend && p.status === 'IN_REVIEW')
+    // B10 (the lead's decision B): for a client with a portal login, staff review and then the
+    // client's approval, which finalizes the plan: Send for Client Approval in place of Finalize.
+    // Without a login, Finalize works as before.
+    const approvalFirst = p.clientApprovalRequired && !p.clientApproval;
+    if (canSend && p.status === 'IN_REVIEW' && p.clientApprovalRequired)
       list.push(
         item('Send for Client Approval', UserCheck, () => setDialog({ kind: 'approval', plan: p })),
       );
-    if (p.status === 'DRAFT' || p.status === 'IN_REVIEW')
+    if ((p.status === 'DRAFT' || p.status === 'IN_REVIEW') && !approvalFirst)
       list.push(item('Finalize Plan', SealCheck, () => finalize(p)));
     if (canSend && p.currentVersion > 0 && !awaiting)
       list.push(item('Send to Client', PaperPlaneTilt, () => setDialog({ kind: 'send', plan: p })));

@@ -164,9 +164,10 @@ const serviceOptions = (): AdvisoryServiceOption[] =>
 
 /**
  * B10, B28: the advisory clients with no active portal login, so the portal cannot reach them
- * (the API answers 409 NO_PORTAL_LOGIN). Synthetic.
+ * (the API answers 409 NO_PORTAL_LOGIN), and Finalize works without the client's approval (B10,
+ * the lead's decision B). Synthetic.
  */
-const NO_PORTAL_LOGIN: readonly string[] = ['Omar Haddad'];
+const NO_PORTAL_LOGIN: readonly string[] = ['Omar Haddad', 'Kevin Martin', 'Sandra Lewis'];
 
 /** The library's words for a resource (apps/api/src/advisory/catalog.ts `summary`). */
 const RESOURCE_SUMMARY: Record<string, string> = {
@@ -1345,6 +1346,8 @@ export function createAdvisoryMock({
     finalizedAt: p.finalizedAt,
     sentAt: p.sentAt,
     clientApproval: p.clientApproval,
+    // B10 (the lead's decision B): a client with a portal login approves before finalization.
+    clientApprovalRequired: !NO_PORTAL_LOGIN.includes(clientOf(p.advisoryClientId).name),
     archived: p.status === 'ARCHIVED',
     updatedAt: p.updatedAt,
   });
@@ -1952,6 +1955,14 @@ export function createAdvisoryMock({
         // The API's wording (apps/api/src/advisory/advisory-plans.service.ts).
         const missing = readinessOf(p);
         if (missing.length) throw notReady(missing);
+        // B10, as the API: with a portal login, the client's approval finalizes the plan.
+        const c = clients.find((x) => x.id === p.advisoryClientId)!;
+        if (!NO_PORTAL_LOGIN.includes(c.client.name) && !p.clientApproval)
+          throw fail(
+            409,
+            'CLIENT_APPROVAL_REQUIRED',
+            'The client approves this plan first. Send it for approval; their approval finalizes it.',
+          );
         const versionNo = p.versions.length + 1;
         p.versions.push(snapshot(p, versionNo, signedIn, nowIso()));
         p.status = 'FINALIZED';

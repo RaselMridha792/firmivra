@@ -266,6 +266,12 @@ export const BA_ERRORS: Record<string, string> = {
   NOT_A_MEMBER: 'That person is not an active member of the firm.',
   RESOURCE_NOT_CLIENT_FACING: 'This resource is for staff and cannot be sent.',
   NOT_THIS_CLIENT: 'That plan, goal or service belongs to another client.',
+  // B10 and B28.
+  CLIENT_APPROVAL_REQUIRED:
+    'The client approves this plan first. Send it for approval; their approval finalizes it.',
+  NO_PORTAL_LOGIN:
+    'The client has no active portal login, so the portal cannot reach them. Send them a portal invitation first.',
+  FORMAT_NOT_AVAILABLE: 'This resource is not offered in that format.',
   FORBIDDEN: 'Your role cannot do this.',
 };
 
