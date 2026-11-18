@@ -40,3 +40,26 @@ test('CP-F2-04, F2-15, F1-14: a staff preview names the member, in words, and is
   await expect(rows.first()).toContainText(PREVIEW);
   await expect(page.getByTestId('client-portal-manage')).not.toContainText('portal.preview_opened');
 });
+
+test('CP-F1-15: an unsaved Client Note asks "Leave without saving?" on Back to All Clients', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app(`/client-portal/${JAMIE}`));
+  await expect(page.getByTestId('page-title')).toHaveText('Jamie Sample', { timeout: 60_000 });
+  const note = page.getByLabel('New note');
+  await note.fill('Synthetic note, not saved yet');
+
+  await page.getByRole('button', { name: 'Back to All Clients' }).click();
+  const leave = page.getByRole('dialog', { name: 'Leave without saving?' });
+  await expect(leave).toBeVisible();
+  await leave.getByRole('button', { name: 'Stay on This Page' }).click();
+  await expect(leave).toHaveCount(0);
+  await expect(page).toHaveURL(app(`/client-portal/${JAMIE}`));
+  await expect(note).toHaveValue('Synthetic note, not saved yet');
+
+  // Cleared, nothing is unsaved: Back goes straight to the list.
+  await note.fill('');
+  await page.getByRole('button', { name: 'Back to All Clients' }).click();
+  await expect(page).toHaveURL(app('/client-portal'));
+});
