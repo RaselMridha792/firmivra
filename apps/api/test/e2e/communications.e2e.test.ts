@@ -843,6 +843,26 @@ describe('campaigns', () => {
       409,
       'TEMPLATE_NOT_ALLOWED',
     );
+    // Templates Review Two P03: a Campaign template is an email to many, so an email takes it.
+    const campaign = await inFirm('a', (tx) =>
+      tx.messageTemplate.create({
+        data: {
+          businessId: firms.a,
+          kind: 'CAMPAIGN',
+          name: mark('Campaign'),
+          subject: 'Spring newsletter (fake)',
+          body: '<p>Campaign body</p>',
+          status: 'ACTIVE',
+          ownerUserId: ownerA.id,
+        },
+      }),
+    );
+    const fromCampaign = await draft({ templateId: campaign.id });
+    expect(fromCampaign).toMatchObject({
+      subject: 'Spring newsletter (fake)',
+      template: { id: campaign.id },
+    });
+    expect(fromCampaign.body).toBe('<p>Campaign body</p>');
     const d = await draft({ templateId: t.id });
     expect(d).toMatchObject({ subject: 'From the template', template: { id: t.id, version: 3 } });
     expect(d.body).toBe('<p>Template body</p>');

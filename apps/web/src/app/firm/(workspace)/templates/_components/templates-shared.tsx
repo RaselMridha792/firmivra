@@ -1,4 +1,8 @@
-import type { MessageTemplateKind, MessageTemplateStatus } from '@firmivra/types';
+import {
+  AUTOMATION_TEMPLATE_KINDS,
+  type MessageTemplateKind,
+  type MessageTemplateStatus,
+} from '@firmivra/types';
 import { Badge, tileTones, type TileTone } from '@firmivra/ui';
 import {
   CalendarPlus,
@@ -191,18 +195,8 @@ export const HAS_SUBJECT: MessageTemplateKind[] = [
   'LETTER_NOTICE',
   'ANNOUNCEMENT',
 ];
-export const AUTOMATION_KINDS: MessageTemplateKind[] = [
-  'EMAIL',
-  'SMS',
-  'PORTAL_MESSAGE',
-  'DOCUMENT_REQUEST',
-  'APPOINTMENT',
-  'INVOICE_PAYMENT',
-  'LEAD_FOLLOW_UP',
-  'BOOKKEEPING',
-  'PAYROLL',
-  'TASK',
-];
+/** P03, P04: the kinds Automations may use, shared with the API (packages/types). */
+export const AUTOMATION_KINDS: readonly MessageTemplateKind[] = AUTOMATION_TEMPLATE_KINDS;
 
 export const STATUS_LABEL: Record<MessageTemplateStatus, string> = {
   DRAFT: 'Draft',

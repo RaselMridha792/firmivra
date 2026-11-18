@@ -21,6 +21,19 @@ describe('templateUse', () => {
     });
   });
 
+  it('opens an email draft from a Campaign, and an announcement from an Announcement (P03, P04)', () => {
+    expect(templateUse(row('CAMPAIGN'), true)).toEqual({
+      href: `/communications/new?channel=EMAIL&template=${id}`,
+    });
+    expect(templateUse(row('ANNOUNCEMENT'), true)).toEqual({
+      href: `/communications/new?channel=ANNOUNCEMENT&template=${id}`,
+    });
+    expect(templateUse(row('ANNOUNCEMENT', { status: 'DRAFT' }), false)).toEqual({
+      reason: 'A draft cannot be used yet. Ask an Owner or Admin to activate it.',
+    });
+    expect(templateUse(row('LETTER_NOTICE'), true)).toBeNull();
+  });
+
   it('starts a task, a request or a form from the template it stands for (TP-F08)', () => {
     const on = { linkedTemplateId: linked };
     expect(templateUse(row('TASK', on), true)).toEqual({ href: `/tasks/new?template=${linked}` });

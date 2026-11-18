@@ -224,6 +224,27 @@ export const TemplateSort = z.enum(['name', 'updated', 'category', 'uses', 'stat
  * everything but archived. `search` matches the name, description, subject and tags. Default
  * order: last updated, newest first.
  */
+/**
+ * Templates Review Two P03, P04: the kinds a template may be offered to Automations as ("Include
+ * in automations"), one list for the API, the screens and the mock. Automations act on one
+ * client's event and send that client a message or start that client's work. A Campaign or an
+ * Announcement goes to many clients at once through Communications, so neither is offered here;
+ * nor are a Tax Workflow (a structure, not a message), an Intake, an Engagement Agreement or a
+ * Letter / Notice, which are started by hand.
+ */
+export const AUTOMATION_TEMPLATE_KINDS = [
+  'EMAIL',
+  'SMS',
+  'PORTAL_MESSAGE',
+  'DOCUMENT_REQUEST',
+  'APPOINTMENT',
+  'INVOICE_PAYMENT',
+  'LEAD_FOLLOW_UP',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'TASK',
+] as const satisfies readonly MessageTemplateKind[];
+
 export const MessageTemplatesQuery = z.strictObject({
   tab: TemplateTab.optional().default('all'),
   kind: MessageTemplateKind.optional(),

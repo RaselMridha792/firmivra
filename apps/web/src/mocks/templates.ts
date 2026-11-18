@@ -38,6 +38,8 @@ import {
   TaxWorkflowStructure,
   TemplateStructureOptionsQuery,
   SetLinkedTemplateRequest,
+  smsSegments,
+  AUTOMATION_TEMPLATE_KINDS,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -76,18 +78,8 @@ const memberOf = (userId: string): MemberRef | undefined => {
 };
 
 const NEEDS_SUBJECT: MessageTemplateKind[] = ['EMAIL', 'CAMPAIGN', 'LETTER_NOTICE', 'ANNOUNCEMENT'];
-const AUTOMATION_KINDS: MessageTemplateKind[] = [
-  'EMAIL',
-  'SMS',
-  'PORTAL_MESSAGE',
-  'DOCUMENT_REQUEST',
-  'APPOINTMENT',
-  'INVOICE_PAYMENT',
-  'LEAD_FOLLOW_UP',
-  'BOOKKEEPING',
-  'PAYROLL',
-  'TASK',
-];
+/** The kinds Automations may use, as the API (packages/types, P03, P04). */
+const AUTOMATION_KINDS: readonly MessageTemplateKind[] = AUTOMATION_TEMPLATE_KINDS;
 
 const FIELD_DEFS: [MergeField['group'], string, string, string][] = [
   ['CLIENT', 'Client First Name', 'First name of client', 'Jamie'],
@@ -945,10 +937,7 @@ export function createTemplatesMock({
           sample: true,
           sms:
             r.d.kind === 'SMS'
-              ? {
-                  characters: plainText.length,
-                  parts: Math.max(1, Math.ceil(plainText.length / 160)),
-                }
+              ? (({ characters, parts }) => ({ characters, parts }))(smsSegments(plainText))
               : null,
         };
       }),

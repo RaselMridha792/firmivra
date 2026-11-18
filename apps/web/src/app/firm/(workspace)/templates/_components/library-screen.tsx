@@ -493,7 +493,8 @@ export function LibraryScreen({ slug }: { slug: string }) {
             </span>
           </form>
           {selected.length > 0 ? (
-            <div className="mb-3">
+            <div className="mb-3 flex items-center gap-2">
+              <TemplateHelp area="bulk" />
               <BulkBar
                 count={selected.length}
                 noun="templates"
