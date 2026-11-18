@@ -36,7 +36,8 @@ const tab = (
       businessId: firm[key],
       kind: data.kind ?? 'CUSTOM',
       module: data.module ?? 'DOCUMENTS',
-      label: data.label === undefined ? `Payroll Documents ${randomUUID().slice(0, 6)}` : data.label,
+      label:
+        data.label === undefined ? `Payroll Documents ${randomUUID().slice(0, 6)}` : data.label,
       sortOrder: data.sortOrder ?? 7,
       ...(data.enabled === undefined ? {} : { enabled: data.enabled }),
       ...(data.audience === undefined ? {} : { audience: data.audience }),
@@ -59,13 +60,19 @@ beforeAll(async () => {
     firm.b = (await tx.business.create({ data: { slug: `cpr-b-${run}`, name: 'B' } })).id;
   });
   for (const key of ['a', 'b'] as const) {
-    client[key] = await runInScope(owner, { kind: 'business', businessId: firm[key] }, async (tx) => {
-      const c = await tx.client.create({ data: { businessId: firm[key], displayName: 'Fake' } });
-      if (key === 'a') {
-        tag.a = (await tx.tag.create({ data: { businessId: firm.a, name: `Payroll ${run}` } })).id;
-      }
-      return c.id;
-    });
+    client[key] = await runInScope(
+      owner,
+      { kind: 'business', businessId: firm[key] },
+      async (tx) => {
+        const c = await tx.client.create({ data: { businessId: firm[key], displayName: 'Fake' } });
+        if (key === 'a') {
+          tag.a = (
+            await tx.tag.create({ data: { businessId: firm.a, name: `Payroll ${run}` } })
+          ).id;
+        }
+        return c.id;
+      },
+    );
   }
 });
 
@@ -98,7 +105,13 @@ describe('portal_tabs and portal_tab_targets', () => {
     expect(
       await failure(
         db.forBusiness(firm.b).portalTab.create({
-          data: { businessId: firm.a, kind: 'CUSTOM', module: 'DOCUMENTS', label: 'X', sortOrder: 1 },
+          data: {
+            businessId: firm.a,
+            kind: 'CUSTOM',
+            module: 'DOCUMENTS',
+            label: 'X',
+            sortOrder: 1,
+          },
         }),
       ),
     ).toMatch(/row-level security/i);
@@ -109,18 +122,31 @@ describe('portal_tabs and portal_tab_targets', () => {
     expect(await failure(tab('a', { label: null }))).toMatch(/check constraint/i);
     expect(await failure(tab('a', { module: 'TAX_RETURNS' }))).toMatch(/check constraint/i);
     for (const label of ['', '   ', 'x'.repeat(41), 'hidden​space']) {
-      expect(await failure(tab('a', { label })), JSON.stringify(label)).toMatch(/check constraint/i);
+      expect(await failure(tab('a', { label })), JSON.stringify(label)).toMatch(
+        /check constraint/i,
+      );
     }
     expect(await failure(tab('a', { sortOrder: -1 }))).toMatch(/check constraint/i);
   });
 
   it('a built-in tab is only a label and a position, once per tab', async () => {
-    const built = await tab('a', { kind: 'BUILT_IN', module: 'MESSAGES', label: null, sortOrder: 5 });
+    const built = await tab('a', {
+      kind: 'BUILT_IN',
+      module: 'MESSAGES',
+      label: null,
+      sortOrder: 5,
+    });
     expect(built).toMatchObject({ label: null, enabled: true, audience: 'ALL' });
     expect(
-      await failure(tab('a', { kind: 'BUILT_IN', module: 'MESSAGES', label: 'Notes', sortOrder: 1 })),
+      await failure(
+        tab('a', { kind: 'BUILT_IN', module: 'MESSAGES', label: 'Notes', sortOrder: 1 }),
+      ),
     ).toMatch(/unique constraint/i);
-    for (const extra of [{ enabled: false }, { audience: 'TAGS' as const }, { archivedAt: new Date() }]) {
+    for (const extra of [
+      { enabled: false },
+      { audience: 'TAGS' as const },
+      { archivedAt: new Date() },
+    ]) {
       expect(
         await failure(tab('a', { kind: 'BUILT_IN', module: 'TAX_RETURNS', label: null, ...extra })),
         JSON.stringify(extra),
@@ -141,9 +167,9 @@ describe('portal_tabs and portal_tab_targets', () => {
 
   it('tabs are archived, never deleted; a target is one tag or one client, once', async () => {
     const t = await tab('a', { audience: 'TAGS' });
-    expect(
-      await failure(db.forBusiness(firm.a).portalTab.delete({ where: { id: t.id } })),
-    ).toMatch(/permission denied/i);
+    expect(await failure(db.forBusiness(firm.a).portalTab.delete({ where: { id: t.id } }))).toMatch(
+      /permission denied/i,
+    );
     const target = (data: { clientId?: string; tagId?: string }) =>
       db.forBusiness(firm.a).portalTabTarget.create({
         data: { businessId: firm.a, portalTabId: t.id, ...data },
@@ -151,7 +177,9 @@ describe('portal_tabs and portal_tab_targets', () => {
     await target({ tagId: tag.a });
     expect(await failure(target({ tagId: tag.a }))).toMatch(/unique constraint/i);
     expect(await failure(target({}))).toMatch(/check constraint/i);
-    expect(await failure(target({ tagId: tag.a, clientId: client.a }))).toMatch(/check constraint/i);
+    expect(await failure(target({ tagId: tag.a, clientId: client.a }))).toMatch(
+      /check constraint/i,
+    );
   });
 });
 
@@ -202,7 +230,13 @@ describe('advisory_plans client approval', () => {
     const plan = await runInScope(owner, { kind: 'business', businessId: firm.a }, async (tx) => {
       const member = randomUUID();
       await tx.user.create({
-        data: { id: member, cognitoSub: member, pool: 'STAFF', email: `${member}@a.test`, name: 'F' },
+        data: {
+          id: member,
+          cognitoSub: member,
+          pool: 'STAFF',
+          email: `${member}@a.test`,
+          name: 'F',
+        },
       });
       await tx.membership.create({
         data: { businessId: firm.a, userId: member, role: 'OWNER', status: 'ACTIVE' },
@@ -228,7 +262,11 @@ describe('advisory_plans client approval', () => {
     expect(await failure(approve({ clientApprovedAt: new Date() }))).toMatch(/check constraint/i);
     expect(
       await failure(
-        approve({ clientApprovedAt: new Date(), clientApprovedByUserId: clientUser, clientApprovedVersion: 0 }),
+        approve({
+          clientApprovedAt: new Date(),
+          clientApprovedByUserId: clientUser,
+          clientApprovedVersion: 0,
+        }),
       ),
     ).toMatch(/check constraint/i);
     const approved = await approve({
