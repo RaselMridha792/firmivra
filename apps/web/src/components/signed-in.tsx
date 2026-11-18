@@ -8,6 +8,7 @@ import { createContext, type ReactNode, use, useCallback, useEffect, useState } 
 import { api } from '../lib/api';
 import { adminAuth, AUTH_MODE, portalAuth, signOut as devSignOut, staffAuth } from '../lib/auth';
 import { signInWithReturn } from '../lib/booking-intent';
+import { takeEarly } from '../lib/early';
 import { mocked } from '../lib/mock';
 import { claimCache, refreshSession, releaseCache, setSession } from '../lib/session';
 
@@ -83,12 +84,13 @@ export function SignedIn({
     let active = true;
     const refresh = refreshFor(site, firmSlug);
     // Each site's own route: the portal's cookies reach only /api/v1/portal/{slug}/.
+    // The firm site's first read may already be under way (V8, the workspace layout).
     const loadMe = () =>
       site === 'admin'
         ? adminAuth.me()
         : site === 'portal' && firmSlug
           ? portalAuth(firmSlug).me()
-          : api.me();
+          : takeEarly('firm:me', () => api.me());
     const is401 = (e: unknown) => e instanceof ApiRequestError && e.status === 401;
     // One refresh on a 401, then one more try; a second 401 means the session is over.
     loadMe()

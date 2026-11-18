@@ -61,6 +61,8 @@ import { portalAuth } from '../../../lib/auth';
 import { useApiQuery } from '../../../lib/query';
 import { applyFirmTheme } from '../../../lib/theme';
 import { claimCache } from '../../../lib/session';
+import { startEarly, takeEarly } from '../../../lib/early';
+import { startDashboardCalls } from './_components/dashboard-calls';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
 // show only to Owner and Admin; the API still checks every request.
@@ -123,6 +125,18 @@ const items: MenuItem[] = [
  * "+ New" (Octavia's Q6 and Q7): each opens its creation form; opening the menu creates nothing.
  * Shown when the role's grid lets it create in the module.
  */
+/**
+ * Dashboard Review Two V8: as this code loads in the browser, the user, the firm and, when the
+ * dashboard is the page opened, its widgets' calls start side by side, not one after another;
+ * <SignedIn>, FirmArea and the dashboard take them (lib/early.ts). The API knows the firm from the
+ * session, so no call waits for another.
+ */
+if (typeof window !== 'undefined') {
+  startEarly('firm:me', () => api.me());
+  startEarly('firm:business', () => api.currentBusiness());
+  if (window.location.pathname === '/') startDashboardCalls(window.location.search);
+}
+
 const newLinks: { label: string; href: string; module: PermissionModule }[] = [
   { label: 'New client', href: '/clients?new=1', module: 'CLIENTS' },
   { label: 'New lead', href: '/leads?new=1', module: 'LEADS' },
@@ -160,7 +174,7 @@ function FirmArea({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    api.currentBusiness().then(
+    takeEarly('firm:business', () => api.currentBusiness()).then(
       (b) => {
         if (!active) return;
         // Another firm than last time on this tab starts with an empty data cache.

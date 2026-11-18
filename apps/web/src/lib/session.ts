@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { dropEarly } from './early';
 
 /**
  * The signed-in site's session, set by <SignedIn>: how to refresh it and where to sign in.
@@ -103,5 +104,6 @@ export function claimCache(client: QueryClient, slot: string, owner: string): vo
 /** On sign-out: empty the cache and forget its owners. */
 export function releaseCache(client: QueryClient): void {
   client.clear();
+  dropEarly();
   owners.clear();
 }
