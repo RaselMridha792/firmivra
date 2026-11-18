@@ -917,8 +917,9 @@ function StepFinancial({ plan, onNotice, onSaved, onNext, onBack }: StepProps) {
             Some of the client&apos;s figures are more than a year old. Update them.
           </p>
         ) : null}
+        {/* Tax Planning 390 px: `relative`, so the grid's hidden labels stay inside its scroll. */}
         {groups.map((g) => (
-          <div key={g} className="overflow-x-auto">
+          <div key={g} className="relative overflow-x-auto">
             <h3 className="mb-1 text-sm font-semibold text-action">{g}</h3>
             <div className="grid min-w-[44rem] grid-cols-[1.4fr_1fr_1fr_1.2fr_1fr] gap-x-3 gap-y-2">
               <span className="text-xs font-semibold text-muted">Figure</span>
