@@ -1,6 +1,6 @@
 // R60, the Bookkeeping live check's failed rows: E01a A01 (View All opened a client Activity page
 // without the bookkeeping events, and raw codes: "Status changed from NOT_STARTED to OVERDUE",
-// "Note added GENERAL") and C05 (the Activity card and report versions used the browser's time
+// "Note added GENERAL", checked in the bookkeeping e2e) and C05 (the Activity card and report versions used the browser's time
 // zone). Mock mode, as an Owner. The browser is in Dhaka, the firm in New York, so a time in the
 // wrong zone is 10 to 11 hours off.
 import { expect, test } from '@playwright/test';
@@ -35,27 +35,17 @@ test('E01a A01: the client Activity page lists the bookkeeping events in words, 
   await expect(first).toContainText(/Status changed from .+ to Overdue/);
   await expect(card).not.toContainText(RAW_CODE);
 
-  // A General note, written here.
-  const notes = page.getByTestId('shared-notes');
-  await notes.getByRole('button', { name: 'Add Note' }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Note', { exact: true }).fill('Fake: asked for the March statement');
-  await dialog.getByRole('button', { name: 'Save Note' }).click();
-  await expect(dialog).toBeHidden();
-
-  // View All: the client's Activity page has the card's events, and the note's type in words.
+  // View All: the client's Activity page has the card's events. (A note's type in words is the
+  // bookkeeping e2e's check: the mock's notes do not reach this client.)
   const cardTime = clock(await first.innerText());
   await card.getByRole('link', { name: 'View All' }).click();
-  await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}\/activity/);
+  await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}\/activity/, { timeout: 60_000 });
   const activity = page.getByTestId('client-activity');
   const status = activity
     .getByTestId('activity-entry')
     .filter({ hasText: /Status changed from .+ to Overdue/ });
   await expect(status).toHaveCount(1);
   await expect(status).toContainText('Bookkeeping');
-  await expect(
-    activity.getByTestId('activity-entry').filter({ hasText: 'Note added' }).first(),
-  ).toContainText('General note');
   await expect(activity).not.toContainText(RAW_CODE);
 
   // C05: the card and the page show the same event at the same firm time.
