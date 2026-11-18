@@ -142,7 +142,7 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                   <Receipt aria-hidden weight="fill" className="size-5" /> Record Payment
                 </Link>
               ) : null}
-              <Link href={`/invoices/new?from=${i.id}`} className={outlined}>
+              <Link href={`/invoices/new?copyFrom=${i.id}`} className={outlined}>
                 <Copy aria-hidden weight="fill" className="size-5 text-action" /> Duplicate
               </Link>
               {(i.status === 'DRAFT' || i.status === 'SCHEDULED' || i.status === 'OPEN') &&
