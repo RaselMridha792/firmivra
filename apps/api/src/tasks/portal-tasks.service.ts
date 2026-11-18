@@ -3,6 +3,7 @@ import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { MyTask, MyTaskRow, MyTaskStatus } from '@firmivra/types';
 import { timeOfDayFromDb } from '../appointments/calendar.js';
 import { AuditService } from '../audit/audit.service.js';
+import { hiddenInPortal } from '../bookkeeping/portal-defaults.js';
 import { DATABASE } from '../database/database.module.js';
 import {
   LIVE_DOCUMENT,
@@ -20,6 +21,8 @@ import {
  * record. Attachments: only the ones approved one by one (`TaskAttachment.clientVisible`), never
  * an INTERNAL or removed document, and only for a household login (PRIMARY or SPOUSE), as the
  * firm's shared files are (an AUTHORIZED login sees none of them). Reads are audited, ids only.
+ * Bookkeeping's Portal Defaults (BK-CP4): a Bookkeeping service with Tasks off keeps its tasks out
+ * of the portal (and one of them is 404); a task of no service, or of any other, still shows.
  */
 const VISIBLE = {
   clientVisible: true,
@@ -53,6 +56,19 @@ type Row = Prisma.TaskGetPayload<{ select: typeof select }>;
 
 const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 
+/**
+ * BK-CP4: leaves out the tasks of the client's Bookkeeping services whose Tasks default is off.
+ * The OR keeps a task of no service: `engagementId` is nullable, and NOT IN would drop it.
+ */
+async function shownServices(
+  tx: TxClient,
+  businessId: string,
+  clientId: string,
+): Promise<Prisma.TaskWhereInput> {
+  const hidden = await hiddenInPortal(tx, businessId, clientId, 'tasks');
+  return hidden.length ? { OR: [{ engagementId: null }, { engagementId: { notIn: hidden } }] } : {};
+}
+
 function toRow(t: Row): MyTaskRow {
   return {
     id: t.id,
@@ -83,8 +99,9 @@ export class PortalTasksService {
     const { rows, clientId } = await this.inFirm(caller.businessId, async (tx) => {
       const login = await portalLogin(tx, caller);
       if (!login.clientId) return { rows: [], clientId: null };
+      const shown = await shownServices(tx, caller.businessId, login.clientId);
       const rows = await tx.task.findMany({
-        where: { businessId: caller.businessId, clientId: login.clientId, ...VISIBLE },
+        where: { businessId: caller.businessId, clientId: login.clientId, ...VISIBLE, ...shown },
         orderBy: [{ status: 'desc' }, { dueOn: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
         take: 200,
         select,
@@ -109,8 +126,15 @@ export class PortalTasksService {
     const task = await this.inFirm(caller.businessId, async (tx) => {
       const login = await portalLogin(tx, caller);
       if (!login.clientId) return null;
+      const shown = await shownServices(tx, caller.businessId, login.clientId);
       const row = await tx.task.findFirst({
-        where: { businessId: caller.businessId, id, clientId: login.clientId, ...VISIBLE },
+        where: {
+          businessId: caller.businessId,
+          id,
+          clientId: login.clientId,
+          ...VISIBLE,
+          ...shown,
+        },
         select: {
           ...select,
           details: true,
