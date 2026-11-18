@@ -25,6 +25,7 @@ import { BackToWorkflow } from '../../../settings/workflow/_components/back-to-w
 import { RowMenu } from '../../_components/row-menu';
 import { DepartmentMembersModal } from './department-members';
 import { DepartmentDetails } from './department-details';
+import { staffCountText } from '../../_components/staff-counts';
 
 const PAGE_SIZE = 10;
 
@@ -181,7 +182,11 @@ export function DepartmentsScreen({ fromWorkflow = false }: { fromWorkflow?: boo
                 cell: (d) => <PersonCell person={d.head} />,
               },
               { id: 'teams', label: 'Teams', cell: (d) => d.teamCount },
-              { id: 'staff', label: 'Staff Count', cell: (d) => d.staffCount },
+              {
+                id: 'staff',
+                label: 'Staff',
+                cell: (d) => staffCountText(d.staffCount, d.assignedCount),
+              },
               {
                 id: 'status',
                 label: 'Status',
@@ -338,7 +343,7 @@ export function DepartmentsScreen({ fromWorkflow = false }: { fromWorkflow?: boo
           open
           action={dialog.action}
           name={dialog.department.name}
-          inUse={dialog.department.staffCount > 0}
+          inUse={dialog.department.assignedCount > 0}
           moveOptions={(active.data?.items ?? []).filter((d) => d.id !== dialog.department.id)}
           pending={update.isPending}
           error={update.error}

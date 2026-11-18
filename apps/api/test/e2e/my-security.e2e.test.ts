@@ -16,6 +16,9 @@ import {
   MySecurityResult,
   MySessionList,
   type SignInResult,
+  StaffDetail,
+  StaffSecurity,
+  StaffSessionList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { LOCAL_MFA_CODE, LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
@@ -26,9 +29,14 @@ const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
 const person = (key: string) => ({ id: randomUUID(), email: `r55z-${key}-${run}@r55.test` });
 /** A Staff-tier member of firm A, also in firm B; and one whose password changes. */
-const people = { staff: person('staff'), changer: person('changer'), ownerA: person('owner-a') };
+const people = {
+  staff: person('staff'),
+  changer: person('changer'),
+  ownerA: person('owner-a'),
+  limited: person('limited'),
+};
 const firms = {} as Record<'a' | 'b', string>;
-const member = {} as Record<'staffA' | 'staffB' | 'changerA', string>;
+const member = {} as Record<'staffA' | 'staffB' | 'changerA' | 'ownerA' | 'limitedA', string>;
 const NEW_PASSWORD = 'Brand-New-Passw0rd';
 
 let app: INestApplication;
@@ -133,7 +141,8 @@ beforeAll(async () => {
         }),
       )
     ).id;
-  await add('a', people.ownerA.id, 'OWNER');
+  member.ownerA = await add('a', people.ownerA.id, 'OWNER');
+  member.limitedA = await add('a', people.limited.id, 'STAFF');
   member.staffA = await add('a', people.staff.id, 'STAFF');
   member.staffB = await add('b', people.staff.id, 'STAFF');
   member.changerA = await add('a', people.changer.id, 'STAFF');
@@ -193,6 +202,70 @@ describe('my sessions (SM14 part B)', () => {
       }),
     );
     expect(audit).toMatchObject({ entityId: member.staffA, metadata: { sessionsRevoked: 1 } });
+  });
+});
+
+describe('the session limit, Last Login and this session (SM12)', () => {
+  it('a sign-in over the saved limit ends the oldest, audited; Last Login is the newest sign-in', async () => {
+    const owner = await signIn(people.ownerA.email);
+    const inA = <T>(work: Parameters<typeof runInScope<T>>[2]) =>
+      asOwner<T>({ kind: 'business', businessId: firms.a }, work);
+    const newest = async () =>
+      new Date(
+        Math.max(...(await rows('a', member.limitedA)).map((r) => r.createdAt.getTime())),
+      ).toISOString();
+    // No limit saved yet: both sign-ins stay.
+    const one = await signIn(people.limited.email);
+    ok(await as(one, 'get', '/me/sessions'));
+    const two = await signIn(people.limited.email);
+    ok(await as(two, 'get', '/me/sessions'));
+    ok(await as(one, 'get', '/me/sessions'));
+    // Last Login is the newest sign-in, though no security settings were saved.
+    const detail = StaffDetail.parse(ok(await as(owner, 'get', `/staff/${member.limitedA}`)));
+    expect(detail.lastLogin?.at).toBe(await newest());
+
+    // Two saved: a third sign-in ends the oldest only, audited.
+    await inA((tx) =>
+      tx.staffSecuritySettings.create({
+        data: { businessId: firms.a, membershipId: member.limitedA, maxConcurrentSessions: 2 },
+      }),
+    );
+    const three = await signIn(people.limited.email);
+    ok(await as(three, 'get', '/me/sessions'));
+    expectError(await as(one, 'get', '/me/sessions'), 401, 'SESSION_REVOKED');
+    ok(await as(two, 'get', '/me/sessions'));
+    const audit = await inA((tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { action: 'staff.session_limit_signed_out', entityId: member.limitedA },
+      }),
+    );
+    expect(audit.metadata).toEqual({ sessionsRevoked: 1, limit: 2 });
+    const security = StaffSecurity.parse(
+      ok(await as(owner, 'get', `/staff/${member.limitedA}/security`)),
+    );
+    expect(security.lastLogin?.at).toBe(await newest());
+
+    // "Sign out other sessions on new sign-in": one at a time.
+    await inA((tx) =>
+      tx.staffSecuritySettings.update({
+        where: { businessId_membershipId: { businessId: firms.a, membershipId: member.limitedA } },
+        data: { signOutOtherSessions: true },
+      }),
+    );
+    const four = await signIn(people.limited.email);
+    ok(await as(four, 'get', '/me/sessions'));
+    for (const ended of [two, three])
+      expectError(await as(ended, 'get', '/me/sessions'), 401, 'SESSION_REVOKED');
+
+    // This session is marked on the viewer's own record, never on someone else's.
+    const own = StaffSessionList.parse(
+      ok(await as(owner, 'get', `/staff/${member.ownerA}/sessions`)),
+    );
+    expect(own.items.filter((s) => s.current)).toHaveLength(1);
+    const theirs = StaffSessionList.parse(
+      ok(await as(owner, 'get', `/staff/${member.limitedA}/sessions`)),
+    );
+    expect(theirs.items.some((s) => s.current)).toBe(false);
   });
 });
 

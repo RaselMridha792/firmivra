@@ -492,10 +492,10 @@ function DetailsForm({
                   </div>
                   <span className="pb-2.5 text-sm text-muted">clients</span>
                 </div>
-                {/* Octavia's SM8: one unit, and what it does today. */}
+                {/* Octavia's SM8: one unit, and what it does (SM08, Review 2: a warning). */}
                 <p className="text-xs text-muted">
-                  The most active clients this person should carry. Client assignment does not check
-                  it yet.
+                  The most active clients this person should carry. Assigning a client past it, or
+                  while they are not receiving new clients, shows a warning and still assigns.
                 </p>
               </div>
             </div>

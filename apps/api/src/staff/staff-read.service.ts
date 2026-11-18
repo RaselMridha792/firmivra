@@ -26,7 +26,7 @@ import { ROLE_DESCRIPTIONS } from '../roles/roles-catalog.js';
 import { notFound } from '../workspaces/common.js';
 import type { StaffListQ } from './staff-input.js';
 import { memberGrid, toPermissions } from './staff-permissions.service.js';
-import { originalOwnerOf } from './staff.common.js';
+import { lastLoginsOf, originalOwnerOf } from './staff.common.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -169,18 +169,19 @@ export class StaffReadService {
           take: q.pageSize,
         }),
       ]);
-      const [invites, logins] = await Promise.all([
+      const [invites, login] = await Promise.all([
         this.openInvites(
           tx,
           businessId,
           rows.filter((r) => r.status === 'INVITED').map((r) => r.id),
         ),
-        tx.staffSecuritySettings.findMany({
-          where: { businessId, membershipId: { in: rows.map((r) => r.id) } },
-          select: { membershipId: true, lastLoginAt: true },
-        }),
+        // SM12: the newest sign-in, as everywhere.
+        lastLoginsOf(
+          tx,
+          businessId,
+          rows.map((r) => r.id),
+        ),
       ]);
-      const login = new Map(logins.map((l) => [l.membershipId, l.lastLoginAt]));
       return {
         items: rows.map((r) => ({
           id: r.id,
@@ -329,10 +330,7 @@ export class StaffReadService {
       if (!m) throw notFound();
       const [invites, security, original] = await Promise.all([
         m.status === 'INVITED' ? this.openInvites(tx, businessId, [m.id]) : new Map(),
-        tx.staffSecuritySettings.findUnique({
-          where: { businessId_membershipId: { businessId, membershipId: m.id } },
-          select: { lastLoginAt: true },
-        }),
+        lastLoginsOf(tx, businessId, [m.id]).then((l) => ({ lastLoginAt: l.get(m.id) ?? null })),
         originalOwnerOf(tx, businessId),
       ]);
       // SM14: what the viewer may do to this member, by the rule the changes check.

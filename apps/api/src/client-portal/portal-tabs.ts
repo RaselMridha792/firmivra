@@ -3,6 +3,11 @@ import {
   Body,
   type CanActivate,
   ConflictException,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
   Controller,
   type ExecutionContext,
   ForbiddenException,
@@ -16,15 +21,20 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { Database, TxClient } from '@firmivra/db';
 import {
   PORTAL_MODULE_LABELS,
   PORTAL_TAB_LABELS,
   PortalModule,
+  CreatePortalCustomTab,
+  type MyCustomTab,
   PortalTab,
+  type PortalCustomTab,
+  type PortalCustomTabList,
   type PortalTabLayoutItem,
   type PortalTabs,
+  UpdatePortalCustomTab,
   UpdatePortalTabsRequest,
 } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
@@ -57,6 +67,44 @@ export const messagesClosed = () =>
   });
 
 type Tabs = Record<PortalTab, boolean>;
+
+const customNotFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+
+const customSelect = {
+  id: true,
+  label: true,
+  module: true,
+  enabled: true,
+  audience: true,
+  targets: {
+    select: { tagId: true, clientId: true, client: { select: { displayName: true } } },
+  },
+} as const;
+
+type CustomRow = {
+  id: string;
+  label: string | null;
+  module: PortalModule;
+  enabled: boolean;
+  audience: PortalCustomTab['audience'];
+  targets: {
+    tagId: string | null;
+    clientId: string | null;
+    client: { displayName: string } | null;
+  }[];
+};
+
+const toCustom = (r: CustomRow): PortalCustomTab => ({
+  id: r.id,
+  label: r.label ?? '',
+  module: r.module as PortalCustomTab['module'],
+  enabled: r.enabled,
+  audience: r.audience,
+  tagIds: r.targets.flatMap((t) => (t.tagId ? [t.tagId] : [])),
+  clients: r.targets
+    .flatMap((t) => (t.clientId ? [{ id: t.clientId, name: t.client?.displayName ?? '' }] : []))
+    .sort((a, b) => a.name.localeCompare(b.name)),
+});
 type LayoutChange = NonNullable<z.output<typeof UpdatePortalTabsRequest>['layout']>;
 
 /** 409 DUPLICATE_LABEL: two tabs would share a name (CP-5b). */
@@ -86,6 +134,7 @@ export class PortalTabsService {
     return this.db.withScope({ kind: 'business', businessId }, async (tx) => ({
       tabs: await this.read(tx),
       layout: await this.layout(tx),
+      custom: [],
     }));
   }
 
@@ -211,7 +260,7 @@ export class PortalTabsService {
         );
       }
       if (layout) await this.arrange(tx, businessId, actorUserId, layout);
-      return { tabs: await this.read(tx), layout: await this.layout(tx) };
+      return { tabs: await this.read(tx), layout: await this.layout(tx), custom: [] };
     });
   }
 
@@ -235,6 +284,224 @@ export class PortalTabsService {
     ) as ClientAreas;
   }
 
+  // ---------- Custom tabs (CP-5d, CP-5e) ----------
+
+  /** The firm's live custom tabs, in their order. */
+  private async customRows(tx: TxClient): Promise<PortalCustomTab[]> {
+    const rows = await tx.portalTab.findMany({
+      where: { kind: 'CUSTOM', archivedAt: null },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: customSelect,
+      take: 50,
+    });
+    return rows.map(toCustom);
+  }
+
+  async customList(businessId: string): Promise<PortalCustomTabList> {
+    return this.db.withScope({ kind: 'business', businessId }, async (tx) => ({
+      items: await this.customRows(tx),
+    }));
+  }
+
+  /** A name no other live tab (built-in by its current name, or custom) has, ignoring case. */
+  private async nameFree(tx: TxClient, label: string, exceptId?: string): Promise<void> {
+    const name = label.trim().toLowerCase();
+    const builtIn = (await this.layout(tx)).some((i) => i.label.trim().toLowerCase() === name);
+    const custom = (await this.customRows(tx)).some(
+      (t) => t.id !== exceptId && t.label.trim().toLowerCase() === name,
+    );
+    if (builtIn || custom) throw duplicateLabel();
+  }
+
+  /** Replaces a tab's targets with these (the audience decides which kind). */
+  private async setTargets(
+    tx: TxClient,
+    businessId: string,
+    tabId: string,
+    targets: { tagIds: string[]; clientIds: string[] },
+  ): Promise<void> {
+    await tx.portalTabTarget.deleteMany({ where: { portalTabId: tabId } });
+    const rows = [
+      ...[...new Set(targets.tagIds)].map((tagId) => ({ businessId, portalTabId: tabId, tagId })),
+      ...[...new Set(targets.clientIds)].map((clientId) => ({
+        businessId,
+        portalTabId: tabId,
+        clientId,
+      })),
+    ];
+    if (rows.length === 0) return;
+    // Another firm's tag or client is not found here (row-level security and the foreign key).
+    const [tags, clients] = await Promise.all([
+      tx.tag.count({ where: { id: { in: targets.tagIds }, archivedAt: null } }),
+      tx.client.count({ where: { id: { in: targets.clientIds } } }),
+    ]);
+    if (tags !== new Set(targets.tagIds).size || clients !== new Set(targets.clientIds).size)
+      throw customNotFound();
+    await tx.portalTabTarget.createMany({ data: rows });
+  }
+
+  async customCreate(
+    businessId: string,
+    actorUserId: string,
+    body: z.output<typeof CreatePortalCustomTab>,
+  ): Promise<PortalCustomTab> {
+    return this.db.withScope({ kind: 'business', businessId }, async (tx) => {
+      await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${`portal-tabs:${businessId}`}))) AS l`;
+      await this.nameFree(tx, body.label);
+      const last = await tx.portalTab.aggregate({ _max: { sortOrder: true } });
+      const created = await tx.portalTab.create({
+        data: {
+          businessId,
+          kind: 'CUSTOM',
+          module: body.module,
+          label: body.label,
+          sortOrder: Math.min(999, Math.max(6, (last._max.sortOrder ?? 5) + 1)),
+          audience: body.audience,
+          updatedByUserId: actorUserId,
+        },
+        select: { id: true },
+      });
+      await this.setTargets(tx, businessId, created.id, body);
+      await this.audit.logIn(
+        tx,
+        'portal.custom_tab_created',
+        { type: 'portal_tab', id: created.id },
+        {
+          module: body.module,
+          audience: body.audience,
+          tags: body.tagIds.length,
+          clients: body.clientIds.length,
+        },
+        { businessId },
+      );
+      return toCustom(
+        await tx.portalTab.findUniqueOrThrow({ where: { id: created.id }, select: customSelect }),
+      );
+    });
+  }
+
+  async customUpdate(
+    businessId: string,
+    actorUserId: string,
+    id: string,
+    body: z.output<typeof UpdatePortalCustomTab>,
+  ): Promise<PortalCustomTab> {
+    return this.db.withScope({ kind: 'business', businessId }, async (tx) => {
+      await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${`portal-tabs:${businessId}`}))) AS l`;
+      const found = await tx.portalTab.findFirst({
+        where: { id, kind: 'CUSTOM', archivedAt: null },
+        select: customSelect,
+      });
+      if (!found) throw customNotFound();
+      const before = toCustom(found);
+      if (body.label !== undefined) await this.nameFree(tx, body.label, id);
+      await tx.portalTab.update({
+        where: { id },
+        data: {
+          ...(body.label !== undefined ? { label: body.label } : {}),
+          ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+          ...(body.audience !== undefined ? { audience: body.audience } : {}),
+          updatedByUserId: actorUserId,
+        },
+      });
+      if (body.audience !== undefined) {
+        await this.setTargets(tx, businessId, id, {
+          tagIds: body.tagIds ?? [],
+          clientIds: body.clientIds ?? [],
+        });
+      }
+      const after = toCustom(
+        await tx.portalTab.findUniqueOrThrow({ where: { id }, select: customSelect }),
+      );
+      await this.audit.logIn(
+        tx,
+        'portal.custom_tab_updated',
+        { type: 'portal_tab', id },
+        {
+          renamed: before.label !== after.label,
+          ...(before.enabled !== after.enabled ? { enabled: after.enabled } : {}),
+          ...(body.audience !== undefined ? { audience: after.audience } : {}),
+        },
+        { businessId },
+      );
+      return after;
+    });
+  }
+
+  /** Hides a custom tab for good; files uploaded through it stay with their client. */
+  async customArchive(
+    businessId: string,
+    actorUserId: string,
+    id: string,
+  ): Promise<PortalCustomTabList> {
+    return this.db.withScope({ kind: 'business', businessId }, async (tx) => {
+      const found = await tx.portalTab.findFirst({
+        where: { id, kind: 'CUSTOM', archivedAt: null },
+        select: { id: true },
+      });
+      if (!found) throw customNotFound();
+      await tx.portalTab.update({
+        where: { id },
+        data: { archivedAt: new Date(), updatedByUserId: actorUserId },
+      });
+      await this.audit.logIn(
+        tx,
+        'portal.custom_tab_archived',
+        { type: 'portal_tab', id },
+        {},
+        { businessId },
+      );
+      return { items: await this.customRows(tx) };
+    });
+  }
+
+  /**
+   * CP-5e: the custom tabs a client sees: only in a business portal (guide 9.3), on, live, and
+   * for everyone, or targeted (TAGS or CLIENTS) at one of the client's tags or at the client.
+   */
+  async customFor(tx: TxClient, clientId: string, business: boolean): Promise<MyCustomTab[]> {
+    if (!business) return [];
+    const tags = (
+      await tx.clientTag.findMany({ where: { clientId }, select: { tagId: true } })
+    ).map((t) => t.tagId);
+    const rows = await tx.portalTab.findMany({
+      where: {
+        kind: 'CUSTOM',
+        archivedAt: null,
+        enabled: true,
+        OR: [
+          { audience: 'ALL' },
+          {
+            audience: { in: ['TAGS', 'CLIENTS'] },
+            targets: {
+              some: { OR: [{ clientId }, ...(tags.length ? [{ tagId: { in: tags } }] : [])] },
+            },
+          },
+        ],
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, label: true, module: true },
+      take: 50,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      label: r.label ?? '',
+      module: r.module as MyCustomTab['module'],
+    }));
+  }
+
+  /** The custom tab a signed-in client asks for, if they see it (404 otherwise). */
+  async customTabOf(
+    businessId: string,
+    clientAccountId: string,
+    tabId: string,
+  ): Promise<MyCustomTab> {
+    const mine = await this.forClientAccount(businessId, clientAccountId);
+    const tab = mine.custom.find((t) => t.id === tabId);
+    if (!tab) throw customNotFound();
+    return tab;
+  }
+
   /** What a signed-in client sees: each area on only when the firm's and their own are. */
   async forClientAccount(businessId: string, clientAccountId: string): Promise<PortalTabs> {
     return this.db.withScope({ kind: 'business', businessId }, async (tx) => {
@@ -243,7 +510,12 @@ export class PortalTabsService {
         select: { clientId: true },
       });
       if (!account?.clientId)
-        return { tabs: await this.read(tx), layout: await this.layout(tx), businessPortal: false };
+        return {
+          tabs: await this.read(tx),
+          layout: await this.layout(tx),
+          custom: [],
+          businessPortal: false,
+        };
       const areas = await this.areasIn(tx, account.clientId);
       const on = (m: PortalModule) => areas[m].firmOn && areas[m].clientOn;
       // CP-9.3: a Personal portal lists no business-only tab (content.service's rule).
@@ -259,6 +531,7 @@ export class PortalTabsService {
           REPORTS: on('REPORTS'),
         },
         layout: await this.layout(tx),
+        custom: await this.customFor(tx, account.clientId, client?.accountType === 'BUSINESS'),
         businessPortal: client?.accountType === 'BUSINESS',
       };
     });
@@ -327,6 +600,9 @@ export class PortalTabGuard implements CanActivate {
 export const PortalTabRoute = (area: PortalModule) =>
   applyDecorators(SetMetadata(TAB_KEY, area), UseGuards(PortalTabGuard));
 
+/** A custom tab's id in a path. */
+const CUSTOM_ID = z.uuid().transform((v) => v.toLowerCase());
+
 /** Settings > Client Portal > Features: Owner and Admin. */
 @Controller('business/settings/portal-tabs')
 @Roles(...FIRM_MANAGERS)
@@ -346,6 +622,43 @@ export class PortalTabsController {
     body: z.output<typeof UpdatePortalTabsRequest>,
   ): Promise<PortalTabs> {
     return this.tabs.update(tenant.businessId, auth.userId, body.tabs ?? {}, body.layout);
+  }
+
+  /** CP-5d, CP-5e: the firm's custom tabs. */
+  @Get('custom')
+  customList(@CurrentTenant() tenant: TenantContext): Promise<PortalCustomTabList> {
+    return this.tabs.customList(tenant.businessId);
+  }
+
+  @Post('custom')
+  customCreate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(CreatePortalCustomTab))
+    body: z.output<typeof CreatePortalCustomTab>,
+  ): Promise<PortalCustomTab> {
+    return this.tabs.customCreate(tenant.businessId, auth.userId, body);
+  }
+
+  @Patch('custom/:id')
+  customUpdate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(CUSTOM_ID)) id: string,
+    @Body(new ZodValidationPipe(UpdatePortalCustomTab))
+    body: z.output<typeof UpdatePortalCustomTab>,
+  ): Promise<PortalCustomTab> {
+    return this.tabs.customUpdate(tenant.businessId, auth.userId, id, body);
+  }
+
+  @Post('custom/:id/archive')
+  @HttpCode(200)
+  customArchive(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(CUSTOM_ID)) id: string,
+  ): Promise<PortalCustomTabList> {
+    return this.tabs.customArchive(tenant.businessId, auth.userId, id);
   }
 }
 

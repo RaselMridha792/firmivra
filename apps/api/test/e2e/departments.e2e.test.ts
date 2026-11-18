@@ -564,10 +564,18 @@ describe("department members (Octavia's SM13)", () => {
     expect(new Set(names(await members(d1.id, adminA)))).toEqual(
       new Set([member.staffA, member.invitedA]),
     );
-    // The count is active staff (the invitee waits); the directory filter is direct assignment.
+    // SM15 (Staff Management Review 2): both counts, "1 active · 2 assigned": the active staff,
+    // and everyone assigned but the deactivated, the directory filter's set.
     expect(
-      DepartmentDetail.parse(ok(await call('get', `/departments/${d1.id}`, ownerA))).staffCount,
-    ).toBe(1);
+      DepartmentDetail.parse(ok(await call('get', `/departments/${d1.id}`, ownerA))),
+    ).toMatchObject({ staffCount: 1, assignedCount: 2 });
+    const listed = ok(await call('get', '/departments?pageSize=100', ownerA)) as {
+      items: { id: string; staffCount: number; assignedCount: number }[];
+    };
+    expect(listed.items.find((d) => d.id === d1.id)).toMatchObject({
+      staffCount: 1,
+      assignedCount: 2,
+    });
     const filtered = ok(await call('get', `/staff?departmentId=${d1.id}&status=all`, ownerA)) as {
       items: { id: string }[];
     };

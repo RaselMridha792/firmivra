@@ -14,6 +14,7 @@ import {
 } from '../../_components/groups-shared';
 import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { KIND_LABELS } from './team-dialogs';
+import { staffCountText } from '../../_components/staff-counts';
 
 /**
  * The chosen team, drawn like the Departments tab's panel: Team Details (lead with Change,
@@ -102,7 +103,7 @@ export function TeamDetails({
           </div>
           <div className={fact}>
             <dt className={term}>Members</dt>
-            <dd className="min-w-0 flex-1">{t.memberCount}</dd>
+            <dd className="min-w-0 flex-1">{staffCountText(t.memberCount, t.assignedCount)}</dd>
           </div>
           <div className={fact}>
             <dt className={term}>Created</dt>

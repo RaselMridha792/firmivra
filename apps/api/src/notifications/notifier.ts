@@ -100,6 +100,8 @@ export const CHOSEN_RECIPIENT_EVENTS: ReadonlySet<NotificationEvent> = new Set<N
   // P4-8: a tax plan's assigned staff, when the client asks or approves in the portal.
   'tax-plan.client-request',
   'tax-plan.client-approved',
+  // B10: a business plan's advisor and sender, when the client approves it in the portal.
+  'advisory-plan.client-approved',
 ]);
 
 /**
@@ -351,6 +353,15 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
       select: { name: true, clientId: true },
     });
     return p && { clientId: p.clientId, values: { title: short(p.name) } };
+  },
+  // B10: a business plan the client approved in the portal; the text names the plan (the firm's
+  // own words) and the client.
+  advisory_plan: async (tx, businessId, id) => {
+    const p = await tx.advisoryPlan.findFirst({
+      where: { businessId, id },
+      select: { name: true, advisoryClient: { select: { clientId: true } } },
+    });
+    return p && { clientId: p.advisoryClient.clientId, values: { title: short(p.name) } };
   },
   // The person's own account: reaches only them, and only if they have a place in this firm.
   user: (_tx, _businessId, id) =>

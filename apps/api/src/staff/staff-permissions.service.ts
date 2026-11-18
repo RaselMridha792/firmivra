@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
   DEFAULT_ROLE_PERMISSIONS,
@@ -80,6 +80,46 @@ export async function memberGrid(
   return { role: roleCells, member: memberCells, updatedAt: memberRows[0]?.updatedAt ?? null };
 }
 
+/** Who gives the cells: the signed-in member (their membership is read here). */
+export type Granter = { businessId: string; userId: string };
+
+/**
+ * SM02 (Staff Management Review 2, decision 7a): only what the granter has themselves. The Owner
+ * gives anything; anyone else gives only the cells their own grid has (their role's or custom
+ * role's, with their own changes), whatever the grid is: a role's, a custom role's or a member's.
+ * `given` is the cells newly given ("MODULE:CAPABILITY"); a cell kept as it was is never refused.
+ * Else 403 CANNOT_GRANT naming the cells.
+ */
+export async function assertGrantable(
+  tx: TxClient,
+  granter: Granter,
+  given: Iterable<string>,
+): Promise<void> {
+  const cells = [...new Set(given)];
+  if (!cells.length) return;
+  const self = await tx.membership.findFirst({
+    where: { businessId: granter.businessId, userId: granter.userId, status: 'ACTIVE' },
+    select: { id: true, role: true, customRoleId: true },
+  });
+  if (!self)
+    throw new ForbiddenException({
+      code: 'FORBIDDEN',
+      message: 'You do not have access to this action',
+    });
+  if (self.role === 'OWNER') return;
+  const own = await memberGrid(tx, granter.businessId, self.role, self.id, self.customRoleId);
+  const beyond = cells.filter((k) => !own.member.get(k)?.granted);
+  if (beyond.length)
+    throw new ForbiddenException({
+      code: 'CANNOT_GRANT',
+      message: 'You can only give permissions you have yourself',
+      details: beyond.map((k) => {
+        const [module, capability] = k.split(':');
+        return { path: 'grants', module, capability };
+      }),
+    });
+}
+
 /**
  * Writes a member's grid: `grants` over what they have now. Only the cells that differ from the
  * role's are kept (member_permissions). 400 PERMISSION_NEEDS_VIEW for a capability with no View
@@ -102,6 +142,8 @@ export async function writeMemberGrid(
     fresh?: boolean;
     /** Check only (Create Staff, before the invite): nothing is written. */
     dryRun?: boolean;
+    /** SM02: who gives the grid; a cell newly given that they lack is refused (403). */
+    grantedBy?: Granter;
   },
 ): Promise<{ changedCells: number; escalated: boolean }> {
   const { businessId, membershipId, role } = input;
@@ -128,6 +170,12 @@ export async function writeMemberGrid(
         details: [{ path: 'grants', module: m }],
       });
   }
+  if (input.grantedBy)
+    await assertGrantable(
+      tx,
+      input.grantedBy,
+      [...now].filter(([k, v]) => v && !grid.member.get(k)?.granted).map(([k]) => k),
+    );
   const escalated = [...now].some(([k, v]) => v && !grid.role.get(k)?.granted);
   if (escalated && !input.acknowledged)
     throw staffConflict(
@@ -224,6 +272,7 @@ export class StaffPermissionsService {
           grants,
           acknowledged,
           updatedById: by,
+          grantedBy: actor,
         });
         await this.audit.logIn(
           tx,
@@ -285,6 +334,14 @@ export class StaffPermissionsService {
               details: [{ path: 'overrides', module: m }],
             });
         }
+        // SM02: a cell this turns on (Allow, or Inherit over a Deny) must be one the actor has.
+        await assertGrantable(
+          tx,
+          actor,
+          cells
+            .map((c) => cellKey(c.module, c.capability))
+            .filter((k) => now.get(k) && !grid.member.get(k)?.granted),
+        );
         const escalated = cells.some(
           (c) => c.mode === 'ALLOW' && !roleHas(cellKey(c.module, c.capability)),
         );

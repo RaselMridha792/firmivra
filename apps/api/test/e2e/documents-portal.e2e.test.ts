@@ -25,6 +25,8 @@ import {
   MyDocumentRequestList,
   type NotificationEvent,
   PORTAL_BLOCKED_TEXT,
+  PortalCustomTab,
+  PortalCustomTabList,
   UploadTargets,
   UploadPutTicket,
   UploadTicket,
@@ -1678,6 +1680,73 @@ describe('a portal upload to a Bookkeeping service (Bookkeeping Review 2, A01)',
           where: { id: books },
           data: { status: 'COMPLETED', completedAt: new Date() },
         }),
+      );
+    }
+  });
+});
+
+describe('CP-5d: a custom document tab (Client Portal Review One)', () => {
+  it('keeps the tab on a file uploaded through it, lists only its files, and keeps them once archived', async () => {
+    const businessId = firms.a.id;
+    // Custom tabs show only in a business portal (guide 9.3).
+    await asOwner(businessId, (tx) =>
+      tx.client.update({ where: { id: ids.c1 }, data: { accountType: 'BUSINESS' } }),
+    );
+    try {
+      const made = await call('post', '/settings/portal-tabs/custom', people.ownerA, {
+        label: 'Fake receipts',
+        module: 'DOCUMENTS',
+      });
+      expect(made.status, JSON.stringify(made.body)).toBe(201);
+      const tab = PortalCustomTab.parse(made.body);
+      const through = await mine(people.primary, {
+        portalTabId: tab.id,
+        fileName: 'Fake receipt.pdf',
+      });
+      const plain = await mine(people.primary, { fileName: 'Fake statement.pdf' });
+      const tabOf = async (id: string) =>
+        (
+          await asOwner(businessId, (tx) =>
+            tx.document.findUniqueOrThrow({ where: { id }, select: { portalTabId: true } }),
+          )
+        ).portalTabId;
+      expect([await tabOf(through.id), await tabOf(plain.id)]).toEqual([tab.id, null]);
+      const tabList = (who: Person) => call('get', `/me/documents?portalTabId=${tab.id}`, who);
+      expect(exact(MyDocumentList, await tabList(people.primary)).items.map((d) => d.id)).toEqual([
+        through.id,
+      ]);
+      // The tab is the client's: the household's other logins see it too.
+      expect(exact(MyDocumentList, await tabList(people.spouse)).items.map((d) => d.id)).toEqual([
+        through.id,
+      ]);
+      // My Uploads keeps every file the client sent, through a tab or not.
+      const all = exact(MyDocumentList, await call('get', '/me/documents', people.primary));
+      expect(all.items.map((d) => d.id)).toEqual(expect.arrayContaining([through.id, plain.id]));
+      // A client of the firm with a Personal portal never sees it, by list or by upload.
+      expectError(await tabList(people.other), 404, 'NOT_FOUND');
+      expectError(
+        (await upload(people.other, { serviceId: ids.e2, portalTabId: tab.id })).res,
+        404,
+        'NOT_FOUND',
+      );
+      // Archived: gone by id; the file stays with its client and keeps the tab.
+      exact(
+        PortalCustomTabList,
+        await call('post', `/settings/portal-tabs/custom/${tab.id}/archive`, people.ownerA, {}),
+      );
+      expectError(await tabList(people.primary), 404, 'NOT_FOUND');
+      expectError(
+        (await upload(people.primary, { serviceId: ids.e1, portalTabId: tab.id })).res,
+        404,
+        'NOT_FOUND',
+      );
+      expect(await tabOf(through.id)).toBe(tab.id);
+      const after = exact(MyDocumentList, await call('get', '/me/documents', people.primary));
+      expect(after.items.map((d) => d.id)).toContain(through.id);
+    } finally {
+      // A Personal portal again, as the other tests expect.
+      await asOwner(businessId, (tx) =>
+        tx.client.update({ where: { id: ids.c1 }, data: { accountType: 'INDIVIDUAL' } }),
       );
     }
   });

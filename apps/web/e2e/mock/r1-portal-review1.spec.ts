@@ -181,3 +181,101 @@ test('CP-1g: the button text and device sizes in General, and Portal Appearance 
     '/settings/branding',
   );
 });
+
+test('CP-5d, CP-5e: custom tabs: add, choose who sees them, switch and archive; the portal lists and opens them', async ({
+  page,
+}) => {
+  await page.goto(app('/settings/portal?panel=features'));
+  const card = page.getByTestId('portal-custom-tabs');
+  await expect(card.getByText('No custom tabs yet.')).toBeVisible({ timeout: 60_000 });
+  const add = async (name: string, then?: () => Promise<void>) => {
+    await card.getByRole('button', { name: 'Add Custom Tab' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Add Custom Tab' });
+    await dialog.getByLabel('Tab name (client view)').fill(name);
+    await then?.();
+    await dialog.getByRole('button', { name: 'Add tab' }).click();
+    return dialog;
+  };
+  // A built-in tab's name is taken.
+  const taken = await add('Messages and Notes');
+  await expect(taken.getByRole('alert')).toHaveText(
+    'Another tab already has this name. Give this tab its own.',
+  );
+  await taken.getByLabel('Tab name (client view)').fill('Payroll Files');
+  await taken.getByRole('button', { name: 'Add tab' }).click();
+  await expect(taken).toBeHidden();
+  await expect(card.getByTestId('custom-tab-Payroll Files')).toContainText('All business clients');
+
+  // For one chosen client (the mock portal's client), reusing business resources.
+  await add('Partner Resources', async () => {
+    const dialog = page.getByRole('dialog', { name: 'Add Custom Tab' });
+    await dialog.getByLabel('Function').selectOption('BUSINESS_RESOURCES');
+    await dialog.getByLabel('Chosen business clients').check();
+    await dialog.getByRole('button', { name: 'Add tab' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('Choose at least one client.');
+    await dialog.getByRole('button', { name: /Add a client/ }).click();
+    const picker = page.getByRole('dialog', { name: 'Choose a client' });
+    await picker.getByPlaceholder('Search by name, email or phone…').fill('Jamie');
+    await picker.getByRole('button', { name: /Jamie Sample/ }).click();
+    await expect(dialog.getByRole('list', { name: 'Chosen clients' })).toHaveText(/Jamie Sample/);
+  });
+  await expect(card.getByTestId('custom-tab-Partner Resources')).toContainText('Jamie Sample');
+
+  // Switched off, and archived: neither shows in the portal.
+  await add('Paused Tab');
+  await card.getByRole('switch', { name: 'Show Paused Tab' }).click();
+  await expect(card.getByRole('switch', { name: 'Show Paused Tab' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  );
+  await add('Old Tab');
+  await card.getByRole('button', { name: 'Archive Old Tab' }).click();
+  await page
+    .getByRole('dialog', { name: 'Archive Old Tab?' })
+    .getByRole('button', { name: 'Archive' })
+    .click();
+  await expect(card.getByTestId('custom-tab-Old Tab')).toHaveCount(0);
+
+  // The mock keeps the tabs per origin: the portal (another host) gets the saved ones.
+  const saved = await page.evaluate(() =>
+    sessionStorage.getItem('firmivra-mock:portal-custom-tabs'),
+  );
+  await page.addInitScript(
+    (value) => sessionStorage.setItem('firmivra-mock:portal-custom-tabs', value),
+    saved ?? '[]',
+  );
+  await page.goto(portal('/lvp/documents'));
+  const folders = page.getByRole('navigation', { name: 'Portal folders' }).getByRole('link');
+  await expect(folders).toHaveCount(8, { timeout: 60_000 });
+  await expect(folders.nth(6)).toHaveText('Payroll Files');
+  await expect(folders.nth(7)).toHaveText('Partner Resources');
+
+  // A document tab: the upload keeps the tab, and its list shows only its files.
+  await folders.nth(6).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Payroll Files' })).toBeVisible();
+  await expect(page.getByText('No documents yet')).toBeVisible();
+  await page.getByRole('button', { name: 'Upload Documents' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Upload Documents' });
+  await dialog.getByRole('button', { name: /Upload more tax documents/ }).click();
+  await dialog.getByLabel('File').setInputFiles({
+    name: 'Synthetic_Payroll.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4 synthetic'),
+  });
+  await dialog.getByRole('button', { name: 'Upload', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('row').filter({ hasText: 'Synthetic_Payroll.pdf' })).toBeVisible();
+  await expect(page.getByRole('row')).toHaveCount(2);
+
+  // A resources tab shows the business resources under its own name.
+  await folders.nth(7).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Partner Resources' })).toBeVisible();
+
+  // A Personal portal lists no custom tab, and a tab's address says it isn't available.
+  await page.evaluate(() =>
+    window.sessionStorage.setItem('firmivra-mock:portal-account-type', 'INDIVIDUAL'),
+  );
+  await page.reload();
+  await expect(page.getByText("This tab isn't available")).toBeVisible({ timeout: 60_000 });
+  await expect(folders).toHaveCount(5);
+});
