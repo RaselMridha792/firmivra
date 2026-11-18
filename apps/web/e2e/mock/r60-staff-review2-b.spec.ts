@@ -31,3 +31,27 @@ test('SM15: department and team counts name both the active and the assigned sta
       .first(),
   ).toContainText(/\d+ active · \d+ assigned/);
 });
+
+test('SM08: assigning a client past someone’s maximum warns, and still assigns', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/clients'));
+  // The team mock: Sam Staff carries 2 active clients, their maximum.
+  const row = page
+    .locator('[data-testid="client-card"], [data-testid="clients-table"] tbody tr')
+    .filter({ visible: true })
+    .filter({ hasText: 'Riley Example' });
+  await row.getByRole('checkbox').check({ timeout: 60_000 });
+  await page.getByRole('button', { name: 'Bulk Actions' }).click();
+  await page.getByRole('menuitem', { name: 'Assign Staff Member' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Assign Staff Member' });
+  await dialog.getByLabel('Assign to').selectOption({ label: 'Adam Admin' });
+  await expect(dialog.getByTestId('workload-warning')).toHaveCount(0);
+  await dialog.getByLabel('Assign to').selectOption({ label: 'Sam Staff' });
+  await expect(dialog.getByTestId('workload-warning')).toHaveText(
+    'Sam Staff would have 3 active clients, over their maximum of 2. You can still assign them.',
+  );
+  await dialog.getByRole('button', { name: 'Assign' }).click();
+  await expect(page.getByText('1 client updated.')).toBeVisible();
+});
