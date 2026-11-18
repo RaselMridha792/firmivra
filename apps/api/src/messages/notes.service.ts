@@ -14,6 +14,7 @@ import {
 } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { addServiceEvent } from '../bookkeeping/bookkeeping-activity.js';
+import { shownInPortal } from '../bookkeeping/portal-defaults.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from './messages.service.js';
@@ -27,6 +28,12 @@ const noteChanged = () =>
   new ConflictException({
     code: 'NOTE_CHANGED',
     message: 'This note changed since you opened the preview. Review it again before sharing.',
+  });
+const notesHidden = () =>
+  new ConflictException({
+    code: 'NOTES_HIDDEN_IN_PORTAL',
+    message:
+      "This client's Portal Defaults keep notes out of the portal. Turn Notes on in the client's bookkeeping Settings first.",
   });
 
 /**
@@ -263,7 +270,8 @@ export class NotesService {
    * message to the client through Messages (the same thread, notice and rules as New Message,
    * under the note's service when it has one). The note itself stays internal and unchanged.
    * Whoever may see the note shares it (Staff: their own clients'; another's is 404); an archived
-   * client is 409 CLIENT_ARCHIVED. Audited with ids only, never the text.
+   * client is 409 CLIENT_ARCHIVED. A note of a Bookkeeping service whose Portal Defaults leave
+   * notes out is 409 NOTES_HIDDEN_IN_PORTAL (BK-CP4). Audited with ids only, never the text.
    */
   async share(
     businessId: string,
@@ -278,6 +286,9 @@ export class NotesService {
       });
       if (!row) throw notFound();
       if (row.updatedAt.getTime() !== new Date(updatedAt).getTime()) throw noteChanged();
+      // BK-CP4: a note of a Bookkeeping service whose Portal Defaults leave notes out.
+      if (row.engagementId && !(await shownInPortal(tx, businessId, row.engagementId, 'notes')))
+        throw notesHidden();
       return row;
     });
     const thread = await this.messages.create(businessId, actor, note.clientId, {
