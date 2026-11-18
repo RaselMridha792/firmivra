@@ -1059,7 +1059,16 @@ describe('Create Anyway in the audit (Clients Review 2 §5 duplicate safeguards,
       fields: ['displayName'],
       savedAnyway: { matchedClientIds: [first.id, second.id], reasons: ['NAME'] },
     });
-    expect(JSON.stringify(updated)).not.toContain('Lantern');
+    // Audit Log Review 2, R03: the client's own rename is its old and new name; the matches are
+    // named by id only, never by their names.
+    expect(updated?.metadata).toMatchObject({
+      changes: { displayName: { from: `Dockside Co ${run}`, to: `Lantern-Works ${run}` } },
+    });
+    const text = JSON.stringify(updated);
+    for (const name of [`Lantern Works LLC ${run}`, `lantern works, inc. ${run}`]) {
+      expect(text).not.toContain(name);
+    }
+    expect(JSON.stringify(updated?.metadata)).not.toMatch(/"savedAnyway":\{[^}]*Lantern/);
   });
 
   it('an Edit to a phone another client has, saved anyway, names that client; another firm never counts', async () => {
