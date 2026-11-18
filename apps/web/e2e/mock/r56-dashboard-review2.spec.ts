@@ -131,3 +131,21 @@ test('V6: a task that cannot be completed, or a reminder that cannot be sent, sa
   await page.getByRole('menuitem', { name: 'Send Reminder' }).click();
   await expect(appointments.getByRole('status')).toContainText('The reminder was not sent');
 });
+
+test('OPT1: Custom with a blank date says what applies it, and the period shown stays', async ({
+  page,
+}) => {
+  await page.goto(app('/'));
+  await page.getByRole('combobox', { name: 'Dashboard period' }).selectOption('CUSTOM');
+  const dates = page.getByTestId('custom-dates').first();
+  const hint = dates.getByTestId('custom-hint');
+  await expect(hint).toHaveText(
+    'Choose both dates to apply this period; until then the current one stays.',
+    { timeout: 60_000 },
+  );
+  const day = (back: number) => new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 10);
+  await dates.getByLabel('From').fill(day(7));
+  await expect(hint).toBeVisible();
+  await dates.getByLabel('To').fill(day(1));
+  await expect(hint).toHaveCount(0);
+});

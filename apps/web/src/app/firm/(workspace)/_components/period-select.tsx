@@ -92,6 +92,10 @@ export function PeriodSelect<P extends string>({
           ? 'The end date cannot be after today.'
           : null
       : null;
+  // Dashboard Review Two OPT1 (approved Nov 18): while a date is blank, say what applies the
+  // period, and that the one shown stays until then.
+  const blank = !custom.from || !custom.to;
+  const describedBy = problem ? `${id}-problem` : blank ? `${id}-hint` : undefined;
   const apply = (next: { from: string; to: string }) => {
     setCustom(next);
     const bad = next.from > next.to || (today !== undefined && next.to > today);
@@ -138,7 +142,7 @@ export function PeriodSelect<P extends string>({
               max={today}
               onChange={(e) => apply({ ...custom, from: e.target.value })}
               aria-invalid={problem ? true : undefined}
-              aria-describedby={problem ? `${id}-problem` : undefined}
+              aria-describedby={describedBy}
               className="min-h-10 rounded-control border border-control-border bg-surface px-2 text-heading"
             />
           </div>
@@ -153,10 +157,19 @@ export function PeriodSelect<P extends string>({
               max={today}
               onChange={(e) => apply({ ...custom, to: e.target.value })}
               aria-invalid={problem ? true : undefined}
-              aria-describedby={problem ? `${id}-problem` : undefined}
+              aria-describedby={describedBy}
               className="min-h-10 rounded-control border border-control-border bg-surface px-2 text-heading"
             />
           </div>
+          {blank ? (
+            <span
+              id={`${id}-hint`}
+              data-testid="custom-hint"
+              className={`basis-full text-muted ${align === 'end' ? 'text-right' : ''}`}
+            >
+              Choose both dates to apply this period; until then the current one stays.
+            </span>
+          ) : null}
           {problem ? (
             <span
               id={`${id}-problem`}
