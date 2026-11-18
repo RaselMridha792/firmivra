@@ -131,6 +131,8 @@ export interface ConnectionRow {
   syncEveryMinutes: number | null;
   connectedAt: Date;
   lastSyncAt: Date | null;
+  /** The last connection test (I-R2-02: the overview's "last checked"). */
+  lastCheckAt: Date | null;
   nextSyncAt: Date | null;
 }
 
