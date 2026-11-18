@@ -494,6 +494,28 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       (firm) => `Reminder: your appointment with ${firm}`,
     ),
 
+  // A7: a configured Text reminder: the time and the portal link, with the reminder's own note
+  // and the instructions shown in texts (B9), each kept short.
+  'appointment.reminder-sms': (d, b, o) => {
+    const words = (key: 'message' | 'instructions') => {
+      const value = field(d, key);
+      return typeof value === 'string' && value.trim() ? capped(oneLine(value), 300) : null;
+    };
+    const message = words('message');
+    const instructions = words('instructions');
+    return {
+      channel: 'sms',
+      text: [
+        `${b.name}: reminder of your ${required(d, 'title')} on ${dateTime(d, 'startsAt', required(d, 'timeZone'))}.`,
+        message,
+        instructions ? `Instructions: ${instructions}` : null,
+        `Details: ${link(d, 'link', o)}`,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    };
+  },
+
   // P4-1: a lead's own appointment, to the lead's email: no portal link, never a text.
   'appointment.lead-booked': (d, b, o) =>
     appointment(

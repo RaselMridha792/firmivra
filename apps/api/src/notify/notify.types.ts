@@ -192,6 +192,13 @@ export interface NotifyTemplates {
   'appointment.changed': AppointmentData;
   'appointment.reminder': AppointmentData;
   /**
+   * A7: a configured Text reminder, to a client who agreed to appointment texts, when the firm
+   * sends texts. The time and the portal link, the reminder's own note, and the client
+   * instructions only when the appointment shows them in texts (B9).
+   */
+  'appointment.reminder-sms': IgnoredFirmName &
+    Pick<AppointmentData, 'title' | 'startsAt' | 'timeZone' | 'link' | 'message' | 'instructions'>;
+  /**
    * P4-1: a lead's own appointment (no client yet), to the lead's email: the booking's
    * confirmation and its reminder only. No portal (a lead has none): no link and no ask to confirm.
    */
@@ -371,6 +378,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.booked': 'email',
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
+  'appointment.reminder-sms': 'sms',
   'appointment.lead-booked': 'email',
   'appointment.lead-reminder': 'email',
   'appointment.cancelled': 'email',
@@ -432,6 +440,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.booked': 'firm',
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
+  'appointment.reminder-sms': 'firm',
   'appointment.lead-booked': 'firm',
   'appointment.lead-reminder': 'firm',
   'appointment.cancelled': 'firm',
@@ -529,6 +538,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.booked': 'APPOINTMENTS',
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',
+  'appointment.reminder-sms': 'APPOINTMENTS',
   'appointment.lead-booked': 'APPOINTMENTS',
   'appointment.lead-reminder': 'APPOINTMENTS',
   'appointment.cancelled': 'APPOINTMENTS',

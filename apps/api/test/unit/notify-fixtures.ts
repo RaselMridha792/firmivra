@@ -69,6 +69,14 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'appointment.booked': appointment,
   'appointment.changed': appointment,
   'appointment.reminder': appointment,
+  'appointment.reminder-sms': {
+    title: 'Tax review',
+    startsAt: new Date('2026-10-20T14:30:00Z'),
+    timeZone: 'America/Chicago',
+    link,
+    message: 'Fake: bring your W-2.',
+    instructions: null,
+  },
   'appointment.lead-booked': leadAppointment,
   'appointment.lead-reminder': leadAppointment,
   'appointment.cancelled': {

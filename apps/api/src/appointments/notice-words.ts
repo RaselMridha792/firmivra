@@ -3,13 +3,16 @@ import type { NotifyMessage } from '../notify/notify.types.js';
 import { firmTimeZone } from './calendar-data.js';
 
 const MINUTE = 60_000;
+/** A7: the reminder job sends a configured reminder up to this early (one run). */
+export const REMINDER_EARLY_MINUTES = 1;
 
 /**
  * Review 2 (B7, B9): the firm's own words in an appointment's client notice. A scheduled/booked
  * notice carries the appointment's confirmation message, else its type's. A reminder carries the
- * note of the email reminder now due (the one closest to the start whose time has come), else
- * none, so the generic reminder goes out. The client instructions go only when the appointment
- * shows them in email. Internal notes are never read here.
+ * note of the reminder of its channel now due (the one closest to the start whose time has come,
+ * within REMINDER_EARLY_MINUTES: the job sends a reminder up to a minute early), else none, so the
+ * generic reminder goes out. The client instructions go only when the appointment shows them in
+ * that channel (email, or a text for A7's text reminder). Internal notes are never read here.
  */
 export async function noticeWords(
   tx: TxClient,
@@ -17,6 +20,8 @@ export async function noticeWords(
   appointmentId: string,
   template: string,
   now: Date = new Date(),
+  /** A7: the channel the notice goes out on (its reminder's note and its instructions). */
+  channel: 'EMAIL' | 'SMS' = 'EMAIL',
 ): Promise<{ message: string | null; instructions: string | null; confirmAsk: boolean }> {
   const a = await tx.appointment.findFirst({
     where: { businessId, id: appointmentId },
@@ -27,13 +32,15 @@ export async function noticeWords(
       bookedByClient: true,
       clientInstructions: true,
       instructionsInEmail: true,
+      instructionsInSms: true,
       confirmationMessage: true,
       type: { select: { confirmationMessage: true } },
-      reminders: { where: { channel: 'EMAIL' }, select: { offsetMinutes: true, note: true } },
+      reminders: { where: { channel }, select: { offsetMinutes: true, note: true } },
     },
   });
   if (!a) return { message: null, instructions: null, confirmAsk: false };
-  const instructions = a.instructionsInEmail ? a.clientInstructions : null;
+  const shown = channel === 'SMS' ? a.instructionsInSms : a.instructionsInEmail;
+  const instructions = shown ? a.clientInstructions : null;
   // Review 2 (row 8): the firm booked it and the client has not confirmed it yet.
   const confirmAsk =
     a.status === 'SCHEDULED' &&
@@ -48,7 +55,7 @@ export async function noticeWords(
     };
   }
   if (template === 'appointment.reminder') {
-    const left = (a.startsAt.getTime() - now.getTime()) / MINUTE;
+    const left = (a.startsAt.getTime() - now.getTime()) / MINUTE - REMINDER_EARLY_MINUTES;
     const due = a.reminders
       .filter((r) => r.offsetMinutes >= left)
       .sort((x, y) => x.offsetMinutes - y.offsetMinutes)[0];
