@@ -51,6 +51,9 @@ import {
   SaveStaffJobTitleRequest,
   type StaffSecurityDefaults,
   SaveStaffSecurityDefaultsRequest,
+  ApplyStaffSecurityDefaultsRequest,
+  type StaffSecurityApplyPreview,
+  type StaffSecurityDefaultField,
   StaffListQuery,
   type StaffListItem,
   type StaffLoginEvent,
@@ -913,6 +916,49 @@ function guard(options: Options) {
 export function createStaffMock(options: Options = {}): StaffClient {
   const g = guard(options);
   const { s } = g;
+  /** SM05: the accounts the saved defaults would change, as the API plans them. */
+  const applyPlan = (): StaffSecurityApplyPreview => {
+    const d = s.securityDefaults;
+    const plan: StaffSecurityApplyPreview = {
+      version: d.version,
+      accounts: [],
+      skipped: [],
+      unchanged: 0,
+    };
+    const live = s.members
+      .filter((m) => m.detail.status !== 'DEACTIVATED')
+      .sort((a, b) => a.detail.name.localeCompare(b.detail.name));
+    for (const m of live) {
+      const { id, name, role } = m.detail;
+      if (m.detail.isYou) plan.skipped.push({ id, name, reason: 'YOU' });
+      else if (!g.authorityOf(m).edit) plan.skipped.push({ id, name, reason: 'NOT_YOURS' });
+      else {
+        const x = m.security;
+        const differs: [StaffSecurityDefaultField, unknown, unknown][] = [
+          ['allowedAuthMethods', x.allowedAuthMethods, d.allowedAuthMethods],
+          ['accessLocation', x.accessLocation, d.accessLocation],
+          ['allowedIps', x.allowedIps, d.allowedIps],
+          ['allowedCountries', x.allowedCountries, d.allowedCountries],
+          ['restrictDevices', x.restrictDevices, d.restrictDevices],
+          ['autoLogoutMinutes', x.autoLogoutMinutes, d.autoLogoutMinutes],
+          ['maxConcurrentSessions', x.maxConcurrentSessions, d.maxConcurrentSessions],
+          ['signOutOtherSessions', x.signOutOtherSessions, d.signOutOtherSessions],
+          ['allowTrustedDevices', x.allowTrustedDevices, d.allowTrustedDevices],
+          ['notifyNewDeviceLogin', x.notices.newDeviceLogin, d.notices.newDeviceLogin],
+          ['notifyFailedLogins', x.notices.failedLogins, d.notices.failedLogins],
+          ['notifyPasswordChanges', x.notices.passwordChanges, d.notices.passwordChanges],
+          ['notifySecurityAlerts', x.notices.securityAlerts, d.notices.securityAlerts],
+          ['notifyLockouts', x.notices.lockouts, d.notices.lockouts],
+        ];
+        const changes = differs
+          .filter(([, a, b]) => JSON.stringify(a) !== JSON.stringify(b))
+          .map(([f]) => f);
+        if (changes.length) plan.accounts.push({ id, name, role, changes });
+        else plan.unchanged++;
+      }
+    }
+    return plan;
+  };
   const ownerOrAdmin = () => {
     if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
   };
@@ -1726,6 +1772,39 @@ export function createStaffMock(options: Options = {}): StaffClient {
         version: at,
       };
       return copy({ ...s.securityDefaults, existingAccounts: s.members.length });
+    },
+    // SM05: as the API, the saved defaults onto the accounts the viewer may change, but the
+    // exceptions; yourself and the accounts above you are left out, and named.
+    securityApplyPreview: async () => {
+      await g.allowed();
+      ownerOrAdmin();
+      return applyPlan();
+    },
+    applySecurityDefaults: async (body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const input = parseInput(ApplyStaffSecurityDefaultsRequest, body);
+      const except = new Set(input.exceptIds ?? []);
+      for (const id of except) g.find(id);
+      const plan = applyPlan();
+      if (plan.version !== input.version)
+        throw fail(409, 'SAVE_CONFLICT', 'The defaults were saved again after this preview.');
+      const targets = plan.accounts.filter((a) => !except.has(a.id));
+      const d = s.securityDefaults;
+      for (const a of targets)
+        Object.assign(g.find(a.id).security, {
+          allowedAuthMethods: [...d.allowedAuthMethods],
+          restrictDevices: d.restrictDevices,
+          autoLogoutMinutes: d.autoLogoutMinutes,
+          accessLocation: d.accessLocation,
+          allowedIps: [...d.allowedIps],
+          allowedCountries: [...d.allowedCountries],
+          maxConcurrentSessions: d.maxConcurrentSessions,
+          signOutOtherSessions: d.signOutOtherSessions,
+          allowTrustedDevices: d.allowTrustedDevices,
+          notices: { ...d.notices },
+        });
+      return { applied: targets.length, excepted: plan.accounts.length - targets.length };
     },
 
     importTemplateUrl: () =>

@@ -1,10 +1,14 @@
-import { Body, Controller, Get, Put } from '@nestjs/common';
-import type { StaffSecurityDefaults } from '@firmivra/types';
+import { Body, Controller, Get, HttpCode, Post, Put } from '@nestjs/common';
+import type {
+  StaffSecurityApplyPreview,
+  StaffSecurityApplyResult,
+  StaffSecurityDefaults,
+} from '@firmivra/types';
 import type { z } from 'zod';
 import { Access, CurrentAuth, CurrentTenant, FIRM_MANAGERS, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
-import { SaveStaffSecurityDefaultsBody } from './staff-input.js';
+import { ApplyStaffSecurityDefaultsBody, SaveStaffSecurityDefaultsBody } from './staff-input.js';
 import { StaffSecurityDefaultsService } from './staff-security-defaults.service.js';
 import { staffActorOf } from './staff.common.js';
 
@@ -33,5 +37,26 @@ export class StaffSecurityDefaultsController {
     body: Out<typeof SaveStaffSecurityDefaultsBody>,
   ): Promise<StaffSecurityDefaults> {
     return this.defaults.save(staffActorOf(auth, tenant), body);
+  }
+
+  /** SM05: who Apply to Existing Accounts would change, before the confirm. */
+  @Get('apply-preview')
+  applyPreview(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<StaffSecurityApplyPreview> {
+    return this.defaults.applyPreview(staffActorOf(auth, tenant));
+  }
+
+  /** SM05: the saved defaults onto those accounts but the exceptions (confirmed, audited). */
+  @Post('apply')
+  @HttpCode(200)
+  apply(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ApplyStaffSecurityDefaultsBody))
+    body: Out<typeof ApplyStaffSecurityDefaultsBody>,
+  ): Promise<StaffSecurityApplyResult> {
+    return this.defaults.apply(staffActorOf(auth, tenant), body);
   }
 }

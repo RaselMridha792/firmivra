@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { StaffAccessLocation, StaffAuthMethod } from '../schemas.js';
+import { MembershipRole, StaffAccessLocation, StaffAuthMethod } from '../schemas.js';
 import { StaffCountryCode, StaffIpOrNetwork, StaffSecurityNotices } from './schemas.js';
 
 // Staff Settings > New Accounts & Security (Octavia's SM3, review of Oct 23): the security settings
@@ -82,3 +82,71 @@ export const SaveStaffSecurityDefaultsRequest = z
       });
   });
 export type SaveStaffSecurityDefaultsRequest = z.input<typeof SaveStaffSecurityDefaultsRequest>;
+
+/**
+ * SM05 (Staff Management Review 2, decision 4a): the settings a default sets on an account, as
+ * the preview names what changes. Notices are one setting each.
+ */
+export const StaffSecurityDefaultField = z.enum([
+  'allowedAuthMethods',
+  'accessLocation',
+  'allowedIps',
+  'allowedCountries',
+  'restrictDevices',
+  'autoLogoutMinutes',
+  'maxConcurrentSessions',
+  'signOutOtherSessions',
+  'allowTrustedDevices',
+  'notifyNewDeviceLogin',
+  'notifyFailedLogins',
+  'notifyPasswordChanges',
+  'notifySecurityAlerts',
+  'notifyLockouts',
+]);
+export type StaffSecurityDefaultField = z.infer<typeof StaffSecurityDefaultField>;
+
+/**
+ * GET /business/staff-security-defaults/apply-preview (SM05): what "Apply to Existing Accounts"
+ * would do with the saved defaults, before the confirm. `accounts` would change, each with the
+ * settings that differ; `skipped` are left out (yourself, and accounts you may not change: an
+ * Admin changes the roles below Admin only, nobody the Original Owner); `unchanged` already match.
+ * Deactivated accounts are never counted. Owner and Admin.
+ */
+export const StaffSecurityApplyPreview = z.object({
+  /** The defaults' version this is for: goes back on the apply. */
+  version: z.string(),
+  accounts: z.array(
+    z.object({
+      id: z.uuid(),
+      name: z.string(),
+      role: MembershipRole,
+      changes: z.array(StaffSecurityDefaultField),
+    }),
+  ),
+  skipped: z.array(
+    z.object({ id: z.uuid(), name: z.string(), reason: z.enum(['YOU', 'NOT_YOURS']) }),
+  ),
+  unchanged: z.number().int().min(0),
+});
+export type StaffSecurityApplyPreview = z.infer<typeof StaffSecurityApplyPreview>;
+
+/**
+ * POST /business/staff-security-defaults/apply (SM05): a one-off, confirmed: the saved defaults
+ * onto every account the preview listed but `exceptIds` (the explicit exceptions, which keep
+ * their own). Defaults saved after the preview are 409 SAVE_CONFLICT. Each account's change is
+ * audited, and the apply itself with its counts.
+ */
+export const ApplyStaffSecurityDefaultsRequest = z.strictObject({
+  version: z.string().min(1).max(100),
+  confirm: z.literal(true),
+  exceptIds: z.array(z.uuid()).max(1000).optional(),
+});
+export type ApplyStaffSecurityDefaultsRequest = z.input<typeof ApplyStaffSecurityDefaultsRequest>;
+
+export const StaffSecurityApplyResult = z.object({
+  /** Accounts changed now. */
+  applied: z.number().int().min(0),
+  /** Accounts left as they were on purpose (the exceptions). */
+  excepted: z.number().int().min(0),
+});
+export type StaffSecurityApplyResult = z.infer<typeof StaffSecurityApplyResult>;

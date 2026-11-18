@@ -44,6 +44,7 @@ import {
   list,
 } from '../../../new/security/_components/security-step';
 import { useFirmTimeZone } from '../../../../intake-forms/_components/expiry';
+import { ApplyToExisting } from './apply-existing';
 
 const KEY = ['staff', 'security-defaults'];
 const quiet = 'rounded-lg bg-subtle p-4 text-sm text-muted';
@@ -335,6 +336,9 @@ function Editor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirming, setConfirming] = useState(false);
   const [saved, setSaved] = useState(false);
+  // SM05: Apply to Existing Accounts, and what it did.
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState('');
   const save = useApiMutation(
     (body: SaveStaffSecurityDefaultsRequest) => api.staff.saveSecurityDefaults(body),
     { invalidate: KEY },
@@ -351,8 +355,8 @@ function Editor({
       <div className="flex min-w-0 flex-col gap-4 min-[1440px]:col-span-2">
         <Callout icon={Info} tone="navy" surface="plain" size="compact">
           These settings apply to staff accounts created from now on, in Create Staff and Bulk
-          Upload Staff. Your {accounts(data.existingAccounts)} keep their own settings; change one
-          on its Access &amp; Security page.
+          Upload Staff. Your {accounts(data.existingAccounts)} keep their own settings until you use
+          Apply to Existing Accounts; change one on its Access &amp; Security page.
         </Callout>
         <Sections form={form} errors={errors} set={set} />
         <div className="flex flex-wrap items-center justify-end gap-3">
@@ -422,6 +426,26 @@ function Editor({
                 {data.existingAccounts} keep their own
               </dd>
             </div>
+            <div className="flex flex-col gap-2 py-2">
+              <Button
+                variant="secondary"
+                disabled={dirty}
+                onClick={() => {
+                  setApplied('');
+                  setApplying(true);
+                }}
+              >
+                Apply to Existing Accounts
+              </Button>
+              {dirty ? (
+                <p className={hint}>Save your changes first: this applies the saved defaults.</p>
+              ) : null}
+              {applied ? (
+                <p role="status" data-testid="apply-result" className="text-sm text-success">
+                  {applied}
+                </p>
+              ) : null}
+            </div>
             <div className="flex items-center justify-between gap-3 py-2">
               <dt className="text-heading">Last saved</dt>
               <dd className="text-right font-semibold text-link">
@@ -433,6 +457,15 @@ function Editor({
           </dl>
         </section>
       </aside>
+      {applying ? (
+        <ApplyToExisting
+          onClose={() => setApplying(false)}
+          onDone={(message) => {
+            setApplying(false);
+            setApplied(message);
+          }}
+        />
+      ) : null}
       <Modal
         open={confirming}
         title="Save the new account defaults?"
@@ -463,7 +496,8 @@ function Editor({
       >
         <p className="text-sm text-text">
           Staff accounts created from now on start with these settings. Your{' '}
-          {accounts(data.existingAccounts)} keep their own settings; nothing changes for them.
+          {accounts(data.existingAccounts)} keep their own settings; nothing changes for them unless
+          you then use Apply to Existing Accounts.
         </p>
       </Modal>
     </div>

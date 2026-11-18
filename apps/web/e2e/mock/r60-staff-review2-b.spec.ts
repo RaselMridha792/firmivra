@@ -67,3 +67,26 @@ test('SM12: Active Sessions marks this session on your own record only', async (
   await expect(sessions).toContainText('MacBook Pro / Chrome', { timeout: 60_000 });
   await expect(sessions.getByText('This session', { exact: true })).toHaveCount(0);
 });
+
+test('SM05: Apply to Existing Accounts previews who changes, keeps the exceptions, and applies', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/team/settings/security'));
+  await page.getByRole('button', { name: 'Apply to Existing Accounts' }).click({ timeout: 60_000 });
+  const dialog = page.getByRole('dialog', { name: 'Apply to existing accounts?' });
+  const rows = dialog.getByTestId('apply-account');
+  await expect(rows.filter({ hasText: 'Hana Kim' })).toContainText('Changes:');
+  // Yourself is left out, and says where to change your own; the deactivated are not listed.
+  await expect(dialog).toContainText('Morgan Avery: you');
+  await expect(dialog).not.toContainText('Victor Lane');
+  await rows.filter({ hasText: 'Hana Kim' }).getByRole('checkbox').uncheck();
+  await dialog.getByRole('button', { name: /^Apply to \d+ Accounts?$/ }).click();
+  await expect(page.getByTestId('apply-result')).toHaveText(
+    /^Applied to \d+ accounts?\. 1 account kept their own\.$/,
+  );
+  // Looked at again: only the exception still differs.
+  await page.getByRole('button', { name: 'Apply to Existing Accounts' }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText('Hana Kim');
+});

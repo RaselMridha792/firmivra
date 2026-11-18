@@ -5,6 +5,7 @@ import {
   LockStaffRequest,
   SaveStaffDraftRequest,
   SaveStaffJobTitleRequest,
+  ApplyStaffSecurityDefaultsRequest,
   SaveStaffSecurityDefaultsRequest,
   SaveStaffWorkScheduleRequest,
   SetStaffNoteRequest,
@@ -73,6 +74,7 @@ export const StaffWorkScheduleIdParam = StaffWorkScheduleId;
 export const StaffWorkScheduleListQ = StaffWorkScheduleListQuery;
 export const SaveStaffWorkScheduleBody = clean(SaveStaffWorkScheduleRequest);
 export const SaveStaffSecurityDefaultsBody = clean(SaveStaffSecurityDefaultsRequest);
+export const ApplyStaffSecurityDefaultsBody = clean(ApplyStaffSecurityDefaultsRequest);
 
 // SM14 part B: My Profile's Security card.
 export const SignOutOthersBody = clean(SignOutOtherSessionsRequest);
