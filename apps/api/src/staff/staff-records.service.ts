@@ -174,7 +174,8 @@ export class StaffRecordsService {
             'staff.compensation_saved',
             { type: 'membership', id },
             // Audit Log Review 2, R03: each changed field's old and new value.
-            auditChanges(before ?? {}, body, { fields: Object.keys(body) }),
+            // Pay is named, never its amount (staff-write e2e).
+            auditChanges(before ?? {}, body, { fields: Object.keys(body), text: 'all' }),
             { businessId },
           );
         },

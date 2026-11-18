@@ -214,7 +214,11 @@ export class StaffSecurityService {
           'staff.security_saved',
           { type: 'membership', id },
           // Audit Log Review 2, R03: each changed field's old and new value.
-          auditChanges(now ?? {}, body, { fields: Object.keys(body) }),
+          // Allowed addresses and countries and the recovery email by name only (staff-security e2e).
+          auditChanges(now ?? {}, body, {
+            fields: Object.keys(body),
+            text: ['allowedIps', 'allowedCountries', 'recoveryEmail'],
+          }),
           { businessId },
         );
       });

@@ -654,7 +654,12 @@ describe('the answer after a change', () => {
       people.staffA2.id,
       people.staffA.id,
     ]);
-    expect(after.audit.metadata).toEqual({ fields: ['assignedUserId'], tasksMoved: 1 });
+    // Audit Log Review 2, R03: the field's old and new value.
+    expect(after.audit.metadata).toEqual({
+      fields: ['assignedUserId'],
+      changes: { assignedUserId: { from: people.staffA.id, to: people.staffA2.id } },
+      tasksMoved: 1,
+    });
   });
 
   it('archiving an archived client changes nothing and is audited as the read it is', async () => {
@@ -700,7 +705,7 @@ describe('the answer after a change', () => {
 });
 
 describe('audit', () => {
-  it('logs every read and change with ids and field names, never names or emails', async () => {
+  it('logs every read and change with ids and field names; only an edit holds the old and new value', async () => {
     const c = await create({ displayName: `Audited Person ${run}`, email: email('audited') });
     await call('get', `/${c.id}`, people.ownerA);
     await call('patch', `/${c.id}`, people.ownerA, 'a', { displayName: `Audited Again ${run}` });
@@ -724,11 +729,16 @@ describe('audit', () => {
     ]) {
       expect(actions).toContain(action);
     }
-    const text = JSON.stringify(rows.map((r) => r.metadata));
+    // Reads, the list, creating and archiving never write the client's name or email; an edit
+    // holds the changed field's old and new value (Audit Log Review 2, R03: lead decision 2).
+    const text = JSON.stringify(
+      rows.filter((r) => r.action !== 'client.updated').map((r) => r.metadata),
+    );
     expect(text).not.toContain('Audited');
     expect(text).not.toContain('audited-');
     expect(rows.find((r) => r.action === 'client.updated')?.metadata).toEqual({
       fields: ['displayName'],
+      changes: { displayName: { from: `Audited Person ${run}`, to: `Audited Again ${run}` } },
     });
     // Clients Review 2: archive and restore name the client (its Client ID) and what changed.
     const archivedRow = rows.find((r) => r.action === 'client.archived')?.metadata as {

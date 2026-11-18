@@ -469,7 +469,10 @@ export class BookkeepingConnectionsService {
         'bookkeeping.account.updated',
         { type: 'bookkeeping_account', id },
         // Audit Log Review 2, R03: each changed field's old and new value.
-        { clientId: p.engagement.clientId, ...auditChanges(found, row, { fields: Object.keys(data) }) },
+        {
+          clientId: p.engagement.clientId,
+          ...auditChanges(found, row, { fields: Object.keys(data) }),
+        },
       );
       return toAccount(row);
     });

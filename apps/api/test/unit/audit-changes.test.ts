@@ -38,6 +38,30 @@ describe('auditChanges', () => {
     );
   });
 
+  it("with text 'all', names what changed and never writes a value", () => {
+    expect(
+      auditChanges(
+        { subject: 'Hi', rateCents: 100 },
+        { subject: 'Hello', rateCents: 200 },
+        {
+          text: 'all',
+        },
+      ),
+    ).toEqual({
+      fields: ['rateCents', 'subject'],
+      changes: { rateCents: 'changed', subject: 'changed' },
+    });
+  });
+
+  it('never lists who or when saved it, its version or its etag', () => {
+    expect(
+      auditChanges(
+        { name: 'A', updatedByUserId: 'u-1', updatedAt: new Date(0), version: 1, etag: 'a' },
+        { name: 'A', updatedByUserId: 'u-2', updatedAt: new Date(1), version: 2, etag: 'b' },
+      ),
+    ).toEqual({ fields: [], changes: {} });
+  });
+
   it('writes free text and long values as "changed", never their text', () => {
     const long = 'x'.repeat(300);
     expect(

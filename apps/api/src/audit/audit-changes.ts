@@ -25,11 +25,18 @@ export type AuditChanges = {
 export interface AuditChangesOptions {
   /** The fields to compare (e.g. the request's keys); left out, every field of `after`. */
   fields?: readonly string[];
-  /** More fields of free text than the shared list knows (written as "changed"). */
-  text?: readonly string[];
-  /** Fields never listed (a version or an etag). */
+  /**
+   * More fields of free text than the shared list knows (written as "changed"); 'all' for a
+   * record whose every value stays out of the log (a message's content, pay, an IP allowlist):
+   * the fields that changed are named, their values never written.
+   */
+  text?: readonly string[] | 'all';
+  /** More fields never listed (who and when saved, `version` and `etag` never are). */
   skip?: readonly string[];
 }
+
+/** Who and when a record was saved, and its concurrency token: never a field change. */
+const BOOKKEEPING = ['updatedByUserId', 'updatedAt', 'createdAt', 'version', 'etag'];
 
 /** Longer than this (as JSON), a value is "changed" rather than written out. */
 const MAX_VALUE = 200;
@@ -64,8 +71,9 @@ export function auditChanges(
   // Any record: a database row, a settings object, the values written.
   const before = beforeRow as Readonly<Record<string, unknown>>;
   const after = afterRow as Readonly<Record<string, unknown>>;
-  const skip = new Set(options.skip ?? []);
-  const text = new Set(options.text ?? []);
+  const skip = new Set([...BOOKKEEPING, ...(options.skip ?? [])]);
+  const allText = options.text === 'all';
+  const text = new Set(options.text === 'all' ? [] : (options.text ?? []));
   const fields = [...new Set(options.fields ?? Object.keys(after))]
     .filter((f) => !skip.has(f) && after[f] !== undefined && !same(before[f], after[f]))
     .sort();
@@ -76,7 +84,7 @@ export function auditChanges(
     const long = (v: AuditValue | undefined) =>
       v === undefined || JSON.stringify(v).length > MAX_VALUE;
     changes[field] =
-      isFreeTextKey(field) || text.has(field) || long(from) || long(to)
+      allText || isFreeTextKey(field) || text.has(field) || long(from) || long(to)
         ? CHANGED
         : { from: from as AuditValue, to: to as AuditValue };
   }

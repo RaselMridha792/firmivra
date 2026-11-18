@@ -183,7 +183,10 @@ describe('Leads Review Two, L1', () => {
     const audit = await asOwnerA((tx) =>
       tx.auditLog.findMany({ where: { action: 'lead.updated', entityId: lead.id } }),
     );
-    expect(audit.map((a) => a.metadata)).toEqual([{ fields: ['stage'] }]);
+    // Audit Log Review 2, R03: the stored field's old and new value.
+    expect(audit.map((a) => a.metadata)).toEqual([
+      { fields: ['status'], changes: { status: { from: 'IN_REVIEW', to: 'IN_FOLLOW_UP' } } },
+    ]);
     // The bulk bar's change too: its audit rows commit with it.
     const res = await call('post', '/bulk', people.ownerA, {
       action: 'STAGE',
@@ -326,7 +329,10 @@ describe('Leads Review Two, L1', () => {
     const audit = await asOwnerA((tx) =>
       tx.auditLog.findMany({ where: { action: 'lead.updated', entityId: lead.id } }),
     );
-    expect(audit.map((a) => a.metadata)).toEqual([{ fields: ['otherContacts'] }]);
+    // Audit Log Review 2, R03: a list changes by name (its own rows hold the items).
+    expect(audit.map((a) => a.metadata)).toEqual([
+      { fields: [], changes: {}, listsChanged: ['otherContacts'] },
+    ]);
     // Emptied.
     expect(
       profile(await call('patch', `/${lead.id}`, people.ownerA, { otherContacts: [] }))
