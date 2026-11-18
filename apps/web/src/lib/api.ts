@@ -75,6 +75,7 @@ import {
   createProfileChangesClient,
   createSupportMessagesClient,
   createPublicAgreementsClient,
+  createDownload,
   createRequest,
   createRolesClient,
   createSchedulingClient,
@@ -219,6 +220,8 @@ import { sessionFetch } from './session';
  */
 const options = { baseUrl: '/api/v1', fetch: sessionFetch };
 const request = createRequest(options);
+/** Exports (CSV) through the same session refresh, so an expired access cookie never shows raw JSON. */
+const download = createDownload(options);
 /** False in production builds, where the compiler then drops every mock from the bundle. */
 const dev = process.env.NODE_ENV !== 'production';
 
@@ -293,7 +296,7 @@ export const api = {
   users:
     dev && mocked('users')
       ? createUsersMock({ role: MOCK_ROLE, empty: mockedEmpty('users') })
-      : createUsersClient(request, options.baseUrl),
+      : createUsersClient(request, download),
   /** Settings, the setup wizard, and the firm's Terms and Privacy (docs/api/settings.yaml). */
   settings:
     dev && mocked('settings')
@@ -630,8 +633,8 @@ export const api = {
   /** Audit log viewer (R12): the firm's own log, for the Owner and Admins. */
   auditLog:
     dev && mocked('auditLog')
-      ? createAuditLogMock({ role: MOCK_ROLE })
-      : createAuditLogClient(request, options.baseUrl),
+      ? failable('auditLog', createAuditLogMock({ role: MOCK_ROLE }))
+      : createAuditLogClient(request, download),
   /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. The screens call it through audit-security/_components/audit-api.ts (mock: mocks/admin-audit-security.ts). */
   adminAudit: createAdminAuditClient(request),
   /** Super Admin Reports & Analytics (R55): overview, tabs, firm reports, the builder and saved reports. */

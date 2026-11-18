@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { BadRequestException } from '@nestjs/common';
 import type { AuditActor, AuditEntry, AuditLogQuery } from '@firmivra/types';
 import type { z } from 'zod';
+import { recordKey, type RecordNames } from './audit-log.names.js';
 
 /** The parsed query (defaults applied). */
 export type AuditLogFilters = z.output<typeof AuditLogQuery>;
@@ -166,14 +167,24 @@ export function metadataOf(value: unknown): Record<string, unknown> {
   return { value };
 }
 
-export function toEntry(row: AuditRow, known: KnownActors): AuditEntry {
+export function toEntry(
+  row: AuditRow,
+  known: KnownActors,
+  names: RecordNames = new Map(),
+): AuditEntry {
   const { actor, hideIp } = actorOf(row.actorUserId, known);
+  const named = row.entityId ? names.get(recordKey(row.entityType, row.entityId)) : undefined;
   return {
     id: row.id,
     at: row.createdAt.toISOString(),
     action: row.action,
     actor,
-    entity: { type: row.entityType, id: row.entityId },
+    entity: {
+      type: row.entityType,
+      id: row.entityId,
+      name: named?.name ?? null,
+      deleted: named?.deleted ?? false,
+    },
     metadata: metadataOf(row.metadata),
     ip: hideIp ? null : row.ip,
     requestId: row.requestId,
@@ -203,4 +214,21 @@ export function viewedMetadata(q: AuditLogFilters, range: { from: Date; to: Date
     ...entity,
     limit: q.limit,
   };
+}
+
+/** "2026-11-15 14:50:22 CST": a time in the firm's zone, the zone named, for the export. */
+export function zonedTime(at: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  }).formatToParts(at);
+  const p = (type: Intl.DateTimeFormatPartTypes) => parts.find((x) => x.type === type)?.value;
+  return `${p('year')}-${p('month')}-${p('day')} ${p('hour')}:${p('minute')}:${p('second')} ${p('timeZoneName')}`;
 }

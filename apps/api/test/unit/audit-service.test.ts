@@ -103,3 +103,65 @@ describe('AuditService: where a row goes', () => {
     expect(writes[0]?.data).toMatchObject({ ip: null, userAgent: null, requestId: 'req-1' });
   });
 });
+
+describe('AuditService: a row that cannot be written (Audit Log Review 2, M04)', () => {
+  /** A database whose audit insert fails as Prisma does, quoting a value in its message. */
+  function failingDb() {
+    const failure = Object.assign(new Error('Unique constraint failed on value fake-secret-123'), {
+      name: 'PrismaClientKnownRequestError',
+      code: 'P2002',
+    });
+    const create = vi.fn(async () => {
+      throw failure;
+    });
+    const db = {
+      forBusiness: () => ({ auditLog: { create } }),
+      forPlatform: () => ({ auditLog: { create } }),
+    } as unknown as Database;
+    return { db, failure, tx: { auditLog: { create } } as unknown as TxClient };
+  }
+
+  it('writes one structured audit_write_failed line, never the metadata or the message, and still throws', async () => {
+    const { db, failure, tx } = failingDb();
+    const audit = new AuditService(db);
+    const lines: string[] = [];
+    const spy = vi
+      .spyOn((audit as unknown as { logger: { error: (m: string) => void } }).logger, 'error')
+      .mockImplementation((m: string) => void lines.push(m));
+    await requestContext.run(inFirm, async () => {
+      await expect(
+        audit.log('client.updated', { type: 'client', id: other }, { ssn: '123-45-6789' }),
+      ).rejects.toBe(failure);
+      await expect(audit.logIn(tx, 'client.updated', { type: 'client', id: other })).rejects.toBe(
+        failure,
+      );
+    });
+    spy.mockRestore();
+    expect(lines.map((l) => JSON.parse(l) as unknown)).toEqual([
+      {
+        event: 'audit_write_failed',
+        action: 'client.updated',
+        businessId: firm,
+        entityType: 'client',
+        requestId: 'req-1',
+        inTransaction: false,
+        error: 'PrismaClientKnownRequestError',
+        code: 'P2002',
+      },
+      {
+        event: 'audit_write_failed',
+        action: 'client.updated',
+        businessId: firm,
+        entityType: 'client',
+        requestId: 'req-1',
+        inTransaction: true,
+        error: 'PrismaClientKnownRequestError',
+        code: 'P2002',
+      },
+    ]);
+    const all = lines.join('\n');
+    for (const leaked of ['123-45-6789', 'fake-secret-123', other, '203.0.113.5']) {
+      expect(all).not.toContain(leaked);
+    }
+  });
+});
