@@ -868,7 +868,10 @@ describe('outcomes of a completed appointment with a lead (P4-2, Clients Review 
   it('Convert to New client converts nothing by itself: the lead stays a lead, with no client', async () => {
     const lead = await newLead('Cody Convertlater', { assignedUserId: people.staffA.id });
     const past = await seedLeadAppointment(lead, -6);
-    const clientsBefore = await asOwner(ids.firmA, (tx) => tx.client.count());
+    // This file's own firm only: the database is shared with test files running at the same time.
+    const firmClients = () =>
+      asOwner(ids.firmA, (tx) => tx.client.count({ where: { businessId: ids.firmA } }));
+    const clientsBefore = await firmClients();
     const done = exact(
       Changed,
       await call('post', `/appointments/${past}/complete`, people.ownerA, {
@@ -878,7 +881,7 @@ describe('outcomes of a completed appointment with a lead (P4-2, Clients Review 
     );
     expect(done).toMatchObject({ status: 'COMPLETED', client: null, lead: { id: lead } });
     expect(await leadStatus(lead)).toEqual({ status: 'SUBMITTED', clientId: null });
-    expect(await asOwner(ids.firmA, (tx) => tx.client.count())).toBe(clientsBefore);
+    expect(await firmClients()).toBe(clientsBefore);
     expect((await activity(lead)).map((a) => a.label)).toContain(
       'Meeting: Appointment completed: Convert to New client',
     );
