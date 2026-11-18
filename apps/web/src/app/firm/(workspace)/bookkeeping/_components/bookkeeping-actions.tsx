@@ -34,7 +34,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { BK_KEY, STATUS_LABEL, dateTimeText, quiet } from './bookkeeping-shared';
+import { BK_KEY, STATUS_LABEL, quiet, useFirmDateTime } from './bookkeeping-shared';
 import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
@@ -419,6 +419,7 @@ function LogDialog({
 }
 
 function SyncDialog({ row, onClose }: { row: Row; onClose: () => void }) {
+  const at = useFirmDateTime(); // C05: the firm's time zone
   const conns = useApiQuery([...BK_KEY, 'connections', row.id], () =>
     api.bookkeeping.connections(row.id),
   );
@@ -445,7 +446,7 @@ function SyncDialog({ row, onClose }: { row: Row; onClose: () => void }) {
         {first ? (
           <p className="mb-2 text-sm text-heading">
             {first.label} · last successful sync{' '}
-            {first.lastSuccessfulSyncAt ? dateTimeText(first.lastSuccessfulSyncAt) : 'never'}
+            {first.lastSuccessfulSyncAt ? at(first.lastSuccessfulSyncAt) : 'never'}
             {first.lastErrorCode ? ` · ${first.lastErrorCode}` : ''}
           </p>
         ) : null}
@@ -459,7 +460,7 @@ function SyncDialog({ row, onClose }: { row: Row; onClose: () => void }) {
               <span className="text-heading">
                 {r.trigger.toLowerCase()} · {r.outcome.toLowerCase()}
               </span>
-              <span className="text-muted">{dateTimeText(r.startedAt)}</span>
+              <span className="text-muted">{at(r.startedAt)}</span>
             </li>
           ))}
         </ul>
