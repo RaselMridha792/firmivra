@@ -71,6 +71,11 @@ export const ListLeadMessageThreadsQuery = z.strictObject({
     .optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(25),
+  /**
+   * P4-1: only the threads of the leads that became this client (they stay on the lead): the
+   * client's Messages show them. A client the caller does not reach is 404.
+   */
+  clientId: z.uuid().optional(),
 });
 export type ListLeadMessageThreadsQuery = z.input<typeof ListLeadMessageThreadsQuery>;
 

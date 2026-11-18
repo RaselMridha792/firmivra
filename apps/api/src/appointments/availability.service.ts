@@ -106,6 +106,8 @@ async function scheduledConflicts(
       endsAt: true,
       staffUserId: true,
       client: { select: { displayName: true } },
+      // P4-1: a lead's own appointment is named by its lead.
+      lead: { select: { firstName: true, lastName: true } },
     },
   });
   const names = await memberNames(tx, businessId, [...new Set(rows.map((r) => r.staffUserId))]);
