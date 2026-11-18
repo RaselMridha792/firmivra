@@ -50,6 +50,7 @@ import { equipmentChoices, equipmentClashes } from './equipment';
 import { StaffDayPanel } from './staff-day-panel';
 import { localParts, todayIn, toInstant } from './time';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
+import { CALENDAR_ERRORS } from './shared';
 
 const TIME_ZONES: [string, string][] = [
   ['America/New_York', '(GMT-05:00) Eastern Time (ET)'],
@@ -90,6 +91,7 @@ const UNITS: [ReminderUnit, string][] = [
 ];
 
 const SCHEDULE_ERRORS: Record<string, string> = {
+  ...CALENDAR_ERRORS,
   SCHEDULING_CONFLICT: 'This time conflicts with the staff member’s calendar.',
   SAVE_CONFLICT:
     'Someone saved this appointment while you were editing. Reload to see their changes, then make yours again.',
