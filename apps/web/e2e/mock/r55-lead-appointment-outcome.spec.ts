@@ -113,3 +113,31 @@ test('N8-18: a client’s appointment completes with no outcome asked', async ({
     'The appointment is marked completed.',
   );
 });
+
+test('N8-18: Staff on their own appointment with a lead they are not assigned: no Convert, a hint; Keep as Lead saves', async ({
+  page,
+}) => {
+  // Signed in as Staff (Daniel Okafor), the appointment's staff member. Owen Hartley is Theo
+  // Grant's lead; Ravi Greenwood is Daniel's own.
+  await page.addInitScript(() => window.sessionStorage.setItem('fv-mock-role', 'STAFF'));
+  const dialog = await openComplete(page, `${base}/calendar/0199c0b0-0a10-7000-8000-000000000012`);
+  const outcome = dialog.getByRole('group', { name: 'Outcome' });
+  await expect(outcome.getByRole('radio')).toHaveCount(2);
+  await expect(outcome.getByRole('radio', { name: 'Convert to New client' })).toHaveCount(0);
+  await expect(dialog).toContainText("The lead's owner can convert this lead.");
+  await outcome.getByRole('radio', { name: 'Keep as Lead', exact: true }).check();
+  await dialog.getByLabel('Notes').fill('Fake: not ready yet');
+  await dialog.getByRole('button', { name: 'Mark Completed' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByTestId('detail-result')).toHaveText(
+    'The appointment is marked completed: Keep as Lead.',
+  );
+});
+
+test('N8-18: Staff assigned to the lead are offered Convert to New client', async ({ page }) => {
+  await page.addInitScript(() => window.sessionStorage.setItem('fv-mock-role', 'STAFF'));
+  const dialog = await openComplete(page, leadAppointment);
+  const outcome = dialog.getByRole('group', { name: 'Outcome' });
+  await expect(outcome.getByRole('radio')).toHaveCount(3);
+  await expect(dialog).not.toContainText("The lead's owner can convert this lead.");
+});
