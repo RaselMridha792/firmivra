@@ -4,6 +4,9 @@ import {
   CreateCustomRoleRequest,
   CreateDepartmentRequest,
   CreateStaffDocumentUploadRequest,
+  CreateStaffDraftUploadRequest,
+  STAFF_DRAFT_FILE_LIMIT,
+  type StaffDraftAttachment,
   CreateStaffRequest,
   CreateStaffTeamRequest,
   DEFAULT_ROLE_PERMISSIONS,
@@ -1135,7 +1138,23 @@ export function createStaffMock(options: Options = {}): StaffClient {
       for (const p of input.permissions ?? [])
         m.overrides.set(key(p.module, p.capability), p.granted);
       s.created.set(input.idempotencyKey, m.detail.id);
-      if (input.draftId) s.drafts = s.drafts.filter((d) => d.id !== input.draftId);
+      if (input.draftId) {
+        // SM17: as the API, the draft's clean files become the member's documents.
+        const kept = s.drafts.find((d) => d.id === input.draftId)?.attachments ?? [];
+        for (const f of kept.filter((x) => x.scanStatus === 'CLEAN'))
+          m.documents.push({
+            id: uuid('0f00', s.next++),
+            type: f.type,
+            fileName: f.fileName,
+            contentType: f.contentType,
+            sizeBytes: f.sizeBytes,
+            scanStatus: 'CLEAN',
+            uploadedBy: 'You',
+            createdAt: now(),
+            archivedAt: null,
+          });
+        s.drafts = s.drafts.filter((d) => d.id !== input.draftId);
+      }
       return {
         staff: copy(m.detail),
         invitation: input.sendWelcomeEmail
@@ -1598,14 +1617,64 @@ export function createStaffMock(options: Options = {}): StaffClient {
     drafts: async () => {
       await g.allowed();
       ownerOrAdmin();
-      return copy(s.drafts.filter(mine));
+      // As the API, the list leaves the files out.
+      return copy(s.drafts.filter(mine)).map(({ attachments: _files, ...d }) => d);
     },
     draft: async (draftId) => {
       await g.allowed();
       ownerOrAdmin();
       const d = s.drafts.find((x) => x.id === draftId && mine(x));
       if (!d) throw notFound();
-      return copy(d);
+      return copy({ ...d, attachments: d.attachments ?? [] });
+    },
+    // SM17: Save under Remove, as the API: the creator's own draft, at most 20 files.
+    createDraftUpload: async (draftId, body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const input = parseInput(CreateStaffDraftUploadRequest, body);
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
+      if (!d) throw notFound();
+      if ((d.attachments ?? []).length >= STAFF_DRAFT_FILE_LIMIT)
+        throw fail(409, 'DRAFT_FILE_LIMIT', 'A draft keeps up to 20 files. Remove one first.');
+      const n = s.next++;
+      s.uploads.set(`mock-upload-${n}`, { memberId: `draft:${draftId}`, body: input });
+      return mockUploadTicket({
+        uploadToken: `mock-upload-${n}`,
+        url: `mock:upload/${n}`,
+        sizeBytes: input.sizeBytes,
+        headers: { 'content-type': input.contentType },
+        expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+      });
+    },
+    confirmDraftUpload: async (draftId, body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const { uploadToken } = parseInput(ConfirmStaffDocumentUploadRequest, body);
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
+      if (!d) throw notFound();
+      const pending = s.uploads.get(uploadToken);
+      if (!pending || pending.memberId !== `draft:${draftId}`)
+        throw fail(410, 'UPLOAD_EXPIRED', 'This upload has expired. Upload the file again.');
+      s.uploads.delete(uploadToken);
+      const file: StaffDraftAttachment = {
+        id: uuid('0f10', s.next++),
+        type: pending.body.type,
+        fileName: pending.body.fileName,
+        contentType: pending.body.contentType,
+        sizeBytes: pending.body.sizeBytes,
+        scanStatus: 'CLEAN',
+        createdAt: now(),
+      };
+      d.attachments = [...(d.attachments ?? []), file];
+      return copy(file);
+    },
+    deleteDraftAttachment: async (draftId, fileId) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
+      if (!d?.attachments?.some((f) => f.id === fileId)) throw notFound();
+      d.attachments = d.attachments.filter((f) => f.id !== fileId);
+      return { ok: true };
     },
     createDraft: async (body) => {
       await g.allowed();
