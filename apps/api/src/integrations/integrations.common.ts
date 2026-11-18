@@ -200,6 +200,16 @@ const ENTITY_LABELS = new Map<string, string>([
   ['test', 'Connection test'],
   ['webhook', 'Webhook'],
 ]);
+/**
+ * I-R2-04 (Integrations Review Two): runs newest first by when they actually ran; one queued and
+ * not started yet comes first. The screens show the same time (`startedAt`, else `createdAt`).
+ */
+export const RUN_ORDER = [
+  { startedAt: { sort: 'desc', nulls: 'first' } },
+  { createdAt: 'desc' },
+  { id: 'asc' },
+] as const;
+
 export function entityLabelOf(provider: IntegrationProvider | undefined, entity: string): string {
   return (
     ENTITY_LABELS.get(entity) ??

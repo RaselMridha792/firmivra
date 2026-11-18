@@ -31,6 +31,7 @@ import {
   inSentence,
   relativeTime,
   shortTime,
+  ranAt,
   syncBlockedReason,
 } from './manage-integration-shared';
 
@@ -320,8 +321,8 @@ export function RecentActivity({ detail }: { detail: IntegrationConnectionDetail
                     {run.entityLabel} {failed ? 'sync failed' : 'synced'}
                   </span>
                 </span>
-                <time dateTime={run.finishedAt ?? run.createdAt} className="whitespace-nowrap">
-                  {shortTime(run.finishedAt ?? run.createdAt)}
+                <time dateTime={ranAt(run)} className="whitespace-nowrap">
+                  {shortTime(ranAt(run))}
                 </time>
                 <span className="whitespace-nowrap">{run.recordCount} records</span>
               </li>

@@ -134,6 +134,10 @@ export function formatDate(value: string | null) {
 const clock = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 const monthDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 /** "Today, 9:34 AM", "Yesterday, 6:03 AM" or "Oct 14, 7:45 AM" (Recent Sync Activity). */
+/** I-R2-04: when a run actually ran: its start, else (queued, not started yet) when it was made. */
+export const ranAt = (run: { startedAt: string | null; createdAt: string }) =>
+  run.startedAt ?? run.createdAt;
+
 export function shortTime(value: string) {
   const date = new Date(value);
   const days = Math.round(

@@ -1317,3 +1317,32 @@ describe('who may connect, configure and disconnect (IN-Y20)', () => {
     );
   });
 });
+
+describe('the sync history (Integrations Review Two)', () => {
+  it('I-R2-04: runs are listed by when they ran, not when the row was written', async () => {
+    const c = await connectionOf('quickbooks');
+    const run = (startedAt: string) =>
+      inFirm('a', (tx) =>
+        tx.integrationSyncRun.create({
+          data: {
+            businessId: firms.a,
+            connectionId: c.id,
+            entity: 'customers',
+            status: 'SUCCEEDED',
+            startedAt: new Date(startedAt),
+            finishedAt: new Date(new Date(startedAt).getTime() + 60_000),
+          },
+          select: { id: true },
+        }),
+      );
+    // Both rows are written now; the earlier one ran later.
+    const ranLater = await run('2026-01-05T10:00:00.000Z');
+    const ranEarlier = await run('2026-01-02T10:00:00.000Z');
+    const page = ok(
+      await call('get', `/integrations/connections/${c.id}/history?pageSize=100`, people.ownerA),
+    ) as { items: { id: string; startedAt: string | null }[] };
+    const mine = page.items.filter((i) => [ranLater.id, ranEarlier.id].includes(i.id));
+    expect(mine.map((i) => i.id)).toEqual([ranLater.id, ranEarlier.id]);
+    expect(mine[0]!.startedAt).toBe('2026-01-05T10:00:00.000Z');
+  });
+});

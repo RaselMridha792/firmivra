@@ -17,7 +17,12 @@ import {
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
-import { EmptyLine, formatDate, shortTime } from '../../_components/manage-integration-shared';
+import {
+  EmptyLine,
+  formatDate,
+  ranAt,
+  shortTime,
+} from '../../_components/manage-integration-shared';
 import { integrationError, ManageShell, Notice } from '../../_components/manage-shell';
 
 /**
@@ -232,8 +237,9 @@ function History({
                 // A failed run is the pink row of the Overview's Recent Sync Activity.
                 <tr key={run.id} className={run.status === 'FAILED' ? 'bg-danger-soft' : undefined}>
                   <td className="px-3 py-2 whitespace-nowrap text-heading">
-                    <time dateTime={run.createdAt} title={formatDate(run.createdAt)}>
-                      {shortTime(run.createdAt)}
+                    {/* I-R2-04: when it ran (its start), as the drawer and the Overview say. */}
+                    <time dateTime={ranAt(run)} title={formatDate(ranAt(run))}>
+                      {shortTime(ranAt(run))}
                     </time>
                   </td>
                   <td className="px-3 py-2 text-heading">{run.entityLabel}</td>
@@ -297,7 +303,7 @@ function RunDrawer({
     <Drawer
       open
       title={run ? `${run.entityLabel} run` : 'Sync run'}
-      subtitle={run ? formatDate(run.createdAt) : undefined}
+      subtitle={run ? formatDate(ranAt(run)) : undefined}
       onClose={onClose}
     >
       {query.isError ? (

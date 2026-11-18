@@ -34,6 +34,7 @@ import {
   reasonInfo,
   toRun,
   toSummary,
+  RUN_ORDER,
 } from './integrations.common.js';
 import type {
   ActivityQuery,
@@ -240,7 +241,7 @@ export class IntegrationsReadService {
     const [runs, audits] = await Promise.all([
       tx.integrationSyncRun.findMany({
         where: { businessId, connectionId: { in: ids } },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [...RUN_ORDER],
         take,
       }),
       tx.auditLog.findMany({
@@ -404,7 +405,7 @@ export class IntegrationsReadService {
       const [runs, mappings, health, running] = await Promise.all([
         tx.integrationSyncRun.findMany({
           where: { businessId, connectionId: id },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [...RUN_ORDER],
           take: 10,
         }),
         tx.integrationFieldMapping.findMany({
@@ -585,7 +586,7 @@ export class IntegrationsReadService {
         tx.integrationSyncRun.count({ where }),
         tx.integrationSyncRun.findMany({
           where,
-          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+          orderBy: [...RUN_ORDER],
           skip: (q.page - 1) * q.pageSize,
           take: q.pageSize,
         }),
