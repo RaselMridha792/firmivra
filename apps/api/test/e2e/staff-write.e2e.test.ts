@@ -1056,4 +1056,34 @@ describe('firm B', () => {
     ] as const)
       expectError(await call(method, path, ownerB, body, 'b'), 404, 'NOT_FOUND');
   });
+
+  it('SM16: a draft keeps a changed permission grid and custom security settings as saved', async () => {
+    const data = {
+      account: { firstName: 'Fake', lastName: 'Roundtrip', role: 'TAX_PREPARER' },
+      permissions: [
+        { module: 'CLIENTS', capability: 'VIEW', granted: true },
+        { module: 'CLIENTS', capability: 'EXPORT', granted: true },
+        { module: 'SETTINGS', capability: 'VIEW', granted: false },
+      ],
+      access: {
+        autoLogoutMinutes: 45,
+        maxConcurrentSessions: 2,
+        notices: {
+          newDeviceLogin: false,
+          failedLogins: true,
+          passwordChanges: true,
+          securityAlerts: false,
+          lockouts: true,
+        },
+      },
+      sendWelcomeEmail: false,
+    };
+    const draft = StaffDraft.parse(
+      ok(await call('post', '/staff-drafts', ownerA, { step: 3, data }), 201),
+    );
+    const read = StaffDraft.parse(ok(await call('get', `/staff-drafts/${draft.id}`, ownerA)));
+    expect(read.step).toBe(3);
+    expect(read.data).toMatchObject(data);
+    expect(ok(await call('delete', `/staff-drafts/${draft.id}`, ownerA))).toEqual({ ok: true });
+  });
 });

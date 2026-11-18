@@ -609,7 +609,14 @@ function AccountForm({
               <span role="status" className="text-sm text-success" data-testid="draft-saved">
                 Draft saved
               </span>
-            ) : null}
+            ) : (
+              // SM16: Next keeps the progress as a draft before step 2 opens.
+              <span className="text-xs text-muted" data-testid="autosave-note">
+                {draftId
+                  ? 'Progress saved as a draft. Next saves this step too.'
+                  : 'Next saves your progress as a draft.'}
+              </span>
+            )}
             <div className="ml-auto flex flex-wrap gap-3">
               <Button variant="secondary" disabled={pending} onClick={onSaveDraft}>
                 Save as Draft

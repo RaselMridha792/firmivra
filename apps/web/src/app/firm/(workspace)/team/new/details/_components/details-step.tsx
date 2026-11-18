@@ -723,7 +723,12 @@ function DetailsForm({
                   ? 'Draft saved. Pay and files are not kept in a draft: files stay while this tab is open.'
                   : 'Draft saved. Pay is not kept in a draft.'}
               </span>
-            ) : null}
+            ) : (
+              // SM16: the autosave, said where it happens.
+              <span className="text-xs text-muted" data-testid="autosave-note">
+                Progress saved as a draft. Back saves this step too; pay is never kept in a draft.
+              </span>
+            )}
             {uploading ? (
               <span role="status" className="text-sm text-muted">
                 Uploading documents…

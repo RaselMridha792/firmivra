@@ -74,3 +74,17 @@ test('SM18: Create Staff asks before leaving unsaved work, and Save Draft keeps 
   await page.getByRole('link', { name: 'Cancel' }).click();
   await expect(page).toHaveURL(app('/team'), { timeout: 60_000 });
 });
+
+test('SM16: each Create Staff step says the progress is kept as a draft', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/team/new'));
+  await expect(page.getByTestId('autosave-note')).toHaveText(
+    'Next saves your progress as a draft.',
+    { timeout: 60_000 },
+  );
+  await page.goto(app('/team/new/permissions'));
+  await expect(page.getByTestId('autosave-note')).toHaveText(
+    'Progress saved as a draft. Back and Next save this step too.',
+    { timeout: 60_000 },
+  );
+});
