@@ -111,7 +111,7 @@ const SORTS: { value: ClientSort; label: string }[] = [
 
 type Pending = {
   kind: BulkKind;
-  clients: { id: string; displayName: string }[];
+  clients: { id: string; displayName: string; assignedUserId?: string | null }[];
   /** Mark Inactive: Change Status with Inactive chosen. */
   status?: 'INACTIVE';
 } | null;
@@ -200,9 +200,14 @@ export function ClientsScreen({
     manager ? TEAM : [...TEAM, 'not-a-manager'],
     (): Promise<TeamMember[]> => (manager ? api.team.list() : Promise.resolve([])),
   );
+  // SM08: with their workload, for Assign's advisory warning.
   const members = (team.data ?? [])
     .filter((m) => m.status === 'ACTIVE')
-    .map((m) => ({ userId: m.user.id, name: m.user.name }));
+    .map((m) => ({
+      userId: m.user.id,
+      name: m.user.name,
+      ...(m.workload ? { workload: m.workload } : {}),
+    }));
   const services = summary.data?.counts.byService ?? [];
 
   // After an archive empties the last page, step back to the new last page.
@@ -245,11 +250,26 @@ export function ClientsScreen({
 
   const rows = list.data?.items ?? [];
   const chosen = (ids: string[]) =>
-    rows.filter((r) => ids.includes(r.id)).map((r) => ({ id: r.id, displayName: r.displayName }));
+    rows
+      .filter((r) => ids.includes(r.id))
+      .map((r) => ({
+        id: r.id,
+        displayName: r.displayName,
+        assignedUserId: r.assignedTo?.userId ?? null,
+      }));
   const openBulk = (kind: BulkKind, status?: 'INACTIVE') =>
     setPending({ kind, clients: chosen(selected), ...(status ? { status } : {}) });
   const onRowAction = (client: ClientListRow, action: RowAction) =>
-    setPending({ kind: action, clients: [{ id: client.id, displayName: client.displayName }] });
+    setPending({
+      kind: action,
+      clients: [
+        {
+          id: client.id,
+          displayName: client.displayName,
+          assignedUserId: client.assignedTo?.userId ?? null,
+        },
+      ],
+    });
 
   return (
     <div className="flex min-w-0 flex-col gap-4">

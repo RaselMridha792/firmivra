@@ -287,6 +287,7 @@ function seed(empty: boolean): Store {
       head: null,
       teamCount: 0,
       staffCount: 0,
+      assignedCount: 0,
       status: name === 'Human Resources' ? 'INACTIVE' : 'ACTIVE',
       createdAt: '2024-01-12T14:00:00.000Z',
     });
@@ -493,6 +494,7 @@ function seed(empty: boolean): Store {
       department: { id: dept.id, name: dept.name },
       lead: dept.head,
       memberCount: 0,
+      assignedCount: 0,
       status: 'ACTIVE',
       createdAt: '2024-01-12T14:00:00.000Z',
     });
@@ -578,12 +580,18 @@ function storeFor(options: Options): Store {
 /** Counts that follow the rows: department staff and team counts, team member counts. */
 function recount(s: Store) {
   for (const d of s.departments) {
-    d.staffCount = s.members.filter(
-      (m) => m.detail.status !== 'DEACTIVATED' && m.detail.departments.some((x) => x.id === d.id),
-    ).length;
+    // SM15: as the API, the active staff and everyone assigned but the deactivated.
+    const inDept = s.members.filter((m) => m.detail.departments.some((x) => x.id === d.id));
+    d.staffCount = inDept.filter((m) => m.detail.status === 'ACTIVE').length;
+    d.assignedCount = inDept.filter((m) => m.detail.status !== 'DEACTIVATED').length;
     d.teamCount = s.teams.filter((t) => t.department.id === d.id && t.status !== 'ARCHIVED').length;
   }
-  for (const t of s.teams) t.memberCount = s.teamMembers.get(t.id)?.size ?? 0;
+  for (const t of s.teams) {
+    const ids = [...(s.teamMembers.get(t.id)?.keys() ?? [])];
+    const ms = s.members.filter((m) => ids.includes(m.detail.id));
+    t.memberCount = ms.filter((m) => m.detail.status === 'ACTIVE').length;
+    t.assignedCount = ms.filter((m) => m.detail.status !== 'DEACTIVATED').length;
+  }
 }
 
 const key = (module: string, capability: string) => `${module}:${capability}`;
@@ -611,6 +619,30 @@ function cellsFor(s: Store, role: MembershipRole, member?: Member): PermissionCe
   }
   return cells;
 }
+
+/**
+ * SM02: as the API, only what the actor has themselves. The Owner gives anything; anyone else
+ * only the cells their own grid has. `given` is the cells newly given; a kept cell never counts.
+ */
+function checkGrantable(s: Store, role: MembershipRole, given: Iterable<string>) {
+  if (role === 'OWNER') return;
+  const you = s.members.find((m) => m.detail.isYou);
+  const has = new Set(
+    cellsFor(s, you?.detail.role ?? role, you)
+      .filter((c) => c.granted)
+      .map((c) => key(c.module, c.capability)),
+  );
+  if ([...given].some((k) => !has.has(k)))
+    throw fail(403, 'CANNOT_GRANT', 'You can only give permissions you have yourself');
+}
+
+/** The cells `grants` turns on that `cells` does not have yet. */
+const newlyGiven = (cells: readonly PermissionCell[], grants: readonly PermissionGrant[]) => {
+  const on = new Set(cells.filter((c) => c.granted).map((c) => key(c.module, c.capability)));
+  return grants
+    .filter((gr) => gr.granted && !on.has(key(gr.module, gr.capability)))
+    .map((gr) => key(gr.module, gr.capability));
+};
 
 /** Edit and the others need View; Owner is locked. */
 function checkGrants(grants: readonly PermissionGrant[]) {
@@ -1018,7 +1050,10 @@ export function createStaffMock(options: Options = {}): StaffClient {
       }
       if (!ROLES_MANAGED_BY[g.role].includes(input.account.role))
         throw fail(403, 'CANNOT_GRANT', 'You cannot give this role');
-      if (input.permissions) checkGrants(input.permissions);
+      if (input.permissions) {
+        checkGrants(input.permissions);
+        checkGrantable(s, g.role, newlyGiven(cellsFor(s, input.account.role), input.permissions));
+      }
       const { member, invitation } = addInvitedMember(options, {
         name: `${input.account.firstName} ${input.account.lastName}`,
         email: input.account.email,
@@ -1172,7 +1207,9 @@ export function createStaffMock(options: Options = {}): StaffClient {
     },
     sessions: async (id) => {
       await g.allowed();
-      return copy(g.find(id).sessions);
+      const m = g.find(id);
+      // SM12: as the API, the signed-in person's own session is marked on their own record.
+      return copy(m.sessions).map((x, i) => ({ ...x, current: m.detail.isYou && i === 0 }));
     },
     revokeSession: async (id, sessionId) => {
       await g.allowed();
@@ -1310,6 +1347,7 @@ export function createStaffMock(options: Options = {}): StaffClient {
       const m = g.find(id);
       g.manageable(m);
       checkGrants(input.grants);
+      checkGrantable(s, g.role, newlyGiven(cellsFor(s, m.detail.role, m), input.grants));
       const base = cellsFor(s, m.detail.role);
       const escalates = input.grants.some(
         (gr) =>
@@ -1356,6 +1394,19 @@ export function createStaffMock(options: Options = {}): StaffClient {
           !has(mod, 'VIEW')
         )
           throw fail(400, 'PERMISSION_NEEDS_VIEW', 'Give View before the other capabilities');
+      // A cell this turns on (Allow, or Inherit over a Deny) must be one the actor has.
+      checkGrantable(
+        s,
+        g.role,
+        newlyGiven(
+          cellsFor(s, m.detail.role, m),
+          input.overrides.map((o) => ({
+            module: o.module,
+            capability: o.capability,
+            granted: has(o.module, o.capability),
+          })),
+        ),
+      );
       const escalates = input.overrides.some(
         (o) => o.mode === 'ALLOW' && !roleHas(o.module, o.capability),
       );
@@ -1375,6 +1426,14 @@ export function createStaffMock(options: Options = {}): StaffClient {
       const m = g.find(id);
       const from = g.find(fromId);
       g.manageable(m);
+      checkGrantable(
+        s,
+        g.role,
+        newlyGiven(
+          cellsFor(s, m.detail.role, m),
+          cellsFor(s, from.detail.role, from).filter((c) => c.granted),
+        ),
+      );
       m.overrides = new Map(from.overrides);
       return { role: m.detail.role, cells: cellsFor(s, m.detail.role, m), updatedAt: now() };
     },
@@ -1875,6 +1934,7 @@ export function createDepartmentsMock(options: Options = {}): DepartmentsClient 
         head: headRef(input.headMembershipId),
         teamCount: 0,
         staffCount: 0,
+        assignedCount: 0,
         status: 'ACTIVE',
         createdAt: now(),
       };
@@ -1938,6 +1998,7 @@ export function createDepartmentsMock(options: Options = {}): DepartmentsClient 
         department: { id: d.id, name: d.name },
         lead: headRef(input.leadMembershipId),
         memberCount: 0,
+        assignedCount: 0,
         status: 'ACTIVE',
         createdAt: now(),
       };
@@ -2166,6 +2227,7 @@ export function createRolesMock(options: Options = {}): RolesClient {
       manage(r);
       const input = parseInput(SaveRolePermissionsRequest, body);
       checkGrants(input.grants);
+      checkGrantable(s, g.role, newlyGiven(cellsFor(s, r), input.grants));
       // An Admin cannot close Roles & Permissions to every Admin; the Owner can.
       if (
         g.role === 'ADMIN' &&
@@ -2245,6 +2307,13 @@ export function createRolesMock(options: Options = {}): RolesClient {
       const grid = new Map(base);
       for (const gr of input.grants ?? []) grid.set(key(gr.module, gr.capability), gr.granted);
       viewFirst(grid);
+      checkGrantable(
+        s,
+        g.role,
+        (input.grants ?? [])
+          .filter((gr) => gr.granted && !base.get(key(gr.module, gr.capability)))
+          .map((gr) => key(gr.module, gr.capability)),
+      );
       if (
         (input.grants ?? []).some((gr) => gr.granted && !base.get(key(gr.module, gr.capability))) &&
         !input.acknowledgeEscalation
@@ -2280,6 +2349,13 @@ export function createRolesMock(options: Options = {}): RolesClient {
         const grid = new Map(role.grid);
         for (const gr of input.grants) grid.set(key(gr.module, gr.capability), gr.granted);
         viewFirst(grid);
+        checkGrantable(
+          s,
+          g.role,
+          input.grants
+            .filter((gr) => gr.granted && !role.grid.get(key(gr.module, gr.capability)))
+            .map((gr) => key(gr.module, gr.capability)),
+        );
         if (
           input.grants.some((gr) => {
             const k = key(gr.module, gr.capability);

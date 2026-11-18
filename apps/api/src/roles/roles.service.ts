@@ -21,6 +21,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { assertGrantable } from '../staff/staff-permissions.service.js';
 import { CustomRolesService } from './custom-roles.service.js';
 import { PermissionGrantsService } from './permission-grants.service.js';
 import { CAPABILITY_INFO, MODULE_INFO, ROLE_DESCRIPTIONS } from './roles-catalog.js';
@@ -150,6 +151,7 @@ export class RolesService {
               key(m, c),
               rows.find((r) => r.module === m && r.capability === c)?.granted ?? isDefault(m, c),
             );
+        const before = new Map(now);
         for (const g of body.grants) now.set(key(g.module, g.capability), g.granted);
         // Any capability needs View in its module.
         for (const m of MODULES) {
@@ -171,6 +173,13 @@ export class RolesService {
             code: 'ADMIN_LOCKOUT',
             message: 'Admins would lose Roles & Permissions; only the Owner can take it away',
           });
+        // SM02: a cell newly given must be one the actor has themselves (an Admin cannot give back
+        // what the Owner took from the Admin role, or from them).
+        await assertGrantable(
+          tx,
+          { businessId, userId },
+          [...now].filter(([k, v]) => v && !before.get(k)).map(([k]) => k),
+        );
         const escalates = body.grants.some((g) => g.granted && !isDefault(g.module, g.capability));
         if (escalates && !body.acknowledgeEscalation)
           throw new ConflictException({

@@ -64,7 +64,8 @@ export const TIME_ZONES: [string, string][] = [
 /** The API's answers for Create Staff in the screen's words. */
 export const STAFF_ERRORS: Record<string, string> = {
   DUPLICATE_EMAIL: 'This email already belongs to a member or an open invitation.',
-  CANNOT_GRANT: 'You cannot give this role or these permissions.',
+  // SM02: also a permission the actor does not have themselves.
+  CANNOT_GRANT: 'You cannot give this role, or a permission you do not have yourself.',
   PERMISSION_NEEDS_VIEW: 'Give View first in each module you give anything else in.',
   FORBIDDEN: 'Only an Owner or an Admin can create staff accounts.',
   NOT_FOUND: 'This draft was not found. Start a new one.',
