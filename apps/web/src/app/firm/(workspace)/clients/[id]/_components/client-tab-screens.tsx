@@ -11,6 +11,7 @@ import { ServiceTasks } from '../../../tasks/_components/service-tasks';
 import { dateText } from '../../_components/client-parts';
 import { NotesCard } from '../messages/_components/notes-card';
 import { ServicesTable } from './client-services';
+import { ClientTabHeader, ClientTabLink } from './client-tab-header';
 
 // Octavia's E4: the profile's Services, Intake Forms, Tasks and Notes tabs, each the module's own
 // list for this client (Tasks' shared table, Messages' internal notes), opening records with Back
@@ -37,63 +38,61 @@ export function ClientIntakesScreen() {
   );
   const items = (q.data ?? []).filter((i) => i.status !== 'ARCHIVED');
   return (
-    <Card
-      title={
-        <span className="flex flex-wrap items-center justify-between gap-2">
-          Intake Forms
-          {/* Clients Review 2 §3/§6: with this client chosen. */}
-          <OriginLink
-            href={`/intake-forms/send?clientId=${clientId}`}
-            className="text-sm font-medium text-link hover:underline"
-          >
+    <div className="flex flex-col gap-4">
+      <ClientTabHeader
+        title="Intake Forms"
+        primary={
+          // Clients Review 2 §3/§6: with this client chosen.
+          <ClientTabLink href={`/intake-forms/send?clientId=${clientId}`}>
             Send an Intake Form
-          </OriginLink>
-        </span>
-      }
-    >
-      <div data-testid="client-intakes">
-        {q.isError ? (
-          <p role="alert" className="text-sm text-danger">
-            Intake forms are not available right now.
-          </p>
-        ) : q.isPending ? (
-          <p className="text-sm text-muted">Loading…</p>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-muted">No intake forms for this client yet.</p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-border">
-            {items.map((i) => (
-              <li
-                key={i.id}
-                className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-3"
-                data-testid="client-intake"
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium wrap-anywhere text-text">
-                    {i.service.name}
+          </ClientTabLink>
+        }
+      />
+      <Card>
+        <div data-testid="client-intakes">
+          {q.isError ? (
+            <p role="alert" className="text-sm text-danger">
+              Intake forms are not available right now.
+            </p>
+          ) : q.isPending ? (
+            <p className="text-sm text-muted">Loading…</p>
+          ) : items.length === 0 ? (
+            <p className="text-sm text-muted">No intake forms for this client yet.</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-border">
+              {items.map((i) => (
+                <li
+                  key={i.id}
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-3"
+                  data-testid="client-intake"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium wrap-anywhere text-text">
+                      {i.service.name}
+                    </span>
+                    <span className="block text-xs text-muted">
+                      {i.engagement.title}
+                      {i.submittedAt ? ` · submitted ${dateText(i.submittedAt)}` : ''}
+                    </span>
                   </span>
-                  <span className="block text-xs text-muted">
-                    {i.engagement.title}
-                    {i.submittedAt ? ` · submitted ${dateText(i.submittedAt)}` : ''}
+                  <span className="flex items-center gap-3">
+                    <Badge tone={INTAKE_TONE[i.status] ?? 'neutral'}>
+                      {INTAKE_STATUS_LABELS[i.status]}
+                    </Badge>
+                    <OriginLink
+                      href={`/intake-forms/${i.id}`}
+                      className="text-sm font-medium text-link hover:underline"
+                    >
+                      Open
+                    </OriginLink>
                   </span>
-                </span>
-                <span className="flex items-center gap-3">
-                  <Badge tone={INTAKE_TONE[i.status] ?? 'neutral'}>
-                    {INTAKE_STATUS_LABELS[i.status]}
-                  </Badge>
-                  <OriginLink
-                    href={`/intake-forms/${i.id}`}
-                    className="text-sm font-medium text-link hover:underline"
-                  >
-                    Open
-                  </OriginLink>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </Card>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -101,32 +100,31 @@ export function ClientIntakesScreen() {
 export function ClientTasksScreen() {
   const clientId = useClientId();
   return (
-    <Card
-      title={
-        <span className="flex flex-wrap items-center justify-between gap-2">
-          Tasks
-          {/* Clients Review 2 (N8-36): a task for this client, with Back to the client. */}
-          <OriginLink
-            href={newTaskHref({ clientId })}
-            className="text-sm font-medium text-link hover:underline"
-          >
-            New Task
-          </OriginLink>
-        </span>
-      }
-    >
-      <div data-testid="client-tasks">
-        <ServiceTasks clientId={clientId} pageSize={20} caption="The client's open tasks" />
-      </div>
-    </Card>
+    <div className="flex flex-col gap-4">
+      <ClientTabHeader
+        title="Tasks"
+        primary={
+          // Clients Review 2 (N8-36): a task for this client, with Back to the client.
+          <ClientTabLink href={newTaskHref({ clientId })}>New Task</ClientTabLink>
+        }
+      />
+      <Card>
+        <div data-testid="client-tasks">
+          <ServiceTasks clientId={clientId} pageSize={20} caption="The client's open tasks" />
+        </div>
+      </Card>
+    </div>
   );
 }
 
 /** The firm's internal notes on the client (Messages' notes; never shown in the portal). */
 export function ClientNotesScreen() {
   return (
-    <div data-testid="client-notes">
-      <NotesCard clientId={useClientId()} />
+    <div className="flex flex-col gap-4">
+      <ClientTabHeader title="Notes" />
+      <div data-testid="client-notes">
+        <NotesCard clientId={useClientId()} />
+      </div>
     </div>
   );
 }

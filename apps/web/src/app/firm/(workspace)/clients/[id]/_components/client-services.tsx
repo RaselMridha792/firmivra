@@ -11,6 +11,7 @@ import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { dateText } from '../../_components/client-parts';
 import { EnrollDialog, type ServiceDialog, ServiceRowActions } from './service-manage';
+import { ClientTabHeader } from './client-tab-header';
 import { useClientRecord } from './use-client-record';
 
 // Octavia's E4: the client's services (GET /business/clients/{id}/services) on the profile: the
@@ -177,131 +178,145 @@ export function ServicesTable({ clientId }: { clientId: string }) {
       </button>
     );
   return (
-    <Card
-      title={
-        <span className="flex flex-wrap items-center justify-between gap-2">
-          Services
-          {archived ? null : (
-            <Button
-              data-testid="enroll-service"
-              className="!min-h-9"
-              onClick={() => setEnrolling(true)}
-            >
+    <div className="flex flex-col gap-4">
+      <ClientTabHeader
+        title="Services"
+        primary={
+          archived ? null : (
+            <Button data-testid="enroll-service" onClick={() => setEnrolling(true)}>
               <Plus aria-hidden weight="bold" className="size-4" />
               Enroll in Service
             </Button>
-          )}
-        </span>
-      }
-    >
-      <div data-testid="client-services">
-        {notice ? (
-          <Toast message={notice.text} tone={notice.tone} onDismiss={() => setNotice(undefined)} />
-        ) : null}
-        {q.isError ? (
-          <p role="alert" className="text-sm text-danger">
-            Services are not available right now.
-          </p>
-        ) : q.isPending ? (
-          <p className="text-sm text-muted">Loading…</p>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-muted">
-            No services yet.{archived ? '' : ' Enroll the client in a service to start.'}
-          </p>
-        ) : (
-          // The table scrolls inside the card instead of widening the page (relative: its sr-only
-          // header labels stay inside too).
-          <div className="relative w-0 min-w-full overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <caption className="sr-only">The client&apos;s services</caption>
-              <thead className="bg-table-head">
-                <tr>
-                  {['Service', 'Engagement', 'Package', 'Status', 'Since', 'Assigned', '', ''].map(
-                    (h, i) => (
+          )
+        }
+      />
+      <Card>
+        <div data-testid="client-services">
+          {notice ? (
+            <Toast
+              message={notice.text}
+              tone={notice.tone}
+              onDismiss={() => setNotice(undefined)}
+            />
+          ) : null}
+          {q.isError ? (
+            <p role="alert" className="text-sm text-danger">
+              Services are not available right now.
+            </p>
+          ) : q.isPending ? (
+            <p className="text-sm text-muted">Loading…</p>
+          ) : items.length === 0 ? (
+            <p className="text-sm text-muted">
+              No services yet.{archived ? '' : ' Enroll the client in a service to start.'}
+            </p>
+          ) : (
+            // The table scrolls inside the card instead of widening the page (relative: its sr-only
+            // header labels stay inside too).
+            <div className="relative w-0 min-w-full overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <caption className="sr-only">The client&apos;s services</caption>
+                <thead className="bg-table-head">
+                  <tr>
+                    {[
+                      'Service',
+                      'Engagement',
+                      'Package',
+                      'Status',
+                      'Since',
+                      'Assigned',
+                      '',
+                      '',
+                    ].map((h, i) => (
                       <th key={h || `blank-${i}`} scope="col" className="px-3 py-2 font-medium">
                         {h || <span className="sr-only">{i === 6 ? 'Open' : 'Actions'}</span>}
                       </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((s) => {
-                  const e = byId.get(s.id);
-                  const live = !!e && (e.status === 'ACTIVE' || e.status === 'PENDING');
-                  return (
-                    <tr key={s.id} className="border-b border-divider" data-testid="client-service">
-                      <td className="px-3 py-2 font-medium text-text">{s.service.name}</td>
-                      <td className="px-3 py-2 wrap-anywhere text-text">{s.title}</td>
-                      <td className="px-3 py-2 text-text">
-                        {e && live
-                          ? editLink(
-                              s.id,
-                              e.package ?? 'Add package',
-                              `Edit the package of ${s.service.name}`,
-                            )
-                          : (e?.package ?? '—')}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className="flex flex-wrap items-center gap-1">
-                          <Badge tone={STATUS[s.status].tone}>{STATUS[s.status].label}</Badge>
-                          {/* G8: on hold, any service (the reason is in its History). */}
-                          {e?.pausedAt && live ? <Badge tone="warning">Paused</Badge> : null}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-text">{dateText(s.since)}</td>
-                      <td className="px-3 py-2 text-text">
-                        {e && live
-                          ? editLink(
-                              s.id,
-                              s.assignedTo?.name ?? 'Unassigned',
-                              `Edit who works ${s.service.name}`,
-                            )
-                          : (s.assignedTo?.name ?? '—')}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <OpenLink service={s} />
-                      </td>
-                      <td className="px-3 py-2">
-                        {e && !archived ? (
-                          <ServiceRowActions
-                            clientId={clientId}
-                            clientName={clientName}
-                            service={s}
-                            engagement={e}
-                            manager={manager}
-                            onNotice={onNotice}
-                            {...(opened?.id === s.id
-                              ? {
-                                  open: {
-                                    dialog: opened.dialog,
-                                    onClosed: () => setOpened(undefined),
-                                  },
-                                }
-                              : {})}
-                          />
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      {enrolling ? (
-        <EnrollDialog
-          clientId={clientId}
-          clientName={clientName}
-          manager={manager}
-          onClose={() => setEnrolling(false)}
-          onDone={(text) => {
-            setEnrolling(false);
-            onNotice(text, 'success');
-          }}
-        />
-      ) : null}
-    </Card>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((s) => {
+                    const e = byId.get(s.id);
+                    const live = !!e && (e.status === 'ACTIVE' || e.status === 'PENDING');
+                    return (
+                      <tr
+                        key={s.id}
+                        className="border-b border-divider"
+                        data-testid="client-service"
+                      >
+                        <td className="px-3 py-2 font-medium text-text">{s.service.name}</td>
+                        <td className="px-3 py-2 wrap-anywhere text-text">{s.title}</td>
+                        <td className="px-3 py-2 text-text">
+                          {e && live
+                            ? editLink(
+                                s.id,
+                                e.package ?? 'Add package',
+                                `Edit the package of ${s.service.name}`,
+                              )
+                            : (e?.package ?? '—')}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="flex flex-wrap items-center gap-1">
+                            <Badge tone={STATUS[s.status].tone}>{STATUS[s.status].label}</Badge>
+                            {/* G8: on hold, any service (the reason is in its History). */}
+                            {e?.pausedAt && live ? <Badge tone="warning">Paused</Badge> : null}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-text">
+                          {dateText(s.since)}
+                        </td>
+                        <td className="px-3 py-2 text-text">
+                          {e && live
+                            ? editLink(
+                                s.id,
+                                s.assignedTo?.name ?? 'Unassigned',
+                                `Edit who works ${s.service.name}`,
+                              )
+                            : (s.assignedTo?.name ?? '—')}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <OpenLink service={s} />
+                        </td>
+                        <td className="px-3 py-2">
+                          {e && !archived ? (
+                            <ServiceRowActions
+                              clientId={clientId}
+                              clientName={clientName}
+                              service={s}
+                              engagement={e}
+                              manager={manager}
+                              onNotice={onNotice}
+                              {...(opened?.id === s.id
+                                ? {
+                                    open: {
+                                      dialog: opened.dialog,
+                                      onClosed: () => setOpened(undefined),
+                                    },
+                                  }
+                                : {})}
+                            />
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        {enrolling ? (
+          <EnrollDialog
+            clientId={clientId}
+            clientName={clientName}
+            manager={manager}
+            onClose={() => setEnrolling(false)}
+            onDone={(text) => {
+              setEnrolling(false);
+              onNotice(text, 'success');
+            }}
+          />
+        ) : null}
+      </Card>
+    </div>
   );
 }

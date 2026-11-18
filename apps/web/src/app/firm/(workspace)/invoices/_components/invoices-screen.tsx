@@ -9,6 +9,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { dateText } from '../../clients/_components/client-parts';
+import { ClientTabHeader } from '../../clients/[id]/_components/client-tab-header';
 import { useClientRecord } from '../../clients/[id]/_components/use-client-record';
 import { money, ViewPill } from './inv-shared';
 import { InvoiceCancelForm } from './invoice-cancel-form';
@@ -96,14 +97,23 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
   ];
   return (
     <div className="min-w-0 space-y-4" data-testid="invoices-screen">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <InvoiceHeading clientId={clientId} />
-        {clientId ? (
-          <RequireRole roles={['OWNER', 'ADMIN']}>
-            <NewInvoiceButton clientId={clientId} onClick={() => setCreating(true)} />
-          </RequireRole>
-        ) : null}
-      </div>
+      {clientId ? (
+        // P4-7: inside a client's profile, the profile's one heading row.
+        <ClientTabHeader
+          title="Invoices"
+          primary={
+            <RequireRole roles={['OWNER', 'ADMIN']}>
+              <NewInvoiceButton clientId={clientId} onClick={() => setCreating(true)} />
+            </RequireRole>
+          }
+        />
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold text-heading" data-testid="page-title">
+            Invoices
+          </h1>
+        </div>
+      )}
       <div className="max-w-xs">
         <Select
           label="Status"
@@ -202,15 +212,6 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
   );
 }
 
-function InvoiceHeading({ clientId }: { clientId?: string }) {
-  return clientId ? (
-    <h2 className="text-2xl font-semibold text-heading">Client invoices</h2>
-  ) : (
-    <h1 className="text-2xl font-semibold text-heading" data-testid="page-title">
-      Invoices
-    </h1>
-  );
-}
 function NewInvoiceButton({ clientId, onClick }: { clientId: string; onClick: () => void }) {
   const client = useClientRecord(clientId);
   return client.data && !client.data.archivedAt ? (
