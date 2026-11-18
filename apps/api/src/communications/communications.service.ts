@@ -50,6 +50,7 @@ import type {
 import { CommunicationProviders } from './communications-provider.js';
 import { FIRMIVRA_MAIL, FIRMIVRA_MAIL_LABEL, holdNoteOf } from './firmivra-mail.js';
 import { type SegCtx, CommunicationSegmentsService } from './communications-segments.service.js';
+import { auditChanges } from '../audit/audit-changes.js';
 import { announcementSettingsIn } from '../client-portal/portal-announcement-settings.js';
 
 /** CP-3c: the composer's note while the firm keeps announcements out of the portal. */
@@ -913,9 +914,11 @@ export class CommunicationsService {
         ctx.tx,
         'communication.updated',
         { type: 'communication', id: c.id },
+        // Audit Log Review 2, R03: each changed field's old and new value (the message's text
+        // as "changed").
         {
           communicationId: c.id,
-          fields: Object.keys(body).filter((k) => k !== 'etag' && k !== 'confirmStripContent'),
+          ...auditChanges(c, saved, { fields: Object.keys(data), text: 'all' }),
         },
       );
       return this.detail(ctx, saved);

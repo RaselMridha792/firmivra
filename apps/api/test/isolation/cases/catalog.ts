@@ -194,6 +194,8 @@ export const cases: CaseModule['cases'] = {
       categoryId: 'catalogCategory',
       'services.serviceId': 'catalogPackageService',
       'addOns.id': 'catalogPackageAddOn',
+      // S12: the Booking type, one of the firm's own appointment types (400 otherwise).
+      appointmentTypeId: 'appointmentType',
     },
   },
   [`POST ${BASE}/packages`]: {
@@ -203,7 +205,11 @@ export const cases: CaseModule['cases'] = {
       shortDescription: 'A fake package',
       services: [{ serviceId: PLACEHOLDER, included: true }],
     }),
-    bodyIds: { categoryId: 'catalogCategory', 'services.serviceId': 'catalogPackageService' },
+    bodyIds: {
+      categoryId: 'catalogCategory',
+      'services.serviceId': 'catalogPackageService',
+      appointmentTypeId: 'appointmentType',
+    },
   },
   [`POST ${BASE}/packages/pricing`]: {
     params: {},

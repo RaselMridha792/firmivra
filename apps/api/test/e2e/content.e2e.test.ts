@@ -609,6 +609,8 @@ describe('audit', () => {
     expect(rows.find((r) => r.action === 'content.updated')?.metadata).toEqual({
       kind: 'EXTERNAL_LINK',
       fields: ['description'],
+      // Audit Log Review 2, R03: free text is "changed", never its text.
+      changes: { description: 'changed' },
     });
     const metadata = JSON.stringify(rows.map((r) => r.metadata));
     expect(metadata).not.toContain('Secret-ish');

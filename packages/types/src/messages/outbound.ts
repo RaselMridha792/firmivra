@@ -190,7 +190,13 @@ export type OutboundCheck = z.infer<typeof OutboundCheck>;
 const SaveShape = {
   channel: OutboundChannel,
   subject: clearable(text(200)),
-  body: Body,
+  /**
+   * M22 (Messaging Review 2): may be left out on the Portal channel only, for a message of files
+   * alone (its files go on the saved draft; it is answered as ''). Send and Schedule then need a
+   * file (400 BODY_REQUIRED), and the client's message says what was sent ("Sent 1 file: W-2.pdf",
+   * the reply's line). Email and text always need it.
+   */
+  body: Body.optional(),
   /** An active template of the firm (404 otherwise), or none. */
   templateId: z.uuid().nullable().optional(),
   /**
@@ -211,7 +217,12 @@ const SaveShape = {
   ...People,
 };
 const saveRules = <
-  T extends z.ZodType<{ channel: string; body: string; clientIds: string[]; leadIds: string[] }>,
+  T extends z.ZodType<{
+    channel: string;
+    body?: string | undefined;
+    clientIds: string[];
+    leadIds: string[];
+  }>,
 >(
   schema: T,
 ) =>
@@ -220,7 +231,11 @@ const saveRules = <
       message: 'Choose at least one recipient',
       path: ['clientIds'],
     })
-    .refine((b) => b.channel !== 'SMS' || b.body.length <= 1600, {
+    .refine((b) => b.body !== undefined || b.channel === 'PORTAL', {
+      message: 'Enter a message. Only a portal message can go with files alone',
+      path: ['body'],
+    })
+    .refine((b) => b.channel !== 'SMS' || (b.body?.length ?? 0) <= 1600, {
       message: 'A text message is at most 1,600 characters',
       path: ['body'],
     });
@@ -296,6 +311,8 @@ export const OutboundReview = z.object({
         'SUBJECT_REQUIRED',
         'UNRESOLVED_FIELDS',
         'SOME_SKIPPED',
+        /** M22: neither a text nor a file. */
+        'BODY_REQUIRED',
         'FILES_NOT_READY',
         'FILES_NEED_PORTAL',
         'READY',

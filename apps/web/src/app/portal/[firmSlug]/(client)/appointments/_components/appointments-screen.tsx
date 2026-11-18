@@ -28,10 +28,11 @@ import {
  * appointments, and Quick Actions. Booking happens in the "Schedule an Appointment" modal;
  * each upcoming row's menu reschedules or cancels it until the cutoff.
  */
-export function AppointmentsScreen({ book }: { book?: string }) {
+export function AppointmentsScreen({ book, packageId }: { book?: string; packageId?: string }) {
   const { firmSlug: slug } = useParams<{ firmSlug: string }>();
   const router = useRouter();
-  // A booking link's type (Review 2, row 3): booking opens on it once.
+  // A booking link's type (Review 2, row 3): booking opens on it once, naming the package whose
+  // page it came from (S12).
   const linked = typeIdOf(book);
   const { business } = usePortal();
   const upcoming = useApiQuery([...myAppointmentsKey(slug), 'upcoming'], () =>
@@ -40,8 +41,12 @@ export function AppointmentsScreen({ book }: { book?: string }) {
   const past = useApiQuery([...myAppointmentsKey(slug), 'past'], () =>
     api.myAppointments(slug).list({ when: 'past' }),
   );
-  const [schedule, setSchedule] = useState<{ date?: string; typeId?: string } | null>(() =>
-    linked ? { typeId: linked } : null,
+  const [schedule, setSchedule] = useState<{
+    date?: string;
+    typeId?: string;
+    packageId?: string;
+  } | null>(() =>
+    linked ? { typeId: linked, packageId: typeIdOf(packageId) ?? undefined } : null,
   );
   const [history, setHistory] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -124,6 +129,7 @@ export function AppointmentsScreen({ book }: { book?: string }) {
         open={schedule !== null}
         date={schedule?.date}
         typeId={schedule?.typeId}
+        packageId={schedule?.packageId}
         onClose={() => setSchedule(null)}
         onBooked={(text) => {
           setSchedule(null);

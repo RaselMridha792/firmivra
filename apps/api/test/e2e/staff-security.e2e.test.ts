@@ -29,6 +29,16 @@ import { BACKGROUND_HEADER, FIRM_SESSION_STARTED } from '../../src/auth/staff-se
 import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
+
+/** The emails the API sends (SM33's MFA notice among them), never a real address. */
+const mails: NotifyMessage[] = [];
+const fakeNotify = {
+  send: (m: NotifyMessage) => {
+    mails.push(m);
+    return Promise.resolve();
+  },
+};
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -206,7 +216,10 @@ beforeAll(async () => {
     DATABASE_URL_APP: fx.appUrl,
   });
   appOrigin = new URL(env.APP_BASE_URL).origin;
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue(fakeNotify)
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -405,6 +418,21 @@ describe('resets', () => {
     );
     expect(audit.metadata).toMatchObject({ reasonGiven: true });
     expect(JSON.stringify(audit.metadata)).not.toContain('New phone');
+    // SM33: the member is told, in their bell here and by email in the firm's name.
+    const bell = await inFirm('a', (tx) =>
+      tx.notification.findMany({
+        where: { businessId: firms.a, type: 'account.mfa_reset' },
+        select: { recipientUserId: true, entityType: true },
+      }),
+    );
+    expect(bell).toEqual([{ recipientUserId: people.staffA.id, entityType: 'user' }]);
+    expect(mails.filter((m) => m.template === 'staff.mfa-reset')).toEqual([
+      expect.objectContaining({
+        to: people.staffA.email,
+        businessId: firms.a,
+        data: { name: expect.any(String) as string },
+      }),
+    ]);
   });
 });
 

@@ -18,6 +18,7 @@ import {
   InternalNote,
   MyDocumentList,
   MyReportList,
+  MyTaskList,
   Report,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -338,5 +339,39 @@ describe('BK-CP4: per-client Portal Defaults decide what the portal shows', () =
     ok(await business('post', `/notes/${general.id}/share`, { updatedAt: general.updatedAt }));
     await setDefaults('c1', { notes: true });
     ok(await business('post', `/notes/${books.id}/share`, { updatedAt: books.updatedAt }));
+  });
+
+  // R56 (T16's task list): Tasks off keeps the service's tasks out of the portal.
+  it('Tasks off hides the service’s tasks from the portal list and as one; others still show', async () => {
+    const task = (title: string, engagementId: string | null) =>
+      inFirm(
+        async (tx) =>
+          (
+            await tx.task.create({
+              data: {
+                businessId: firm.id,
+                clientId: clients.c1,
+                engagementId,
+                title: `${title} ${run}`,
+                clientVisible: true,
+              },
+              select: { id: true },
+            })
+          ).id,
+      );
+    const books = await task('Fake books task', bk.c1.engagementId);
+    const general = await task('Fake general task', null);
+    const tax = await task('Fake tax task', annual);
+    const listed = async () => MyTaskList.parse(ok(await portal('/tasks'))).items.map((t) => t.id);
+    expect(await listed()).toEqual(expect.arrayContaining([books, general, tax]));
+    await setDefaults('c1', { tasks: false });
+    const hidden = await listed();
+    expect(hidden).toEqual(expect.arrayContaining([general, tax]));
+    expect(hidden).not.toContain(books);
+    expectError(await portal(`/tasks/${books}`), 404, 'NOT_FOUND');
+    ok(await portal(`/tasks/${general}`));
+    await setDefaults('c1', { tasks: true });
+    expect(await listed()).toContain(books);
+    ok(await portal(`/tasks/${books}`));
   });
 });

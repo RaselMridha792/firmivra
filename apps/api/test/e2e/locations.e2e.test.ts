@@ -1003,8 +1003,21 @@ describe('the Super Administrator, roles and other firms', () => {
 });
 
 describe('the job', () => {
-  it('runs due changes once: DONE, or FAILED when they can no longer run', async () => {
+  /**
+   * One run of the job. retention-proof runs every timed job too: while it holds this job's lock, a
+   * run answers `{ skipped: true }`, so try again for a few seconds.
+   */
+  const runJob = async (options: { businessIds: string[] }) => {
     const job = app.get(LocationActionsJob);
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const result = await job.run(options);
+      if (!result.skipped) return result;
+      await new Promise((done) => setTimeout(done, 250));
+    }
+    throw new Error("the location actions job's lock stayed taken");
+  };
+
+  it('runs due changes once: DONE, or FAILED when they can no longer run', async () => {
     const main = await create({ isMain: true, managerUserId: mgrA.id });
     const reassign = await create({ managerUserId: mgrA.id });
     const leaving = await create({ managerUserId: mgr4A.id });
@@ -1035,9 +1048,9 @@ describe('the job', () => {
       })
     ).id!;
     // Not due yet: nothing runs.
-    expect(await job.run({ businessIds: [firms.a] })).toMatchObject({ skipped: false, done: 0 });
+    expect(await runJob({ businessIds: [firms.a] })).toMatchObject({ skipped: false, done: 0 });
     for (const id of [r1, r2, r4]) await makeDue(id);
-    const first = await job.run({ businessIds: [firms.a] });
+    const first = await runJob({ businessIds: [firms.a] });
     expect(first).toMatchObject({ skipped: false, done: 3, failed: 0 });
     expect((await actionRow(r1)).status).toBe('DONE');
     expect((await profile(reassign.id)).manager?.userId).toBe(mgr2A.id);
@@ -1046,7 +1059,7 @@ describe('the job', () => {
     const acting = await profile(leaving.id);
     expect([acting.manager?.userId, acting.managerIsActing]).toEqual([mgrA.id, true]);
     // A second run finds nothing.
-    expect(await job.run({ businessIds: [firms.a] })).toMatchObject({ done: 0, failed: 0 });
+    expect(await runJob({ businessIds: [firms.a] })).toMatchObject({ done: 0, failed: 0 });
     expect((await auditOf(r1)).map((r) => r.action)).toEqual([
       'firm_office_action.scheduled',
       'firm_office_action.done',
@@ -1054,7 +1067,6 @@ describe('the job', () => {
   });
 
   it('fails a reassignment whose new manager left, and a deactivation of what became the main location', async () => {
-    const job = app.get(LocationActionsJob);
     const p = await create({ managerUserId: mgrA.id });
     const q = await create({ managerUserId: mgrA.id });
     const toLeave = person(`leaver-${randomUUID().slice(0, 4)}`);
@@ -1091,7 +1103,7 @@ describe('the job', () => {
     ok(await call('post', `/locations/${q.id}/primary`, ownerA));
     await makeDue(reassign);
     await makeDue(deactivate);
-    expect(await job.run({ businessIds: [firms.a] })).toMatchObject({ failed: 2 });
+    expect(await runJob({ businessIds: [firms.a] })).toMatchObject({ failed: 2 });
     expect(await actionRow(reassign)).toMatchObject({
       status: 'FAILED',
       failureCode: 'NEW_MANAGER_INACTIVE',

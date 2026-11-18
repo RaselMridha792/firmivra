@@ -631,7 +631,7 @@ export function SegmentsPanel({ canManage, onNotice }: { canManage: boolean; onN
     },
     { id: 'type', label: 'Kind', cell: (r) => (r.type === 'DYNAMIC' ? 'Segment' : 'List') },
     { id: 'count', label: 'Members', cell: (r) => r.memberCount },
-    // CM-F14: the assigned owner (not necessarily who made it).
+    // CM-F14: the owner is who created it (C13: the API never reassigns it).
     {
       id: 'owner',
       label: 'Owner',

@@ -23,13 +23,15 @@ test('saves the new account defaults after confirming, and Create Staff starts f
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
 
-  // Discard puts the saved values back.
-  await page.getByLabel('Restrict login to specific devices').check();
+  // Discard puts the saved values back. SM33: device restriction is not offered (no device list).
+  await expect(page.getByLabel('Restrict login to specific devices')).toHaveCount(0);
+  await page.getByLabel('Allow “Remember This Device”').check();
   await page.getByRole('button', { name: 'Discard Changes' }).click();
-  await expect(page.getByLabel('Restrict login to specific devices')).not.toBeChecked();
+  await expect(page.getByLabel('Allow “Remember This Device”')).not.toBeChecked();
 
-  // A list goes with its access choice.
+  // A list goes with its access choice; SM33: it says sign-in does not check it yet.
   await page.getByLabel('Specific Countries/Regions Only').check();
+  await expect(page.getByTestId('location-not-active')).toContainText('Not active yet');
   await page.getByRole('button', { name: 'Save Changes' }).click();
   await expect(page.getByText('Use two-letter country codes like US, CA')).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);

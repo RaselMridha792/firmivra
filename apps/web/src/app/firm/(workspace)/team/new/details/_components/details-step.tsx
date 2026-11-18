@@ -88,6 +88,26 @@ interface QueuedFile {
  */
 const keptFiles = new Map<string, QueuedFile[]>();
 
+type Pay = Pick<Form, 'payType' | 'commission' | 'rate' | 'payFrequency' | 'payrollId'>;
+/**
+ * SM17 (Staff Management Review 2, decision 2a): pay is never saved in a draft. What was typed
+ * here stays in this browser tab, by draft, so Back, Save as Draft and coming back to this step do
+ * not lose it; it is sent only with Submit.
+ */
+const keptPay = new Map<string, Pay>();
+const payOf = (f: Form): Pay => ({
+  payType: f.payType,
+  commission: f.commission,
+  rate: f.rate,
+  payFrequency: f.payFrequency,
+  payrollId: f.payrollId,
+});
+/** Keeps this tab's files and pay for the draft. */
+const keepInTab = (id: string, files: QueuedFile[], form: Form) => {
+  keptFiles.set(id, files);
+  keptPay.set(id, payOf(form));
+};
+
 interface Form {
   employmentType: StaffEmploymentType | '';
   endDate: string;
@@ -226,7 +246,10 @@ function DetailsForm({
   const router = useRouter();
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
   const o = options.data;
-  const [form, setForm] = useState<Form>(() => fromDraft(base));
+  const [form, setForm] = useState<Form>(() => ({
+    ...fromDraft(base),
+    ...(startDraft ? keptPay.get(startDraft) : undefined),
+  }));
   // The presets and the firm's own saved schedules; anything else is a custom one.
   const schedules = o?.workSchedules ?? [];
   const [customOpen, setCustomOpen] = useState(false);
@@ -284,7 +307,10 @@ function DetailsForm({
       {
         onSuccess: async (res) => {
           const id = res.staff.id;
-          if (draft.draftId) keptFiles.delete(draft.draftId);
+          if (draft.draftId) {
+            keptFiles.delete(draft.draftId);
+            keptPay.delete(draft.draftId);
+          }
           let failed = 0;
           setUploading(true);
           for (const q of files) {
@@ -513,7 +539,7 @@ function DetailsForm({
           <SubCard
             id="compensation-information"
             title="Compensation Information"
-            subtitle="Add compensation details (visible to authorized administrators only)."
+            subtitle="Add compensation details (visible to authorized administrators only). Never saved in a draft."
             icon={CurrencyDollar}
           >
             <div className={`${grid} items-start`}>
@@ -574,7 +600,8 @@ function DetailsForm({
                 />
                 <Callout icon={LockSimple} tone="navy" surface="warning" size="compact">
                   Compensation details are only visible to administrators and authorized HR
-                  personnel. They are not kept in a draft.
+                  personnel. They are never saved in a draft: they stay while this tab is open and
+                  are saved when you submit.
                 </Callout>
               </div>
             </div>
@@ -709,7 +736,7 @@ function DetailsForm({
               disabled={pending}
               onClick={() =>
                 draft.save(data(), (id) => {
-                  keptFiles.set(id, files);
+                  keepInTab(id, files, form);
                   router.push(stepHref('security', id));
                 })
               }
@@ -720,8 +747,8 @@ function DetailsForm({
             {draft.saved ? (
               <span role="status" className="text-sm text-success" data-testid="draft-saved">
                 {files.length
-                  ? 'Draft saved. Pay and files are not kept in a draft: files stay while this tab is open.'
-                  : 'Draft saved. Pay is not kept in a draft.'}
+                  ? 'Draft saved. Pay and files are never saved in a draft: they stay on this page while this tab is open.'
+                  : 'Draft saved. Pay is never saved in a draft: it stays on this page while this tab is open.'}
               </span>
             ) : (
               // SM16: the autosave, said where it happens.
@@ -740,7 +767,7 @@ function DetailsForm({
                 disabled={pending}
                 onClick={() =>
                   draft.save(data(), (id) => {
-                    keptFiles.set(id, files);
+                    keepInTab(id, files, form);
                     guard.rebase();
                     router.replace(stepHref('details', id), { scroll: false });
                   })
@@ -761,7 +788,7 @@ function DetailsForm({
             onSave={() => {
               const to = guard.pending;
               draft.save(data(), (id) => {
-                keptFiles.set(id, files);
+                keepInTab(id, files, form);
                 guard.allow();
                 if (to) router.push(to);
               });

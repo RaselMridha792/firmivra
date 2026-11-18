@@ -23,7 +23,13 @@ import {
   UpdateDepartmentRequest,
   UpdateStaffTeamRequest,
 } from './departments.js';
-import { SaveStaffSecurityDefaultsRequest, StaffSecurityDefaults } from './security-defaults.js';
+import {
+  ApplyStaffSecurityDefaultsRequest,
+  SaveStaffSecurityDefaultsRequest,
+  StaffSecurityApplyPreview,
+  StaffSecurityApplyResult,
+  StaffSecurityDefaults,
+} from './security-defaults.js';
 import {
   SaveStaffJobTitleRequest,
   StaffJobTitle,
@@ -348,6 +354,18 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
         StaffSecurityDefaults,
         SECURITY_DEFAULTS,
         put(parseInput(SaveStaffSecurityDefaultsRequest, body)),
+      ),
+    /** SM05: who Apply to Existing Accounts would change, before the confirm. */
+    securityApplyPreview: async (): Promise<StaffSecurityApplyPreview> =>
+      request(StaffSecurityApplyPreview, `${SECURITY_DEFAULTS}/apply-preview`),
+    /** SM05: the saved defaults onto those accounts, but the exceptions (confirmed, audited). */
+    applySecurityDefaults: async (
+      body: ApplyStaffSecurityDefaultsRequest,
+    ): Promise<StaffSecurityApplyResult> =>
+      request(
+        StaffSecurityApplyResult,
+        `${SECURITY_DEFAULTS}/apply`,
+        post(parseInput(ApplyStaffSecurityDefaultsRequest, body)),
       ),
 
     // Bulk Upload Staff

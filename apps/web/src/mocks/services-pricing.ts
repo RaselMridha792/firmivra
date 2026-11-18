@@ -24,6 +24,7 @@ import {
 } from '@firmivra/types';
 
 import { mockDelay } from '../lib/mock';
+import { mockAppointmentType } from './appointments';
 
 /** The portal's address in mock mode (as the other mocks' public links). */
 const MOCK_PORTAL_URL = process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? 'http://portal.localhost:3000';
@@ -501,6 +502,7 @@ function buildPackage(
     visibleToClients: true,
     allowClientAddOns: true,
     displayOnWebsite: true,
+    bookingType: null,
     internalNotes: 'Targeted for new business clients.',
     version: 'v1',
   };
@@ -637,6 +639,13 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
   const usedBy = (id: string) =>
     s.packages.filter((p) => p.services.some((x) => x.serviceId === id));
   const savePackage = (p: ServicePackage, input: Partial<UpdateServicePackageRequest>) => {
+    // S12, as the API: one of the firm's appointment types, not archived (a saved one stays).
+    if (input.appointmentTypeId !== undefined && input.appointmentTypeId !== p.bookingType?.id) {
+      const t = input.appointmentTypeId ? mockAppointmentType(input.appointmentTypeId) : null;
+      if (input.appointmentTypeId && (!t || t.archivedAt))
+        throw fail(400, 'VALIDATION_FAILED', 'Choose one of your active appointment types');
+      p.bookingType = t ? { id: t.id, name: t.name, bookable: t.clientBookable } : null;
+    }
     if (input.name !== undefined) p.name = input.name;
     if (input.categoryId !== undefined) p.category = activeCategory(input.categoryId);
     if (input.shortDescription !== undefined) p.shortDescription = input.shortDescription;
@@ -958,6 +967,7 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
           visibleToClients: _v,
           allowClientAddOns: _c,
           displayOnWebsite: _d,
+          bookingType: _b,
           internalNotes: _n,
           version: _ver,
           ...row
@@ -1020,6 +1030,7 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
         visibleToClients: false,
         allowClientAddOns: false,
         displayOnWebsite: false,
+        bookingType: null,
         internalNotes: null,
         version: 'v1',
       };

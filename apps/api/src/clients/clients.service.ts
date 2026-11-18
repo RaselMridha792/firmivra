@@ -46,6 +46,7 @@ import {
   readDateOfBirth,
   secretColumns,
 } from './client-secrets.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type ListQuery = z.output<typeof ListClientsQuery>;
 type ExportBody = z.output<typeof ExportClientsRequest>;
@@ -1305,9 +1306,14 @@ export class ClientsService {
       const tasksMoved = reassigned
         ? await reassignClientTasks(tx, businessId, id, before, body.assignedUserId ?? null)
         : undefined;
+      // Audit Log Review 2, R03: each changed field's old and new value.
+      const changes = auditChanges({ ...current, assignedUserId: before }, data, {
+        fields: Object.keys(data),
+      });
       return {
         row: await this.find(tx, businessId, actor, id),
         tasksMoved,
+        changes,
         anyway: overrideOf(byPhone, byName),
       };
     });
@@ -1315,7 +1321,7 @@ export class ClientsService {
       'client.updated',
       { type: 'client', id },
       {
-        fields: Object.keys(data).sort(),
+        ...row.changes,
         ...(row.tasksMoved === undefined ? {} : { tasksMoved: row.tasksMoved }),
         ...(row.anyway ? { savedAnyway: row.anyway } : {}),
       },

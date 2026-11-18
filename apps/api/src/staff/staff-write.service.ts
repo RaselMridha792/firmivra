@@ -141,8 +141,9 @@ export class StaffWriteService {
             details: body.details,
           });
           if (body.draftId) {
+            // SM17: only the creator's own draft.
             const draft = await tx.staffDraft.findFirst({
-              where: { businessId, id: body.draftId },
+              where: { businessId, id: body.draftId, createdById: by },
               select: { id: true },
             });
             if (!draft) throw notFound();
@@ -219,7 +220,9 @@ export class StaffWriteService {
             // Create Staff's step 2 is the Owner or Admin choosing the grid: no second confirm.
             grid = await writeMemberGrid(tx, { ...gridInput, membershipId: id });
           if (body.draftId)
-            await tx.staffDraft.deleteMany({ where: { businessId, id: body.draftId } });
+            await tx.staffDraft.deleteMany({
+              where: { businessId, id: body.draftId, createdById: by },
+            });
           await this.audit.logIn(
             tx,
             'staff.created',

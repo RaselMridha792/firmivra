@@ -19,6 +19,7 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type ListQuery = z.output<typeof ContentQuery>;
 type MyListQuery = z.output<typeof MyContentQuery>;
@@ -176,7 +177,8 @@ export class ContentService {
         tx,
         'content.updated',
         { type: 'content_item', id },
-        { kind: updated.kind, fields: Object.keys(data).sort() },
+        // Audit Log Review 2, R03: each changed field's old and new value (text as "changed").
+        { kind: updated.kind, ...auditChanges(current, updated, { fields: Object.keys(data) }) },
       );
       return updated;
     });

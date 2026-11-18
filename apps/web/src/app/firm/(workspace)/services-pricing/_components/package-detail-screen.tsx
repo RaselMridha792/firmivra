@@ -332,6 +332,12 @@ export function PackageDetailScreen({ id }: { id: string }) {
                 <dd className="text-heading">{yes(p.allowClientAddOns)}</dd>
                 <dt className="text-text">Display on Website/Portal</dt>
                 <dd className="text-heading">{yes(p.displayOnWebsite)}</dd>
+                <dt className="text-text">Booking Type</dt>
+                <dd data-testid="detail-booking-type" className="text-right text-heading">
+                  {p.bookingType
+                    ? `${p.bookingType.name}${p.bookingType.bookable ? '' : ' (not booked online)'}`
+                    : 'None'}
+                </dd>
               </dl>
             ) : (
               <Quiet>{note}</Quiet>
