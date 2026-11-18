@@ -441,7 +441,16 @@ export type AppointmentTypeRef = z.infer<typeof AppointmentTypeRef>;
  * appointment has a lead and no client yet; at the lead's conversion it takes the new client and
  * keeps its lead (where it came from). Every other appointment has a client and no lead.
  */
-export const AppointmentLeadRef = z.object({ id: z.uuid(), name: z.string() });
+export const AppointmentLeadRef = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  /**
+   * P4-2 (N8-18), on the appointments list: whether the member reaches the lead by the lead pages'
+   * rule (Owner and Admin every lead; Staff the leads assigned to them). Only they are offered
+   * Convert to New client when completing it; absent on other answers.
+   */
+  reach: z.boolean().optional(),
+});
 export type AppointmentLeadRef = z.infer<typeof AppointmentLeadRef>;
 
 /** Who an appointment is with, as the screens name it: its client, else its lead (P4-1). */
@@ -622,6 +631,9 @@ export const LEAD_APPOINTMENT_OUTCOME_LABELS: Record<LeadAppointmentOutcome, str
  * needs its `outcome` and `notes` (400 VALIDATION_FAILED at `outcome`); KEEP_LEAD_FOLLOW_UP needs
  * `followUpOn`, today or later in the firm's time zone, and sets the lead's next follow-up that day
  * at 10:00. A client's appointment takes none of them (400 at `outcome`): no body, or `{}`.
+ * CONVERT_NEW is the lead's owner's (a member who reaches the lead by the lead pages' rule): the
+ * appointment's own staff member without that reach records the other two, and CONVERT_NEW is 403
+ * FORBIDDEN "The lead's owner can convert this lead."
  */
 export const CompleteAppointmentRequest = z
   .strictObject({

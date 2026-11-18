@@ -345,6 +345,7 @@ export function UpcomingAppointments({
               name={appointmentWith(ask.a)}
               // P4-2: a lead's own appointment (no client yet) records an outcome.
               leadId={ask.a.client ? null : (ask.a.lead?.id ?? null)}
+              canConvert={ask.a.lead?.reach === true}
               timeZone={timeZone}
               onClose={() => setAsk(undefined)}
               onDone={(text) => {

@@ -229,6 +229,9 @@ export const cases: CaseModule['cases'] = {
   },
   'GET /api/v1/business/clients/:id/intakes': { params: { id: 'client' } },
   'POST /api/v1/business/engagements/:id/intakes': { params: { id: 'engagement' }, body: {} },
+  // Intake Review 2 18d: a lead's form is read here too (IntakesService.leadRow: the firm's
+  // scope, the record pages' reach); its other-firm 404 and Staff reach are in the intake-link
+  // e2e "18d: the firm reads a lead's form…".
   'GET /api/v1/business/intakes/:id': { params: { id: 'intake' } },
   'POST /api/v1/business/intakes/:id/review': { params: { id: 'submittedIntake' } },
   'POST /api/v1/business/intakes/:id/complete': { params: { id: 'submittedIntake' } },

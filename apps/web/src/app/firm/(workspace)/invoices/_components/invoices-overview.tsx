@@ -913,7 +913,7 @@ function InvoiceTable({
                 {
                   label: 'Duplicate Invoice',
                   icon: Copy,
-                  onSelect: () => router.push(`/invoices/new?from=${i.id}`),
+                  onSelect: () => router.push(`/invoices/new?copyFrom=${i.id}`),
                 },
               ]
             : []),

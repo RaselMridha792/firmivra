@@ -868,7 +868,10 @@ describe('outcomes of a completed appointment with a lead (P4-2, Clients Review 
   it('Convert to New client converts nothing by itself: the lead stays a lead, with no client', async () => {
     const lead = await newLead('Cody Convertlater', { assignedUserId: people.staffA.id });
     const past = await seedLeadAppointment(lead, -6);
-    const clientsBefore = await asOwner(ids.firmA, (tx) => tx.client.count());
+    // This file's own firm only: the database is shared with test files running at the same time.
+    const firmClients = () =>
+      asOwner(ids.firmA, (tx) => tx.client.count({ where: { businessId: ids.firmA } }));
+    const clientsBefore = await firmClients();
     const done = exact(
       Changed,
       await call('post', `/appointments/${past}/complete`, people.ownerA, {
@@ -878,13 +881,80 @@ describe('outcomes of a completed appointment with a lead (P4-2, Clients Review 
     );
     expect(done).toMatchObject({ status: 'COMPLETED', client: null, lead: { id: lead } });
     expect(await leadStatus(lead)).toEqual({ status: 'SUBMITTED', clientId: null });
-    expect(await asOwner(ids.firmA, (tx) => tx.client.count())).toBe(clientsBefore);
+    expect(await firmClients()).toBe(clientsBefore);
     expect((await activity(lead)).map((a) => a.label)).toContain(
       'Meeting: Appointment completed: Convert to New client',
     );
     expect((await outcomeAudit(past)).map((a) => a.metadata)).toEqual([
       { leadId: lead, outcome: 'CONVERT_NEW' },
     ]);
+  });
+
+  it('the appointment’s Staff member without the lead: Keep as Lead and Follow Up, never Convert (403); the record and the list say so', async () => {
+    // The lead is Staff B's; Staff A holds the appointment (the meeting was theirs).
+    const lead = await newLead('Odin Otherowner', { assignedUserId: people.staffB.id });
+    const day = -9;
+    const past = await seedLeadAppointment(lead, day, people.staffA.id);
+    const record = (who: (typeof people)[keyof typeof people]) =>
+      call('get', `/appointments/${past}/record`, who).then((res) => exact(AppointmentRecord, res));
+    expect((await record(people.staffA)).contact).toMatchObject({
+      kind: 'LEAD',
+      id: lead,
+      leadReach: false,
+    });
+    expect((await record(people.ownerA)).contact.leadReach).toBe(true);
+    const range = `from=${encodeURIComponent(at(day, '00:00'))}&to=${encodeURIComponent(at(day + 1, '00:00'))}`;
+    const listed = async (who: (typeof people)[keyof typeof people]) =>
+      exact(AppointmentList, await call('get', `/appointments?${range}`, who)).items.find(
+        (a) => a.id === past,
+      );
+    expect(await listed(people.staffA)).toMatchObject({ lead: { id: lead, reach: false } });
+    expect(await listed(people.ownerA)).toMatchObject({ lead: { id: lead, reach: true } });
+
+    const path = `/appointments/${past}/complete`;
+    const refused = await call('post', path, people.staffA, {
+      outcome: 'CONVERT_NEW',
+      notes: 'Fake: chose a service',
+    });
+    expectError(refused, 403, 'FORBIDDEN');
+    expect(JSON.stringify(refused.body)).toContain("The lead's owner can convert this lead.");
+    const still = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({ where: { id: past }, select: { status: true } }),
+    );
+    expect(still.status).toBe('SCHEDULED');
+    expect(await outcomeAudit(past)).toEqual([]);
+
+    const done = exact(
+      Changed,
+      await call('post', path, people.staffA, {
+        outcome: 'KEEP_LEAD_FOLLOW_UP',
+        notes: 'Fake: call back next week',
+        followUpOn: addDays(today, 3),
+      }),
+    );
+    expect(done.status).toBe('COMPLETED');
+    expect((await outcomeAudit(past)).map((a) => a.metadata)).toEqual([
+      { leadId: lead, outcome: 'KEEP_LEAD_FOLLOW_UP' },
+    ]);
+  });
+
+  it('the lead’s own Staff member is offered and may choose Convert to New client', async () => {
+    const lead = await newLead('Opal Ownlead', { assignedUserId: people.staffA.id });
+    const past = await seedLeadAppointment(lead, -10, people.staffA.id);
+    const record = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${past}/record`, people.staffA),
+    );
+    expect(record.contact.leadReach).toBe(true);
+    const done = exact(
+      Changed,
+      await call('post', `/appointments/${past}/complete`, people.staffA, {
+        outcome: 'CONVERT_NEW',
+        notes: 'Fake: chose bookkeeping',
+      }),
+    );
+    expect(done.status).toBe('COMPLETED');
+    expect(await leadStatus(lead)).toEqual({ status: 'SUBMITTED', clientId: null });
   });
 
   it('a client’s appointment completes as before, and takes no outcome (400)', async () => {

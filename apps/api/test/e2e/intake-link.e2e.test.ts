@@ -16,6 +16,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   INTAKE_FORMS,
   IntakeAgreementBlock,
+  IntakeView,
   intakeStepFields,
   LinkIntake,
   SavedIntakeStep,
@@ -210,7 +211,7 @@ beforeAll(async () => {
       select: { templateId: true },
     });
     ids.template = form.templateId as string;
-    for (const key of ['fill', 'sign', 'refuse', 'resend', 'expire']) {
+    for (const key of ['fill', 'sign', 'refuse', 'resend', 'expire', 'read']) {
       ids[key] = (
         await tx.lead.create({
           data: {
@@ -376,6 +377,52 @@ describe("a lead's secure intake link", () => {
       }),
     );
     expect(submitted.metadata).toMatchObject({ consent: true, consentAt: expect.any(String) });
+  });
+
+  it("18d: the firm reads a lead's form (Overview and Responses): the Owner and the lead's Staff, never other Staff or firms", async () => {
+    const { id, token } = await sendTo('read');
+    // A network of its own: Open allows 10 a minute per network, and later tests open too.
+    viewers += 250;
+    const v = visitor(firms.a.slug);
+    ok(await v.post('/open', { token }));
+    SavedIntakeStep.parse(ok(await v.put('/steps/profile', { answers: stepAnswers('profile') })));
+    const read = async (email: string, firm: 'a' | 'b' = 'a') => {
+      const bearer = await tokenFor(email);
+      return request(app.getHttpServer())
+        .get(`/api/v1/business/intakes/${id}`)
+        .set('x-business-id', firms[firm].id)
+        .set('x-forwarded-for', `${viewer()}, 10.0.0.5`)
+        .set('authorization', `Bearer ${bearer}`);
+    };
+    const view = IntakeView.parse(ok(await read(owners.a.email)));
+    expect(view).toMatchObject({ id, engagement: null, status: 'IN_PROGRESS' });
+    expect(view.service.kind).toBe('TAX_PLANNING');
+    expect(view.answers).toMatchObject({ fullName: 'Lee Lead' });
+    // Another firm's Owner: 404, as for any record of another firm.
+    expectError(await read(owners.b.email, 'b'), 404, 'NOT_FOUND');
+    // Staff reach a lead's form as the record pages do: only the lead's (or the form's) staff.
+    const staff = { id: randomUUID(), email: `r1-18d-staff-${run}@r1.test` };
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: staff.id,
+          cognitoSub: staff.id,
+          pool: 'STAFF',
+          email: staff.email,
+          name: 'Fake Staff',
+        },
+      }),
+    );
+    await inFirmA((tx) =>
+      tx.membership.create({
+        data: { businessId: firms.a.id, userId: staff.id, role: 'STAFF', status: 'ACTIVE' },
+      }),
+    );
+    expectError(await read(staff.email), 404, 'NOT_FOUND');
+    await inFirmA((tx) =>
+      tx.lead.update({ where: { id: ids.read! }, data: { assignedUserId: staff.id } }),
+    );
+    expect(IntakeView.parse(ok(await read(staff.email))).id).toBe(id);
   });
 
   it('refuses another firm, a made-up token and a missing or moved cookie (410 LINK_INVALID)', async () => {
