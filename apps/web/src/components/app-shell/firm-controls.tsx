@@ -18,10 +18,11 @@ import { ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type MouseEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { COMPANY } from '../../lib/company';
 import { errorMessage } from '../../lib/errors';
+import { withOrigin } from '../../lib/origin';
 import { useApiQuery } from '../../lib/query';
 
 const popover =
@@ -253,6 +254,20 @@ export function FirmSearch({ team }: { team: boolean }) {
 
 /** "+ New": a menu of places where something new is created; opening it creates nothing. */
 export function NewMenu({ links }: { links: readonly { label: string; href: string }[] }) {
+  const router = useRouter();
+  /**
+   * Dashboard Review Two B11 (decided Nov 18): an item that leaves the current page keeps the way
+   * back to it (`from=`, read at the click so a dashboard's periods come along); one for the page
+   * already open adds nothing. A click with a modifier key opens the plain link.
+   */
+  const open = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+      return;
+    const here = `${window.location.pathname}${window.location.search}`;
+    if (href.split('?')[0] === window.location.pathname) return;
+    event.preventDefault();
+    router.push(withOrigin(href, here));
+  };
   return (
     <Popover
       trigger={() => (
@@ -268,6 +283,7 @@ export function NewMenu({ links }: { links: readonly { label: string; href: stri
         <Link
           key={link.href}
           href={link.href}
+          onClick={(event) => open(event, link.href)}
           role="menuitem"
           className="block whitespace-nowrap rounded-control px-4 py-2 text-sm text-text hover:bg-canvas"
         >

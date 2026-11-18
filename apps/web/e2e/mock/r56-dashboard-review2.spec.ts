@@ -149,3 +149,18 @@ test('OPT1: Custom with a blank date says what applies it, and the period shown 
   await dates.getByLabel('To').fill(day(1));
   await expect(hint).toHaveCount(0);
 });
+
+test('B11: + New keeps the way back only when it leaves the page; the page already open adds none', async ({
+  page,
+}) => {
+  await page.goto(app('/'));
+  const menu = page.getByRole('button', { name: 'New' });
+  await menu.click();
+  await page.getByRole('menuitem', { name: 'New task' }).click();
+  await expect(page).toHaveURL(/\/tasks\/new\?from=%2F$/, { timeout: 60_000 });
+  await expect(page.getByTestId('back-to-origin')).toBeVisible();
+  // From the page it opens, the same item is the plain page: no way back is added.
+  await menu.click();
+  await page.getByRole('menuitem', { name: 'New task' }).click();
+  await expect(page).toHaveURL(/\/tasks\/new$/);
+});
