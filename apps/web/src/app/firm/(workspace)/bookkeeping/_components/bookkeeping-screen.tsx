@@ -40,7 +40,7 @@ import {
   SoftwareTile,
   StatusPill,
   card,
-  dateTimeText,
+  useFirmDateTime,
   dayText,
   linkBtn,
   moneyWhole,
@@ -102,6 +102,7 @@ export function BookkeepingScreen({
 }: {
   initial?: BookkeepingView;
 }) {
+  const at = useFirmDateTime(); // C05: the firm's time zone
   // Review 2 (as Payroll F10): Browser Back restores this page with its first load's props, while
   // the address holds the newest view; reading the address keeps the newest filters.
   const params = useSearchParams();
@@ -309,7 +310,7 @@ export function BookkeepingScreen({
     {
       id: 'synced',
       label: 'Last Synced',
-      cell: (r) => (r.lastSyncedAt ? dateTimeText(r.lastSyncedAt) : '—'),
+      cell: (r) => (r.lastSyncedAt ? at(r.lastSyncedAt) : '—'),
     },
     {
       id: 'due',

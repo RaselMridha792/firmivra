@@ -37,6 +37,7 @@ import {
   quiet,
   subtle,
 } from './bookkeeping-shared';
+import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
 import { ReasonDialog, cents, dollars } from './recon-parts';
 
 const KIND: Record<BookkeepingReconciliationItem['kind'], string> = {
@@ -650,6 +651,7 @@ function DiscrepancyNote({
   editable: boolean;
   act: ReturnType<typeof useAct>;
 }) {
+  const timeZone = useFirmTimeZone(); // C05: the firm's time zone
   const [text, setText] = useState(r.discrepancyNote?.text ?? '');
   const saved = r.discrepancyNote?.text ?? '';
   return (
@@ -692,6 +694,7 @@ function DiscrepancyNote({
         <p className="mt-1 text-xs text-muted">
           {r.discrepancyNote.by?.name ?? 'Someone'} ·{' '}
           {new Date(r.discrepancyNote.at).toLocaleString('en-US', {
+            timeZone,
             month: 'short',
             day: 'numeric',
             year: 'numeric',

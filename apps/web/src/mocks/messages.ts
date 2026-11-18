@@ -80,7 +80,7 @@ import { createLeadPipelineMock } from './leads-pipeline';
 import { documentFixtures } from './documents';
 import { invoiceFixtures } from './invoices';
 import { BOOKKEEPING_ENGAGEMENT, taskFixtures } from './tasks';
-import { addTimelineEntry } from './client-timeline';
+import { addTimelineEntry, setTimelineSource } from './client-timeline';
 import { serviceMockClient } from './service-engagements';
 import { taxReturnMockClient } from './tax-return-workspace';
 import { teamFixtures } from './team';
@@ -1525,6 +1525,15 @@ export function createMessagesMock(
   };
 }
 
+const NOTE_TYPE_WORDS: Record<string, string> = {
+  GENERAL: 'General note',
+  CALL: 'Call note',
+  MEETING: 'Meeting note',
+  FOLLOW_UP: 'Follow-up note',
+  DOCUMENT: 'Document note',
+  BILLING: 'Billing note',
+};
+
 /** An in-memory `api.clientNotes`. */
 export function createClientNotesMock(options: { role?: MockFirmRole } = {}): ClientNotesClient {
   const role = options.role ?? 'OWNER';
@@ -1543,6 +1552,20 @@ export function createClientNotesMock(options: { role?: MockFirmRole } = {}): Cl
     if (!view(n).canEdit) throw fail(403, 'FORBIDDEN', 'This action is not permitted');
     return n;
   };
+  // As the API: a client's notes are in its Activity page, their type in words ("General note").
+  setTimelineSource('notes', (clientId) =>
+    s()
+      .notes.filter((n) => n.clientId === clientId)
+      .map((n) => ({
+        id: n.id,
+        kind: 'NOTE' as const,
+        title: 'Note added',
+        summary: n.noteType ? (NOTE_TYPE_WORDS[n.noteType] ?? 'Note') : null,
+        occurredAt: n.createdAt,
+        href: `/clients/${clientId}/notes`,
+        createdBy: { userId: n.author.userId, name: n.author.name },
+      })),
+  );
   return {
     list: async (clientId, query = {}) => {
       await mockDelay();

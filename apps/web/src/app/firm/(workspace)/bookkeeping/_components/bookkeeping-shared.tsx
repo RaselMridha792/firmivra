@@ -1,5 +1,6 @@
 import type { BookkeepingKpi, BookkeepingStatus } from '@firmivra/types';
 import { Badge, type KpiTrend } from '@firmivra/ui';
+import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
 
 /** Every query of the Bookkeeping module starts here: a change in one view refreshes the others. */
 export const BK_KEY = ['bookkeeping'] as const;
@@ -98,14 +99,25 @@ export const dayText = (d: string) =>
     day: 'numeric',
     year: 'numeric',
   });
-export const dateTimeText = (iso: string) =>
+/** A time in the firm's time zone (C05), or the browser's only while the firm's loads. */
+export const dateTimeText = (iso: string, timeZone?: string) =>
   new Date(iso).toLocaleString('en-US', {
+    timeZone,
     month: '2-digit',
     day: '2-digit',
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
   });
+
+/**
+ * Review 2 (C05): Bookkeeping's times in the firm's time zone, as the client's Activity page, never
+ * the viewer's browser zone.
+ */
+export function useFirmDateTime(): (iso: string) => string {
+  const timeZone = useFirmTimeZone();
+  return (iso: string) => dateTimeText(iso, timeZone);
+}
 
 /** The change against the period before, when there is one to compare; `badWhenUp` for costs. */
 export const trendOf = (k: BookkeepingKpi, badWhenUp = false): KpiTrend | undefined => {
