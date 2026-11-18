@@ -39,6 +39,18 @@ export const entityIcons: Record<string, Icon> = {
   employees: IdentificationBadge,
 };
 
+/**
+ * I-R2-06 (Integrations Review Two): why Sync Now is not offered, as the API refuses it
+ * (NOT_CONNECTED): a disconnected connection is reconnected first, one needing attention is
+ * fixed first. Null when it may sync.
+ */
+export function syncBlockedReason(status: IntegrationConnectionStatus | undefined): string | null {
+  if (status === 'DISCONNECTED') return 'Reconnect first: a disconnected integration cannot sync.';
+  if (status === 'NEEDS_ATTENTION')
+    return 'Fix the connection first (see Troubleshooting): it cannot sync until then.';
+  return null;
+}
+
 export function statusLabel(status: IntegrationConnectionStatus) {
   return status.charAt(0) + status.slice(1).toLowerCase().replace('_', ' ');
 }

@@ -31,6 +31,7 @@ import {
   inSentence,
   relativeTime,
   shortTime,
+  syncBlockedReason,
 } from './manage-integration-shared';
 
 /**
@@ -109,6 +110,7 @@ export function SyncControls({
     !!provider?.directions.includes(direction) &&
     enabled.every((e) => e.directions.includes(direction));
   const canEdit = !!detail?.canManage && !busy;
+  const blocked = syncBlockedReason(detail?.status);
   const auto = !!detail && detail.syncMode === 'AUTO';
   const lastOk = detail?.recentRuns[0]?.status === 'SUCCEEDED';
   return (
@@ -121,7 +123,8 @@ export function SyncControls({
       <div className="grid gap-3 sm:grid-cols-2">
         <Button
           className="min-h-10! py-2! whitespace-nowrap"
-          disabled={!detail?.canManage || detail.syncing || busy}
+          disabled={!detail?.canManage || detail.syncing || busy || !!blocked}
+          title={blocked ?? undefined}
           onClick={onSync}
         >
           <ArrowsClockwise aria-hidden weight="bold" className="size-5" />
