@@ -1077,3 +1077,62 @@ describe('Create Anyway in the audit (Clients Review 2 §5 duplicate safeguards,
     expect(rows.at(-1)?.metadata).not.toHaveProperty('savedAnyway');
   });
 });
+
+describe('the ZIP and the state, checked on the server (Clients Review 2 §5, P4-6)', () => {
+  const put = (id: string, body: object) => call('put', `/${id}/profile`, people.ownerA, 'a', body);
+
+  it('a mismatched ZIP saves and answers a warning; a matching one has none', async () => {
+    const mismatched = await create({
+      displayName: 'Zip Mismatch (fake)',
+      email: email('zip-mismatch'),
+      profile: {
+        address: { line1: '1 Fake St', city: 'Atlanta', state: 'GA', postalCode: '10001' },
+      },
+    });
+    // Saved as typed, with the warning naming the field.
+    expect(mismatched.profile.address).toMatchObject({ state: 'GA', postalCode: '10001' });
+    expect(mismatched.profile.warnings).toEqual([
+      {
+        path: 'profile.address.postalCode',
+        code: 'ZIP_STATE_MISMATCH',
+        message:
+          'ZIP code 10001 is usually in NY, not GA. Check the state and ZIP code; you can still save.',
+      },
+    ]);
+    const matching = await create({
+      displayName: 'Zip Match (fake)',
+      email: email('zip-match'),
+      profile: {
+        address: { line1: '1 Fake St', city: 'Atlanta', state: 'GA', postalCode: '30301' },
+      },
+    });
+    expect(matching.profile.warnings).toBeUndefined();
+
+    // Edit: the ZIP alone is checked against the stored state.
+    const edited = await put(matching.id, { address: { postalCode: '73301' } });
+    expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+    const profile = Profile.parse(edited.body);
+    expect(profile.address).toMatchObject({ state: 'GA', postalCode: '73301' });
+    expect(profile.warnings).toEqual([
+      expect.objectContaining({ path: 'address.postalCode', code: 'ZIP_STATE_MISMATCH' }),
+    ]);
+    // Fixed: no warning.
+    const fixed = await put(matching.id, { address: { state: 'TX' } });
+    expect(Profile.parse(fixed.body).warnings).toBeUndefined();
+    // A prefix the table doesn't know is "can't verify", never invalid; still saved.
+    const unknown = await put(matching.id, { address: { postalCode: '00012' } });
+    expect(unknown.status).toBe(200);
+    expect(Profile.parse(unknown.body).warnings).toEqual([
+      {
+        path: 'address.postalCode',
+        code: 'ZIP_UNVERIFIED',
+        message: "We can't verify ZIP code 00012. Check it before saving.",
+      },
+    ]);
+    // A change that leaves the address alone answers no warning, and the record reads none.
+    const other = await put(matching.id, { referralSource: 'A friend (fake)' });
+    expect(Profile.parse(other.body).warnings).toBeUndefined();
+    const read = Record_.parse((await call('get', `/${matching.id}`, people.ownerA)).body);
+    expect(read.profile.warnings).toBeUndefined();
+  });
+});

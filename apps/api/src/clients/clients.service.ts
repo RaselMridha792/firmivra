@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { type Database, Prisma, type TxClient } from '@firmivra/db';
 import {
   clearedFieldIssues,
+  zipStateCheck,
   type BulkClientsRequest,
   type BulkClientsResponse,
   type ClientExportLink,
@@ -18,6 +19,7 @@ import {
   type ClientListRow,
   type ClientOverviewSummary,
   type ClientProfile,
+  type ClientProfileWarning,
   type ClientRecord,
   type ClientServiceRef,
   type ClientsSummary,
@@ -331,6 +333,19 @@ function refuseCleared(issues: { path: string[]; message: string }[], prefix?: s
       message: i.message,
     })),
   });
+}
+
+/**
+ * Clients Review 2 §5 (ZIP validity on the server, P4-6): the saved US address's ZIP against its
+ * state, by the forms' own prefix table (zipStateCheck in packages/types): a mismatch or an
+ * unknown prefix is a warning on the ZIP's field, never a refusal. Null when there is nothing to
+ * say, or no ZIP and state to compare. The city is not checked.
+ */
+function addressWarnings(profile: ClientProfile, prefix: string): ClientProfileWarning[] | null {
+  const { country, postalCode, state } = profile.address;
+  if (country !== 'US' || !postalCode || !state) return null;
+  const warning = zipStateCheck(postalCode, state);
+  return warning ? [{ path: `${prefix}address.postalCode`, ...warning }] : null;
 }
 
 /**
@@ -1247,9 +1262,11 @@ export class ClientsService {
         ...(anyway ? { createdAnyway: anyway } : {}),
       },
     );
-    return this.record(businessId, created.row, {
+    const record = await this.record(businessId, created.row, {
       dateOfBirth: body.profile?.dateOfBirth ?? null,
     });
+    const warnings = body.profile?.address ? addressWarnings(record.profile, 'profile.') : null;
+    return warnings ? { ...record, profile: { ...record.profile, warnings } } : record;
   }
 
   async update(
@@ -1358,7 +1375,10 @@ export class ClientsService {
       { type: 'client', id },
       { fields: changedFields(body) },
     );
-    return (await this.record(businessId, row, { dateOfBirth: body.dateOfBirth })).profile;
+    const profile = (await this.record(businessId, row, { dateOfBirth: body.dateOfBirth })).profile;
+    // P4-6: the address just saved, checked as the forms check it; a warning never blocks.
+    const warnings = body.address ? addressWarnings(profile, '') : null;
+    return warnings ? { ...profile, warnings } : profile;
   }
 
   /** Owner and Admin (the route says so). Hidden from the default list; never deleted. */

@@ -437,6 +437,14 @@ export const BulkClientsResponse = z.object({
 export type BulkClientsResponse = z.infer<typeof BulkClientsResponse>;
 
 /** The profile as the firm sees it. */
+/** P4-6: one soft warning about a saved field (ClientProfile.warnings). */
+export const ClientProfileWarning = z.object({
+  path: z.string(),
+  code: z.enum(['ZIP_STATE_MISMATCH', 'ZIP_UNVERIFIED']),
+  message: z.string(),
+});
+export type ClientProfileWarning = z.infer<typeof ClientProfileWarning>;
+
 export const ClientProfile = z.object({
   firstName: z.string().nullable(),
   middleName: z.string().nullable(),
@@ -470,6 +478,16 @@ export const ClientProfile = z.object({
    */
   responsibleParty: z.object({ name: z.string(), email: z.string(), phone: z.string() }).nullable(),
   updatedAt: DateTime.nullable(),
+  /**
+   * Clients Review 2 §5 (P4-6): soft warnings about the address just saved, only on the answer to
+   * a change that sent the address (POST /business/clients with `profile.address`, PUT .../profile
+   * with `address`); never on a read. The ZIP's first three digits against the state, by the same
+   * table as the forms (zipStateCheck): ZIP_STATE_MISMATCH or ZIP_UNVERIFIED (a prefix the table
+   * doesn't know), each naming its field (`profile.address.postalCode` on create,
+   * `address.postalCode` on the profile route). A warning never blocks the save; the city is not
+   * checked.
+   */
+  warnings: z.array(ClientProfileWarning).optional(),
 });
 export type ClientProfile = z.infer<typeof ClientProfile>;
 

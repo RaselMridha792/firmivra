@@ -1,8 +1,9 @@
-// Clients Review 2 (G10): a ZIP code's first three digits name its state (USPS sectional
-// centers). A static table, no lookup service: a ZIP that doesn't match the state is a soft
-// warning, never a block, and a prefix the table doesn't know is "can't verify", kept apart from
-// an invalid ZIP (the API's 5-digit or ZIP+4 rule). Military (AA, AE, AP) and territory prefixes
-// are listed so they don't read as wrong.
+// Clients Review 2 (G10, and P4-6 on the server): a ZIP code's first three digits name its state
+// (USPS sectional centers). A static table, no lookup service and no ZIP data file: a ZIP that
+// doesn't match the state is a soft warning, never a block, and a prefix the table doesn't know is
+// "can't verify", kept apart from an invalid ZIP (the 5-digit or ZIP+4 rule). Military (AA, AE,
+// AP) and territory prefixes are listed so they don't read as wrong. The web forms and the API
+// share this one copy. The ZIP's city is not checked (that needs a licensed ZIP data source).
 
 /** [first prefix, last prefix, state or states]; ranges in order, both ends included. */
 const RANGES: [number, number, string][] = [
@@ -85,16 +86,36 @@ export function statesForZip(zip: string): string[] | null {
   return hit ? hit[2].split(' ') : null;
 }
 
+/** A soft warning about a US address's ZIP and state: it never blocks a save. */
+export interface ZipStateWarning {
+  /** ZIP_STATE_MISMATCH: the prefix belongs to another state; ZIP_UNVERIFIED: an unknown prefix. */
+  code: 'ZIP_STATE_MISMATCH' | 'ZIP_UNVERIFIED';
+  message: string;
+}
+
 /**
- * The soft warning under the address, or undefined: nothing until the ZIP has the API's shape
- * and a two-letter state is chosen.
+ * The warning for a ZIP and a state, or undefined: nothing until the ZIP has the 5-digit or ZIP+4
+ * shape and a two-letter state is given.
  */
-export function zipStateWarning(zip: string, state: string): string | undefined {
+export function zipStateCheck(zip: string, state: string): ZipStateWarning | undefined {
   const z = zip.trim();
   const s = state.trim().toUpperCase();
   if (!/^\d{5}(-\d{4})?$/.test(z) || !/^[A-Z]{2}$/.test(s)) return undefined;
   const states = statesForZip(z);
-  if (!states) return `We can't verify ZIP code ${z}. Check it before saving.`;
+  if (!states) {
+    return {
+      code: 'ZIP_UNVERIFIED',
+      message: `We can't verify ZIP code ${z}. Check it before saving.`,
+    };
+  }
   if (states.includes(s)) return undefined;
-  return `ZIP code ${z} is usually in ${states.join(' or ')}, not ${s}. Check the state and ZIP code; you can still save.`;
+  return {
+    code: 'ZIP_STATE_MISMATCH',
+    message: `ZIP code ${z} is usually in ${states.join(' or ')}, not ${s}. Check the state and ZIP code; you can still save.`,
+  };
+}
+
+/** The form's soft warning under the address (zipStateCheck's message), or undefined. */
+export function zipStateWarning(zip: string, state: string): string | undefined {
+  return zipStateCheck(zip, state)?.message;
 }
