@@ -7,7 +7,8 @@ import type { TemplateUsePurpose } from '@firmivra/types';
  * by whom and when. The log is append-only (the database refuses an update or a delete), and the
  * sent content itself stays on the message, so a later edit, archive or restore never rewrites
  * it. `version` is the one the content was copied from when it is known (Communications keeps
- * it); otherwise the template's version at the time of sending.
+ * it); otherwise the template's version at the time of sending. The purpose is stored in lower
+ * case (the table's check), and read back as the contract's value.
  */
 export async function recordTemplateUse(
   tx: TxClient,
@@ -35,7 +36,7 @@ export async function recordTemplateUse(
       businessId: use.businessId,
       templateId: use.templateId,
       version,
-      purpose: use.purpose,
+      purpose: use.purpose.toLowerCase(),
       entityType: use.entityType,
       entityId: use.entityId,
       usedByUserId: use.usedByUserId,

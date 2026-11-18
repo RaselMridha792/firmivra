@@ -644,6 +644,16 @@ export const SetLinkedTemplateRequest = z.strictObject({
 });
 export type SetLinkedTemplateRequest = z.input<typeof SetLinkedTemplateRequest>;
 
+/**
+ * Templates Review Two Y05: GET /business/templates/tags?kind=: every tag on the templates the
+ * caller can see that are not archived, each once, sorted (the library's tag filter; not only the
+ * tags of its first page).
+ */
+export const TemplateTagsQuery = z.strictObject({ kind: MessageTemplateKind.optional() });
+export type TemplateTagsQuery = z.input<typeof TemplateTagsQuery>;
+export const TemplateTagList = z.object({ items: z.array(z.string()) });
+export type TemplateTagList = z.infer<typeof TemplateTagList>;
+
 /** GET /business/templates/structure-options?kind=: the module templates a template can stand for. */
 export const TemplateStructureOptionsQuery = z.strictObject({ kind: LinkedTemplateKind });
 export type TemplateStructureOptionsQuery = z.input<typeof TemplateStructureOptionsQuery>;
@@ -666,6 +676,8 @@ export const TemplateErrorCode = z.enum([
   'AUTOMATION_IN_USE',
   /** 409: the category is of another kind, or archived. */
   'CATEGORY_NOT_ALLOWED',
+  /** 409 (Y05): archiving a category that still has templates; Merge moves them first. */
+  'CATEGORY_IN_USE',
   /** 400: the subject is required for this kind when it is made ACTIVE. */
   'SUBJECT_REQUIRED',
   /** 409: automations support only ACTIVE templates of certain kinds. */

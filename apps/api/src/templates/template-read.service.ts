@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   MessageTemplateDetail,
+  MessageTemplateKind,
   MessageTemplatePage,
   TemplatesSummary,
   TemplateVersion,
@@ -58,6 +59,9 @@ export async function automationCount(
  * of the firm's, everyone else their own, the team's and those shared with them. A template they
  * may not see is NOT_FOUND, as an unknown id.
  */
+/** Y05: how many templates the tag list reads at most (a firm's library is far smaller). */
+const TAG_SCAN = 5_000;
+
 @Injectable()
 export class TemplateReadService {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
@@ -116,6 +120,38 @@ export class TemplateReadService {
     });
   }
 
+  /**
+   * Templates Review Two Y05: every tag on the templates the caller can see that are not
+   * archived, each once, sorted (case-insensitively).
+   */
+  tags(businessId: string, actor: ClientsActor, kind?: MessageTemplateKind): Promise<string[]> {
+    return this.inFirm(businessId, (tx) => this.tagsIn(tx, businessId, actor, kind));
+  }
+
+  private async tagsIn(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    kind?: MessageTemplateKind,
+  ): Promise<string[]> {
+    const rows = await tx.messageTemplate.findMany({
+      where: {
+        AND: [
+          { businessId },
+          visibleTo(actor),
+          { status: { not: 'ARCHIVED' } },
+          { NOT: { tags: { isEmpty: true } } },
+          ...(kind ? [{ kind }] : []),
+        ],
+      },
+      select: { tags: true },
+      take: TAG_SCAN,
+    });
+    return [...new Set(rows.flatMap((r) => r.tags))].sort((a, b) =>
+      a.localeCompare(b, 'en', { sensitivity: 'base' }),
+    );
+  }
+
   list(businessId: string, actor: ClientsActor, q: Query): Promise<MessageTemplatePage> {
     return this.inFirm(businessId, async (tx) => {
       const and: Prisma.MessageTemplateWhereInput[] = [{ businessId }, visibleTo(actor)];
@@ -131,12 +167,17 @@ export class TemplateReadService {
       if (q.automations === true) and.push({ includeInAutomations: true });
       if (q.search) {
         const contains = { contains: q.search, mode: 'insensitive' as const };
+        // Y05: a tag matches on any part of it, in any case (not only the exact tag).
+        const needle = q.search.toLowerCase();
+        const tags = (await this.tagsIn(tx, businessId, actor)).filter((t) =>
+          t.toLowerCase().includes(needle),
+        );
         and.push({
           OR: [
             { name: contains },
             { description: contains },
             { subject: contains },
-            { tags: { has: q.search } },
+            ...(tags.length ? [{ tags: { hasSome: tags } }] : []),
           ],
         });
       }
@@ -240,7 +281,7 @@ export class TemplateReadService {
       automationCount: await automationCount(tx, businessId, t.id),
       lastUsedAt: lastUse._max.usedAt?.toISOString() ?? null,
       recentUses: uses.flatMap((u) => {
-        const purpose = TemplateUsePurpose.safeParse(u.purpose);
+        const purpose = TemplateUsePurpose.safeParse(u.purpose.toUpperCase());
         if (!purpose.success) return [];
         return [
           {
