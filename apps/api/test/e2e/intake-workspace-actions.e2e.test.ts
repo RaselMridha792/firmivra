@@ -759,11 +759,11 @@ describe('one form', () => {
 
   it('24b-i: a staff note is kept on the form, newest first, its author and time; the audit has no text', async () => {
     const first = FormNote.parse(
-      ok(await call('post', `/intakes/${ids.sent}/notes`, ownerA, { text: 'Fake note one' })),
+      ok(await call('post', `/intakes/${ids.sent}/notes`, ownerA, { text: 'Fake note one' }), 201),
     );
     expect(first).toMatchObject({ text: 'Fake note one', by: { userId: ownerA.id } });
     const second = FormNote.parse(
-      ok(await call('post', `/intakes/${ids.sent}/notes`, adminA, { text: 'Fake note two' })),
+      ok(await call('post', `/intakes/${ids.sent}/notes`, adminA, { text: 'Fake note two' }), 201),
     );
     const record = AssignedFormRecord.parse(
       ok(await call('get', `/intakes/${ids.sent}/record`, ownerA)),
