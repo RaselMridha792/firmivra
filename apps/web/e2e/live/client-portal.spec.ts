@@ -925,26 +925,24 @@ test.describe('the portal as the client', () => {
 });
 
 /**
- * CP-PT-03b (Rasel, Nov 18): a document the firm shared, then trashed, archived and restored, as
- * the client sees it in the portal (Firm Documents list, the document, its download link). It
- * reuses this harness's own LIVE-CHECK staff upload on Client 1 (in the firm's Trash since Nov 17):
- * restored, shared, taken through trash, archive and restore, then hidden and trashed again. No
- * new record, and no send: sharing by visibility writes no notice, and nothing here emails.
+ * CP-PT-03b (lead, Nov 18, option B): what the client really sees of a document the firm trashes,
+ * archives and restores: the portal list (My Uploads), the document and its download link. It
+ * reuses one of this harness's own LIVE-CHECK uploads on Client 1 (the client's own file, in the
+ * firm's Trash since Nov 17). Only move actions (untrash, trash, archive, restore): no visibility
+ * change, so no notice and no email (tellShared runs only when a file becomes client-visible). It
+ * runs after CP-PT-03 (file order, one worker), and ends with the file back in the firm's Trash.
  */
-// Disabled (lead, Nov 18): since #1574 sharing by visibility tells the client (tellShared), and
-// Client 1's login is not a simulator address. Being rebuilt on the lead's choice.
-test.describe.skip('CP-PT-03b shared document: trash, archive, restore, seen by the client', () => {
+test.describe('CP-PT-03b trashed, archived and restored document, as the client sees it', () => {
   test.describe.configure({ mode: 'serial' });
-  const firmPath = (id: string, action = '') =>
-    `business/documents/${id}${action ? `/${action}` : ''}`;
+  const firmPath = (id: string, action: string) => `business/documents/${id}/${action}`;
   let docId = '';
   let fileName = '';
 
-  /** What the client gets: the Firm Documents list (API), the document, and its download link. */
+  /** What the client gets: listed in My Uploads (API), the document, and its download link. */
   async function clientSees(id: string) {
     const c = await apiAs('client');
     try {
-      const list = await c.get(portalApi('me/documents?source=FIRM&limit=100'));
+      const list = await c.get(portalApi('me/documents?source=MINE&limit=100'));
       expect(list.status(), 'client list').toBe(200);
       const items = ((await list.json()) as { items?: { id: string }[] }).items ?? [];
       const view = await c.get(portalApi(`me/documents/${id}`));
@@ -958,101 +956,102 @@ test.describe.skip('CP-PT-03b shared document: trash, archive, restore, seen by 
       await c.dispose();
     }
   }
+  const hidden = { listed: false, view: 404, download: 404 };
+  const shown = { listed: true, view: 200, download: 200 };
 
-  async function owner(action: string, body?: object) {
+  async function owner(action: string) {
     const o = await apiAs('owner');
     try {
-      const res = await o.post(firmPath(docId, action), body ? { data: body } : undefined);
-      expect(res.status(), `${action}: ${await res.text().catch(() => '')}`.slice(0, 300)).toBe(
-        200,
-      );
+      const res = await o.post(firmPath(docId, action));
+      const text = (await res.text().catch(() => '')).slice(0, 300);
+      expect(res.status(), `${action}: ${text}`).toBe(200);
     } finally {
       await o.dispose();
     }
   }
 
-  test('setup: our own trashed staff upload on Client 1, restored and shared', async () => {
+  test('setup: our own LIVE-CHECK upload on Client 1, in the Trash, hidden from the client', async () => {
     const o = await apiAs('owner');
     try {
       const res = await o.get(`business/documents?scope=trash&clientId=${C1}`);
       expect(res.status()).toBe(200);
-      const items =
-        ((await res.json()) as { items?: { id: string; fileName: string; direction: string }[] })
-          .items ?? [];
+      type Row = { id: string; fileName: string; direction: string };
+      const items = ((await res.json()) as { items?: Row[] }).items ?? [];
       const ours = items.find(
-        (d) => /^LIVE-CHECK-\d{12}-staff\.pdf$/.test(d.fileName) && d.direction === 'INTERNAL',
+        (d) =>
+          /^LIVE-CHECK-\d{12}-portal\.pdf$/.test(d.fileName) && d.direction === 'CLIENT_TO_FIRM',
       );
-      test.skip(!ours, 'no LIVE-CHECK staff upload of this harness is left in the Trash');
+      test.skip(!ours, 'no LIVE-CHECK upload of this harness is left in the Trash');
       docId = ours!.id;
       fileName = ours!.fileName;
     } finally {
       await o.dispose();
     }
-    await owner('untrash');
-    await owner('visibility', { clientVisible: true });
+    expect(await clientSees(docId), 'in the Trash').toEqual(hidden);
   });
 
-  test('CP-PT-03b shared and active: listed, opens, downloads', async ({ browser }, info) => {
+  test('CP-PT-03b restored from Trash: listed, opens, downloads', async ({ browser }, info) => {
     test.skip(!docId, 'setup found no document');
-    expect(await clientSees(docId)).toEqual({ listed: true, view: 200, download: 200 });
-    // The page too: Firm Documents shows it.
+    await owner('untrash');
+    expect(await clientSees(docId)).toEqual(shown);
     const ctx = await browser.newContext(as('client'));
     const page = await ctx.newPage();
     try {
       await open(page, portal('/documents'), info);
-      await page.getByRole('button', { name: 'Firm Documents' }).first().click();
-      await settled(page);
       await expect(page.locator('main').first()).toContainText(fileName);
-      await shot(page, TAB, 'CP-PT-03b-shared', info);
+      await shot(page, TAB, 'CP-PT-03b-restored', info);
     } finally {
       await ctx.close();
     }
   });
 
-  test('CP-PT-03b trashed: gone from the list, view and download refused', async () => {
+  test('CP-PT-03b trashed: gone from the list, view and download refused', async ({
+    browser,
+  }, info) => {
     test.skip(!docId, 'setup found no document');
     await owner('trash');
-    const seen = await clientSees(docId);
-    expect(seen.listed, 'still listed after Trash').toBe(false);
-    expect(seen.view, 'view after Trash').toBe(404);
-    expect(seen.download, 'download after Trash').toBe(404);
-  });
-
-  test('CP-PT-03b restored from Trash: back for the client', async () => {
-    test.skip(!docId, 'setup found no document');
-    await owner('untrash');
-    expect(await clientSees(docId)).toEqual({ listed: true, view: 200, download: 200 });
+    expect(await clientSees(docId)).toEqual(hidden);
+    const ctx = await browser.newContext(as('client'));
+    const page = await ctx.newPage();
+    try {
+      await open(page, portal('/documents'), info);
+      await expect(page.locator('main').first()).not.toContainText(fileName);
+      await shot(page, TAB, 'CP-PT-03b-trashed', info);
+    } finally {
+      await ctx.close();
+    }
   });
 
   test('CP-PT-03b archived: gone from the list, view and download refused', async () => {
     test.skip(!docId, 'setup found no document');
+    await owner('untrash');
+    expect(await clientSees(docId), 'restored before archiving').toEqual(shown);
     await owner('archive');
-    const seen = await clientSees(docId);
-    expect(seen.listed, 'still listed after Archive').toBe(false);
-    expect(seen.view, 'view after Archive').toBe(404);
-    expect(seen.download, 'download after Archive').toBe(404);
+    expect(await clientSees(docId)).toEqual(hidden);
   });
 
   test('CP-PT-03b restored from Archive: back for the client', async () => {
     test.skip(!docId, 'setup found no document');
     await owner('restore');
-    expect(await clientSees(docId)).toEqual({ listed: true, view: 200, download: 200 });
+    expect(await clientSees(docId)).toEqual(shown);
   });
 
-  test('zz CP-PT-03b cleanup: hidden from the client and back in the Trash', async () => {
+  test('zz CP-PT-03b cleanup: the file back in the firm Trash, hidden from the client', async () => {
     test.skip(!docId, 'setup found no document');
     const o = await apiAs('owner');
     try {
-      // Whatever state a failed step left: out of Archive, out of Trash, hidden, then trashed.
-      for (const action of ['restore', 'untrash']) await o.post(firmPath(docId, action));
-      const hide = await o.post(firmPath(docId, 'visibility'), { data: { clientVisible: false } });
-      expect(hide.status()).toBe(200);
-      const trash = await o.post(firmPath(docId, 'trash'));
-      expect(trash.status()).toBe(200);
+      // Whatever a failed step left: out of the Archive, then into the Trash.
+      await o.post(firmPath(docId, 'restore'));
+      await o.post(firmPath(docId, 'trash'));
+      const res = await o.get(`business/documents?scope=trash&clientId=${C1}`);
+      const items = ((await res.json()) as { items?: { id: string }[] }).items ?? [];
+      expect(
+        items.some((d) => d.id === docId),
+        'back in the Trash',
+      ).toBe(true);
     } finally {
       await o.dispose();
     }
-    const seen = await clientSees(docId);
-    expect(seen.listed).toBe(false);
+    expect(await clientSees(docId)).toEqual(hidden);
   });
 });
