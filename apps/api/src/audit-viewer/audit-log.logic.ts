@@ -204,3 +204,20 @@ export function viewedMetadata(q: AuditLogFilters, range: { from: Date; to: Date
     limit: q.limit,
   };
 }
+
+/** "2026-11-15 14:50:22 CST": a time in the firm's zone, the zone named, for the export. */
+export function zonedTime(at: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  }).formatToParts(at);
+  const p = (type: Intl.DateTimeFormatPartTypes) => parts.find((x) => x.type === type)?.value;
+  return `${p('year')}-${p('month')}-${p('day')} ${p('hour')}:${p('minute')}:${p('second')} ${p('timeZoneName')}`;
+}

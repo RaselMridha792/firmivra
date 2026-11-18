@@ -100,6 +100,23 @@ function matching(q: ReturnType<typeof parseInput<typeof AuditLogQuery>>) {
 const cell = (value: string | null) =>
   value === null ? '' : /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 
+/** "2026-11-15 15:50:22 EST": the mock firm's zone (America/New_York), as the API writes it. */
+function zoned(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  }).formatToParts(new Date(iso));
+  const p = (type: Intl.DateTimeFormatPartTypes) => parts.find((x) => x.type === type)?.value;
+  return `${p('year')}-${p('month')}-${p('day')} ${p('hour')}:${p('minute')}:${p('second')} ${p('timeZoneName')}`;
+}
+
 /** An in-memory `api.auditLog`; Owner (the default) and Admin read it. */
 export function createAuditLogMock(options: { role?: MockFirmRole } = {}): AuditLogClient {
   const refuseStaff = () => {
@@ -126,10 +143,11 @@ export function createAuditLogMock(options: { role?: MockFirmRole } = {}): Audit
       refuseStaff();
       const rows = matching(parseInput(AuditLogQuery, query));
       const lines = [
-        'Time,Actor,Actor type,Action,Record type,Record id,IP,Request id,Details',
+        'Time (UTC),Time (America/New_York),Actor,Actor type,Action,Record type,Record id,IP,Request id,Details',
         ...rows.map((e) =>
           [
             e.at,
+            zoned(e.at),
             e.actor?.name ?? 'System',
             e.actor?.kind ?? 'SYSTEM',
             e.action,

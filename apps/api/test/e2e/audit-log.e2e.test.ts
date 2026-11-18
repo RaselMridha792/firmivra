@@ -127,6 +127,10 @@ beforeAll(async () => {
         select: { id: true, slug: true },
       });
     }
+    // Firm A is in Central time: the export names it beside UTC (R01c).
+    await tx.businessSettings.create({
+      data: { businessId: firms.a.id, timezone: 'America/Chicago' },
+    });
     // The fixture Super Admin asked firm A for support access (R8 approves and uses it later).
     await tx.supportAccessGrant.create({
       data: { businessId: firms.a.id, adminUserId: fx.users.admin.id, reason: 'Fake request' },
@@ -651,10 +655,16 @@ describe('the export (Octavia: read-only, authorized export)', () => {
     expect(res.headers['content-type']).toContain('text/csv');
     const lines = csvLines(res.text);
     expect(lines[0]).toBe(
-      'Time,Actor,Actor type,Action,Record type,Record id,IP,Request id,Details',
+      'Time (UTC),Time (America/Chicago),Actor,Actor type,Action,Record type,Record id,IP,Request id,Details',
     );
     const listed = await all('?action=rtest.');
     expect(lines).toHaveLength(listed.length + 1);
+    // R01c: each row's time in UTC and in the firm's zone, the zone named (5 or 6 hours behind).
+    const [utc, central] = (lines.find((l) => l.includes('req-a-1')) ?? '').split(',');
+    expect(central).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} C[SD]T$/);
+    const behind =
+      (Date.parse(utc!) - Date.parse(`${central!.slice(0, 10)}T${central!.slice(11, 19)}Z`)) / HOUR;
+    expect([5, 6]).toContain(Math.round(behind));
     // Firmivra Support is never named, and no other firm's row is there.
     expect(res.text).not.toContain('req-firm-b');
     expect(res.text).not.toContain(USER_AGENT);

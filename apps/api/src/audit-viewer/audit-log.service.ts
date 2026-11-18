@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { AuditLogPage } from '@firmivra/types';
+import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
 import { csvRow } from '../bookkeeping/bookkeeping.shared.js';
 import { deriveKey, poolSecrets } from '../auth/sealed.js';
@@ -17,6 +18,7 @@ import {
   resolveRange,
   toEntry,
   viewedMetadata,
+  zonedTime,
 } from './audit-log.logic.js';
 
 /** The most rows one export holds; a wider export narrows its filters. */
@@ -102,14 +104,20 @@ export class AuditLogViewerService {
    * Export (Octavia's review, Users & Roles section 9): every entry matching the filters as CSV,
    * newest first, at most EXPORT_LIMIT, with the actor as the viewer shows them (Firmivra Support
    * never named). Metadata is what each action recorded (ids, never secrets). The export is
-   * itself logged, after the read, with the filters and the count.
+   * itself logged, after the read, with the filters and the count. Each time is in UTC and in the
+   * firm's time zone, with the zone named (Audit Log Review 2, R01c), as the screen shows it.
    */
   async export(reader: AuditLogReader, q: AuditLogFilters): Promise<string> {
     const range = resolveRange(q, new Date());
     const { rows, known } = await this.read(reader.businessId, q, range, EXPORT_LIMIT);
+    const zone = await this.database.withScope(
+      { kind: 'business', businessId: reader.businessId },
+      (tx) => firmTimeZone(tx, reader.businessId),
+    );
     const lines = [
       csvRow([
-        'Time',
+        'Time (UTC)',
+        `Time (${zone})`,
         'Actor',
         'Actor type',
         'Action',
@@ -123,6 +131,7 @@ export class AuditLogViewerService {
         const e = toEntry(row, known);
         return csvRow([
           e.at,
+          zonedTime(row.createdAt, zone),
           e.actor?.name ?? 'System',
           e.actor?.kind ?? 'SYSTEM',
           e.action,

@@ -9,17 +9,10 @@ import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
 import { api } from '../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
 import { exportFailure, saveFile } from '../../../../../lib/save-file';
 import { AuditLogFilters, addressFilters, type AuditFilters } from './audit-filters';
-
-const when = (iso: string) =>
-  new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+import { when } from './audit-time';
 
 /** "System" for the system and signed-out requests; Firmivra Support as it is, never a person. */
 function who(entry: AuditEntry) {
@@ -76,13 +69,13 @@ function Details({ entry }: { entry: AuditEntry }) {
   );
 }
 
-const columns: Column<AuditEntry>[] = [
+const columnsIn = (timeZone: string | undefined): Column<AuditEntry>[] => [
   {
     id: 'at',
     label: 'When',
     cell: (entry) => (
       <time dateTime={entry.at} className="whitespace-nowrap">
-        {when(entry.at)}
+        {when(entry.at, timeZone)}
       </time>
     ),
   },
@@ -137,6 +130,8 @@ export function AuditLogScreen() {
   const query = { ...filters, ...(cursor ? { cursor } : {}) };
   const log = useApiQuery(['audit-log', query], () => api.auditLog.list(query));
   const area = filters.action ?? '';
+  const timeZone = useFirmTimeZone();
+  const columns = columnsIn(timeZone);
   // R02a: the export downloads through the session (an expired access cookie is refreshed, not
   // shown as raw JSON); it says how many entries it saved, or why it failed.
   const exporter = useApiMutation((f: AuditFilters) => api.auditLog.export(f));
@@ -216,6 +211,7 @@ export function AuditLogScreen() {
         <Card>
           <AuditLogFilters
             initial={opened}
+            timeZone={timeZone}
             onApply={(next) => {
               setFilters(next);
               setCursors([]);
