@@ -1,7 +1,7 @@
 'use client';
 
 import type { AuditEntry } from '@firmivra/types';
-import { Avatar, Button, Card, EmptyState, Table, type Column } from '@firmivra/ui';
+import { Avatar, Badge, Button, Card, EmptyState, Table, type Column } from '@firmivra/ui';
 import { DownloadSimple, ShieldCheck } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -13,7 +13,7 @@ import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
 import { exportFailure, saveFile } from '../../../../../lib/save-file';
 import { AuditLogFilters, addressFilters, type AuditFilters } from './audit-filters';
-import { detailLines } from './audit-details';
+import { detailLines, outcomeOf } from './audit-details';
 import { recordHref } from './audit-links';
 import { when } from './audit-time';
 
@@ -35,6 +35,8 @@ const AREAS = [
   { prefix: 'membership.', label: 'Team' },
   { prefix: 'staff.', label: 'Staff access' },
   { prefix: 'role.', label: 'Roles & permissions' },
+  // Audit Log Review 2, M02b: refused exports, permission and settings changes.
+  { prefix: 'access.', label: 'Denied access' },
 ] as const;
 
 /** "client_account.approved" → "Client account approved": the code stays beside it. */
@@ -107,7 +109,11 @@ const columnsIn = (timeZone: string | undefined): Column<AuditEntry>[] => [
     label: 'Action',
     cell: (entry) => (
       <span className="block min-w-0">
-        <span className="block font-medium text-heading">{actionText(entry.action)}</span>
+        <span className="flex flex-wrap items-center gap-2 font-medium text-heading">
+          {actionText(entry.action)}
+          {/* M02b: a refused request or a recorded failure says so. */}
+          {outcomeOf(entry.action) ? <Badge tone="danger">{outcomeOf(entry.action)}</Badge> : null}
+        </span>
         <span className="block font-mono text-xs text-muted">{entry.action}</span>
       </span>
     ),

@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { type Database, Prisma } from '@firmivra/db';
 import type { IdentityPool, MfaSetupResponse, SignInResult } from '@firmivra/types';
 import { type AuditEntity, AuditService } from '../audit/audit.service.js';
@@ -8,6 +8,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { StaffSessions } from './staff-sessions.js';
 import { accountLocked, httpError, runFlow } from './auth-errors.js';
 import { ChallengeSessions } from './challenge-session.js';
@@ -235,6 +236,7 @@ export class SignInService {
     @Inject(ENV) env: Env,
     private readonly notifier: Notifier,
     private readonly staffSessions: StaffSessions,
+    @Optional() @Inject(NOTIFY_SERVICE) private readonly notify?: NotifyService,
   ) {
     for (const [pool, secret] of Object.entries(poolSecrets(env))) {
       if (secret) {
@@ -363,6 +365,7 @@ export class SignInService {
       throw httpError(e.code);
     }
     await this.succeeded(place, c.userId);
+    if (c.step !== 'MFA') await this.mfaEnrolled(place, c.userId);
     return { kind: 'signed-in', userId: c.userId, username: c.username, tokens };
   }
 
@@ -442,6 +445,53 @@ export class SignInService {
     }
     // Only a reset that worked gets here, so the bell item reveals nothing about other emails.
     if (user) await this.passwordChanged(place, user.id);
+  }
+
+  /**
+   * SM33 (Staff Management Review 2, decision 10a): a member set up two-factor sign-in again (after
+   * a reset): a bell item in every firm they are an ACTIVE member of, and one email (Firmivra's own
+   * notice). Not their first set-up, when they activate their account: they have no session in
+   * any firm yet and just did it themselves. Staff only. Never fails the sign-in.
+   */
+  private async mfaEnrolled(place: SignInPlace, userId: string): Promise<void> {
+    if (place.pool !== 'STAFF') return;
+    try {
+      const own = this.db.forUser(userId);
+      const [firms, user] = await Promise.all([
+        own.membership.findMany({
+          where: { status: 'ACTIVE' },
+          select: { id: true, businessId: true },
+        }),
+        own.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }),
+      ]);
+      // Signed in before in one of their firms (a session row): a set-up again, not the first.
+      let before = false;
+      for (const m of firms) {
+        before ||=
+          (await this.db
+            .forBusiness(m.businessId)
+            .staffSession.count({ where: { businessId: m.businessId, membershipId: m.id } })) > 0;
+        if (before) break;
+      }
+      if (!before) return;
+      for (const { businessId } of firms)
+        await this.notifier.notify({
+          businessId,
+          event: 'account.mfa-enrolled',
+          recordId: userId,
+          audience: 'staff',
+        });
+      if (user && this.notify)
+        await this.notify.send({
+          template: 'platform.mfa-enrolled',
+          to: user.email,
+          businessId: null,
+          recipient: { userId },
+          data: { name: user.name },
+        });
+    } catch (e) {
+      this.logger.warn(`account.mfa-enrolled for user ${userId} not written (${errorName(e)})`);
+    }
   }
 
   /**

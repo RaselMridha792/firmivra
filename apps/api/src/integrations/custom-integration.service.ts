@@ -14,6 +14,7 @@ import { integrationErrors, requireManage } from './integrations.common.js';
 import type { RotateBody, SaveCustomBody } from './integrations-input.js';
 import { checkWebhookUrl, OUTBOUND_HTTP, type OutboundHttp } from './safe-http.js';
 import { SECRET_STORE, type SecretStore, secretRefOf } from './secret-store.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Save = z.output<typeof SaveCustomBody>;
 type Rotate = z.output<typeof RotateBody>;
@@ -149,7 +150,9 @@ export class CustomIntegrationService {
         tx,
         'integration.custom_changed',
         { type: ENTITY, id },
-        { fields: Object.keys(body) },
+        // Audit Log Review 2, R03: each changed setting's old and new value; an endpoint address
+        // may carry a token, so it is "changed".
+        auditChanges(cur, next, { fields: Object.keys(body), text: ['endpointUrl'] }),
         { businessId, actorUserId: userId },
       );
       return this.view(saved);

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { poolSecrets } from '../auth/sealed.js';
 import { SignInModule } from '../auth/sign-in.controller.js';
 import { ENV } from '../config/config.module.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import type { Env } from '../config/env.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
 import {
@@ -49,7 +50,7 @@ import { UsersService } from './users.service.js';
  * must never meet an ':id' route.
  */
 @Module({
-  imports: [SignInModule, ScanRouterModule],
+  imports: [SignInModule, ScanRouterModule, NotificationsModule],
   controllers: [
     StaffDocumentsController,
     StaffController,

@@ -19,6 +19,7 @@ import {
   workerSelect,
 } from './payroll.mappers.js';
 import { errors, inFirm, toDay } from './payroll.shared.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type WorkersQuery = z.output<typeof PayrollWorkersQuery>;
 
@@ -190,9 +191,8 @@ export class PayrollWorkersService {
         {
           payrollClientId: id,
           clientId: pc.clientId,
-          fields: Object.keys(body)
-            .filter((k) => k !== 'changeNote')
-            .sort(),
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          ...auditChanges(current, row, { fields: Object.keys(body), skip: ['changeNote'] }),
         },
       );
       return toWorker(row);

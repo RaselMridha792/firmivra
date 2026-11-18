@@ -340,19 +340,14 @@ function SecurityForm({
               <fieldset className="flex min-w-0 flex-col">
                 <legend className="mb-1 text-sm font-medium text-text">Login Restrictions</legend>
                 <Checkbox
-                  label="Restrict login to specific IP addresses"
+                  label="Restrict login to specific IP addresses (not active yet)"
                   checked={form.accessLocation === 'ALLOWED_IPS'}
                   onChange={(e) =>
                     set('accessLocation', e.target.checked ? 'ALLOWED_IPS' : 'ANYWHERE')
                   }
                   className="text-sm"
                 />
-                <Checkbox
-                  label="Restrict login to specific devices"
-                  checked={form.restrictDevices}
-                  onChange={(e) => set('restrictDevices', e.target.checked)}
-                  className="text-sm"
-                />
+                {/* SM33: no device list exists yet, so device restriction is not offered. */}
                 <div className="grid grid-cols-[1fr_auto] items-center gap-2">
                   <Checkbox
                     label="Set automatic logout after inactivity"
@@ -436,14 +431,14 @@ function SecurityForm({
                 />
                 <Radio
                   name="location"
-                  label="Specific IP Addresses Only"
+                  label="Specific IP Addresses Only (not active yet)"
                   checked={form.accessLocation === 'ALLOWED_IPS'}
                   onChange={() => set('accessLocation', 'ALLOWED_IPS')}
                   className="text-sm"
                 />
                 <Radio
                   name="location"
-                  label="Specific Countries/Regions Only"
+                  label="Specific Countries/Regions Only (not active yet)"
                   checked={form.accessLocation === 'ALLOWED_COUNTRIES'}
                   onChange={() => set('accessLocation', 'ALLOWED_COUNTRIES')}
                   className="text-sm"
@@ -466,6 +461,13 @@ function SecurityForm({
                     error={errors.allowedCountries}
                     onChange={(e) => set('allowedCountries', e.target.value)}
                   />
+                ) : null}
+                {/* SM33: the lists are kept, but sign-in does not check them yet (decision 9a). */}
+                {form.accessLocation !== 'ANYWHERE' ? (
+                  <p className="text-xs text-muted" data-testid="location-not-active">
+                    Not active yet: sign-in does not check IP addresses or countries yet. What you
+                    enter is saved for when it does.
+                  </p>
                 ) : null}
               </fieldset>
               <div className="flex min-w-0 flex-col gap-2">
