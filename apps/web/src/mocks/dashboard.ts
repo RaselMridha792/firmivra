@@ -196,37 +196,39 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
         { serviceId: null, name: null, cents: Math.round(totalCents * 0.05) },
       ],
     },
+    // Dashboard Review Two V6: open tasks of the tasks mock (mocks/tasks.ts), so completing one
+    // works there, and fails only when a spec makes it fail.
     tasksDue: [
       {
-        id: '0199b6a4-0000-7000-8000-000000000001',
+        id: '0199b6d1-0000-7000-8000-000000000001',
         title: 'Review missing docs',
         priority: 'HIGH',
         dueOn: day(0),
         client: client(1, 'Jamie Sample'),
       },
       {
-        id: '0199b6a4-0000-7000-8000-000000000002',
+        id: '0199b6d1-0000-7000-8000-000000000002',
         title: 'Send organizer to new lead',
         priority: 'MEDIUM',
         dueOn: day(0),
         client: client(3, 'Riley Example'),
       },
       {
-        id: '0199b6a4-0000-7000-8000-000000000003',
+        id: '0199b6d1-0000-7000-8000-000000000003',
         title: 'Complete 1120S draft',
         priority: 'HIGH',
         dueOn: day(1),
         client: client(2, 'Morgan Placeholder'),
       },
       {
-        id: '0199b6a4-0000-7000-8000-000000000004',
+        id: '0199b6d1-0000-7000-8000-000000000006',
         title: 'Follow up on payment',
         priority: 'MEDIUM',
         dueOn: day(1),
         client: client(4, 'Taylor Demo'),
       },
       {
-        id: '0199b6a4-0000-7000-8000-000000000005',
+        id: '0199b6d1-0000-7000-8000-000000000004',
         title: 'Review bookkeeping Q3',
         priority: 'LOW',
         dueOn: day(3),
