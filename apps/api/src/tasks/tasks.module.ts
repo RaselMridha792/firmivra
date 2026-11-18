@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
+import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { WorkspacesModule } from '../workspaces/workspaces.module.js';
+import { PortalTasksController } from './portal-tasks.controller.js';
+import { PortalTasksService } from './portal-tasks.service.js';
 import { TaskBulkService } from './task-bulk.service.js';
 import { TaskDraftsController } from './task-drafts.controller.js';
 import { TaskDraftsService } from './task-drafts.service.js';
@@ -21,7 +24,7 @@ import { TasksController } from './tasks.controller.js';
  * types, and drafts (R1). The older list still comes from WorkspacesModule's TasksService.
  */
 @Module({
-  imports: [WorkspacesModule, NotificationsModule],
+  imports: [WorkspacesModule, NotificationsModule, PortalTabsModule],
   controllers: [
     // First: its routes under business/tasks/drafts must match before TasksController's ':id'.
     TaskDraftsController,
@@ -29,8 +32,11 @@ import { TasksController } from './tasks.controller.js';
     TaskTypesController,
     TaskTemplatesController,
     TaskSeriesController,
+    // Client Portal Review One T16: the client's visible tasks (portal Requests area).
+    PortalTasksController,
   ],
   providers: [
+    PortalTasksService,
     TaskReadService,
     TaskWriteService,
     TaskDraftsService,

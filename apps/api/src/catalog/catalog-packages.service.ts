@@ -5,12 +5,18 @@ import type {
   CreateServicePackageRequest,
   PackagePricing,
   PackagePricingRequest,
+  PublicLink,
+  PublicLinkState,
+  PublicPackage,
   ServicePackage,
   ServicePackageRow,
   UpdateServicePackageRequest,
 } from '@firmivra/types';
+import { publicButtonCode, publicItemUrl } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE, TenantPrisma } from '../database/database.module.js';
 import {
   categoryRef,
@@ -67,6 +73,23 @@ const packageInclude = {
   addOns: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
 } satisfies Prisma.ServicePackageInclude;
 type PackageShape = Prisma.ServicePackageGetPayload<{ include: typeof packageInclude }>;
+
+/**
+ * SP-1 (S12): a package's public state. LIVE only while it is Active, Visible to Clients and set
+ * to Display on Website/Portal; archived, a draft, inactive or hidden refuse new public use, and
+ * the link stays the same so reactivating it brings it back.
+ */
+export function packagePublicState(p: {
+  archivedAt: Date | null;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
+  visibleToClients: boolean;
+  displayOnPortal: boolean;
+}): PublicLinkState {
+  if (p.archivedAt) return 'ARCHIVED';
+  if (p.status === 'DRAFT') return 'DRAFT';
+  if (p.status === 'INACTIVE') return 'INACTIVE';
+  return p.visibleToClients && p.displayOnPortal ? 'LIVE' : 'HIDDEN';
+}
 
 const pricingOf = (p: PackageShape): PackagePricing =>
   packagePricing({
@@ -131,6 +154,7 @@ export class CatalogPackagesService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly tenantPrisma: TenantPrisma,
     private readonly audit: AuditService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /** By status (S4); without one, every package not archived. */
@@ -150,6 +174,84 @@ export class CatalogPackagesService {
     });
     if (!p) throw errors.notFound();
     return toServicePackage(p);
+  }
+
+  /**
+   * SP-1 (S12): the package's public link (`publicItemUrl`, on the portal host from config) and
+   * its button code for the firm's website, with the state the public page applies. Everyone at
+   * the firm reads it, whatever the package's state.
+   */
+  async publicLink(businessId: string, id: string): Promise<PublicLink> {
+    return inFirm(this.database, businessId, async (tx) => {
+      const p = await tx.servicePackage.findFirst({
+        where: { businessId, id },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          archivedAt: true,
+          visibleToClients: true,
+          displayOnPortal: true,
+        },
+      });
+      if (!p) throw errors.notFound();
+      const firm = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { slug: true },
+      });
+      const settings = await tx.businessSettings.findUnique({
+        where: { businessId },
+        select: { buttonColor: true, brandColor: true },
+      });
+      const url = publicItemUrl(this.env.PORTAL_BASE_URL, firm.slug, 'PACKAGE', p.id);
+      return {
+        kind: 'PACKAGE',
+        itemId: p.id,
+        url,
+        embedCode: publicButtonCode(
+          url,
+          `View ${p.name}`,
+          settings?.buttonColor ?? settings?.brandColor,
+        ),
+        state: packagePublicState(p),
+      };
+    });
+  }
+
+  /**
+   * SP-1 (S7, S12): the page behind the public link, before anyone signs in. Only while LIVE, and
+   * only the client's view: the included services and the ones not included, the price and
+   * savings, and the add-ons when clients may add them. Never internal notes or staff fields.
+   */
+  async publicPackage(businessId: string, id: string): Promise<PublicPackage> {
+    const p = await this.database.forBusiness(businessId).servicePackage.findFirst({
+      where: { businessId, id },
+      include: packageInclude,
+    });
+    if (!p) throw errors.notFound();
+    const state = packagePublicState(p);
+    if (state !== 'LIVE') return { id: p.id, state, details: null };
+    const pricing = pricingOf(p);
+    return {
+      id: p.id,
+      state,
+      details: {
+        name: p.name,
+        shortDescription: p.shortDescription,
+        category: p.category?.name ?? null,
+        packagePriceCents: pricing.packagePriceCents,
+        savingsCents: pricing.savingsCents,
+        included: p.items.filter((i) => i.included).map((i) => ({ name: i.service.name })),
+        notIncluded: p.items.filter((i) => !i.included).map((i) => ({ name: i.service.name })),
+        addOns: p.allowClientAddOns
+          ? p.addOns.map((a) => ({
+              name: a.name,
+              description: a.description,
+              priceCents: a.priceCents,
+            }))
+          : [],
+      },
+    };
   }
 
   /** The Package Pricing panel for the form's unsaved values. Saves nothing. */

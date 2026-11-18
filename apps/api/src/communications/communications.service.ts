@@ -939,7 +939,10 @@ export class CommunicationsService {
     if (!t)
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'This template was not found' });
     const mine = t.access !== 'PRIVATE' || t.ownerUserId === ctx.userId || ctx.perms.admin;
-    if (t.kind !== channel || t.status !== 'ACTIVE' || t.archivedAt !== null || !mine)
+    // Templates Review Two P03: an email takes an Email or a Campaign template (a campaign is an
+    // email to many), as the composer offers; SMS and Announcement take their own kind.
+    const fits = t.kind === channel || (channel === 'EMAIL' && t.kind === 'CAMPAIGN');
+    if (!fits || t.status !== 'ACTIVE' || t.archivedAt !== null || !mine)
       throw refuse('TEMPLATE_NOT_ALLOWED', 'This template cannot be used for this channel');
     return {
       templateId: t.id,

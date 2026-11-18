@@ -507,6 +507,34 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  // CP-3d: a new announcement in the portal, by its title; never its text.
+  // An announcement may have no title: the notice then says only that there is one.
+  'announcement.published': (d, b, o) => {
+    const firm = b.name;
+    const title = d.title.trim();
+    return {
+      channel: 'email',
+      subject: `New announcement from ${firm}`,
+      blocks: [
+        hello(d),
+        text(
+          title
+            ? `${firm} posted a new announcement in your client portal: ${title}.`
+            : `${firm} posted a new announcement in your client portal.`,
+        ),
+        button('Read it in the client portal', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  'announcement.published-sms': (d, b, o) => {
+    const title = d.title.trim();
+    return {
+      channel: 'sms',
+      text: `${b.name}: new announcement${title ? `, ${title}` : ''}. Read it in your client portal: ${link(d, 'link', o)}`,
+    };
+  },
+
   'appointment.booked': (d, b, o) =>
     appointment(
       d,

@@ -155,7 +155,16 @@ export function DocumentsScreen() {
   );
 }
 
-function DocumentTable({ slug, rows, firm }: { slug: string; rows: MyDocument[]; firm: boolean }) {
+/** The documents table (also a custom document tab's, CP-5d). */
+export function DocumentTable({
+  slug,
+  rows,
+  firm,
+}: {
+  slug: string;
+  rows: MyDocument[];
+  firm: boolean;
+}) {
   const download = useApiMutation(async (id: string) => {
     const link = await api.myDocuments(slug).download(id);
     window.location.assign(link.url);

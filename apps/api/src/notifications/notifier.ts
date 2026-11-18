@@ -2,11 +2,15 @@ import { LIVE_DOCUMENT } from '../storage/document-records.js';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
+  AnnouncementPlace,
   NOTIFICATION_EVENTS,
   type NotificationEvent,
   type NotificationTargetKind,
   notificationLink,
 } from '@firmivra/types';
+import { announcementSettingsIn } from '../client-portal/announcement-policy.js';
+import { mergeValues } from '../communications/merge-values.js';
+import { fill } from '../templates/merge-fields.js';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { minutesOf, timeOfDayFromDb, zonedInstant } from '../appointments/calendar.js';
 import { leadNotice, noticeWords } from '../appointments/notice-words.js';
@@ -65,6 +69,12 @@ export interface NotifyEventInput {
    */
   toUserIds?: readonly string[];
   /**
+   * Only for an event in CLIENT_NAMED_EVENTS (an announcement's notice, CP-3d), and required
+   * there: the client the occurrence is for, among the record's own recipients. The record's
+   * loader checks it (a client the announcement wasn't published to reaches nobody).
+   */
+  clientId?: string;
+  /**
    * Members this occurrence skips on every channel (no bell item, no email copy), for any event:
    * those who muted the conversation a message is in (MSG-F22). It never adds anyone. Up to 50
    * user ids; none is the same as leaving it out.
@@ -100,6 +110,16 @@ export const CHOSEN_RECIPIENT_EVENTS: ReadonlySet<NotificationEvent> = new Set<N
   // P4-8: a tax plan's assigned staff, when the client asks or approves in the portal.
   'tax-plan.client-request',
   'tax-plan.client-approved',
+  // B10: a business plan's advisor and sender, when the client approves it in the portal.
+  'advisory-plan.client-approved',
+]);
+
+/**
+ * Events about a record of many clients (a general announcement, CP-3d): the caller names the
+ * client of each occurrence (`clientId`), and the record's loader checks the record reached them.
+ */
+export const CLIENT_NAMED_EVENTS: ReadonlySet<NotificationEvent> = new Set<NotificationEvent>([
+  'announcement.published',
 ]);
 
 /**
@@ -132,6 +152,20 @@ export const short = (value: string | null | undefined): string | null => {
   return line ? Array.from(line).slice(0, 120).join('') : null;
 };
 const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
+
+/**
+ * CP-3d: an announcement live in the portal now: published (SENT), not expired (archived), and
+ * inside its window. The portal's own list (portal-announcements.ts) uses the same rule.
+ */
+export const liveAnnouncement = (now: Date) => ({
+  channel: 'ANNOUNCEMENT' as const,
+  status: 'SENT' as const,
+  archivedAt: null,
+  AND: [
+    { OR: [{ publishStartsAt: null }, { publishStartsAt: { lte: now } }] },
+    { OR: [{ publishEndsAt: null }, { publishEndsAt: { gt: now } }] },
+  ],
+});
 /** An error's class name for the log (never its message, which may quote values). */
 export const errorName = (error: unknown) => {
   const name = error instanceof Error ? error.name : '';
@@ -162,10 +196,57 @@ interface RecordInfo {
   lead?: { name: string; assignedUserId: string | null };
 }
 
-type Loader = (tx: TxClient, businessId: string, id: string) => Promise<RecordInfo | null>;
+type Loader = (
+  tx: TxClient,
+  businessId: string,
+  id: string,
+  /** CLIENT_NAMED_EVENTS only: the client the caller named. */
+  clientId?: string,
+) => Promise<RecordInfo | null>;
 
 /** Each kind of record: its client and its safe values. No file name, amount or text body. */
 const RECORDS: Record<NotificationTargetKind, Loader> = {
+  // CP-3d: a general announcement live in this client's portal (as the portal lists it: the
+  // firm's announcements on, published to them, inside its window, not expired, and not a
+  // dashboard one while the firm keeps those off the dashboard). Its title as the client sees it,
+  // merge fields filled for them; never its text.
+  announcement: async (tx, businessId, id, clientId) => {
+    if (!clientId) return null;
+    const settings = await announcementSettingsIn(tx, businessId);
+    if (!settings.enabled) return null;
+    const now = new Date();
+    const a = await tx.communication.findFirst({
+      where: {
+        businessId,
+        id,
+        ...liveAnnouncement(now),
+        recipients: { some: { clientId, status: { not: 'NOT_SENT' } } },
+      },
+      select: { subject: true, visibility: true },
+    });
+    if (!a) return null;
+    const place = AnnouncementPlace.safeParse(a.visibility).data ?? 'dashboard';
+    if (!settings.onDashboard && place === 'dashboard') return null;
+    const [client, firm, custom] = await Promise.all([
+      tx.client.findFirst({
+        where: { businessId, id: clientId },
+        select: { displayName: true, email: true, phone: true },
+      }),
+      tx.business.findUnique({ where: { id: businessId }, select: { name: true } }),
+      tx.customMergeField.findMany({
+        where: { businessId },
+        select: { label: true, fallback: true },
+      }),
+    ]);
+    const values = mergeValues(
+      client ? { name: client.displayName, email: client.email, phone: client.phone } : null,
+      firm?.name ?? '',
+      custom,
+    );
+    const title = short(a.subject ? fill(a.subject, values, 'text').text : null);
+    const payload: Payload = title ? { title } : {};
+    return { clientId, values: payload };
+  },
   document_request: async (tx, businessId, id) => {
     const r = await tx.documentRequest.findFirst({
       where: { businessId, id },
@@ -352,6 +433,15 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
     });
     return p && { clientId: p.clientId, values: { title: short(p.name) } };
   },
+  // B10: a business plan the client approved in the portal; the text names the plan (the firm's
+  // own words) and the client.
+  advisory_plan: async (tx, businessId, id) => {
+    const p = await tx.advisoryPlan.findFirst({
+      where: { businessId, id },
+      select: { name: true, advisoryClient: { select: { clientId: true } } },
+    });
+    return p && { clientId: p.advisoryClient.clientId, values: { title: short(p.name) } };
+  },
   // The person's own account: reaches only them, and only if they have a place in this firm.
   user: (_tx, _businessId, id) =>
     Promise.resolve({ clientId: null, values: {}, personUserId: id.toLowerCase() }),
@@ -393,6 +483,8 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   'intake.sent',
   // Its first and final reminders, the same way.
   'intake.reminder',
+  // CP-3d: the firm's policy and the client's choice apply in NotifyService (ANNOUNCEMENTS).
+  'announcement.published',
 ] satisfies (NotificationEvent & NotifyTemplate)[]);
 
 /** Whether a recipient gets the event's email copy: a client, or a member for a staff email event. */
@@ -404,6 +496,8 @@ const SMS_EVENTS: Partial<Record<NotificationEvent, NotifyTemplate>> = {
   'document.requested': 'document.requested-sms',
   // A7: an appointment's configured Text reminder.
   'appointment.reminder': 'appointment.reminder-sms',
+  // CP-3d: when the firm's text policy leaves it to the client and they agreed.
+  'announcement.published': 'announcement.published-sms',
 };
 
 /**
@@ -494,6 +588,21 @@ async function stillLive(
       !!t &&
       (typeof payload.dueOn !== 'string' || t.dueOn?.toISOString().slice(0, 10) === payload.dueOn)
     );
+  }
+  // CP-3d: still live in the portal (published, inside its window, not expired) and the firm's
+  // announcements still on.
+  if (event === 'announcement.published') {
+    const [a, settings] = await Promise.all([
+      db.communication.findFirst({
+        where: { businessId, id, ...liveAnnouncement(new Date()) },
+        select: { id: true },
+      }),
+      db.clientPortalSettings.findUnique({
+        where: { businessId },
+        select: { announcementsEnabled: true },
+      }),
+    ]);
+    return a !== null && (settings?.announcementsEnabled ?? true);
   }
   if (event === 'intake.sent' || event === 'intake.reminder') {
     // Not once the form is submitted, completed, expired or archived: nothing left to fill in.
@@ -708,6 +817,13 @@ export class Notifier {
       if (chosen.some((id) => typeof id !== 'string' || !UUID.test(id)))
         throw new NotificationInputError(`${event}: ids must be UUIDs`);
     }
+    const named = input.clientId;
+    if (CLIENT_NAMED_EVENTS.has(event)) {
+      if (typeof named !== 'string' || !UUID.test(named))
+        throw new NotificationInputError(`${event}: name the client (a UUID)`);
+    } else if (named !== undefined) {
+      throw new NotificationInputError(`${event}: the client is the record's, not the caller's`);
+    }
     const skipped = input.excludeUserIds;
     if (skipped !== undefined) {
       if (skipped.length > 50)
@@ -734,7 +850,12 @@ export class Notifier {
     const reached: { direct: Copy[]; clients: Copy[] } = { direct: [], clients: [] };
     try {
       written = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-        const loaded = await RECORDS[def.kind](tx, businessId, recordId.toLowerCase());
+        const loaded = await RECORDS[def.kind](
+          tx,
+          businessId,
+          recordId.toLowerCase(),
+          named?.toLowerCase(),
+        );
         if (!loaded) return [];
         // A3: a waitlist offer is the appointment's own client's, never its attendees'.
         const record =
@@ -914,16 +1035,19 @@ export class Notifier {
             to,
             businessId,
             recipient: { userId: c.recipient.userId },
-            data: words
-              ? {
-                  title: str('title'),
-                  startsAt: new Date(str('startsAt')),
-                  timeZone: str('timeZone'),
-                  link,
-                  message: words.message,
-                  instructions: words.instructions,
-                }
-              : { title: str('title'), dueOn: str('dueOn') || null, link },
+            data:
+              template === 'announcement.published-sms'
+                ? { title: str('title'), link }
+                : words
+                  ? {
+                      title: str('title'),
+                      startsAt: new Date(str('startsAt')),
+                      timeZone: str('timeZone'),
+                      link,
+                      message: words.message,
+                      instructions: words.instructions,
+                    }
+                  : { title: str('title'), dueOn: str('dueOn') || null, link },
           } as NotifyMessage);
         } catch (error) {
           this.logger.warn(
@@ -1178,38 +1302,40 @@ export class Notifier {
                   ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
                   : template === 'report.published'
                     ? { name: recipient.name, title: str('title') || 'your service', link }
-                    : template === 'intake.sent' || template === 'intake.reminder'
-                      ? {
-                          name: recipient.name,
-                          link,
-                          ...(await this.database.withScope(
-                            { kind: 'business', businessId },
-                            (tx) => intakeWords(tx, businessId, target.id),
-                          )),
-                        }
-                      : template === 'invoice.sent' || template === 'payment.received'
-                        ? { name: recipient.name, invoiceNumber: str('number'), link }
-                        : template === 'invoice.reminder' || template === 'invoice.overdue'
-                          ? {
-                              name: recipient.name,
-                              invoiceNumber: str('number'),
-                              dueOn: str('dueOn'),
-                              link,
-                            }
-                          : {
-                              name: recipient.name,
-                              title: str('title'),
-                              startsAt: new Date(str('startsAt')),
-                              timeZone: str('timeZone'),
-                              link,
-                              // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
-                              ...(await this.database.withScope(
-                                { kind: 'business', businessId },
-                                (tx) => noticeWords(tx, businessId, target.id, template),
-                              )),
-                              // A1: only the appointment's own client confirms it.
-                              ...(recipient.attendee ? { confirmAsk: false } : {}),
-                            };
+                    : template === 'announcement.published'
+                      ? { name: recipient.name, title: str('title'), link }
+                      : template === 'intake.sent' || template === 'intake.reminder'
+                        ? {
+                            name: recipient.name,
+                            link,
+                            ...(await this.database.withScope(
+                              { kind: 'business', businessId },
+                              (tx) => intakeWords(tx, businessId, target.id),
+                            )),
+                          }
+                        : template === 'invoice.sent' || template === 'payment.received'
+                          ? { name: recipient.name, invoiceNumber: str('number'), link }
+                          : template === 'invoice.reminder' || template === 'invoice.overdue'
+                            ? {
+                                name: recipient.name,
+                                invoiceNumber: str('number'),
+                                dueOn: str('dueOn'),
+                                link,
+                              }
+                            : {
+                                name: recipient.name,
+                                title: str('title'),
+                                startsAt: new Date(str('startsAt')),
+                                timeZone: str('timeZone'),
+                                link,
+                                // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
+                                ...(await this.database.withScope(
+                                  { kind: 'business', businessId },
+                                  (tx) => noticeWords(tx, businessId, target.id, template),
+                                )),
+                                // A1: only the appointment's own client confirms it.
+                                ...(recipient.attendee ? { confirmAsk: false } : {}),
+                              };
       await this.sender.send({
         template,
         to: recipient.email!,

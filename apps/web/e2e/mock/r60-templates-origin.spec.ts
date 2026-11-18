@@ -142,3 +142,38 @@ test('C22: an active template has Deactivate, asked first, and goes back to draf
   await ask.getByRole('button', { name: 'Deactivate' }).click();
   await expect(page.getByText(`${name} is a draft again.`)).toBeVisible();
 });
+
+test('R01: a search and the Draft status typed in the library survive Edit and Back, Cancel and the breadcrumb', async ({
+  page,
+}) => {
+  await page.goto(`${base}/library/email`);
+  await page.getByPlaceholder('Search templates...').fill('Draft');
+  await filters(page).getByLabel('Status', { exact: true }).selectOption('DRAFT');
+  await expect(page).toHaveURL(/\/library\/email\?(?=.*q=Draft)(?=.*status=DRAFT).*$/);
+  const list = page.url();
+  const check = async () => {
+    await expect(page).toHaveURL(list);
+    await expect(page.getByPlaceholder('Search templates...')).toHaveValue('Draft');
+    await expect(filters(page).getByLabel('Status', { exact: true })).toHaveValue('DRAFT');
+    await expect(firstRow(page)).toHaveText('Private Draft Idea');
+  };
+  await check();
+
+  // Edit, then the browser's Back.
+  await firstRow(page).click();
+  await expect(page.getByTestId('template-editor')).toBeVisible();
+  await page.goBack();
+  await check();
+
+  // Edit, then Cancel.
+  await firstRow(page).click();
+  await expect(page.getByTestId('template-editor')).toBeVisible();
+  await page.getByRole('link', { name: 'Cancel' }).click();
+  await check();
+
+  // Edit, then the Back bar.
+  await firstRow(page).click();
+  await expect(page.getByTestId('template-editor')).toBeVisible();
+  await page.getByTestId('back-to-origin').click();
+  await check();
+});

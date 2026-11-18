@@ -142,6 +142,11 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'New report',
     body: `A new report is ready${text(p, 'title') ? ` for ${text(p, 'title')}` : ''}. Open the service to see it.`,
   }),
+  // CP-3d: the announcement's title only (filled for the client), never its text.
+  'announcement.published': (p) => ({
+    title: 'New announcement',
+    body: text(p, 'title') ?? 'Your firm posted an announcement.',
+  }),
   'tax-return.status-changed': (p) => {
     const year = p['taxYear'];
     const form = text(p, 'formType');
@@ -245,6 +250,11 @@ const TEXT: Record<NotificationEvent, Writer> = {
   'tax-plan.client-approved': (p) => ({
     title: 'Tax plan approved',
     body: forClient(p, `${text(p, 'title') ?? 'A tax plan'} was approved in the portal.`),
+  }),
+  // B10: the business plan's name and its client.
+  'advisory-plan.client-approved': (p) => ({
+    title: 'Business plan approved',
+    body: forClient(p, `${text(p, 'title') ?? 'A business plan'} was approved in the portal.`),
   }),
   // Tasks T-D15: the series' title; the series page says which occurrence and why.
   'task.series-failed': (p) => ({

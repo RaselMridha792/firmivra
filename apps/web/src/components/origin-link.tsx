@@ -37,6 +37,14 @@ export function OriginLink({
   return (
     <Link
       href={withOrigin(href, pathname)}
+      // R01: a new tab, a middle click or the context menu takes the list's query too, read
+      // as the mouse goes down (the rendered link knows only the path).
+      onMouseDown={(event) => {
+        event.currentTarget.href = withOrigin(
+          href,
+          `${window.location.pathname}${window.location.search}`,
+        );
+      }}
       onClick={(event) => {
         onClick?.(event);
         if (event.defaultPrevented || event.button !== 0) return;

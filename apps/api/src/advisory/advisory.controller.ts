@@ -27,6 +27,7 @@ import {
   type AdvisoryRecommendationRow,
   AdvisoryResourceKey,
   type AdvisoryResourceList,
+  type AdvisoryResourcePreview,
   type AdvisoryServiceOptionList,
   type AdvisorySettingsView,
   type AdvisoryVersionDetail,
@@ -61,8 +62,10 @@ import {
   MeetingsQuery,
   ReportsQuery,
   PlansQuery,
+  PreviewResourceBody,
   RecommendationsQuery,
   ReorderMilestonesBody,
+  RequestApprovalBody,
   ResourcesQuery,
   SendPlanBody,
   SendResourceBody,
@@ -100,8 +103,8 @@ const who = (auth: AuthContext, tenant: TenantContext) => {
  * Business Advisory & Development (contract in packages/types/src/advisory). Owner and Admin reach
  * every advisory client, Staff only the clients assigned to them (any other is 404); the services
  * check the grid's capabilities (403 FORBIDDEN, OVERRIDE_NOT_ALLOWED, FINANCIALS_RESTRICTED).
- * Recommendations and the Business Health Score are advisory tools, not guarantees. Never a portal
- * route.
+ * Recommendations and the Business Health Score are advisory tools, not guarantees. The client's
+ * own view (BA-CP) is MyAdvisoryController, under the portal's routes.
  */
 @Controller('business/advisory')
 @Access('BUSINESS_ADVISORY')
@@ -337,6 +340,19 @@ export class AdvisoryController {
   ): Promise<AdvisoryPlanDetail> {
     const w = who(auth, tenant);
     return this.plans.send(w.businessId, w.tenant, w.userId, id, body);
+  }
+
+  /** B10: a plan in staff review goes to the client's portal for approval before finalization. */
+  @Post('plans/:id/request-approval')
+  @HttpCode(200)
+  requestPlanApproval(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(RequestApprovalBody)) body: Out<typeof RequestApprovalBody>,
+  ): Promise<AdvisoryPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.requestApproval(w.businessId, w.tenant, w.userId, id, body);
   }
 
   @Post('plans/:id/archive')
@@ -598,6 +614,19 @@ export class AdvisoryController {
   ): Promise<OkResponse> {
     const w = who(auth, tenant);
     return this.overview.sendResource(w.businessId, w.tenant, w.userId, key, body);
+  }
+
+  /** B28: what the client would receive, and the eligibility checks; nothing is sent. */
+  @Post('resources/:key/preview')
+  @HttpCode(200)
+  previewResource(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('key', new ZodValidationPipe(AdvisoryResourceKey)) key: string,
+    @Body(new ZodValidationPipe(PreviewResourceBody)) body: Out<typeof PreviewResourceBody>,
+  ): Promise<AdvisoryResourcePreview> {
+    const w = who(auth, tenant);
+    return this.overview.previewResource(w.businessId, w.tenant, w.userId, key, body);
   }
 
   @Get('settings')

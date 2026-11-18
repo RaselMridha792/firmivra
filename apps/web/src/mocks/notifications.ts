@@ -255,25 +255,30 @@ export function myNotificationFixtures(): readonly NotificationItem[] {
 
 /**
  * Every category in order: SMS off unless `choices` says otherwise; ACCOUNT locked. Email is
- * always on, for staff and clients alike (as the API: every row `emailLocked`).
+ * always on (every row `emailLocked`), except a client's Announcements, which the mock firm leaves
+ * to the client (CP-3d, the API's default policy). The firm's staff get no announcements.
  */
 const preferences = (
   channels: DeliveryChannel[],
   choices: Partial<Record<NotificationCategory, { sms?: boolean }>> = {},
+  side: 'staff' | 'client' = 'client',
 ): NotificationPreferences => ({
   channels,
   smsStopped: false,
-  items: NotificationCategory.options.map((category) => {
-    const locked = (LOCKED_NOTIFICATION_CATEGORIES as readonly string[]).includes(category);
-    return {
-      category,
-      email: true,
-      sms: false,
-      ...(locked ? {} : choices[category]),
-      locked,
-      emailLocked: true,
-    };
-  }),
+  items: NotificationCategory.options
+    .filter((category) => side === 'client' || category !== 'ANNOUNCEMENTS')
+    .map((category) => {
+      const locked = (LOCKED_NOTIFICATION_CATEGORIES as readonly string[]).includes(category);
+      return {
+        category,
+        email: true,
+        sms: false,
+        ...(locked ? {} : choices[category]),
+        locked,
+        emailLocked: category !== 'ANNOUNCEMENTS',
+        smsLocked: false,
+      };
+    }),
 });
 
 const copy = <T>(value: T): T => structuredClone(value);
@@ -351,8 +356,14 @@ function createMock(
     updatePreferences: async (body) => {
       const s = await open();
       const { items } = parseInput(UpdateNotificationPreferencesRequest, body);
-      // As the API: email is always on (staff and clients).
-      if (items.some((i) => i.email === false)) {
+      // As the API: a category this person doesn't get (staff and announcements).
+      if (items.some((i) => !s.preferences.items.some((p) => p.category === i.category))) {
+        throw fail(400, 'VALIDATION_FAILED', 'Announcements are not sent to you');
+      }
+      // As the API: email is always on, except where the firm leaves announcements to the client.
+      const fixed = (category: string) =>
+        s.preferences.items.find((p) => p.category === category)?.emailLocked !== false;
+      if (items.some((i) => i.email === false && fixed(i.category))) {
         throw fail(400, 'EMAIL_ALWAYS_ON', 'Email notices are always on');
       }
       // As the API: no SMS opt-in while texts cannot reach the person (turning it off is fine).
@@ -362,6 +373,7 @@ function createMock(
       for (const change of items) {
         const row = s.preferences.items.find((p) => p.category === change.category)!;
         if (change.sms !== undefined) row.sms = change.sms;
+        if (change.email !== undefined && !row.emailLocked) row.email = change.email;
       }
       return copy(s.preferences);
     },
@@ -375,7 +387,7 @@ function createMock(
 export function createNotificationsMock(): NotificationsClient {
   return createMock(() => ({
     items: [...notificationFixtures()],
-    preferences: preferences(['EMAIL']),
+    preferences: preferences(['EMAIL'], {}, 'staff'),
   }));
 }
 

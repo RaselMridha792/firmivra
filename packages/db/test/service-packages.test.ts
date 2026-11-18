@@ -248,3 +248,40 @@ describe('isolation between firms', () => {
     ).rejects.toThrow(/foreign key/i);
   });
 });
+
+describe('a package’s booking type (R56, Services & Pricing S12)', () => {
+  const type = (businessId: string, name: string) =>
+    runInScope(owner, { kind: 'business', businessId }, (tx) =>
+      tx.appointmentType.create({ data: { businessId, name, durationMinutes: 30 } }),
+    );
+
+  it('starts with none, and takes one of the firm’s own appointment types', async () => {
+    const p = await pkg();
+    expect(p.appointmentTypeId).toBeNull();
+    const mine = await type(f.firmA, `Consultation ${f.run}`);
+    expect((await setPkg(p.id, { appointmentTypeId: mine.id })).appointmentTypeId).toBe(mine.id);
+    expect((await setPkg(p.id, { appointmentTypeId: null })).appointmentTypeId).toBeNull();
+  });
+
+  it('refuses another firm’s appointment type', async () => {
+    const p = await pkg();
+    const theirs = await type(f.firmB, `Their consultation ${f.run}`);
+    await expect(setPkg(p.id, { appointmentTypeId: theirs.id })).rejects.toThrow(/foreign key/i);
+  });
+
+  it('keeps an appointment type a package names from being deleted (it is archived instead)', async () => {
+    const mine = await type(f.firmA, `Kept type ${f.run}`);
+    await pkg({ appointmentTypeId: mine.id });
+    await expect(
+      runInScope(owner, { kind: 'business', businessId: f.firmA }, (tx) =>
+        tx.appointmentType.delete({ where: { id: mine.id } }),
+      ),
+    ).rejects.toThrow(/foreign key/i);
+  });
+
+  it('another firm sees no package, booking type or not', async () => {
+    const mine = await type(f.firmA, `Hidden type ${f.run}`);
+    await pkg({ appointmentTypeId: mine.id });
+    await expectInvisibleToOtherFirm(app, f.firmA, f.firmB, ['service_packages']);
+  });
+});

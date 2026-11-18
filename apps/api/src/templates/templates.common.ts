@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Prisma } from '@firmivra/db';
+import { AUTOMATION_TEMPLATE_KINDS } from '@firmivra/types';
 import type {
   MemberRef,
   MessageTemplateKind,
@@ -85,21 +86,10 @@ export const SUBJECT_KINDS: ReadonlySet<MessageTemplateKind> = new Set([
   'ANNOUNCEMENT',
 ]);
 
-/** Kinds automations can start from or act with (an action: send email, SMS, portal message...). */
-export const AUTOMATION_KINDS: ReadonlySet<MessageTemplateKind> = new Set([
-  'EMAIL',
-  'SMS',
-  'PORTAL_MESSAGE',
-  'DOCUMENT_REQUEST',
-  'INVOICE_PAYMENT',
-  'APPOINTMENT',
-  'TASK',
-  'TAX_WORKFLOW',
-  'BOOKKEEPING',
-  'PAYROLL',
-  'LEAD_FOLLOW_UP',
-  'CAMPAIGN',
-]);
+/** Kinds automations can start from or act with: the shared list (packages/types, P03, P04). */
+export const AUTOMATION_KINDS: ReadonlySet<MessageTemplateKind> = new Set(
+  AUTOMATION_TEMPLATE_KINDS,
+);
 
 /** Plain text, not markup: a text message and a task checklist. */
 export const PLAIN_KINDS: ReadonlySet<MessageTemplateKind> = new Set(['SMS', 'TASK']);

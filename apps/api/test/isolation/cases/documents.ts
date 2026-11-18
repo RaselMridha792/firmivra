@@ -71,6 +71,8 @@ export const cases: CaseModule['cases'] = {
       serviceId: 'engagement',
       requestId: 'documentRequest',
       categoryId: 'documentCategory',
+      // CP-5d: an upload through a custom document tab the client sees.
+      portalTabId: 'portalCustomTab',
     },
     body: fileFacts,
   },

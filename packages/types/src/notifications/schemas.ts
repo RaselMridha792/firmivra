@@ -69,6 +69,10 @@ export const NotificationTargetKind = z.enum([
   'task_series',
   /** A tax plan (P4-8): the firm site only, the plan itself. */
   'tax_plan',
+  /** A business plan (Business Advisory B10): the firm site only, the plan's review step. */
+  'advisory_plan',
+  /** CP-3d: a general announcement the firm published (Communications): the portal only. */
+  'announcement',
 ]);
 export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
 
@@ -195,11 +199,26 @@ export const NOTIFICATION_EVENTS = {
   'tax-plan.client-request': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
   'tax-plan.client-approved': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
   /**
+   * Business Advisory B10 (Client Portal Review One): the client approved the business plan sent
+   * for their approval, in the portal. To the advisory client's advisor and the member who sent
+   * it (the caller names them).
+   */
+  'advisory-plan.client-approved': { category: 'SERVICES', kind: 'advisory_plan', to: 'staff' },
+  /**
    * Tasks Review Two T-D15: an occurrence of a recurring series could not be made after its
    * retries (FAILED). Owners and Admins only (the series is the record, not the client's). It
    * opens the series, where the occurrence shows why and can be skipped.
    */
   'task.series-failed': { category: 'SERVICES', kind: 'task_series', to: 'staff' },
+
+  // ----- Announcements (Client Portal Review One CP-3d, the lead's decision 3a) -----
+  /**
+   * A general announcement went live in the client's portal: a short notice (its title and the
+   * portal link, never its text) to each client it was published to, once. The email and text
+   * copies follow the firm's policy for each channel (Settings > Client Portal > Announcements)
+   * and, where the firm leaves it to them, the client's own choice.
+   */
+  'announcement.published': { category: 'ANNOUNCEMENTS', kind: 'announcement', to: 'client' },
 } as const satisfies Record<
   string,
   {
@@ -282,12 +301,18 @@ export const NotificationPreference = z.object({
   /** Always sent, whatever the switches say (ACCOUNT): show the row with its switches disabled. */
   locked: z.boolean(),
   /**
-   * Email always goes out, so `email` is true: show the email box checked and disabled. Every
-   * category is about the person's own account or services, so this is true for everyone: the
-   * firm's staff (Octavia's Notifications review of Oct 18) and clients (Client Portal guide 9.2:
-   * personal and service email is mandatory), enforced by the API and the sender.
+   * The person can't change the email box: show it disabled with `email` as it is. Notices about
+   * the person's own account or services always go by email (`email: true`): for the firm's staff
+   * (Octavia's Notifications review of Oct 18) and clients (Client Portal guide 9.2). The one
+   * exception is a client's ANNOUNCEMENTS (CP-3d): the firm's policy decides: the client's choice
+   * (not locked), always sent (locked, true) or never sent (locked, false).
    */
   emailLocked: z.boolean(),
+  /**
+   * CP-3d: the firm never sends texts for this category (a client's ANNOUNCEMENTS when the firm's
+   * text policy is OFF): show the text box disabled and off. Absent from an older answer: false.
+   */
+  smsLocked: z.boolean().default(false),
 });
 export type NotificationPreference = z.infer<typeof NotificationPreference>;
 
@@ -309,7 +334,11 @@ export const NotificationPreferences = z.object({
    * opt-in (Client Portal guide 7.5). Always false for the firm's staff.
    */
   smsStopped: z.boolean(),
-  /** Every category, in the order of NotificationCategory. */
+  /**
+   * The categories this person gets, in the order of NotificationCategory: every one, except
+   * ANNOUNCEMENTS for the firm's staff (announcements are for clients) and for a client while the
+   * firm's announcements are off (CP-3c).
+   */
   items: z.array(NotificationPreference),
 });
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
@@ -318,7 +347,10 @@ export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
  * PATCH .../notification-preferences: only the categories and channels given change (one switch,
  * or the whole form). A locked category is refused like any bad input (400), and so is
  * `sms: true` while SMS is not in the person's `channels` (the API checks that one).
- * `email: false` is 400 EMAIL_ALWAYS_ON for everyone.
+ * `email: false` is 400 EMAIL_ALWAYS_ON, except for a client's ANNOUNCEMENTS while the firm leaves
+ * the email copy to the client (CP-3d). A change the firm's announcement policy doesn't allow (an
+ * email box it locks, `sms: true` with texts OFF) is 400 CHANNEL_LOCKED; ANNOUNCEMENTS from the
+ * firm's staff, or while the firm's announcements are off, is 400 VALIDATION_FAILED.
  */
 export const UpdateNotificationPreferencesRequest = z.strictObject({
   items: z

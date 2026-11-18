@@ -257,6 +257,52 @@ describe('PreferenceSource', () => {
       select: { userId: true },
     });
   });
+
+  it("CP-3d: announcements follow the firm's policy per channel, then the client's choice", async () => {
+    const CLIENT_ID = '00000000-0000-4000-8000-000000000009';
+    let row: { email: boolean; sms: boolean } | null = { email: false, sms: true };
+    let policy: Record<string, unknown> | null = null;
+    let member: { userId: string } | null = null;
+    const source = new PreferenceSource({
+      forBusiness: () => ({
+        notificationPreference: { findUnique: () => Promise.resolve(row) },
+        membership: { findFirst: () => Promise.resolve(member) },
+        clientAccount: {
+          findFirst: () => Promise.resolve({ userId: USER_ID, clientId: CLIENT_ID }),
+        },
+        communicationConsent: { findFirst: () => Promise.resolve(null) },
+        clientPortalSettings: { findUnique: () => Promise.resolve(policy) },
+      }),
+    } as never);
+    const allows = (channel: 'email' | 'sms') =>
+      source.allows(FIRM_ID, { userId: USER_ID }, 'ANNOUNCEMENTS', channel);
+    const set = (email: string, sms: string, enabled = true) => {
+      policy = {
+        announcementsEnabled: enabled,
+        announcementsOnDashboard: true,
+        announcementEmailPolicy: email,
+        announcementSmsPolicy: sms,
+        updatedAt: new Date(),
+      };
+    };
+    // No settings row: the defaults (both the client's choice): their email switch is off here.
+    expect([await allows('email'), await allows('sms')]).toEqual([false, true]);
+    row = null;
+    // Nothing stored: email on, text off.
+    expect([await allows('email'), await allows('sms')]).toEqual([true, false]);
+    row = { email: false, sms: true };
+    set('REQUIRED', 'CLIENT_CHOICE');
+    expect([await allows('email'), await allows('sms')]).toEqual([true, true]);
+    set('OFF', 'OFF');
+    expect([await allows('email'), await allows('sms')]).toEqual([false, false]);
+    // The firm's announcements off: nothing, whatever the policy.
+    set('REQUIRED', 'CLIENT_CHOICE', false);
+    expect([await allows('email'), await allows('sms')]).toEqual([false, false]);
+    // A member of the firm never gets announcements.
+    set('REQUIRED', 'CLIENT_CHOICE');
+    member = { userId: USER_ID };
+    expect([await allows('email'), await allows('sms')]).toEqual([false, false]);
+  });
 });
 
 describe('Notifier input and failures', () => {
@@ -282,6 +328,38 @@ describe('Notifier input and failures', () => {
       ).rejects.toBeInstanceOf(NotificationInputError);
     }
     expect(database.withScope).not.toHaveBeenCalled();
+  });
+
+  it("CP-3d: an announcement's notice names its client; no other event may", async () => {
+    const { notifier, database } = notifierWith(() => Promise.resolve([]));
+    const CLIENT = '00000000-0000-4000-8000-000000000009';
+    for (const clientId of [undefined, 'not-a-uuid']) {
+      await expect(
+        notifier.notify({
+          businessId: FIRM_ID,
+          event: 'announcement.published',
+          recordId: RECORD_ID,
+          ...(clientId ? { clientId } : {}),
+        }),
+      ).rejects.toBeInstanceOf(NotificationInputError);
+    }
+    await expect(
+      notifier.notify({
+        businessId: FIRM_ID,
+        event: 'invoice.sent',
+        recordId: RECORD_ID,
+        clientId: CLIENT,
+      }),
+    ).rejects.toBeInstanceOf(NotificationInputError);
+    expect(database.withScope).not.toHaveBeenCalled();
+    expect(
+      await notifier.notify({
+        businessId: FIRM_ID,
+        event: 'announcement.published',
+        recordId: RECORD_ID,
+        clientId: CLIENT,
+      }),
+    ).toEqual({ written: 0 });
   });
 
   it('excludeUserIds: up to 50 UUIDs, for any event; more or a non-UUID is a programming error', async () => {

@@ -7,6 +7,7 @@ import { NOTIFY_CONFIG } from '../notify/notify.module.js';
 import { createEmailTransport } from '../notify/notify.service.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { ReportsModule } from '../reports/reports.module.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
 import {
@@ -45,7 +46,7 @@ import {
  * file store (tenant/<business>/reports/).
  */
 @Module({
-  imports: [ReportsModule, TemplatesModule],
+  imports: [ReportsModule, TemplatesModule, NotificationsModule],
   controllers: [CommunicationsController],
   providers: [
     CommunicationSegmentsService,

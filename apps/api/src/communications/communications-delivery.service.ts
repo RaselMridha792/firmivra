@@ -6,8 +6,11 @@ import {
   type OnModuleDestroy,
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
+import { AnnouncementPlace } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
+import { announcementSettingsIn } from '../client-portal/announcement-policy.js';
 import { DATABASE } from '../database/database.module.js';
+import { liveAnnouncement, Notifier } from '../notifications/notifier.js';
 import { fill } from '../templates/merge-fields.js';
 import { e164, type Person } from './communications-audience.service.js';
 import {
@@ -24,6 +27,13 @@ export const COMMUNICATION_JOB_INTERVAL_MS = 60_000;
 const BATCH = 50;
 const CAMPAIGNS_PER_FIRM = 10;
 const BUDGET_MS = 20_000;
+/** CP-3d: an announcement's notice goes out within a day of it going live, never later. */
+const NOTICE_WINDOW_MS = 24 * 3_600_000;
+/** CP-3d: notices per firm per run (the next run sends the rest; each goes once). */
+const NOTICES_PER_FIRM = 100;
+/** CP-3d: one notice per announcement and client (the Notifier's dedupe key). */
+export const announcementNoticeKey = (communicationId: string, clientId: string) =>
+  `announcement.published:${communicationId}:${clientId}`;
 /** A message that keeps being refused for a retryable reason is given up on after this long. */
 const GIVE_UP_MS = 2 * 3_600_000;
 
@@ -44,7 +54,15 @@ export interface DeliveryRunOptions {
   businessIds?: string[];
 }
 export type DeliveryRunResult =
-  { skipped: true } | { skipped: false; started: number; sent: number; failed: number };
+  | { skipped: true }
+  | {
+      skipped: false;
+      started: number;
+      sent: number;
+      failed: number;
+      /** CP-3d: announcement notices sent (one per client and announcement). */
+      notices: number;
+    };
 
 /** A normalized provider event (the webhook routes of a provider adapter produce these). */
 export interface ProviderEvent {
@@ -77,6 +95,7 @@ export class CommunicationDelivery implements OnApplicationBootstrap, OnModuleDe
     private readonly campaigns: CommunicationsService,
     private readonly providers: CommunicationProviders,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -115,7 +134,7 @@ export class CommunicationDelivery implements OnApplicationBootstrap, OnModuleDe
 
   /** One run under the lock; `{ skipped: true }` when another task holds it. */
   async run(options: DeliveryRunOptions = {}): Promise<DeliveryRunResult> {
-    const total = { started: 0, sent: 0, failed: 0 };
+    const total = { started: 0, sent: 0, failed: 0, notices: 0 };
     try {
       return await this.database.withScope(
         { kind: 'platform' },
@@ -139,11 +158,12 @@ export class CommunicationDelivery implements OnApplicationBootstrap, OnModuleDe
               this.logger.warn(
                 `firm ${id} failed (${error instanceof Error ? error.name : 'Error'})`,
               );
-              return { started: 0, sent: 0, failed: 0 };
+              return { started: 0, sent: 0, failed: 0, notices: 0 };
             });
             total.started += r.started;
             total.sent += r.sent;
             total.failed += r.failed;
+            total.notices += r.notices;
           }
           return { skipped: false, ...total } as const;
         },
@@ -215,7 +235,103 @@ export class CommunicationDelivery implements OnApplicationBootstrap, OnModuleDe
       }),
     );
     for (const { id } of open) await this.finish(businessId, id);
-    return { started, sent, failed };
+    const notices = await this.announcementNotices(businessId, now).catch((error: unknown) => {
+      this.logger.warn(`notices failed (${error instanceof Error ? error.name : 'Error'})`);
+      return 0;
+    });
+    return { started, sent, failed, notices };
+  }
+
+  /**
+   * CP-3d (the lead's decision 3a): each announcement that went live in the last day (published,
+   * or its window opened) sends a short notice to each client it was published to who has an
+   * ACTIVE PRIMARY login and no notice for it yet. The Notifier writes the bell item and the email
+   * and text copies; NotifyService applies the firm's channel policy and the client's choice.
+   * None while the firm's announcements are off, nor for one the portal hides (a dashboard one
+   * while the firm keeps them off the dashboard). The key makes each notice go once.
+   */
+  private async announcementNotices(businessId: string, now: Date): Promise<number> {
+    const since = new Date(now.getTime() - NOTICE_WINDOW_MS);
+    const plan = await this.inFirm(businessId, async (tx) => {
+      const policy = await announcementSettingsIn(tx, businessId);
+      if (!policy.enabled) return null;
+      const live = await tx.communication.findMany({
+        where: {
+          businessId,
+          ...liveAnnouncement(now),
+          OR: [{ sentAt: { gt: since } }, { publishStartsAt: { gt: since } }],
+        },
+        select: { id: true, visibility: true },
+        orderBy: [{ sentAt: 'asc' }, { id: 'asc' }],
+        take: CAMPAIGNS_PER_FIRM,
+      });
+      const shown = live.filter(
+        (a) =>
+          policy.onDashboard ||
+          (AnnouncementPlace.safeParse(a.visibility).data ?? 'dashboard') !== 'dashboard',
+      );
+      const due: { communicationId: string; clientId: string }[] = [];
+      for (const a of shown) {
+        if (due.length >= NOTICES_PER_FIRM) break;
+        const recipients = await tx.communicationRecipient.findMany({
+          where: {
+            businessId,
+            communicationId: a.id,
+            clientId: { not: null },
+            status: { not: 'NOT_SENT' },
+          },
+          select: { clientId: true },
+        });
+        const clientIds = recipients.flatMap((r) => (r.clientId ? [r.clientId] : []));
+        if (clientIds.length === 0) continue;
+        const logins = await tx.clientAccount.findMany({
+          where: {
+            businessId,
+            clientId: { in: clientIds },
+            portalRole: 'PRIMARY',
+            status: 'ACTIVE',
+          },
+          select: { clientId: true },
+        });
+        const reached = [...new Set(logins.flatMap((l) => (l.clientId ? [l.clientId] : [])))];
+        const sent = new Set(
+          (
+            await tx.notification.findMany({
+              where: {
+                businessId,
+                eventKey: { in: reached.map((c) => announcementNoticeKey(a.id, c)) },
+              },
+              select: { eventKey: true },
+            })
+          ).map((n) => n.eventKey),
+        );
+        for (const clientId of reached) {
+          if (due.length >= NOTICES_PER_FIRM) break;
+          if (!sent.has(announcementNoticeKey(a.id, clientId)))
+            due.push({ communicationId: a.id, clientId });
+        }
+      }
+      return { policy, due };
+    });
+    if (!plan) return 0;
+    let notices = 0;
+    for (const { communicationId, clientId } of plan.due) {
+      const result = await this.notifier.notify({
+        businessId,
+        event: 'announcement.published',
+        recordId: communicationId,
+        clientId,
+        eventKey: announcementNoticeKey(communicationId, clientId),
+        // NotifyService checks each copy against the policy and the client's choice again.
+        channels: {
+          inApp: true,
+          email: plan.policy.emailPolicy !== 'OFF',
+          sms: plan.policy.smsPolicy !== 'OFF',
+        },
+      });
+      notices += result.written;
+    }
+    return notices;
   }
 
   /** The values a person gives to the merge fields. */

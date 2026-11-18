@@ -34,12 +34,15 @@ export function UploadDialog({
   slug,
   open,
   preset,
+  portalTabId,
   onClose,
   onUploaded,
 }: {
   slug: string;
   open: boolean;
   preset?: Preset;
+  /** CP-5d: an upload through one of the firm's custom document tabs; the file keeps the tab. */
+  portalTabId?: string;
   onClose: () => void;
   onUploaded: (fileName: string) => void;
 }) {
@@ -73,6 +76,7 @@ export function UploadDialog({
                   targets={t[chosen]}
                   maxBytes={documentMaxBytes(t.maxFileSizeMb)}
                   preset={preset}
+                  portalTabId={portalTabId}
                   onBack={preset ? close : () => setKind(null)}
                   onUploaded={(name) => {
                     close();
@@ -200,6 +204,7 @@ function UploadForm({
   targets,
   maxBytes,
   preset,
+  portalTabId,
   onBack,
   onUploaded,
 }: {
@@ -208,6 +213,7 @@ function UploadForm({
   /** DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB. */
   maxBytes: number;
   preset?: Preset;
+  portalTabId?: string;
   onBack: () => void;
   onUploaded: (fileName: string) => void;
 }) {
@@ -229,6 +235,7 @@ function UploadForm({
             requestId: requestId || null,
             categoryId: categoryId || null,
             taxYear: service?.taxYear ?? null,
+            ...(portalTabId ? { portalTabId } : {}),
             ...facts,
           }),
         finish: (uploadToken) => api.myDocuments(slug).confirmUpload({ uploadToken }),

@@ -152,6 +152,19 @@ export function ServiceCard({ slug, service: s }: { slug: string; service: MySer
         </Link>
       ) : null}
 
+      {s.service.kind === 'BUSINESS_DEVELOPMENT' ? (
+        // BA-CP: the advisory engagement opens what the firm shares from Business Advisory.
+        <Link
+          href={'/' + slug + '/services/advisory'}
+          data-testid="service-advisory-link"
+          className="inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-link hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+        >
+          <Lightbulb aria-hidden className="size-4" />
+          Your plan, recommendations and resources
+          <ChevronRight aria-hidden className="size-4" />
+        </Link>
+      ) : null}
+
       <div className="mt-auto flex gap-2">
         <Button
           aria-expanded={detailsOpen}

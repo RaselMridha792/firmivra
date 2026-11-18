@@ -4,6 +4,7 @@ import type { Database, TxClient } from '@firmivra/db';
 import {
   type DeliveryChannel,
   type MarkAllNotificationsReadResponse,
+  type PortalAnnouncementSettings,
   NotificationCategory,
   type NotificationItem,
   type NotificationList,
@@ -14,6 +15,7 @@ import {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { announcementSettingsOf } from '../client-portal/announcement-policy.js';
 import { DATABASE } from '../database/database.module.js';
 import {
   DEFAULT_CHOICE,
@@ -225,7 +227,17 @@ export class NotificationsService {
   }
 
   async getPreferences(me: Me): Promise<NotificationPreferences> {
-    return this.answer(me, await this.texts(me));
+    return this.answer(me, await this.texts(me), await this.announcements(me));
+  }
+
+  /**
+   * CP-3d: the firm's announcement policy, for a client while the firm's announcements are on;
+   * null otherwise (the firm's staff never get announcements, so their preferences omit them).
+   */
+  private async announcements(me: Me): Promise<PortalAnnouncementSettings | null> {
+    if (me.side === 'staff') return null;
+    const policy = await announcementSettingsOf(this.database, me.businessId);
+    return policy.enabled ? policy : null;
   }
 
   /**
@@ -233,10 +245,34 @@ export class NotificationsService {
    * the change: the categories and switches only (consent to texts). `sms: true` while SMS is not
    * offered is 400, and so is `email: false`: every notice is about the person's own account or
    * services, so its email is always on (staff: Octavia's review of Oct 18; clients: Client
-   * Portal guide 9.2).
+   * Portal guide 9.2). CP-3d: a client's ANNOUNCEMENTS follow the firm's policy instead: email
+   * off only while the firm leaves it to them, a locked channel 400 CHANNEL_LOCKED; staff, or a
+   * client while the firm's announcements are off, can't choose them (400).
    */
   async updatePreferences(me: Me, body: UpdateBody): Promise<NotificationPreferences> {
-    if (body.items.some((i) => i.email === false)) {
+    // CP-3d: a client's announcements follow the firm's policy for each channel.
+    const policy = await this.announcements(me);
+    const announcement = body.items.find((i) => i.category === 'ANNOUNCEMENTS');
+    if (announcement && !policy) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'Announcements are not sent to you',
+        details: [{ path: 'items', message: 'No announcement notices to choose' }],
+      });
+    }
+    if (
+      announcement &&
+      policy &&
+      ((announcement.email !== undefined && policy.emailPolicy !== 'CLIENT_CHOICE') ||
+        (announcement.sms === true && policy.smsPolicy === 'OFF'))
+    ) {
+      throw new BadRequestException({
+        code: 'CHANNEL_LOCKED',
+        message: 'Your firm sets how announcements reach you on this channel',
+        details: [{ path: 'items', message: 'Set by the firm' }],
+      });
+    }
+    if (body.items.some((i) => i.email === false && i.category !== 'ANNOUNCEMENTS')) {
       throw new BadRequestException({
         code: 'EMAIL_ALWAYS_ON',
         message:
@@ -293,7 +329,7 @@ export class NotificationsService {
         { businessId: me.businessId, actorUserId: me.userId },
       );
     });
-    return this.answer(me, texts);
+    return this.answer(me, texts, policy);
   }
 
   /**
@@ -324,24 +360,43 @@ export class NotificationsService {
   private async answer(
     me: Me,
     texts: { offered: boolean; stopped: boolean },
+    policy: PortalAnnouncementSettings | null,
   ): Promise<NotificationPreferences> {
     const saved = await this.preferences.choices(me.businessId, me.userId);
     const channels: DeliveryChannel[] = texts.offered ? ['EMAIL', 'SMS'] : ['EMAIL'];
     return {
       channels,
       smsStopped: texts.stopped,
-      items: NotificationCategory.options.map((category) => {
-        const locked = isLockedCategory(category);
-        const choice = locked ? DEFAULT_CHOICE : (saved.get(category) ?? DEFAULT_CHOICE);
-        // Email always goes: a row stored off before this rule reads as on.
-        return {
-          category,
-          email: true,
-          sms: texts.offered && choice.sms,
-          locked,
-          emailLocked: true,
-        };
-      }),
+      items: NotificationCategory.options
+        // CP-3d: announcements only for a client, while the firm's are on.
+        .filter((category) => category !== 'ANNOUNCEMENTS' || policy !== null)
+        .map((category) => {
+          const locked = isLockedCategory(category);
+          const choice = locked ? DEFAULT_CHOICE : (saved.get(category) ?? DEFAULT_CHOICE);
+          if (category === 'ANNOUNCEMENTS' && policy) {
+            const smsOff = policy.smsPolicy === 'OFF';
+            return {
+              category,
+              email:
+                policy.emailPolicy === 'CLIENT_CHOICE'
+                  ? choice.email
+                  : policy.emailPolicy === 'REQUIRED',
+              sms: !smsOff && texts.offered && choice.sms,
+              locked,
+              emailLocked: policy.emailPolicy !== 'CLIENT_CHOICE',
+              smsLocked: smsOff,
+            };
+          }
+          // Email always goes: a row stored off before this rule reads as on.
+          return {
+            category,
+            email: true,
+            sms: texts.offered && choice.sms,
+            locked,
+            emailLocked: true,
+            smsLocked: false,
+          };
+        }),
     };
   }
 

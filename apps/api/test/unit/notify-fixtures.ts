@@ -69,6 +69,8 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   },
   'document.requested-sms': { title: '2025 W-2', dueOn: '2026-11-01', link },
   'report.published': { name: 'Robin Example', title: 'Monthly bookkeeping', link },
+  'announcement.published': { name: 'Robin Example', title: 'Extended office hours', link },
+  'announcement.published-sms': { title: 'Extended office hours', link },
   'appointment.booked': appointment,
   'appointment.changed': appointment,
   'appointment.reminder': appointment,

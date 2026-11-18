@@ -10,6 +10,7 @@ import {
   CloudUpload,
   CreditCard,
   FileText,
+  Megaphone,
   MessageSquareText,
   NotebookPen,
   ShieldCheck,
@@ -34,7 +35,8 @@ type ActivityGlyph =
   | 'invoice'
   | 'service'
   | 'person'
-  | 'account';
+  | 'account'
+  | 'announcement';
 
 /**
  * Each event's icon and colour. Intake form tab.png and Messages and notes.png colour four of them
@@ -64,21 +66,25 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
       return { glyph: 'invoice', color: 'text-success' };
     case 'tax_return':
       return { glyph: 'return', color: portalIconTones.orange };
-    // 'automation_run', 'project_deadline', 'task', 'task_series' and 'tax_plan' are staff-only (an
-    // automation's notice, a member's deadline, a task reminder, a series that failed): never in
-    // the portal.
+    // 'automation_run', 'project_deadline', 'task', 'task_series', 'tax_plan' and 'advisory_plan' are
+    // staff-only (an automation's notice, a member's deadline, a task reminder, a series that
+    // failed, a client's request or approval of a plan): never in the portal.
     case 'engagement':
     case 'automation_run':
     case 'project_deadline':
     case 'task':
     case 'task_series':
     case 'tax_plan':
+    case 'advisory_plan':
       return { glyph: 'service', color: 'text-firm-text' };
     case 'client_account':
     case 'membership':
       return { glyph: 'person', color: 'text-purple' };
     case 'user':
       return { glyph: 'account', color: 'text-firm-text' };
+    // CP-3d: the firm posted an announcement.
+    case 'announcement':
+      return { glyph: 'announcement', color: 'text-firm-text' };
   }
 }
 
@@ -108,6 +114,8 @@ function ActivityIcon({ item }: { item: NotificationItem }) {
       return <UserRound aria-hidden className={className} />;
     case 'account':
       return <ShieldCheck aria-hidden className={className} />;
+    case 'announcement':
+      return <Megaphone aria-hidden className={className} />;
   }
 }
 

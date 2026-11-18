@@ -49,6 +49,8 @@ import {
   createPublicCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyTasksClient,
+  createPublicPackagesClient,
   createMyIntakesClient,
   createIntakeLinkClient,
   createLeadRoutingClient,
@@ -63,6 +65,7 @@ import {
   createMyReportsClient,
   createMyServicesClient,
   createMySignaturesClient,
+  createMyAdvisoryClient,
   createMyTaxPlansClient,
   createSigningClient,
   createMyTaxReturnsClient,
@@ -151,6 +154,7 @@ import {
   mySignaturesMock,
 } from '../mocks/esign';
 import { myTaxPlansMock } from '../mocks/my-tax-plans';
+import { myAdvisoryMock } from '../mocks/my-advisory';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { intakeLinkMock } from '../mocks/intake-link';
@@ -511,6 +515,10 @@ export const api = {
     dev && mocked('myDocuments')
       ? myDocumentsMock(firmSlug)
       : createMyDocumentsClient(request, firmSlug),
+  /** Client Portal Review One SP-1: a package's public page, read without signing in. */
+  publicPackages: (firmSlug: string) => createPublicPackagesClient(request, firmSlug),
+  /** Client Portal Review One T16: the tasks the firm shows this client (portal Requests area). */
+  myTasks: (firmSlug: string) => createMyTasksClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   // Dashboard Review Two V6: completing a task can be made to fail (`fv-mock-fail`).
   tasks:
@@ -767,6 +775,11 @@ export const api = {
     dev && mocked('myTaxPlans')
       ? myTaxPlansMock(firmSlug)
       : createMyTaxPlansClient(request, firmSlug),
+  /** BA-CP: the signed-in client's Business Advisory under My Services (portal). */
+  myAdvisory: (firmSlug: string) =>
+    dev && mocked('myAdvisory')
+      ? myAdvisoryMock(firmSlug)
+      : createMyAdvisoryClient(request, firmSlug),
   /** The signed-out invitation page at /{slug}/invitation (Business Advisory B3). */
   portalInvitation: (firmSlug: string) =>
     dev && mocked('portalInvitation')

@@ -1,5 +1,6 @@
 import type { Database } from '@firmivra/db';
 import { LOCKED_NOTIFICATION_CATEGORIES, type NotificationCategory } from '@firmivra/types';
+import { announcementSettingsOf } from '../client-portal/announcement-policy.js';
 import type { NotifyChannel } from './notify.types.js';
 
 /** A category with nothing saved: email on, SMS off (the table's defaults). */
@@ -74,6 +75,11 @@ export class PreferenceSource {
    * recorded yet). A client gets a text only with their SMS switch on and their texts not
    * stopped (`textsStopped`). A client login that is not this firm's has no choices here: the
    * defaults apply.
+   *
+   * CP-3d: ANNOUNCEMENTS go to clients only, while the firm's announcements are on, and follow the
+   * firm's policy for each channel (Settings > Client Portal > Announcements): never sent (OFF),
+   * always sent by email (REQUIRED), or the client's choice (CLIENT_CHOICE: their email switch,
+   * on unless they turned it off; their SMS switch as above).
    */
   async allows(
     businessId: string,
@@ -81,9 +87,18 @@ export class PreferenceSource {
     category: NotificationCategory,
     channel: NotifyChannel,
   ): Promise<boolean> {
-    if (isLockedCategory(category) || channel === 'email') return true;
+    if (isLockedCategory(category)) return true;
+    const announcement = category === 'ANNOUNCEMENTS';
+    if (channel === 'email' && !announcement) return true;
     const scope = this.db.forBusiness(businessId);
     if ('userId' in recipient && (await isStaff(scope, businessId, recipient.userId))) return false;
+    if (announcement) {
+      const policy = await announcementSettingsOf(this.db, businessId);
+      if (!policy.enabled) return false;
+      const rule = channel === 'email' ? policy.emailPolicy : policy.smsPolicy;
+      if (rule === 'OFF') return false;
+      if (rule === 'REQUIRED') return true;
+    }
     const account = await scope.clientAccount.findFirst({
       where:
         'userId' in recipient
@@ -91,11 +106,12 @@ export class PreferenceSource {
           : { businessId, id: recipient.clientAccountId },
       select: { userId: true, clientId: true },
     });
-    if (!account) return DEFAULT_CHOICE.sms;
+    if (!account) return DEFAULT_CHOICE[channel === 'email' ? 'email' : 'sms'];
     const row = await scope.notificationPreference.findUnique({
       where: { businessId_userId_category: { businessId, userId: account.userId, category } },
-      select: { sms: true },
+      select: { email: true, sms: true },
     });
+    if (channel === 'email') return (row ?? DEFAULT_CHOICE).email;
     if (!(row ?? DEFAULT_CHOICE).sms) return false;
     return !(await textsStopped(scope, businessId, account.clientId));
   }
