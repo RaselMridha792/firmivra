@@ -22,5 +22,8 @@ This file maps each row of Octavia's Staff Management Review 2 that needed work 
 | SM02 Custom role by Admin | Done | #1636 | custom-roles e2e "SM02: only what the granter has"; staff-write e2e "SM02: an Admin gives no cell they lack themselves…"; web unit `staff-grants-mock.test.ts`. Her retest as an Admin stays hers |
 | SM08 Workload | Done | #1636 | team e2e "SM08: says what each person carries…"; web unit `workload.test.ts`; mock "SM08: assigning a client past someone’s maximum warns, and still assigns" |
 | SM12 Sessions and last login | Done | #1636 | my-security e2e "SM12: a sign-in over the saved limit ends the oldest, audited; Last Login is the newest sign-in"; mock "SM12: Active Sessions marks this session on your own record only" |
-| SM05, SM17, SM33, SM40 | Open | next PR | — |
+| SM05 Company security policy | Done | #1642 | security-defaults e2e "Apply to Existing Accounts (SM05)…"; mock `r60-staff-review2-b` "SM05: Apply to Existing Accounts previews who changes, keeps the exceptions, and applies" |
+| SM33 Security controls | Done | #1642 | staff-sessions unit "SM33: …automatic logout…" and "SM33: from the "Disable account on" date…"; staff-security e2e "resets MFA and signs the sessions out" (the notice); my-security e2e "two-factor sign-in set up (SM33)"; mock `r60-staff-security-defaults` |
+| SM17 Draft files and pay | Part one done; files open | #1642 | staff-write e2e "SM17: a draft is its creator's own…"; mock "SM17: pay is never saved in a draft…". Durable draft files: next PR |
+| SM40 Keyboard and responsive | Tests added | #1642 | mock "SM40: a dialog gives focus back…", "SM40: Create Staff goes field to field with Tab…", "SM40: Staff Management fits a 768/375 px screen…". Her retest stays hers |
 | SM23, SM24, SM26, SM29, SM31, SM32, SM35, SM36, SM37, SM39, SM41, SM42, SM43 (PURPLE) | Her retest | — | — |
