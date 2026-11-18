@@ -77,6 +77,8 @@ const centsText = (cents: number) => (cents / 100).toFixed(2);
 const CUSTOM = 'custom';
 /** I-N01: the header Service's value for a catalog service (an engagement's is its own id). */
 const CATALOG = 'catalog:';
+/** `/invoices/new?copyFrom=<id>`: start a new invoice from a copy of that one (Duplicate). */
+export const COPY_PARAM = 'copyFrom';
 /** The due date for terms, counted from the day the invoice is sent (Send On, else today). */
 function dueFor(terms: PaymentTerm, sendOn: string): string {
   const from = sendOn && sendOn > localToday() ? sendOn : localToday();
@@ -86,12 +88,13 @@ function dueFor(terms: PaymentTerm, sendOn: string): string {
 }
 
 /**
- * /invoices/new (and ?from=<id> to start from a copy) and /invoices/[invoiceId]/edit: the
- * design's Create Invoice page. A draft is saved; Send Invoice saves it and sends it.
+ * /invoices/new (and ?copyFrom=<id> to start from a copy) and /invoices/[invoiceId]/edit: the
+ * design's Create Invoice page. A draft is saved; Send Invoice saves it and sends it. `from` is
+ * never read here: it is the way back (lib/origin.ts), as + New and the quick actions send it.
  */
 export function InvoiceEditor({ invoiceId }: { invoiceId?: string }) {
   const params = useSearchParams();
-  const from = invoiceId ?? params.get('from') ?? undefined;
+  const from = invoiceId ?? params.get(COPY_PARAM) ?? undefined;
   const source = useApiQuery([...INV_KEY, 'one', from], () =>
     from ? api.invoices.get(from) : Promise.resolve(null),
   );
