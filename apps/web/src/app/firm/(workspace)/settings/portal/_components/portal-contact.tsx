@@ -21,13 +21,14 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { PortalContactDetails } from '../../../../../../components/portal-contact-card';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { phoneLabel } from '../../../../../../lib/firm-contact';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../../lib/unsaved';
 
 const QUERY = ['portal-contact'];
 const KEYS: (keyof PortalContactSwitches)[] = [
@@ -183,13 +184,8 @@ function ContactForm({ saved }: { saved: PortalContactSettings }) {
   );
   const changed = KEYS.filter((k) => switches[k] !== saved.switches[k]);
   const dirty = changed.length > 0;
-  // Leaving with unsaved switches asks first (guide 7.1).
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  // Leaving with unsaved switches asks first, by a link too (guide 7.1, CP-7.1).
+  useUnsavedChanges(dirty);
   const set = (key: keyof PortalContactSwitches, on: boolean) => {
     setDone(false);
     setSwitches({ ...switches, [key]: on });
