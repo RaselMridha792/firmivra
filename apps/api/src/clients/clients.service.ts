@@ -15,6 +15,7 @@ import type {
   ClientExportLink,
   ClientListItem,
   ClientListRow,
+  ClientOverviewSummary,
   ClientProfile,
   ClientRecord,
   ClientServiceRef,
@@ -28,6 +29,7 @@ import type {
   UpdateClientRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
+import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { lockClientEmails } from '../client-auth/client-records.js';
@@ -275,6 +277,14 @@ function toRecord(row: RecordRow, dob: DateOfBirthView): ClientRecord {
  * ACTIVE engagement. Interested, proposed, completed and declined ones are not enrolments.
  */
 const ENROLLED_WORKSTREAMS = ['ACCEPTED', 'IN_PROGRESS', 'AWAITING_CLIENT', 'ON_HOLD'] as const;
+/** N8-12: an intake form sent and not finished (the client's or the firm's turn). */
+const OPEN_INTAKES = [
+  'SENT',
+  'IN_PROGRESS',
+  'NEEDS_CORRECTION',
+  'SUBMITTED',
+  'UNDER_REVIEW',
+] as const;
 
 /** The plain profile columns of a request; SSN, EIN and date of birth go through `secretColumns`. */
 function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInput {
@@ -923,6 +933,99 @@ export class ClientsService {
         inactive: c.inactive,
         byService,
       },
+    };
+  }
+
+  /**
+   * Clients Review 2 N8-12: one client's Overview summaries (GET /business/clients/{id}/summary),
+   * with the client's own reach (404 otherwise), each counted by the rule of the place its card
+   * opens: the balance, missing documents and next appointment as the list's columns count them
+   * (workOf), unread messages as the Messages badge does, open intake forms as the client's
+   * Intake Forms tab lists them, and the Pending or Active enrollments the Overview's Active
+   * Services lists (an advisory enrollment counts once, unless an engagement shows its service).
+   * Audited as a view of the client, with no figures.
+   */
+  async overview(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+  ): Promise<ClientOverviewSummary> {
+    const row = await this.inFirm(businessId, (tx) => this.find(tx, businessId, actor, id));
+    const [work, extra] = await Promise.all([
+      this.workOf(businessId, [row.id]),
+      this.inFirm(businessId, async (tx) => {
+        const now = new Date();
+        const [unread, intakes, invoices, engagements, workstreams, next, timeZone] =
+          await Promise.all([
+            tx.$queryRaw<{ count: number }[]>`
+              SELECT count(*)::int AS count
+              FROM messages m
+              JOIN message_threads t ON t.business_id = m.business_id AND t.id = m.thread_id
+              WHERE m.business_id = ${businessId}::uuid AND t.client_id = ${row.id}::uuid
+                AND m.direction = 'CLIENT_TO_FIRM' AND m.read_at IS NULL`,
+            tx.intake.count({
+              where: {
+                businessId,
+                status: { in: [...OPEN_INTAKES] },
+                engagement: { clientId: row.id },
+              },
+            }),
+            tx.$queryRaw<{ count: number }[]>`
+              SELECT count(*)::int AS count FROM invoices i
+              WHERE i.business_id = ${businessId}::uuid AND i.client_id = ${row.id}::uuid
+                AND i.status = 'OPEN' AND i.total_cents > app_invoice_paid_cents(i.id)`,
+            tx.engagement.findMany({
+              where: { businessId, clientId: row.id },
+              select: { status: true, serviceId: true },
+            }),
+            tx.advisoryWorkstream.findMany({
+              where: {
+                businessId,
+                status: { in: [...ENROLLED_WORKSTREAMS] },
+                advisoryClient: { clientId: row.id, archivedAt: null },
+              },
+              select: { serviceId: true },
+            }),
+            tx.appointment.findFirst({
+              where: { businessId, clientId: row.id, status: 'SCHEDULED', startsAt: { gt: now } },
+              orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+              select: { id: true, startsAt: true, type: { select: { name: true } } },
+            }),
+            firmTimeZone(tx, businessId),
+          ]);
+        // As the Active Services card: each Pending or Active engagement, then each advisory
+        // service no engagement of the client shows.
+        const shown = new Set(engagements.map((e) => e.serviceId));
+        const advisory = new Set(
+          workstreams.map((w) => w.serviceId).filter((serviceId) => !shown.has(serviceId)),
+        );
+        const enrolled = engagements.filter((e) => e.status === 'PENDING' || e.status === 'ACTIVE');
+        return {
+          unread: unread[0]?.count ?? 0,
+          intakes,
+          openInvoices: invoices[0]?.count ?? 0,
+          activeServices: enrolled.length + advisory.size,
+          next,
+          timeZone,
+        };
+      }),
+    ]);
+    await this.audit.log('client.viewed', { type: 'client', id: row.id }, { view: 'summary' });
+    return {
+      balanceDueCents: work.balance.get(row.id) ?? 0,
+      openInvoices: extra.openInvoices,
+      missingDocuments: work.missing.get(row.id) ?? 0,
+      unreadMessages: extra.unread,
+      openIntakeForms: extra.intakes,
+      activeServices: extra.activeServices,
+      nextAppointment: extra.next
+        ? {
+            id: extra.next.id,
+            startsAt: extra.next.startsAt.toISOString(),
+            typeName: extra.next.type?.name ?? null,
+          }
+        : null,
+      timeZone: extra.timeZone,
     };
   }
 

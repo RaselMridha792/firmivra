@@ -756,6 +756,31 @@ export function createClientsMock(
       await pause();
       return structuredClone(find(parseInput(ClientId, id)));
     },
+    // N8-12: the Overview summaries, from the same work as the list's row (balance, documents,
+    // services, next appointment), as the API counts them; client 1 also has unread messages and
+    // open intake forms. The next appointment opens a seeded Appointments record.
+    overviewSummary: async (id) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      const n = Number(row.id.slice(-12));
+      const w = workOf(row.id);
+      return {
+        balanceDueCents: w.balanceDueCents,
+        openInvoices: w.balanceDueCents > 0 ? 1 : 0,
+        missingDocuments: w.missingDocuments,
+        unreadMessages: n === 1 ? 2 : 0,
+        openIntakeForms: n === 1 ? 1 : 0,
+        activeServices: w.services.length,
+        nextAppointment: w.nextAppointmentAt
+          ? {
+              id: `0199c0b0-0a10-7000-8000-${String(n).padStart(12, '0')}`,
+              startsAt: w.nextAppointmentAt,
+              typeName: 'Consultation',
+            }
+          : null,
+        timeZone: 'America/New_York',
+      };
+    },
     tags: async (id) => {
       await pause();
       const row = find(parseInput(ClientId, id));

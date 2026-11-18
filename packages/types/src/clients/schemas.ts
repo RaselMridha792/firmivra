@@ -363,6 +363,34 @@ export const ClientsSummary = z.object({
 export type ClientsSummary = z.infer<typeof ClientsSummary>;
 
 /**
+ * GET /business/clients/{id}/summary (Clients Review 2 N8-12): the client's Overview summaries,
+ * each counted from the source its click-through lists, with the client's reach (Staff: their own
+ * clients; 404 otherwise). The same rules as the clients list's columns:
+ * - `balanceDueCents`: what OPEN invoices still owe (the Invoices tab's Balance due);
+ *   `openInvoices`: those of them with something still owed.
+ * - `missingDocuments`: document requests still owed (REQUESTED or REJECTED: Requested, Missing).
+ * - `unreadMessages`: the client's messages the firm has not read (the Messages tab's Unread).
+ * - `openIntakeForms`: intake forms sent and not finished (Sent, In Progress, Needs Correction,
+ *   Submitted, Under Review); Completed, Expired, Archived and drafts are not counted.
+ * - `activeServices`: enrollments Pending or Active, as the Overview's Active Services lists them.
+ * - `nextAppointment`: the client's next scheduled appointment, from now; its date is shown in
+ *   `timeZone`, the firm's.
+ */
+export const ClientOverviewSummary = z.object({
+  balanceDueCents: z.number().int().nonnegative(),
+  openInvoices: z.number().int().nonnegative(),
+  missingDocuments: z.number().int().nonnegative(),
+  unreadMessages: z.number().int().nonnegative(),
+  openIntakeForms: z.number().int().nonnegative(),
+  activeServices: z.number().int().nonnegative(),
+  nextAppointment: z
+    .object({ id: z.uuid(), startsAt: DateTime, typeName: z.string().nullable() })
+    .nullable(),
+  timeZone: z.string(),
+});
+export type ClientOverviewSummary = z.infer<typeof ClientOverviewSummary>;
+
+/**
  * POST /business/clients/bulk (the list's Bulk Actions), Owner and Admin: the same change to up
  * to 100 clients. ASSIGN sets (or with null clears) the assignee; ARCHIVE and RESTORE as for one
  * client. An id that is not one of the firm's clients, or an assignee who is not an active
