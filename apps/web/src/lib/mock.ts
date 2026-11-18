@@ -74,8 +74,10 @@ export const MOCK_FAIL_KEY = 'fv-mock-fail';
  * calls named in sessionStorage `fv-mock-fail` ("dashboard.summary,messages.inbox") answer 500
  * like a failing API, so a spec can show each widget's error state and Try again. A name ending
  * in "@after" ("leadPipeline.update@after") does the call, then answers 500: a change that went
- * through although its answer was lost (Leads R2 7). Reads the key on every call, so clearing it
- * lets Try again succeed. Mock mode is off in production builds.
+ * through although its answer was lost (Leads R2 7). A name ending in "@slow"
+ * ("leadPipeline.activity@slow") answers 1.5 s late, as one slow query on dev does, so a spec can
+ * check a screen that refetches several queries at once (Leads R2 5). Reads the key on every call,
+ * so clearing it lets Try again succeed. Mock mode is off in production builds.
  */
 export function failable<T extends object>(module: string, client: T): T {
   return new Proxy(client, {
@@ -95,6 +97,8 @@ export function failable<T extends object>(module: string, client: T): T {
         const result = (value as (...a: unknown[]) => unknown).apply(target, args);
         if (failing.includes(`${module}.${prop}@after`))
           return Promise.resolve(result).then(() => Promise.reject(failure()));
+        if (failing.includes(`${module}.${prop}@slow`))
+          return Promise.resolve(result).then((answer) => mockDelay(1500).then(() => answer));
         return result;
       };
     },
