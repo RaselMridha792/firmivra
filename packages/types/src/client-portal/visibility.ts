@@ -22,12 +22,10 @@ export const PORTAL_MODULE_LABELS: Record<PortalModule, string> = {
 };
 
 /**
- * The areas the Client Portal module switches per client. Business Documents & Resources
- * (CP-5a) joins once the portal follows its switch (R1's Client Portal Review One features PR).
+ * The areas the Client Portal module switches per client: every portal area, Business Documents
+ * & Resources included (CP-5a: the portal follows its switch).
  */
-export const PORTAL_AREAS: readonly PortalModule[] = PortalModule.options.filter(
-  (module) => module !== 'BUSINESS_RESOURCES',
-);
+export const PORTAL_AREAS: readonly PortalModule[] = PortalModule.options;
 
 export const ClientPortalArea = z.object({
   module: PortalModule,
