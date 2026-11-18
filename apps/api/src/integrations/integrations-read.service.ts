@@ -71,6 +71,9 @@ const cardOf = (provider: IntegrationProvider, connections: ConnectionRow[]): In
       badge: provider.badge,
       popularity: provider.popularity,
       comingSoon: provider.comingSoon,
+      // I-UA05: how close it is to Connect, and who acts next.
+      ...(provider.readiness ? { readiness: provider.readiness } : {}),
+      ...(provider.nextStep ? { nextStep: provider.nextStep } : {}),
       multipleConnections: provider.multipleConnections,
     },
     status,

@@ -7,14 +7,16 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { useFirmTimeZone } from '../[id]/_components/firm-time';
 
 // SM14 part B (Octavia's Staff Management review of Oct 23, "Own sessions" and "Own password"):
 // every staff member, whatever their role, signs out their own other sessions and changes their
 // own password here. Self-contained, for My Profile (R55's piece of that page, the lead's
 // placement of Nov 7). Someone else's sessions and password stay with Access & Security.
 
-const when = (iso: string) =>
+const when = (iso: string, timeZone?: string) =>
   new Date(iso).toLocaleString('en-US', {
+    timeZone,
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
@@ -27,6 +29,7 @@ const ERRORS = {
 };
 
 function SessionRow({ s }: { s: MySessionItem }) {
+  const timeZone = useFirmTimeZone(); // SM38: the firm's time zone
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 border-t border-divider py-3 first:border-t-0">
       <div className="min-w-0">
@@ -41,7 +44,7 @@ function SessionRow({ s }: { s: MySessionItem }) {
         </Badge>
       ) : (
         <span className="text-xs text-muted">
-          {s.activeNow ? 'Active now' : `Last active ${when(s.lastActiveAt)}`}
+          {s.activeNow ? 'Active now' : `Last active ${when(s.lastActiveAt, timeZone)}`}
         </span>
       )}
     </li>

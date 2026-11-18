@@ -34,6 +34,7 @@ import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { uploadFile } from '../../../../../../../lib/upload';
 import { SectionCard } from '../../_components/section-card';
 import { WithDraft, useDraftSaver } from '../../_components/with-draft';
+import { UnsavedDialog, useUnsavedGuard } from '../../../../tasks/_components/unsaved-guard';
 import { WizardHeader } from '../../_components/wizard-header';
 import {
   EMPLOYMENT_TYPES,
@@ -240,6 +241,8 @@ function DetailsForm({
   const [uploading, setUploading] = useState(false);
   const [key] = useState(() => crypto.randomUUID());
   const draft = useDraftSaver(startDraft, 4);
+  // SM18: leaving with unsaved changes asks Keep Editing, Discard Changes or Save Draft.
+  const guard = useUnsavedGuard({ form, files: files.map((f) => [f.file.name, f.type]) });
   const client = useQueryClient();
   // Creating the account deletes its draft: drop the draft from the cache before the staff
   // lists refresh, so the open draft query is not fetched again (it would answer 404).
@@ -720,7 +723,12 @@ function DetailsForm({
                   ? 'Draft saved. Pay and files are not kept in a draft: files stay while this tab is open.'
                   : 'Draft saved. Pay is not kept in a draft.'}
               </span>
-            ) : null}
+            ) : (
+              // SM16: the autosave, said where it happens.
+              <span className="text-xs text-muted" data-testid="autosave-note">
+                Progress saved as a draft. Back saves this step too; pay is never kept in a draft.
+              </span>
+            )}
             {uploading ? (
               <span role="status" className="text-sm text-muted">
                 Uploading documents…
@@ -733,6 +741,7 @@ function DetailsForm({
                 onClick={() =>
                   draft.save(data(), (id) => {
                     keptFiles.set(id, files);
+                    guard.rebase();
                     router.replace(stepHref('details', id), { scroll: false });
                   })
                 }
@@ -745,6 +754,19 @@ function DetailsForm({
               </Button>
             </div>
           </div>
+          <UnsavedDialog
+            guard={guard}
+            saveLabel="Save Draft"
+            saving={pending}
+            onSave={() => {
+              const to = guard.pending;
+              draft.save(data(), (id) => {
+                keptFiles.set(id, files);
+                guard.allow();
+                if (to) router.push(to);
+              });
+            }}
+          />
         </div>
 
         <aside className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">

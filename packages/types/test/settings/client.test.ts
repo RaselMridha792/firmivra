@@ -48,6 +48,9 @@ const settings = {
   portalName: null,
   portalHeader: null,
   welcomeMessage: null,
+  // CP-1g: the landing page's button text (null: the default words).
+  portalSignInLabel: null,
+  portalSignUpLabel: null,
   clientSignUpEnabled: true,
   entityType: null,
   einLast4: null,

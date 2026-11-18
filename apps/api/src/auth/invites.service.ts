@@ -418,6 +418,21 @@ export class InvitesService {
         }
       }
     }
+    // SM21 (Staff Management Review 2): when the email really went out, on the invite and in the
+    // member's activity; an account made with Send Welcome Email off never reads as emailed.
+    if (emailed) {
+      const at = new Date();
+      await this.db.withScope({ kind: 'business', businessId }, (tx) =>
+        tx.invite.updateMany({ where: { businessId, id: inviteId }, data: { emailedAt: at } }),
+      );
+      await this.auditInFirm(
+        businessId,
+        undefined,
+        'membership.invite_emailed',
+        { type: 'membership', id: membershipId },
+        { inviteId, resent },
+      );
+    }
     return {
       id: inviteId,
       membershipId,

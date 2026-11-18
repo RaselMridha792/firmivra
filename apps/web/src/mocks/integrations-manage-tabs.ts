@@ -29,7 +29,12 @@ export function manageTabsConnection(state: 'data' | 'attention' = 'data') {
           status: 'NEEDS_ATTENTION',
           issue: 'PERMISSION_MISSING',
           statusMessage: 'A permission is missing for Payments. Reconnect to grant it.',
+          statusImpact: 'The objects that need that permission do not sync.',
+          statusNextStep:
+            'Choose Fix permissions and grant the missing permission at the provider.',
           statusAction: 'FIX_PERMISSIONS',
+          // I-UA04: the last sync worked three hours ago; the attempt since then failed.
+          health: { ...base.health, lastSuccessAt: at(-180), lastAttemptAt: at(-20) },
         }
       : {}),
     provider: {

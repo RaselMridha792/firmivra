@@ -105,6 +105,12 @@ export const FirmSettings = z.object({
    */
   portalHeader: z.string().nullable(),
   welcomeMessage: z.string().nullable(),
+  /**
+   * CP-1g: the landing page's button text; null shows "Sign In" and "Create an Account". Plain
+   * text, one line.
+   */
+  portalSignInLabel: z.string().nullable().default(null),
+  portalSignUpLabel: z.string().nullable().default(null),
   /** Clients may sign up on the portal (the firm approves each one). */
   clientSignUpEnabled: z.boolean(),
   /**
@@ -197,6 +203,8 @@ export const UpdateFirmSettingsRequest = z
     portalName: clearable(upTo(120)),
     portalHeader: clearable(upTo(200)),
     welcomeMessage: clearable(upTo(2000, 'many')),
+    portalSignInLabel: clearable(upTo(30)),
+    portalSignUpLabel: clearable(upTo(30)),
     clientSignUpEnabled: z.boolean(),
     entityType: EntityType,
     /**

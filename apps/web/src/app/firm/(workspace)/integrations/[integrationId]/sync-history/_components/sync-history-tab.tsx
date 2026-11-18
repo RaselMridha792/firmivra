@@ -5,7 +5,7 @@ import type {
   IntegrationSyncRun,
   IntegrationSyncRunStatus,
 } from '@firmivra/types';
-import { Badge, Button, Card, Drawer, Pagination, Select } from '@firmivra/ui';
+import { Badge, Button, Card, Drawer, HelpTip, Pagination, Select } from '@firmivra/ui';
 import { useSearchParams } from 'next/navigation';
 import {
   ArrowsClockwise,
@@ -140,6 +140,10 @@ function History({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-heading">Sync History</h2>
+          <HelpTip topic="Sync history">
+            Every sync, newest first: what ran, when it ran, how many records moved and any errors.
+            Open a failed run to see what to do.
+          </HelpTip>
           <p className="text-sm text-muted">Every sync, test and webhook run, newest first.</p>
         </div>
         <div className="grid w-full gap-2 sm:grid-cols-3 lg:w-auto">

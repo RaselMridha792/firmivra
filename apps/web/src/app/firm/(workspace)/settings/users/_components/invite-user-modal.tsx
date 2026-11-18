@@ -149,7 +149,10 @@ export function InviteUserModal({
                     <span className="font-medium text-heading">{p.name}</span>
                     <span className="text-muted">
                       {p.email} · {FIRM_ROLE_LABELS[p.role]}
-                      {p.invite ? ` · invited ${sentText(p.invite.sentAt)}` : ' · not invited yet'}
+                      {/* SM21: "invited" only once the email went out. */}
+                      {p.invite?.sentAt
+                        ? ` · invited ${sentText(p.invite.sentAt)}`
+                        : ' · not invited yet'}
                     </span>
                   </button>
                 </li>
@@ -175,7 +178,7 @@ export function InviteUserModal({
               onChange={(event) => setRole(event.target.value)}
             />
             {description ? <p className="text-xs text-muted">{description}</p> : null}
-            {picked.invite ? (
+            {picked.invite?.sentAt ? (
               <p className="text-xs text-muted">
                 Sending again replaces the link sent {sentText(picked.invite.sentAt)}; the old one
                 stops working.

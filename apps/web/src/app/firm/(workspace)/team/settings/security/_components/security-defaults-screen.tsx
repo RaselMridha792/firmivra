@@ -43,6 +43,7 @@ import {
   NOTICES,
   list,
 } from '../../../new/security/_components/security-step';
+import { useFirmTimeZone } from '../../../../intake-forms/_components/expiry';
 
 const KEY = ['staff', 'security-defaults'];
 const quiet = 'rounded-lg bg-subtle p-4 text-sm text-muted';
@@ -111,8 +112,8 @@ function check(f: Form): Record<string, string> {
 
 const accounts = (n: number) => `${n} existing staff account${n === 1 ? '' : 's'}`;
 
-const when = (iso: string) =>
-  new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(
+const when = (iso: string, timeZone?: string) =>
+  new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(
     new Date(iso),
   );
 
@@ -330,6 +331,7 @@ function Editor({
 }) {
   const [form, setForm] = useState<Form>(() => formOf(data));
   const [base, setBase] = useState(data);
+  const timeZone = useFirmTimeZone(); // SM38: the firm's time zone
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirming, setConfirming] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -424,7 +426,7 @@ function Editor({
               <dt className="text-heading">Last saved</dt>
               <dd className="text-right font-semibold text-link">
                 {base.updatedAt
-                  ? `${when(base.updatedAt)}${base.updatedBy ? ` by ${base.updatedBy}` : ''}`
+                  ? `${when(base.updatedAt, timeZone)}${base.updatedBy ? ` by ${base.updatedBy}` : ''}`
                   : "Firmivra's defaults, not changed yet"}
               </dd>
             </div>

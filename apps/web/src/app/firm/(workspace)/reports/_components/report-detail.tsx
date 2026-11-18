@@ -37,7 +37,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
+import { ORIGIN_PARAM, originLabel, safeOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
 import { type FilterDraft, type FilterField, conditionsOf } from './filter-rules';
 import { CustomRangeDialog } from './report-date-controls';
@@ -527,9 +527,18 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             ))}
           </div>
         </div>
-        {/* RP-F01: back to the overview as it was (its range and comparison), when it opened this. */}
-        <Link href={from && /^\/reports(\?|$)/.test(from) ? from : '/reports'} className={outlined}>
-          ← Back to Reports
+        {/* RP-F01: back to the overview as it was (its range and comparison), when it opened this;
+            SM01: or to the page that opened it (Staff Management's Reports tile). */}
+        <Link
+          href={
+            from && (/^\/reports(\?|$)/.test(from) || !from.startsWith('/reports'))
+              ? from
+              : '/reports'
+          }
+          className={outlined}
+          data-testid="report-back"
+        >
+          ← Back to {from && !from.startsWith('/reports') ? originLabel(from) : 'Reports'}
         </Link>
       </header>
       {message ? (

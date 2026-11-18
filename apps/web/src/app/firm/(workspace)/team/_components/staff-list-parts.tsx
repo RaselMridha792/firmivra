@@ -1,4 +1,5 @@
 import { FIRM_ROLE_LABELS, type MembershipRole, type StaffListItem } from '@firmivra/types';
+import { useFirmTimeZone } from '../[id]/_components/firm-time';
 
 /** The design's role chips: one tint per role (Administrator amber, Staff blue, Manager purple). */
 const ROLE_CHIPS: Record<MembershipRole, string> = {
@@ -45,27 +46,35 @@ export function StatusChip({ status }: { status: StaffListItem['status'] }) {
   );
 }
 
-const day = (d: Date) =>
-  d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-const time = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+const day = (d: Date, timeZone?: string) =>
+  d.toLocaleDateString('en-US', { timeZone, month: 'short', day: 'numeric', year: 'numeric' });
+const time = (d: Date, timeZone?: string) =>
+  d.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit' });
 
 /**
  * Last Login as the design writes it: "Today 9:12 AM" or "Sep 28, 2026 4:15 PM". Someone not yet
  * joined shows their invite instead ("Invited Sep 25, 2026", or "Invite expired").
  */
 export function LastLogin({ member, now }: { member: StaffListItem; now: number }) {
+  // SM38: the firm's time zone, the header's, never the browser's.
+  const timeZone = useFirmTimeZone();
   if (member.status === 'INVITED') {
     const invite = member.invite;
     if (invite && Date.parse(invite.expiresAt) < now)
       return <span className="whitespace-nowrap text-danger">Invite expired</span>;
     return (
       <span className="whitespace-nowrap">
-        {invite ? `Invited ${day(new Date(invite.sentAt))}` : 'Invited'}
+        {/* SM21: "Invited" only once the email went out. */}
+        {invite?.sentAt
+          ? `Invited ${day(new Date(invite.sentAt), timeZone)}`
+          : 'Account created · invitation not sent'}
       </span>
     );
   }
   if (!member.lastLoginAt) return <span className="whitespace-nowrap text-muted">Never</span>;
   const at = new Date(member.lastLoginAt);
-  const today = at.toDateString() === new Date(now).toDateString();
-  return <span className="whitespace-nowrap">{`${today ? 'Today' : day(at)} ${time(at)}`}</span>;
+  const today = day(at, timeZone) === day(new Date(now), timeZone);
+  return (
+    <span className="whitespace-nowrap">{`${today ? 'Today' : day(at, timeZone)} ${time(at, timeZone)}`}</span>
+  );
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Param, Query } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query, StreamableFile } from '@nestjs/common';
 import type {
   StaffDetail,
   StaffFormOptions,
@@ -49,6 +49,15 @@ export class StaffController {
   @Header('Content-Disposition', 'attachment; filename="staff-import-template.csv"')
   importTemplate(): string {
     return this.read.importTemplate();
+  }
+
+  /** SM09: the import template as an Excel workbook (the import reads either). */
+  @Get('import/template/xlsx')
+  @Header('Content-Disposition', 'attachment; filename="staff-import-template.xlsx"')
+  importTemplateXlsx(): StreamableFile {
+    return new StreamableFile(this.read.importTemplateXlsx(), {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
   }
 
   @Get(':id')

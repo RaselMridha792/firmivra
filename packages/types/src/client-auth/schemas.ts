@@ -90,6 +90,9 @@ export const PortalInfo = z.object({
     header: z.string().nullable(),
     /** Welcome text on the landing page; null shows the default. */
     welcomeMessage: z.string().nullable(),
+    /** CP-1g: the landing page's button text; null shows the default words. */
+    signInLabel: z.string().nullable().default(null),
+    signUpLabel: z.string().nullable().default(null),
     /**
      * Intake Review 2 23-g: Intake Form Settings > "Use this branding on client-facing forms". Off:
      * the forms outside the portal (a lead's link, a public share link) show the firm's name only,

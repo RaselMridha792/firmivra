@@ -252,6 +252,34 @@ describe('GET /portal/{firmSlug}/me/announcements', () => {
     expect(html).toContain('rel="noopener noreferrer"');
   });
 
+  it("CP-3c, CP-3i: the firm's switches: off shows none (none deleted); off the dashboard drops those", async () => {
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const set = (data: { announcementsEnabled?: boolean; announcementsOnDashboard?: boolean }) =>
+      runInScope(db, { kind: 'business', businessId: ids.firm! }, (tx) =>
+        tx.clientPortalSettings.upsert({
+          where: { businessId: ids.firm! },
+          create: { businessId: ids.firm!, ...data },
+          update: data,
+        }),
+      );
+    try {
+      await set({ announcementsEnabled: false });
+      expect(MyAnnouncementList.parse((await mine(reader)).body).items).toEqual([]);
+      await set({ announcementsEnabled: true, announcementsOnDashboard: false });
+      const items = MyAnnouncementList.parse((await mine(reader)).body).items;
+      expect(items.map((i) => i.id)).toEqual([ids.b]);
+      expect(items.every((i) => i.where !== 'dashboard')).toBe(true);
+    } finally {
+      await set({ announcementsEnabled: true, announcementsOnDashboard: true });
+      await db.$disconnect();
+    }
+    expect(MyAnnouncementList.parse((await mine(reader)).body).items.map((i) => i.id)).toEqual([
+      ids.b,
+      ids.a,
+      ids.d,
+    ]);
+  });
+
   it('shows another client only theirs (an unknown place reads as the dashboard)', async () => {
     const items = MyAnnouncementList.parse((await mine(other)).body).items;
     expect(items.map((i) => [i.id, i.where])).toEqual([[ids.c, 'dashboard']]);

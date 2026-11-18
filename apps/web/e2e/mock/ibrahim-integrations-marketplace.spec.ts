@@ -162,6 +162,15 @@ test('request modal validates the shared schema, submits once and confirms API a
   await expect(dialog.getByRole('button', { name: 'Submitting...' })).toBeDisabled();
   await expect(dialog.getByRole('heading', { name: 'Request submitted' })).toBeVisible();
   expect(submitted).toBe(1);
+  // I-UA03: a reference to quote, the day it was sent, its status and the way to follow it.
+  const receipt = dialog.getByTestId('request-receipt');
+  await expect(receipt).toContainText('Reference:IR-00000000');
+  await expect(receipt).toContainText(/Sent:[A-Z][a-z]{2} \d{1,2}, \d{4}/);
+  await expect(receipt).toContainText('Status:New');
+  await expect(dialog.getByRole('link', { name: 'View my requests' })).toHaveAttribute(
+    'href',
+    '/integrations/requests',
+  );
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(dialog).not.toBeVisible();
 });
@@ -186,6 +195,48 @@ test('request errors keep entered values for a safe retry', async ({ page }) => 
   await expect(dialog.getByRole('alert')).toBeVisible();
   await expect(dialog.getByLabel('Provider / software name')).toHaveValue('Example CRM');
   await expect(dialog.getByRole('button', { name: 'Submit request' })).toBeEnabled();
+});
+
+test('the request dialog keeps Tab and Shift+Tab inside; Escape still closes it and returns focus (I-R2-09)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await mockCatalog(page);
+  await page.goto(url);
+  const opener = page
+    .getByTestId('custom-integration')
+    .getByRole('button', { name: 'Request Integration', exact: true });
+  await opener.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  // Mark the dialog's first and last Tab stops (shown, enabled, in page order).
+  await page.evaluate(() => {
+    const open = document.querySelector('dialog[open]');
+    const stops = [
+      ...(open?.querySelectorAll<HTMLElement>(
+        'a[href], button, input, select, textarea, [tabindex]',
+      ) ?? []),
+    ].filter((e) => e.tabIndex >= 0 && !e.matches(':disabled') && e.getClientRects().length > 0);
+    stops[0]?.setAttribute('data-stop', 'first');
+    stops.at(-1)?.setAttribute('data-stop', 'last');
+  });
+  const first = dialog.locator('[data-stop="first"]');
+  const last = dialog.locator('[data-stop="last"]');
+  await expect(first).toHaveAccessibleName('Close dialog');
+  await last.focus();
+  await page.keyboard.press('Tab');
+  await expect(first).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(last).toBeFocused();
+  // In between, Tab moves on as usual and stays in the dialog.
+  await first.focus();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('dialog[open]'))).toBe(true);
+  await expect(first).not.toBeFocused();
+  // Escape is unchanged: an untouched request closes, and focus is back on the button.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
 });
 
 for (const state of ['empty', 'offline', 'forbidden', 'readonly'] as const) {
