@@ -44,3 +44,19 @@ test('B5: a new Start Time moves the End Time with it and keeps the length; recu
   await page.getByRole('button', { name: 'Schedule Appointment' }).click();
   await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 });
+
+test('W10: a client already booked then is told so, with no Book Anyway', async ({ page }) => {
+  // The mock's Kendra Gill already has Thursday Oct 15, 11:00 AM to noon (a page load resets the
+  // mock, so the existing booking is the seeded one).
+  await newFor(page, 'Kendra Gill');
+  await page.getByLabel('Date *').fill('2026-10-15');
+  await page.getByLabel('Start Time *').selectOption('11:00');
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  const error = page.getByTestId('schedule-error');
+  await expect(error).toContainText('This client already has an appointment at this time', {
+    timeout: 30_000,
+  });
+  await expect(error).not.toContainText('book anyway');
+  await expect(page.getByRole('button', { name: 'Book Anyway' })).toHaveCount(0);
+  await expect(page.getByLabel('Reason to book anyway (Owner or Admin)')).toHaveCount(0);
+});

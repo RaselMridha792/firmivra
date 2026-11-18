@@ -38,7 +38,7 @@ import { useFirm } from '../../../../../components/firm-context';
 import { OriginLink } from '../../../../../components/origin-link';
 import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
-import { errorCode, errorMessage } from '../../../../../lib/errors';
+import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { MultiPick } from '../../team/new/_components/multi-pick';
 import { METHOD_LABELS, NOT_LOADED, SCHEDULING, STATUS_LOOKS } from './appointments-parts';
@@ -46,7 +46,7 @@ import { TONE_DOTS, TONE_NAMES, colourTone } from './colour';
 import { remindersFromType } from './reminder-defaults';
 import { addedType } from './new-type';
 import { AttendeePicker } from './attendee-picker';
-import { equipmentChoices, equipmentClashes } from './equipment';
+import { conflictOf, equipmentChoices, equipmentClashes } from './equipment';
 import { StaffDayPanel } from './staff-day-panel';
 import { localParts, todayIn, toInstant } from './time';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
@@ -1180,7 +1180,11 @@ function FormBody({
   const failure = schedule.error ?? update.error ?? draft.error;
   // Review 2 (A2): an item another appointment holds then, named; it can't be booked anyway.
   const heldItems = equipmentClashes(failure);
-  const conflict = errorCode(schedule.error) === 'SCHEDULING_CONFLICT' && heldItems.length === 0;
+  // Review 2 (W10): Book Anyway only when the member may override this conflict; a hard one (the
+  // client already booked then, a room) says so in its own words and offers no way around it.
+  const clash = conflictOf(schedule.error);
+  const conflict = clash?.canOverride === true && heldItems.length === 0;
+  const hardClash = clash !== null && !clash.canOverride && heldItems.length === 0;
 
   const submit = () => {
     if (!check()) return;
@@ -2125,7 +2129,9 @@ function FormBody({
                 ? `${heldItems.join('. ')}. Choose another time, or leave the item out.`
                 : conflict
                   ? `${SCHEDULE_ERRORS.SCHEDULING_CONFLICT} Choose another time in the Staff Availability panel, or book anyway with a reason.`
-                  : errorMessage(failure, SCHEDULE_ERRORS)}
+                  : hardClash && clash.messages.length > 0
+                    ? `${clash.messages.join('. ')}. Choose another time.`
+                    : errorMessage(failure, SCHEDULE_ERRORS)}
             </Callout>
             {conflict ? (
               <Input
