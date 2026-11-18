@@ -261,6 +261,8 @@ export const cases: CaseModule['cases'] = {
     },
   },
   [`GET ${BASE}/tasks/:id`]: { params: { id: 'task' } },
+  // Dashboard Review Two §9: the task's reminder history.
+  [`GET ${BASE}/tasks/:id/notices`]: { params: { id: 'task' } },
   [`POST ${BASE}/tasks/:id/complete`]: { params: { id: 'taskComplete' } },
   [`POST ${BASE}/tasks/:id/reopen`]: { params: { id: 'taskReopen' } },
   [`POST ${BASE}/tasks/:id/cancel`]: { params: { id: 'taskCancel' } },

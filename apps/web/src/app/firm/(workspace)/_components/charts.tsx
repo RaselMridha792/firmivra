@@ -71,8 +71,16 @@ type Props = {
  */
 export function RevenueOverview({ summary, action }: Props) {
   return (
-    <Widget title="Revenue Overview" query={summary} isEmpty={() => false} empty="" action={action}>
+    <Widget
+      title="Revenue Overview"
+      query={summary}
+      isEmpty={() => false}
+      denied={(d) => (d.revenue ? undefined : 'Invoices & Payments')}
+      empty=""
+      action={action}
+    >
       {({ revenue, today }) => {
+        if (!revenue) return null;
         const bars = revenue.buckets;
         const peak = Math.max(0, ...bars.map((b) => b.cents));
         const top = niceMax(peak);
@@ -192,10 +200,12 @@ export function ServiceBreakdown({ summary, action }: Props) {
       title="Service Breakdown"
       query={summary}
       isEmpty={() => false}
+      denied={(d) => (d.revenue ? undefined : 'Invoices & Payments')}
       empty=""
       action={action}
     >
       {({ revenue }) => {
+        if (!revenue) return null;
         const total = revenue.byService.reduce((sum, s) => sum + s.cents, 0);
         const C = 2 * Math.PI * 40;
         const shown = hovered === null ? undefined : revenue.byService[hovered];
