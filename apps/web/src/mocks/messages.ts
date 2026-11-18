@@ -1460,6 +1460,9 @@ export function createMessagesMock(
         await mockDelay();
         const q = parseInput(ListLeadMessageThreadsQuery, query);
         const reach = await leadReach();
+        // P4-1: a client's own view (its converted leads' threads): the mock has no lead that
+        // converted with threads, so it lists none, as the API would.
+        if (q.clientId) return page([], q.cursor, q.limit);
         const kept = s()
           .leadThreads.filter((t) => reach.has(t.lead.id))
           .filter((t) => (q.archived ? t.archivedAt !== null : t.archivedAt === null))

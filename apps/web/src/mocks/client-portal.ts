@@ -146,7 +146,8 @@ export function createClientPortalMock(): ClientPortalClient {
       const lock = lockOf(found.id);
       const active = found.portalLogins.some((l) => l.status === 'ACTIVE');
       const pending = found.portalLogins.some((l) => l.status === 'PENDING_APPROVAL');
-      const latest = events(found.id)[0];
+      // As the API: the client's own last action; a member's (a preview) never counts.
+      const latest = events(found.id).find((e) => e.actor.kind === 'CLIENT');
       const invitation = mockPortalInvitationOf(found.id, found.portalLogins);
       const header: ClientPortalHeader = {
         client: {
@@ -355,6 +356,16 @@ export function createClientPortalMock(): ClientPortalClient {
     preview: async (clientId) => {
       await mockDelay();
       const { found } = record(clientId);
+      // As the API: the member's preview is in the client's portal activity, as a staff row.
+      const list = events(found.id);
+      list.unshift({
+        id: `0199d100-0000-7000-8001-${String(list.length + 1).padStart(12, '0')}`,
+        at: new Date().toISOString(),
+        type: 'portal.preview_opened',
+        actor: { kind: 'STAFF', name: 'Mock User' },
+        entity: { type: 'client', id: found.id },
+        ip: '198.51.100.90',
+      });
       return {
         clientName: found.displayName,
         firmName: 'LVP Accounting & Taxes (fake)',

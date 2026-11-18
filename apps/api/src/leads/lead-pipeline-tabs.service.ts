@@ -26,6 +26,7 @@ import {
   activitySelect,
   CLOSED_STATUSES,
   invalid,
+  leadAppointmentsOf,
   leadTasksOf,
   loadProfile,
   lockLead,
@@ -405,14 +406,21 @@ export class LeadPipelineTabsService {
     });
   }
 
-  /** Appointments have no lead link yet (see the PR's gaps): an empty list. */
+  /**
+   * P4-1: the lead's appointments, newest first: its own (booked before it became a client) and,
+   * once converted, the same ones under its client. Audited with the lead's id only.
+   */
   async appointments(
     businessId: string,
     actor: PipelineActor,
     id: string,
   ): Promise<LeadAppointment[]> {
-    await this.inFirm(businessId, (tx) => this.reachable(tx, businessId, actor, id));
-    return [];
+    const items = await this.inFirm(businessId, async (tx) => {
+      await this.reachable(tx, businessId, actor, id);
+      return leadAppointmentsOf(tx, businessId, id);
+    });
+    await this.audit.log('lead.viewed', { type: 'lead', id }, { view: 'appointments' });
+    return items;
   }
 
   async documentsAndForms(

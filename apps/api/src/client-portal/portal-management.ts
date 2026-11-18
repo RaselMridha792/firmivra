@@ -141,8 +141,9 @@ export class PortalManagementService {
             lockedBy: { select: { user: { select: { name: true } } } },
           },
         }),
+        // CP-F2-04: the client's own last action; a member's (a preview, a lock) never counts.
         tx.clientPortalActivity.findFirst({
-          where: { clientId },
+          where: { clientId, actorKind: 'CLIENT' },
           orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
           select: { occurredAt: true, type: true },
         }),

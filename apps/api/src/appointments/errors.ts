@@ -79,6 +79,12 @@ export const errors = {
       'VIDEO_LINK_MISSING',
       'The staff member has no meeting link yet. Add it in Settings > Availability, or paste a link.',
     ),
+  /** P4-1: a lead gets its appointment's confirmation and reminder by email only. */
+  leadSms: () =>
+    new BadRequestException({
+      code: 'SMS_UNAVAILABLE',
+      message: 'Text reminders are not sent to leads. Use email, or convert the lead to a client.',
+    }),
   smsUnavailable: () =>
     new BadRequestException({
       code: 'SMS_UNAVAILABLE',

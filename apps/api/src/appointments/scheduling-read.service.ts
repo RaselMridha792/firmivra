@@ -171,6 +171,12 @@ export class SchedulingReadService {
             { client: { email: term } },
             { client: { phone: term } },
             { client: { profile: { businessName: term } } },
+            // P4-1: a lead's own appointment, by its lead.
+            { clientId: null, lead: { firstName: term } },
+            { clientId: null, lead: { lastName: term } },
+            { clientId: null, lead: { email: term } },
+            { clientId: null, lead: { phone: term } },
+            { clientId: null, lead: { businessName: term } },
             { service: { name: term } },
             { type: { name: term } },
             { staff: { user: { name: term } } },

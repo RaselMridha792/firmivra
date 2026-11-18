@@ -88,12 +88,53 @@ export class LeadThreadsService {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }
 
-  /** Lead threads whose lead the actor reaches. */
-  private reach(businessId: string, actor: ClientsActor): Prisma.MessageThreadWhereInput {
+  /**
+   * Lead threads whose lead the actor reaches. P4-1: `viaClient` also reaches a converted lead's
+   * threads through the client it became (Staff: their assigned client), as the client's
+   * Messages show them; replying keeps the lead's own rule.
+   */
+  private reach(
+    businessId: string,
+    actor: ClientsActor,
+    viaClient = false,
+  ): Prisma.MessageThreadWhereInput {
+    const reached: Prisma.LeadWhereInput =
+      viaClient && actor.role === 'STAFF'
+        ? {
+            OR: [leadReach(actor), { engagement: { client: { assignedUserId: actor.userId } } }],
+          }
+        : leadReach(actor);
     return {
       businessId,
       leadId: { not: null },
-      lead: { AND: [visibleLead(businessId), leadReach(actor)] },
+      lead: { AND: [visibleLead(businessId), reached] },
+    };
+  }
+
+  /**
+   * P4-1: the threads of the leads that became this client (they stay on the lead, read through
+   * leads.client_id), for the client's Messages. The client must be one the member reaches (Staff:
+   * their assigned clients), else 404.
+   */
+  private async ofClient(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    clientId: string,
+  ): Promise<Prisma.MessageThreadWhereInput> {
+    const client = await tx.client.findFirst({
+      where: {
+        businessId,
+        id: clientId,
+        ...(actor.role === 'STAFF' ? { assignedUserId: actor.userId } : {}),
+      },
+      select: { id: true },
+    });
+    if (!client) throw notFound();
+    return {
+      businessId,
+      leadId: { not: null },
+      lead: { AND: [visibleLead(businessId), { clientId }] },
     };
   }
 
@@ -220,9 +261,10 @@ export class LeadThreadsService {
     businessId: string,
     actor: ClientsActor,
     id: string,
+    viaClient = false,
   ): Promise<ThreadRow> {
     const row = await tx.messageThread.findFirst({
-      where: { AND: [this.reach(businessId, actor), { id }] },
+      where: { AND: [this.reach(businessId, actor, viaClient), { id }] },
       select: threadSelect,
     });
     if (!row) throw notFound();
@@ -239,7 +281,9 @@ export class LeadThreadsService {
       const rows = await tx.messageThread.findMany({
         where: {
           AND: [
-            this.reach(businessId, actor),
+            q.clientId
+              ? await this.ofClient(tx, businessId, actor, q.clientId)
+              : this.reach(businessId, actor),
             { archivedAt: q.archived ? { not: null } : null },
             await this.searchWhere(tx, businessId, q.search),
             after
@@ -268,7 +312,11 @@ export class LeadThreadsService {
     await this.audit.log(
       'message_threads.listed',
       { type: 'message_thread' },
-      { count: result.items.length, contact: 'lead' },
+      {
+        count: result.items.length,
+        contact: 'lead',
+        ...(q.clientId ? { clientId: q.clientId } : {}),
+      },
     );
     return result;
   }
@@ -297,7 +345,7 @@ export class LeadThreadsService {
 
   async get(businessId: string, actor: ClientsActor, id: string): Promise<LeadMessageThreadDetail> {
     const detail = await this.inFirm(businessId, async (tx) =>
-      this.detail(tx, businessId, await this.thread(tx, businessId, actor, id)),
+      this.detail(tx, businessId, await this.thread(tx, businessId, actor, id, true)),
     );
     await this.audit.log('message_thread.viewed', { type: 'message_thread', id });
     return detail;
