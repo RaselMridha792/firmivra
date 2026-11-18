@@ -227,7 +227,13 @@ async function timed(path: string, times = 7) {
       .get(`/api/v1${path}`)
       .set('x-business-id', businessId)
       .set('authorization', `Bearer ${token}`);
-  const first = await call();
+  // The warm-up is not timed. On a laptop whose database other suites keep busy, the first call
+  // after the bulk insert can wait past the transaction start limit (503): try it again.
+  let first = await call();
+  for (let tries = 1; first.status === 503 && tries < 5; tries++) {
+    await new Promise((done) => setTimeout(done, 2_000));
+    first = await call();
+  }
   expect(first.status, `${path}: ${JSON.stringify(first.body)}`).toBe(200);
   const ms: number[] = [];
   for (let i = 0; i < times; i++) {
