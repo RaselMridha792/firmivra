@@ -663,3 +663,36 @@ describe('Outstanding Invoices and Appointments Today against their lists (Dashb
     }
   });
 });
+
+describe('a firm in another time zone (Dashboard Review Two U2, V2)', () => {
+  it("counts today and its periods on the firm's own calendar, and says which zone", async () => {
+    // UTC+14: its today is ahead of New York's for most of the day.
+    const zone = 'Pacific/Kiritimati';
+    const setZone = (timezone: string) =>
+      inFirm('b', people.ownerB, (tx) =>
+        tx.businessSettings.upsert({
+          where: { businessId: firms.b.id },
+          create: { businessId: firms.b.id, timezone },
+          update: { timezone },
+        }),
+      );
+    await setZone(zone);
+    try {
+      const s = await read(people.ownerB, 'b');
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
+      expect([s.timeZone, s.today]).toEqual([zone, today]);
+      expect(s.range).toMatchObject({
+        period: 'THIS_MONTH',
+        from: `${today.slice(0, 8)}01`,
+        to: today,
+      });
+      // A Custom period may end on the firm's today, never the day after it.
+      const custom = (to: string) =>
+        summary(people.ownerB, 'b', 'STAFF', `?period=CUSTOM&from=${today}&to=${to}`);
+      expect((await custom(today)).status).toBe(200);
+      expect((await custom(addDays(today, 1))).status).toBe(400);
+    } finally {
+      await setZone('America/New_York');
+    }
+  });
+});
