@@ -3,6 +3,7 @@
 import type { AuditEntry } from '@firmivra/types';
 import { Avatar, Button, Card, EmptyState, Table, type Column } from '@firmivra/ui';
 import { DownloadSimple, ShieldCheck } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
@@ -13,6 +14,7 @@ import { useFirmTimeZone } from '../../intake-forms/_components/expiry';
 import { exportFailure, saveFile } from '../../../../../lib/save-file';
 import { AuditLogFilters, addressFilters, type AuditFilters } from './audit-filters';
 import { detailLines } from './audit-details';
+import { recordHref } from './audit-links';
 import { when } from './audit-time';
 
 /** "System" for the system and signed-out requests; Firmivra Support as it is, never a person. */
@@ -70,6 +72,16 @@ function Details({ entry }: { entry: AuditEntry }) {
   );
 }
 
+function RecordLink({ entity }: { entity: AuditEntry['entity'] }) {
+  const href = recordHref(entity);
+  if (!href) return null;
+  return (
+    <Link href={href} data-testid="audit-record-link" className="block text-sm text-link">
+      Open {entity.type.replace(/_/g, ' ')}
+    </Link>
+  );
+}
+
 const columnsIn = (timeZone: string | undefined): Column<AuditEntry>[] => [
   {
     id: 'at',
@@ -114,6 +126,8 @@ const columnsIn = (timeZone: string | undefined): Column<AuditEntry>[] => [
             {entry.entity.name}
           </span>
         ) : null}
+        {/* M01b: the record's own page, which checks the viewer's access. */}
+        <RecordLink entity={entry.entity} />
         <span className="block">{entry.entity.type}</span>
         {entry.entity.id ? (
           <span className="block break-all text-xs text-muted">{entry.entity.id}</span>

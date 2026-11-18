@@ -58,3 +58,16 @@ test('M01a: each record shows its name; a gone record reads "Deleted team member
     rows.filter({ hasText: 'membership.invited' }).getByTestId('audit-record-name'),
   ).toHaveText('Deleted team member');
 });
+
+test('M01b: a record opens on its own page; a gone record has no link', async ({ page }) => {
+  await page.goto(app('/audit-log'));
+  const rows = page.getByRole('table', { name: 'Audit log' }).locator('tbody tr');
+  await expect(
+    rows.filter({ hasText: 'membership.invited' }).getByTestId('audit-record-link'),
+  ).toHaveCount(0);
+  await rows
+    .filter({ hasText: 'client.created' })
+    .getByRole('link', { name: 'Open client' })
+    .click();
+  await expect(page).toHaveURL(/\/clients\/0199b6a1-0000-7000-8000-000000000001$/);
+});
