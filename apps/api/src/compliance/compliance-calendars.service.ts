@@ -29,6 +29,7 @@ import {
   todayOf,
   toDay,
 } from './compliance.shared.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Import = z.output<typeof ImportComplianceCalendarRequest>;
 type EntryInput = z.output<typeof ComplianceCalendarEntryInput>;
@@ -532,7 +533,8 @@ export class ComplianceCalendarsService {
     await this.guard(() =>
       inFirm(this.database, businessId, async (tx) => {
         await this.draft(tx, businessId, id);
-        await tx.complianceCalendar.update({
+        const before = await tx.complianceCalendar.findFirstOrThrow({ where: { businessId, id } });
+        const after = await tx.complianceCalendar.update({
           where: { businessId_id: { businessId, id } },
           data: {
             name: body.name,
@@ -549,7 +551,8 @@ export class ComplianceCalendarsService {
           tx,
           'compliance.calendar.updated',
           { type: 'compliance_calendar', id },
-          { fields: Object.keys(body).sort() },
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          auditChanges(before, after, { fields: Object.keys(body) }),
         );
       }),
     );
@@ -616,7 +619,7 @@ export class ComplianceCalendarsService {
             tx,
             'compliance.calendar.entry-updated',
             { type: 'compliance_calendar', id },
-            { entryId, fields: Object.keys(body).sort() },
+            { entryId, ...auditChanges(current, row, { fields: Object.keys(body) }) },
           );
           return toEntry(row);
         }),

@@ -4,6 +4,7 @@ import {
   HttpException,
   Inject,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { databaseErrorCode, type Database, Prisma, type TxClient } from '@firmivra/db';
 import type {
@@ -25,6 +26,7 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import {
   addActivity,
   type BookkeepingActor,
@@ -155,11 +157,66 @@ const TERMS_EVENT_TEXT: Record<BookkeepingTermsEventKind, string> = {
   NOTE: 'note added',
 };
 
+/** What a History event records besides its kind. */
+export interface TermsEventExtra {
+  effectiveDate?: string | null;
+  noticeSentAt?: string | null;
+  reason?: string | null;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * A History event of one version, and its line in the client's bookkeeping Activity (Review 2,
+ * E01a, A01). `actorUserId` is the member who acted; null for the client's own answer in the
+ * portal (BK-CP3), whose Activity line then says so (`summary`).
+ */
+export async function addTermsEvent(
+  tx: TxClient,
+  businessId: string,
+  actorUserId: string | null,
+  termsId: string,
+  kind: BookkeepingTermsEventKind,
+  extra: TermsEventExtra = {},
+  summary: string = TERMS_EVENT_TEXT[kind],
+) {
+  const terms = await tx.bookkeepingTerms.findFirst({
+    where: { businessId, id: termsId },
+    select: { engagementId: true, version: true },
+  });
+  if (terms) {
+    await addActivity(
+      tx,
+      businessId,
+      terms.engagementId,
+      actorUserId,
+      'OTHER',
+      `Terms version ${terms.version}: ${summary}`,
+      { termsId },
+    );
+  }
+  return tx.bookkeepingTermsEvent.create({
+    data: {
+      businessId,
+      termsId,
+      kind,
+      effectiveDate: extra.effectiveDate ? toDay(extra.effectiveDate) : null,
+      noticeSentAt: extra.noticeSentAt ? new Date(extra.noticeSentAt) : null,
+      reason: extra.reason ?? null,
+      details: (extra.details ?? {}) as Prisma.InputJsonValue,
+      actorUserId,
+    },
+    select: { id: true },
+  });
+}
+
 @Injectable()
 export class BookkeepingTermsService {
+  private readonly logger = new Logger(BookkeepingTermsService.name);
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
   ) {}
 
   private assertManager(actor: BookkeepingActor) {
@@ -300,48 +357,16 @@ export class BookkeepingTermsService {
     );
   }
 
-  private async event(
+  private event(
     tx: TxClient,
     businessId: string,
     actor: BookkeepingActor,
     termsId: string,
     kind: BookkeepingTermsEventKind,
-    extra: {
-      effectiveDate?: string | null;
-      noticeSentAt?: string | null;
-      reason?: string | null;
-      details?: Record<string, unknown>;
-    } = {},
+    extra: TermsEventExtra = {},
   ) {
     // Review 2 (E01a, A01): a Terms change shows in the client's bookkeeping Activity too.
-    const terms = await tx.bookkeepingTerms.findFirst({
-      where: { businessId, id: termsId },
-      select: { engagementId: true, version: true },
-    });
-    if (terms) {
-      await addActivity(
-        tx,
-        businessId,
-        terms.engagementId,
-        actor.userId,
-        'OTHER',
-        `Terms version ${terms.version}: ${TERMS_EVENT_TEXT[kind]}`,
-        { termsId },
-      );
-    }
-    return tx.bookkeepingTermsEvent.create({
-      data: {
-        businessId,
-        termsId,
-        kind,
-        effectiveDate: extra.effectiveDate ? toDay(extra.effectiveDate) : null,
-        noticeSentAt: extra.noticeSentAt ? new Date(extra.noticeSentAt) : null,
-        reason: extra.reason ?? null,
-        details: (extra.details ?? {}) as Prisma.InputJsonValue,
-        actorUserId: actor.userId,
-      },
-      select: { id: true },
-    });
+    return addTermsEvent(tx, businessId, actor.userId, termsId, kind, extra);
   }
 
   /** The columns a request sets (undefined: unchanged; null: cleared). */
@@ -629,16 +654,42 @@ export class BookkeepingTermsService {
     });
   }
 
-  send(
+  async send(
     businessId: string,
     actor: BookkeepingActor,
     termsId: string,
     body: Out<typeof SendBookkeepingTermsRequest>,
   ) {
-    return this.move(businessId, actor, termsId, ['DRAFT'], 'SENT', async () => ({
+    const sent = await this.move(businessId, actor, termsId, ['DRAFT'], 'SENT', async () => ({
       kind: 'SENT',
       event: { reason: body.note ?? null },
     }));
+    await this.tellClient(businessId, sent);
+    return sent;
+  }
+
+  /**
+   * BK-CP3 (Client Portal Review One): sent terms reach the client's portal (My Services); the
+   * client's primary login gets a bell item naming the service, once per sending. A failure is
+   * logged with ids only and never undoes the send.
+   */
+  private async tellClient(businessId: string, sent: BookkeepingTerms): Promise<void> {
+    try {
+      const row = await this.run(businessId, (tx) =>
+        tx.bookkeepingTerms.findFirstOrThrow({
+          where: { businessId, id: sent.id },
+          select: { engagementId: true },
+        }),
+      );
+      await this.notifier.notify({
+        businessId,
+        event: 'bookkeeping-terms.sent',
+        recordId: row.engagementId,
+        eventKey: `bookkeeping-terms.sent:${sent.id}:${sent.sentAt}`,
+      });
+    } catch (error) {
+      this.logger.warn(`bookkeeping-terms.sent for ${sent.id} not sent (${errorName(error)})`);
+    }
   }
 
   backToDraft(businessId: string, actor: BookkeepingActor, termsId: string) {

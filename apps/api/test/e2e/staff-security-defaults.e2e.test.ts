@@ -11,7 +11,11 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { StaffSecurityDefaults } from '@firmivra/types';
+import {
+  StaffSecurityApplyPreview,
+  StaffSecurityApplyResult,
+  StaffSecurityDefaults,
+} from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -412,5 +416,79 @@ describe('security defaults for new staff accounts', () => {
     );
     expect(saved.maxConcurrentSessions).toBe(7);
     expect((await get()).maxConcurrentSessions).not.toBe(7);
+  });
+});
+
+describe('Apply to Existing Accounts (SM05)', () => {
+  const preview = async (who: Who = adminA, firm: 'a' | 'b' = 'a') =>
+    StaffSecurityApplyPreview.parse(
+      ok(await call('get', `${DEFAULTS}/apply-preview`, who, undefined, firm)),
+    );
+
+  it('previews who changes and why some are left out, then applies but the exceptions, audited', async () => {
+    const defaults = await get();
+    const first = await preview();
+    expect(first.version).toBe(defaults.version);
+    // An Admin changes the roles below Admin only, never themselves.
+    expect(first.skipped).toEqual(
+      expect.arrayContaining([
+        { id: member.adminA, name: 'Fake R60sd adminA', reason: 'YOU' },
+        { id: member.ownerA, name: 'Fake R60sd ownerA', reason: 'NOT_YOURS' },
+      ]),
+    );
+    const ids = first.accounts.map((a) => a.id);
+    expect(ids).toEqual(expect.arrayContaining([member.managerA, member.staffA, member.invitedA]));
+    expect(ids).not.toContain(member.adminA);
+    expect(first.accounts.find((a) => a.id === member.staffA)?.changes).toContain('accessLocation');
+
+    const apply = (body: object, who: Who = adminA) => call('post', `${DEFAULTS}/apply`, who, body);
+    expectError(await apply({ version: first.version }), 400, 'VALIDATION_FAILED');
+    expectError(await apply({ version: 'old', confirm: true }), 409, 'SAVE_CONFLICT');
+    // An exception that is not one of this firm's accounts.
+    expectError(
+      await apply({ version: first.version, confirm: true, exceptIds: [member.ownerB] }),
+      404,
+      'NOT_FOUND',
+    );
+    for (const who of [managerA, staffA]) {
+      expect((await call('get', `${DEFAULTS}/apply-preview`, who)).status).toBe(403);
+      expect((await apply({ version: first.version, confirm: true }, who)).status).toBe(403);
+    }
+
+    // The Manager is the explicit exception and keeps their own.
+    const result = StaffSecurityApplyResult.parse(
+      ok(await apply({ version: first.version, confirm: true, exceptIds: [member.managerA] })),
+    );
+    expect(result).toEqual({ applied: first.accounts.length - 1, excepted: 1 });
+    expect(await securityOf(people.staffA.email)).toMatchObject({
+      accessLocation: defaults.accessLocation,
+      allowedIps: defaults.allowedIps,
+      maxConcurrentSessions: defaults.maxConcurrentSessions,
+      autoLogoutMinutes: defaults.autoLogoutMinutes,
+      notifyPasswordChanges: defaults.notices.passwordChanges,
+    });
+    const own = await auditRows(member.staffA);
+    expect(own.at(-1)).toMatchObject({
+      action: 'staff.security_saved',
+      metadata: { fromCompanyDefaults: true },
+    });
+    const firm = (await auditRows(firms.a)).filter(
+      (r) => r.action === 'staff_security_defaults.applied',
+    );
+    expect(firm.at(-1)?.metadata).toMatchObject({ ...result, skipped: first.skipped.length });
+
+    // Looked at again: only the exception still differs.
+    const again = await preview();
+    expect(again.accounts.map((a) => a.id)).toEqual([member.managerA]);
+    expect(again.unchanged).toBe(result.applied);
+    // The Original Owner may change the Admin's too.
+    const owner = await preview(ownerA);
+    expect(owner.skipped).toEqual([
+      { id: member.ownerA, name: 'Fake R60sd ownerA', reason: 'YOU' },
+    ]);
+    expect(owner.accounts.map((a) => a.id)).toContain(member.adminA);
+    // Another firm's preview never lists firm A's accounts.
+    const b = await preview(ownerB, 'b');
+    expect([...b.accounts, ...b.skipped].map((a) => a.id)).toEqual([member.ownerB]);
   });
 });

@@ -30,6 +30,8 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   },
   'client.signup-email-code': { code: '482913' },
   'staff.phone-code': { code: '482913' },
+  'staff.mfa-reset': { name: 'Fake Member' },
+  'platform.mfa-enrolled': { name: 'Fake Member' },
   'client.signup-sms-code': { code: '482913' },
   'client.already-registered': {
     signInLink: 'https://portal.example.test/sample/sign-in',

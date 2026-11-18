@@ -97,6 +97,7 @@ import {
   createTasksClient,
   createBookkeepingClient,
   createBookkeepingTermsClient,
+  createMyBookkeepingTermsClient,
   createPayrollClient,
   createTaskWorkClient,
   createComplianceClient,
@@ -216,6 +217,7 @@ import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-retur
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
 import { createBookkeepingTermsMock } from '../mocks/bookkeeping-terms';
+import { myBookkeepingTermsMock } from '../mocks/my-bookkeeping-terms';
 import { createPortalInvitationsMock, portalInvitationMock } from '../mocks/portal-invitations';
 import { createClientPortalMock } from '../mocks/client-portal';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
@@ -581,6 +583,11 @@ export const api = {
     dev && mocked('bookkeepingTerms')
       ? createBookkeepingTermsMock()
       : createBookkeepingTermsClient(request),
+  /** Client Portal BK-CP3: the signed-in client's bookkeeping terms under My Services (portal). */
+  myBookkeepingTerms: (firmSlug: string) =>
+    dev && mocked('myBookkeepingTerms')
+      ? myBookkeepingTermsMock(firmSlug)
+      : createMyBookkeepingTermsClient(request, firmSlug),
   /**
    * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
    * Mock: NEXT_PUBLIC_API_MOCK=automations (mocks/automations.ts, R56).
