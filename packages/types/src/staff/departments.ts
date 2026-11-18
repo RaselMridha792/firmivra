@@ -24,7 +24,10 @@ export const Department = z.object({
   description: z.string().nullable(),
   head: StaffRef.nullable(),
   teamCount: z.number().int(),
+  /** Active staff assigned to it (SM15: shown as "4 active · 5 assigned"). */
   staffCount: z.number().int(),
+  /** Everyone assigned to it but the deactivated (active, invited, locked), as the directory. */
+  assignedCount: z.number().int(),
   status: StaffGroupStatus,
   createdAt: DateTime,
 });
@@ -63,7 +66,10 @@ export const StaffTeam = z.object({
   description: z.string().nullable(),
   department: NamedRef,
   lead: StaffRef.nullable(),
+  /** Active members (SM15: shown as "4 active · 5 assigned"). */
   memberCount: z.number().int(),
+  /** Every member but the deactivated (active, invited, locked). */
+  assignedCount: z.number().int(),
   status: StaffGroupStatus,
   createdAt: DateTime,
 });

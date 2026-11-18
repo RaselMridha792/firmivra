@@ -287,6 +287,7 @@ function seed(empty: boolean): Store {
       head: null,
       teamCount: 0,
       staffCount: 0,
+      assignedCount: 0,
       status: name === 'Human Resources' ? 'INACTIVE' : 'ACTIVE',
       createdAt: '2024-01-12T14:00:00.000Z',
     });
@@ -493,6 +494,7 @@ function seed(empty: boolean): Store {
       department: { id: dept.id, name: dept.name },
       lead: dept.head,
       memberCount: 0,
+      assignedCount: 0,
       status: 'ACTIVE',
       createdAt: '2024-01-12T14:00:00.000Z',
     });
@@ -578,12 +580,18 @@ function storeFor(options: Options): Store {
 /** Counts that follow the rows: department staff and team counts, team member counts. */
 function recount(s: Store) {
   for (const d of s.departments) {
-    d.staffCount = s.members.filter(
-      (m) => m.detail.status !== 'DEACTIVATED' && m.detail.departments.some((x) => x.id === d.id),
-    ).length;
+    // SM15: as the API, the active staff and everyone assigned but the deactivated.
+    const inDept = s.members.filter((m) => m.detail.departments.some((x) => x.id === d.id));
+    d.staffCount = inDept.filter((m) => m.detail.status === 'ACTIVE').length;
+    d.assignedCount = inDept.filter((m) => m.detail.status !== 'DEACTIVATED').length;
     d.teamCount = s.teams.filter((t) => t.department.id === d.id && t.status !== 'ARCHIVED').length;
   }
-  for (const t of s.teams) t.memberCount = s.teamMembers.get(t.id)?.size ?? 0;
+  for (const t of s.teams) {
+    const ids = [...(s.teamMembers.get(t.id)?.keys() ?? [])];
+    const ms = s.members.filter((m) => ids.includes(m.detail.id));
+    t.memberCount = ms.filter((m) => m.detail.status === 'ACTIVE').length;
+    t.assignedCount = ms.filter((m) => m.detail.status !== 'DEACTIVATED').length;
+  }
 }
 
 const key = (module: string, capability: string) => `${module}:${capability}`;
@@ -1875,6 +1883,7 @@ export function createDepartmentsMock(options: Options = {}): DepartmentsClient 
         head: headRef(input.headMembershipId),
         teamCount: 0,
         staffCount: 0,
+        assignedCount: 0,
         status: 'ACTIVE',
         createdAt: now(),
       };
@@ -1938,6 +1947,7 @@ export function createDepartmentsMock(options: Options = {}): DepartmentsClient 
         department: { id: d.id, name: d.name },
         lead: headRef(input.leadMembershipId),
         memberCount: 0,
+        assignedCount: 0,
         status: 'ACTIVE',
         createdAt: now(),
       };
