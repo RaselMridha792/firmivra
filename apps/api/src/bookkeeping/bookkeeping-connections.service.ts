@@ -30,6 +30,7 @@ import {
 } from './bookkeeping.mappers.js';
 import { errors, inFirm, mapBookkeepingDbError, providerLabel } from './bookkeeping.shared.js';
 import { BookkeepingStatusService, readSettings } from './bookkeeping-status.service.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 /**
  * A client's accounting connections, their sync history and the bank and credit card accounts.
@@ -467,7 +468,11 @@ export class BookkeepingConnectionsService {
         tx,
         'bookkeeping.account.updated',
         { type: 'bookkeeping_account', id },
-        { clientId: p.engagement.clientId, fields: Object.keys(body).sort() },
+        // Audit Log Review 2, R03: each changed field's old and new value.
+        {
+          clientId: p.engagement.clientId,
+          ...auditChanges(found, row, { fields: Object.keys(data) }),
+        },
       );
       return toAccount(row);
     });

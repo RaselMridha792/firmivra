@@ -54,6 +54,7 @@ import { scheduleInclude, toScheduleRows } from './schedule-rows.js';
 import { MAX_ROWS, type Row, SOURCES, type SourceDef, sourceOf, toCatalog } from './sources.js';
 import { INSIGHT_RULES } from './metric-definitions.js';
 import type { z } from 'zod';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Run = z.output<typeof RunBody>;
 type Lookup = z.output<typeof LookupQuery>;
@@ -993,6 +994,7 @@ export class ReportsService {
   ): Promise<ReportSettingsView> {
     if (!isAdmin(tenant)) throw reportErrors.forbidden();
     await this.inFirm(businessId, async (tx) => {
+      const before = await tx.reportSettings.findUnique({ where: { businessId } });
       await tx.reportSettings.upsert({
         where: { businessId },
         create: { businessId, ...body, updatedByUserId: userId },
@@ -1002,7 +1004,8 @@ export class ReportsService {
         tx,
         'report_settings.updated',
         { type: 'report_settings', id: businessId },
-        { fields: Object.keys(body) },
+        // Audit Log Review 2, R03: each changed setting's old and new value.
+        auditChanges(before ?? {}, body, { fields: Object.keys(body) }),
         { businessId, actorUserId: userId },
       );
     });

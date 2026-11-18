@@ -19,6 +19,7 @@ import {
   txOf,
 } from './compliance.mappers.js';
 import { errors, inFirm, parseDay, addDays } from './compliance.shared.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 /**
  * The firm's Compliance settings (the Settings button) and the compliance log (Frame 3, Logs):
@@ -76,7 +77,8 @@ export class ComplianceSettingsService {
         tx,
         'compliance.settings.updated',
         { type: 'compliance_settings', id: businessId },
-        { fields: Object.keys(body).sort() },
+        // Audit Log Review 2, R03: each changed setting's old and new value.
+        auditChanges(current, next, { fields: Object.keys(body) }),
       );
       return loadSettings(tx, businessId);
     });

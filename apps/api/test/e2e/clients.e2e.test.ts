@@ -652,7 +652,12 @@ describe('the answer after a change', () => {
       people.staffA2.id,
       people.staffA.id,
     ]);
-    expect(after.audit.metadata).toEqual({ fields: ['assignedUserId'], tasksMoved: 1 });
+    // Audit Log Review 2, R03: the field's old and new value.
+    expect(after.audit.metadata).toEqual({
+      fields: ['assignedUserId'],
+      changes: { assignedUserId: { from: people.staffA.id, to: people.staffA2.id } },
+      tasksMoved: 1,
+    });
   });
 
   it('archiving an archived client changes nothing and is audited as the read it is', async () => {
@@ -698,7 +703,7 @@ describe('the answer after a change', () => {
 });
 
 describe('audit', () => {
-  it('logs every read and change with ids and field names, never names or emails', async () => {
+  it('logs every read and change with ids and field names; only an edit holds the old and new value', async () => {
     const c = await create({ displayName: `Audited Person ${run}`, email: email('audited') });
     await call('get', `/${c.id}`, people.ownerA);
     await call('patch', `/${c.id}`, people.ownerA, 'a', { displayName: `Audited Again ${run}` });
@@ -722,11 +727,16 @@ describe('audit', () => {
     ]) {
       expect(actions).toContain(action);
     }
-    const text = JSON.stringify(rows.map((r) => r.metadata));
+    // Reads, the list, creating and archiving never write the client's name or email; an edit
+    // holds the changed field's old and new value (Audit Log Review 2, R03: lead decision 2).
+    const text = JSON.stringify(
+      rows.filter((r) => r.action !== 'client.updated').map((r) => r.metadata),
+    );
     expect(text).not.toContain('Audited');
     expect(text).not.toContain('audited-');
     expect(rows.find((r) => r.action === 'client.updated')?.metadata).toEqual({
       fields: ['displayName'],
+      changes: { displayName: { from: `Audited Person ${run}`, to: `Audited Again ${run}` } },
     });
     // Clients Review 2: archive and restore name the client (its Client ID) and what changed.
     const archivedRow = rows.find((r) => r.action === 'client.archived')?.metadata as {
@@ -1049,7 +1059,16 @@ describe('Create Anyway in the audit (Clients Review 2 §5 duplicate safeguards,
       fields: ['displayName'],
       savedAnyway: { matchedClientIds: [first.id, second.id], reasons: ['NAME'] },
     });
-    expect(JSON.stringify(updated)).not.toContain('Lantern');
+    // Audit Log Review 2, R03: the client's own rename is its old and new name; the matches are
+    // named by id only, never by their names.
+    expect(updated?.metadata).toMatchObject({
+      changes: { displayName: { from: `Dockside Co ${run}`, to: `Lantern-Works ${run}` } },
+    });
+    const text = JSON.stringify(updated);
+    for (const name of [`Lantern Works LLC ${run}`, `lantern works, inc. ${run}`]) {
+      expect(text).not.toContain(name);
+    }
+    expect(JSON.stringify(updated?.metadata)).not.toMatch(/"savedAnyway":\{[^}]*Lantern/);
   });
 
   it('an Edit to a phone another client has, saved anyway, names that client; another firm never counts', async () => {

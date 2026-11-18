@@ -583,7 +583,8 @@ describe("a business return's own identity (Octavia's TX-F31, F32; R1's #1176)",
       fields: ['addressLine2', 'ein', 'name'],
       changes: {
         addressLine2: { from: null, to: 'Suite 4' },
-        ein: { from: null, to: '6789' },
+        // Audit Log Review 2, M03: a tax id keeps its last 4 only, masked.
+        ein: { from: null, to: '•••6789' },
         name: { from: 'Bayside Bakery LLC (fake)', to: 'Bayside Bakery Holdings (fake)' },
       },
     });

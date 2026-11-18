@@ -32,6 +32,7 @@ import { day, formMetaOf, iso } from './workspace.common.js';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { checkDue, chosenExpiry, expiryAfterDays } from './intake-expiry.js';
 import { requestedEngagement } from '../engagements/requested-engagement.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 /** N8-23: the title of the pending request an intake send makes (no service yet). */
 export const REQUESTED_TITLE = 'Requested (from an intake send)';
@@ -847,7 +848,7 @@ export class IntakeSendService {
       throw invalid('A draft for a new contact cannot be saved yet: choose a client or lead');
     }
     const businessId = tenant.businessId;
-    const { id, replaced } = await this.inFirm(tenant, async (tx) => {
+    const { id, replaced, changes } = await this.inFirm(tenant, async (tx) => {
       const before = draftId
         ? await tx.intake.findFirst({
             where: { businessId, id: draftId, status: 'DRAFT', createdByUserId: userId },
@@ -900,6 +901,8 @@ export class IntakeSendService {
           ? { allowSaveResume: body.allowSaveAndContinue }
           : {}),
       };
+      // Audit Log Review 2, R03: each changed field's old and new value (the message as "changed").
+      const changes = auditChanges(before ?? {}, data, { fields: Object.keys(data) });
       const same =
         before &&
         before.formId === form.live.id &&
@@ -907,7 +910,7 @@ export class IntakeSendService {
         before.leadId === to.leadId;
       if (same) {
         await tx.intake.update({ where: { id: before.id }, data });
-        return { id: before.id, replaced: null };
+        return { id: before.id, replaced: null, changes };
       }
       const created = await tx.intake.create({
         data: {
@@ -933,13 +936,13 @@ export class IntakeSendService {
       if (before) {
         await tx.intake.update({ where: { id: before.id }, data: { status: 'ARCHIVED' } });
       }
-      return { id: created.id, replaced: before?.id ?? null };
+      return { id: created.id, replaced: before?.id ?? null, changes };
     });
     await this.audit.log(
       replaced || !draftId ? 'intake.draft_saved' : 'intake.draft_updated',
       { type: 'intake', id },
       {
-        fields: Object.keys(body).sort(),
+        ...changes,
         ...(replaced ? { replacedDraftId: replaced } : {}),
       },
     );

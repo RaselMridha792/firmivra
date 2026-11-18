@@ -19,6 +19,12 @@ test('My Services groups the services and takes a cancellation request', async (
 
   await tabs.getByRole('tab', { name: /^Recurring/ }).click();
   const card = page.getByTestId('service-card').filter({ hasText: 'Bookkeeping' });
+  // The cancellation is in the card's details (My Services redesign, FIR-445).
+  await card.getByRole('button', { name: 'View Details' }).click();
+  await expect(card.getByRole('button', { name: 'View Details' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
   await card.getByRole('button', { name: 'Request cancellation' }).click();
   await card.getByLabel('Reason (optional)').fill('Moving the books in-house.');
   await card.getByRole('button', { name: 'Send request' }).click();
