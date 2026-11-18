@@ -69,6 +69,8 @@ export const NotificationTargetKind = z.enum([
   'task_series',
   /** A tax plan (P4-8): the firm site only, the plan itself. */
   'tax_plan',
+  /** A business plan (Business Advisory B10): the firm site only, the plan's review step. */
+  'advisory_plan',
 ]);
 export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
 
@@ -188,6 +190,12 @@ export const NOTIFICATION_EVENTS = {
    */
   'tax-plan.client-request': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
   'tax-plan.client-approved': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
+  /**
+   * Business Advisory B10 (Client Portal Review One): the client approved the business plan sent
+   * for their approval, in the portal. To the advisory client's advisor and the member who sent
+   * it (the caller names them).
+   */
+  'advisory-plan.client-approved': { category: 'SERVICES', kind: 'advisory_plan', to: 'staff' },
   /**
    * Tasks Review Two T-D15: an occurrence of a recurring series could not be made after its
    * retries (FAILED). Owners and Admins only (the series is the record, not the client's). It

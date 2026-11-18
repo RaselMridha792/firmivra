@@ -29,6 +29,7 @@ const FIRM: Record<NotificationTargetKind, ((clientId: string) => string) | stri
   task_series: null,
   // By its own id (below): the plan's review step.
   tax_plan: null,
+  advisory_plan: null,
 };
 
 /** Portal pages, by kind, after `/{firmSlug}`. */
@@ -54,6 +55,8 @@ const PORTAL: Record<NotificationTargetKind, string | null> = {
   task_series: null,
   // P4-8: the client's own request or approval notifies the firm only.
   tax_plan: null,
+  // B10: likewise, the client's approval of a business plan.
+  advisory_plan: null,
 };
 
 /**
@@ -87,6 +90,8 @@ export function notificationLink(target: unknown, where: NotificationSite): stri
   if (kind === 'task') return `/tasks/${id}`;
   // P4-8: a client's request or approval opens the plan's Review & Save step.
   if (kind === 'tax_plan') return `/tax-planning/plans/${id}/edit/review`;
+  // B10: a client's approval opens the business plan's Review & Save step.
+  if (kind === 'advisory_plan') return `/business-advisory/plans/${id}/edit/review`;
   // T-D15: a series that failed to make a task opens its overview.
   if (kind === 'task_series') return `/tasks/recurring/${id}`;
   const page = FIRM[kind];

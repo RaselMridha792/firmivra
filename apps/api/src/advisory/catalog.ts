@@ -12,7 +12,17 @@ const r = (
   kind: AdvisoryResource['kind'],
   clientFacing: boolean,
   summary: string,
-): ResourceDef => ({ key, title, category, kind, clientFacing, url: null, summary });
+): ResourceDef => ({
+  key,
+  title,
+  category,
+  kind,
+  clientFacing,
+  url: null,
+  // B28: a document-like resource goes as a Secure Link or a PDF; a video or a link as a link.
+  formats: kind === 'VIDEO' || kind === 'LINK' ? ['SECURE_LINK'] : ['SECURE_LINK', 'PDF'],
+  summary,
+});
 
 /** The approved library of guides and checklists (no table yet: see the notes). */
 export const RESOURCES: readonly ResourceDef[] = [

@@ -237,6 +237,11 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'Tax plan approved',
     body: forClient(p, `${text(p, 'title') ?? 'A tax plan'} was approved in the portal.`),
   }),
+  // B10: the business plan's name and its client.
+  'advisory-plan.client-approved': (p) => ({
+    title: 'Business plan approved',
+    body: forClient(p, `${text(p, 'title') ?? 'A business plan'} was approved in the portal.`),
+  }),
   // Tasks T-D15: the series' title; the series page says which occurrence and why.
   'task.series-failed': (p) => ({
     title: 'Recurring task not created',

@@ -65,6 +65,7 @@ import {
   createMyReportsClient,
   createMyServicesClient,
   createMySignaturesClient,
+  createMyAdvisoryClient,
   createMyTaxPlansClient,
   createSigningClient,
   createMyTaxReturnsClient,
@@ -153,6 +154,7 @@ import {
   mySignaturesMock,
 } from '../mocks/esign';
 import { myTaxPlansMock } from '../mocks/my-tax-plans';
+import { myAdvisoryMock } from '../mocks/my-advisory';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { intakeLinkMock } from '../mocks/intake-link';
@@ -773,6 +775,11 @@ export const api = {
     dev && mocked('myTaxPlans')
       ? myTaxPlansMock(firmSlug)
       : createMyTaxPlansClient(request, firmSlug),
+  /** BA-CP: the signed-in client's Business Advisory under My Services (portal). */
+  myAdvisory: (firmSlug: string) =>
+    dev && mocked('myAdvisory')
+      ? myAdvisoryMock(firmSlug)
+      : createMyAdvisoryClient(request, firmSlug),
   /** The signed-out invitation page at /{slug}/invitation (Business Advisory B3). */
   portalInvitation: (firmSlug: string) =>
     dev && mocked('portalInvitation')

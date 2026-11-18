@@ -205,6 +205,18 @@ export const AdvisoryMeetingRow = z.object({
 });
 export type AdvisoryMeetingRow = z.infer<typeof AdvisoryMeetingRow>;
 
+/**
+ * B28 (Business Advisory review §18): how a resource reaches the client. SECURE_LINK: a link that
+ * opens it in their portal after they sign in. PDF: a PDF copy they download from their portal
+ * (never an email attachment). A resource offers the formats it has (`formats`).
+ */
+export const AdvisoryResourceFormat = z.enum(['SECURE_LINK', 'PDF']);
+export type AdvisoryResourceFormat = z.infer<typeof AdvisoryResourceFormat>;
+export const ADVISORY_RESOURCE_FORMAT_LABELS: Record<AdvisoryResourceFormat, string> = {
+  SECURE_LINK: 'Secure Link',
+  PDF: 'PDF',
+};
+
 export const AdvisoryResource = z.object({
   key: AdvisoryResourceKey,
   title: z.string(),
@@ -214,6 +226,8 @@ export const AdvisoryResource = z.object({
   /** Only a client-facing resource may be sent outside. */
   clientFacing: z.boolean(),
   url: z.string().nullable(),
+  /** B28: the formats it can be sent in (a video or a link: Secure Link only). */
+  formats: z.array(AdvisoryResourceFormat),
 });
 export type AdvisoryResource = z.infer<typeof AdvisoryResource>;
 
@@ -561,6 +575,24 @@ export const AdvisoryPlanRow = z.object({
   currentVersion: z.number().int(),
   finalizedAt: DateTime.nullable(),
   sentAt: DateTime.nullable(),
+  /**
+   * B10: the client's approval in the portal of the version sent for approval (who, when, which
+   * version); null until they approve, and again after Modify Plan (a revision asks again).
+   */
+  clientApproval: z
+    .object({
+      version: z.number().int().min(1),
+      approvedAt: DateTime,
+      /** The client login's name. */
+      approvedBy: z.string().nullable(),
+    })
+    .nullable(),
+  /**
+   * B10 (the lead's decision B): the client has an active portal login, so Finalize waits for
+   * their approval (409 CLIENT_APPROVAL_REQUIRED until `clientApproval` is set; Send for Client
+   * Approval instead). Without a login, Finalize works as before.
+   */
+  clientApprovalRequired: z.boolean(),
   archived: z.boolean(),
   updatedAt: DateTime,
 });
@@ -693,8 +725,9 @@ export type UpdateAdvisoryPlanRequest = z.input<typeof UpdateAdvisoryPlanRequest
 
 /**
  * POST .../plans/{id}/status: DRAFT, IN_REVIEW, IN_PROGRESS and COMPLETED are set here; FINALIZED
- * and SENT only by finalize and send; ARCHIVED by archive. 409 INVALID_STATUS when the move does
- * not fit.
+ * and SENT only by finalize and send; AWAITING_CLIENT_APPROVAL only by request-approval (B10);
+ * ARCHIVED by archive. DRAFT from FINALIZED, SENT or AWAITING_CLIENT_APPROVAL is Modify Plan: the
+ * next revision, with the client's approval cleared. 409 INVALID_STATUS when the move does not fit.
  */
 export const SetAdvisoryPlanStatusRequest = z.strictObject({
   status: z.enum(['DRAFT', 'IN_REVIEW', 'IN_PROGRESS', 'COMPLETED']),
@@ -703,12 +736,13 @@ export const SetAdvisoryPlanStatusRequest = z.strictObject({
 export type SetAdvisoryPlanStatusRequest = z.input<typeof SetAdvisoryPlanStatusRequest>;
 
 /**
- * POST .../plans/{id}/finalize (Stage 5): keeps an immutable version (profile, assessment,
- * strategy, goals, recommendations, service workstreams, financial assumptions and the source
- * data date). 409 PLAN_NOT_READY with what is missing (a required part, a stale or missing
- * figure). POST .../send delivers the client-facing version by the channel (`PORTAL`, `EMAIL`,
- * `DOWNLOAD`) and records who, when and how; only client-visible recommendations and action items
- * are in it, and it needs "Send plans" (403 FORBIDDEN).
+ * POST .../plans/{id}/finalize (Stage 5; B10: for a client with an active portal login, only once
+ * the client approved the plan, else 409 CLIENT_APPROVAL_REQUIRED): keeps an immutable version
+ * (profile, assessment, strategy, goals, recommendations, service workstreams, financial
+ * assumptions and the source data date). 409 PLAN_NOT_READY with what is missing (a required
+ * part, a stale or missing figure). POST .../send delivers the client-facing version by the
+ * channel (`PORTAL`, `EMAIL`, `DOWNLOAD`) and records who, when and how; only client-visible
+ * recommendations and action items are in it, and it needs "Send plans" (403 FORBIDDEN).
  */
 export const FinalizeAdvisoryPlanRequest = z.strictObject({ etag: Etag });
 export type FinalizeAdvisoryPlanRequest = z.input<typeof FinalizeAdvisoryPlanRequest>;
@@ -718,6 +752,21 @@ export const SendAdvisoryPlanRequest = z.strictObject({
   message: clearable(text(2_000, 'many')),
 });
 export type SendAdvisoryPlanRequest = z.input<typeof SendAdvisoryPlanRequest>;
+
+/**
+ * POST .../plans/{id}/request-approval (B10, Business Advisory review §16: staff review, then the
+ * client's approval BEFORE finalization). Only a plan in staff review (IN_REVIEW), ready as
+ * finalize requires (409 PLAN_NOT_READY), for a client with an active portal login (409
+ * NO_PORTAL_LOGIN). Keeps the version the client is asked to approve (delivered to the portal),
+ * moves the plan to AWAITING_CLIENT_APPROVAL (locked) and sends the client a portal message with
+ * the link. The client's Approve finalizes exactly that version; Modify Plan (DRAFT) withdraws it.
+ * Needs "Send plans" (403 FORBIDDEN). Audited.
+ */
+export const RequestAdvisoryPlanApprovalRequest = z.strictObject({
+  etag: Etag,
+  message: clearable(text(2_000, 'many')),
+});
+export type RequestAdvisoryPlanApprovalRequest = z.input<typeof RequestAdvisoryPlanApprovalRequest>;
 
 export const AdvisoryVersionRow = z.object({
   versionNo: z.number().int(),
@@ -1075,13 +1124,46 @@ export type AdvisoryResourcesQuery = z.input<typeof AdvisoryResourcesQuery>;
 export const AdvisoryResourceList = z.object({ items: z.array(AdvisoryResource) });
 export type AdvisoryResourceList = z.infer<typeof AdvisoryResourceList>;
 
-/** POST .../resources/{key}/send: only a client-facing resource, to a client the caller reaches. Needs "Send plans and resources". */
+/**
+ * POST .../resources/{key}/send: only a client-facing resource, to a client the caller reaches.
+ * Needs "Send plans and resources". B28: `format` (default SECURE_LINK) must be one the resource
+ * offers (409 FORMAT_NOT_AVAILABLE), and the client needs an active portal login, since both
+ * formats open in the portal after sign-in (409 NO_PORTAL_LOGIN). PORTAL_MESSAGE: a portal message
+ * and the usual "you have a message" email; EMAIL: the same message with its text in the email
+ * (where the platform allows message text in email). POST .../preview answers what would be sent
+ * and whether it can be, without sending.
+ */
 export const SendAdvisoryResourceRequest = z.strictObject({
   advisoryClientId: AdvisoryClientId,
   channel: z.enum(['PORTAL_MESSAGE', 'EMAIL']),
+  format: AdvisoryResourceFormat.optional(),
   message: clearable(text(2_000, 'many')),
 });
 export type SendAdvisoryResourceRequest = z.input<typeof SendAdvisoryResourceRequest>;
+
+/** POST .../resources/{key}/preview (B28): what the client would receive, and the checks. */
+export const AdvisoryResourcePreview = z.object({
+  channel: z.enum(['PORTAL_MESSAGE', 'EMAIL']),
+  format: AdvisoryResourceFormat,
+  /** Who it goes to: the client, and the email address of their portal login (null without one). */
+  to: z.object({ name: z.string(), email: z.string().nullable() }),
+  subject: z.string(),
+  body: z.string(),
+  /** False while any check below refuses it: Send answers 409 with the first one's code. */
+  eligible: z.boolean(),
+  problems: z.array(
+    z.object({
+      code: z.enum([
+        'CLIENT_ARCHIVED',
+        'RESOURCE_NOT_CLIENT_FACING',
+        'FORMAT_NOT_AVAILABLE',
+        'NO_PORTAL_LOGIN',
+      ]),
+      message: z.string(),
+    }),
+  ),
+});
+export type AdvisoryResourcePreview = z.infer<typeof AdvisoryResourcePreview>;
 
 /**
  * GET and PUT .../settings (Advisory Admin): how the Business Health Score is calculated (factor
@@ -1243,5 +1325,14 @@ export const AdvisoryErrorCode = z.enum([
   'RESOURCE_NOT_CLIENT_FACING',
   /** 409: the plan, goal or workstream is not this client's. */
   'NOT_THIS_CLIENT',
+  /** 409 (B10, B28): the client has no active portal login, so the portal cannot reach them. */
+  'NO_PORTAL_LOGIN',
+  /** 409 (B28): the resource is not offered in that format. */
+  'FORMAT_NOT_AVAILABLE',
+  /**
+   * 409 (B10, the lead's decision B): the client has a portal login, so they approve the plan
+   * before it is finalized; send it for approval.
+   */
+  'CLIENT_APPROVAL_REQUIRED',
 ]);
 export type AdvisoryErrorCode = z.infer<typeof AdvisoryErrorCode>;

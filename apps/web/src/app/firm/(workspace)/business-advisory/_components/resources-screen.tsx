@@ -1,6 +1,10 @@
 'use client';
 
-import type { AdvisoryResource } from '@firmivra/types';
+import {
+  ADVISORY_RESOURCE_FORMAT_LABELS,
+  type AdvisoryResource,
+  type AdvisoryResourceFormat,
+} from '@firmivra/types';
 import { Badge, Button, Modal, Select, Textarea } from '@firmivra/ui';
 import { ArrowSquareOut, BookOpen, PaperPlaneTilt } from '@phosphor-icons/react';
 import { useDeferredValue, useState } from 'react';
@@ -175,6 +179,12 @@ export function ResourceLibrary() {
   );
 }
 
+/**
+ * Send Resource (B28, Business Advisory review §18): the client, the channel (Portal or Email), the
+ * format where the resource offers a choice (Secure Link or PDF), an optional message, and a
+ * preview of exactly what the client receives with the checks that would refuse it (no portal
+ * login, a format the resource doesn't offer). Send stays off until the preview says it can go.
+ */
 export function SendResourceDialog({
   resource,
   advisoryClientId: preset,
@@ -190,10 +200,23 @@ export function SendResourceDialog({
     api.advisory.clients({ pageSize: 100 }),
   );
   const [clientId, setClientId] = useState(preset ?? '');
-  const [channel, setChannel] = useState('PORTAL_MESSAGE');
+  const [channel, setChannel] = useState<'PORTAL_MESSAGE' | 'EMAIL'>('PORTAL_MESSAGE');
+  const [format, setFormat] = useState<AdvisoryResourceFormat>('SECURE_LINK');
   const [message, setMessage] = useState('');
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const note = useDeferredValue(message.trim());
+  const request = {
+    advisoryClientId: clientId,
+    channel,
+    format,
+    ...(note ? { message: note } : {}),
+  };
+  const preview = useApiQuery(
+    [...BA_KEY, 'resource-preview', resource.key, clientId, channel, format, note],
+    () => (clientId ? api.advisory.previewResource(resource.key, request) : Promise.resolve(null)),
+  );
+  const view = preview.data;
   return (
     <Modal
       open
@@ -206,14 +229,15 @@ export function SendResourceDialog({
             Cancel
           </Button>
           <Button
-            disabled={!clientId || saving}
+            disabled={!clientId || saving || !view?.eligible}
             onClick={async () => {
               setSaving(true);
               setError(undefined);
               try {
                 await api.advisory.sendResource(resource.key, {
                   advisoryClientId: clientId,
-                  channel: channel as never,
+                  channel,
+                  format,
                   ...(message.trim() ? { message: message.trim() } : {}),
                 });
                 onSent(
@@ -249,11 +273,26 @@ export function SendResourceDialog({
         <Select
           label="Send by"
           value={channel}
-          onChange={(e) => setChannel(e.target.value)}
+          onChange={(e) => setChannel(e.target.value as 'PORTAL_MESSAGE' | 'EMAIL')}
           options={[
-            { value: 'PORTAL_MESSAGE', label: 'Client portal message' },
+            { value: 'PORTAL_MESSAGE', label: 'Portal' },
             { value: 'EMAIL', label: 'Email' },
           ]}
+        />
+        <Select
+          label="Format"
+          value={format}
+          disabled={resource.formats.length < 2}
+          hint={
+            resource.formats.length < 2
+              ? `This resource goes as a ${ADVISORY_RESOURCE_FORMAT_LABELS[resource.formats[0] ?? 'SECURE_LINK']}.`
+              : 'Secure Link opens it in their portal; PDF is a copy they download there.'
+          }
+          onChange={(e) => setFormat(e.target.value as AdvisoryResourceFormat)}
+          options={resource.formats.map((f) => ({
+            value: f,
+            label: ADVISORY_RESOURCE_FORMAT_LABELS[f],
+          }))}
         />
         <Textarea
           label="Message (optional)"
@@ -262,6 +301,58 @@ export function SendResourceDialog({
           value={message}
           onChange={(e) => setMessage(e.target.value)}
         />
+        <section
+          aria-label="Preview"
+          data-testid="resource-preview"
+          className="rounded-xl border border-divider p-3 text-sm"
+        >
+          <h3 className="mb-1 font-semibold text-heading">What the client receives</h3>
+          {!clientId ? (
+            <p className={quiet}>Choose a client to see the preview.</p>
+          ) : preview.isError ? (
+            <p role="alert" className="text-danger">
+              {errorText(preview.error)}
+            </p>
+          ) : !view ? (
+            <p className={quiet}>Loading…</p>
+          ) : (
+            <>
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+                <dt className="text-muted">To</dt>
+                <dd className="min-w-0 break-words text-heading" data-testid="preview-to">
+                  {view.to.name}
+                  {view.to.email ? ` <${view.to.email}>` : ''}
+                  {view.channel === 'EMAIL' ? ' (email)' : ' (portal message)'}
+                </dd>
+                <dt className="text-muted">Subject</dt>
+                <dd className="min-w-0 break-words text-heading">{view.subject}</dd>
+              </dl>
+              <p
+                className="mt-2 rounded-lg bg-canvas p-2 whitespace-pre-wrap break-words text-text"
+                data-testid="preview-body"
+              >
+                {view.body}
+              </p>
+              {view.problems.length ? (
+                <ul
+                  role="alert"
+                  className="mt-2 flex flex-col gap-1"
+                  data-testid="resource-problems"
+                >
+                  {view.problems.map((p) => (
+                    <li key={p.code} className="text-danger">
+                      {p.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-success" data-testid="resource-eligible">
+                  Ready to send.
+                </p>
+              )}
+            </>
+          )}
+        </section>
       </div>
     </Modal>
   );
