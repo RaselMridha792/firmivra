@@ -1734,8 +1734,23 @@ describe('plan lifecycle (Review 2 C08, C11, C27)', () => {
     const opp = await newOpp({ clientId: clients.c2, name: mark('Reopenable') });
     await acted(opp.id, { action: 'START_REVIEW' });
     await acted(opp.id, { action: 'CLOSE', note: 'Not now (fake)' });
+    // C11 (test gap): a closed opportunity is found under the Closed filter, to reopen it there.
+    const listed = async (group: 'open' | 'closed') =>
+      TaxOpportunityPage.parse(
+        ok(
+          await call(
+            'get',
+            `/opportunities?group=${group}&clientId=${clients.c2}&pageSize=100`,
+            ownerA,
+          ),
+        ),
+      ).items.map((o) => o.id);
+    expect(await listed('closed')).toContain(opp.id);
+    expect(await listed('open')).not.toContain(opp.id);
     const reopened = await acted(opp.id, { action: 'REOPEN', note: 'Client asked again (fake)' });
     expect(reopened.status).toBe('UNDER_REVIEW');
+    expect(await listed('open')).toContain(opp.id);
+    expect(await listed('closed')).not.toContain(opp.id);
     const events = TaxOpportunityEventList.parse(
       ok(await call('get', `/opportunities/${opp.id}/events`, ownerA)),
     ).items;
