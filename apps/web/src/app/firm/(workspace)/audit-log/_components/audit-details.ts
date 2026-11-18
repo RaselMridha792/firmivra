@@ -57,3 +57,13 @@ export function detailLines(metadata: Record<string, unknown>): DetailLine[] {
   }
   return lines;
 }
+
+/**
+ * Audit Log Review 2, M02b: what an entry's action says about its outcome. A refused request
+ * (`access.denied`) is Denied, an action that records a failure (`payment.failed`) is Failed, and
+ * every other entry is a change that happened (no label: a failed change writes no row).
+ */
+export function outcomeOf(action: string): 'Denied' | 'Failed' | null {
+  if (action === 'access.denied') return 'Denied';
+  return /(^|[._])(failed|failure)$/.test(action) ? 'Failed' : null;
+}

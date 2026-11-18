@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detailLines, plainValue } from './audit-details';
+import { detailLines, outcomeOf, plainValue } from './audit-details';
 
 // Audit Log Review 2, R03c: changes read "old → new", and null, "", false and 0 stay distinct.
 describe('audit entry details', () => {
@@ -65,5 +65,17 @@ describe('audit entry details', () => {
       { key: 'from', value: 'OPEN' },
       { key: 'note', value: '(empty)' },
     ]);
+  });
+});
+
+// M02b: an entry's outcome, from its action.
+describe('audit entry outcome', () => {
+  it('reads a refusal as Denied, a recorded failure as Failed, and anything else as none', () => {
+    expect(outcomeOf('access.denied')).toBe('Denied');
+    expect(outcomeOf('payment.failed')).toBe('Failed');
+    expect(outcomeOf('comm_broadcast.failed')).toBe('Failed');
+    expect(outcomeOf('client.updated')).toBeNull();
+    expect(outcomeOf('access.granted')).toBeNull();
+    expect(outcomeOf('invoice.failed_over')).toBeNull();
   });
 });
