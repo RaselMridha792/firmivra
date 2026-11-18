@@ -25,7 +25,7 @@ test('the Next Action card adds, edits, completes and removes steps', async ({ p
   await sms.getByRole('button', { name: 'Edit follow-up' }).click();
   await card.getByLabel('Notes').fill('Ask for the W-2 copy');
   await card.getByRole('button', { name: 'Save Step' }).click();
-  await expect(card.getByText('Follow-up changed.')).toBeVisible();
+  await expect(card.getByText('Follow-up saved.')).toBeVisible();
   await expect(sms).toContainText('Ask for the W-2 copy');
 
   await sms.getByRole('button', { name: 'Complete follow-up' }).click();

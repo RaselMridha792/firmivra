@@ -14,6 +14,7 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
 import { fullName, LEAD_PIPELINE_KEY } from '../../_components/lead-shared';
 
 export const DUPLICATES_KEY = [...LEAD_PIPELINE_KEY, 'duplicates'] as const;
@@ -24,8 +25,14 @@ const REASONS: Record<LeadDuplicateReason, string> = {
   NAME: 'Same name',
 };
 
-const day = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+/** The day a lead was added, on the firm's calendar (Leads Review Two row 26). */
+const day = (iso: string, timeZone: string | undefined) =>
+  new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    ...(timeZone ? { timeZone } : {}),
+  });
 
 /**
  * Review Duplicates (Leads R2 15), from the Leads list: leads that may be the same person (the
@@ -121,6 +128,7 @@ export function DuplicatesScreen() {
 }
 
 function LeadSummary({ lead }: { lead: LeadRow }) {
+  const timeZone = useFirmTimeZone();
   const name = fullName(lead.firstName, lead.lastName, lead.email);
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-control bg-canvas p-3 text-sm">
@@ -128,7 +136,7 @@ function LeadSummary({ lead }: { lead: LeadRow }) {
         {name}
       </Link>
       <span className="text-muted">
-        {lead.number}, {LEAD_STATUS_LABELS[lead.stage]}, added {day(lead.createdAt)}
+        {lead.number}, {LEAD_STATUS_LABELS[lead.stage]}, added {day(lead.createdAt, timeZone)}
       </span>
       <span className="[overflow-wrap:anywhere] text-text">{lead.email}</span>
       {lead.phone ? <span className="text-text">{lead.phone}</span> : null}

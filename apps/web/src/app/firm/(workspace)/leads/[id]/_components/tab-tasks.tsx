@@ -75,6 +75,25 @@ const timeOptions = (current: string) =>
 const NEW_TIME = '10:00';
 
 /**
+ * R2 5 (live check, Nov 18): a follow-up write's notice is set as soon as the API answers, inside
+ * the call, never in a callback given to `mutate`. The write's refetch remounts the card (the
+ * Overview keys it by the lead's version) while the lead's other queries are still refetching, and
+ * TanStack drops a `mutate` callback once its card has gone: on dev, "Follow-up saved." never
+ * showed. The notice's holder (the tab) outlives the remount.
+ */
+function noting<A, R>(
+  call: (input: A) => Promise<R>,
+  text: string,
+  onMessage: (text: string) => void,
+): (input: A) => Promise<R> {
+  return async (input) => {
+    const result = await call(input);
+    onMessage(text);
+    return result;
+  };
+}
+
+/**
  * L8: every follow-up step, the next unfinished first. An unfinished step can be edited (into the
  * form above), removed or completed; a finished one shows its outcome.
  */
@@ -93,11 +112,19 @@ function FollowUpSteps({
 }) {
   const options = { invalidate: LEAD_PIPELINE_KEY };
   const remove = useApiMutation(
-    (id: string) => api.leadPipeline.removeFollowUp(lead.id, id),
+    noting(
+      (id: string) => api.leadPipeline.removeFollowUp(lead.id, id),
+      'Follow-up removed.',
+      onMessage,
+    ),
     options,
   );
   const done = useApiMutation(
-    (id: string) => api.leadPipeline.completeFollowUpStep(lead.id, id, {}),
+    noting(
+      (id: string) => api.leadPipeline.completeFollowUpStep(lead.id, id, {}),
+      'Follow-up completed and logged.',
+      onMessage,
+    ),
     options,
   );
   if (!lead.followUps.length) return null;
@@ -137,24 +164,10 @@ function FollowUpSteps({
                 >
                   Edit<span className="sr-only"> follow-up</span>
                 </Button>
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() =>
-                    remove.mutate(f.id, { onSuccess: () => onMessage('Follow-up removed.') })
-                  }
-                >
+                <Button variant="ghost" disabled={busy} onClick={() => remove.mutate(f.id)}>
                   Remove<span className="sr-only"> follow-up</span>
                 </Button>
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() =>
-                    done.mutate(f.id, {
-                      onSuccess: () => onMessage('Follow-up completed and logged.'),
-                    })
-                  }
-                >
+                <Button variant="ghost" disabled={busy} onClick={() => done.mutate(f.id)}>
                   Complete<span className="sr-only"> follow-up</span>
                 </Button>
               </span>
@@ -179,8 +192,8 @@ function FollowUpSteps({
 type FollowUpCardProps = {
   lead: LeadProfile | undefined;
   /**
-   * The card's notice ("Follow-up saved."), held by a parent that remounts the card when the lead
-   * changes (the Overview keys it by the lead's version), so the notice outlives the remount.
+   * The card's notice ("Follow-up saved."), held by the tab (Overview, Tasks), so it outlives a
+   * remount of the card: the Overview keys the card by the lead's version, so each save remounts it.
    */
   message?: string | undefined;
   onMessage?: (message: string | undefined) => void;
@@ -222,9 +235,20 @@ function FollowUpForm({
     dueAt: toInstant(date, time, timeZone),
     notes: notes.trim() || null,
   });
-  const add = useApiMutation(() => api.leadPipeline.addFollowUp(lead?.id ?? '', form()), options);
+  const add = useApiMutation(
+    noting(
+      () => api.leadPipeline.addFollowUp(lead?.id ?? '', form()),
+      'Follow-up added.',
+      setMessage,
+    ),
+    options,
+  );
   const change = useApiMutation(
-    () => api.leadPipeline.updateFollowUp(lead?.id ?? '', editing ?? '', form()),
+    noting(
+      () => api.leadPipeline.updateFollowUp(lead?.id ?? '', editing ?? '', form()),
+      'Follow-up saved.',
+      setMessage,
+    ),
     options,
   );
   const edit = (step: LeadFollowUp) => {
@@ -244,16 +268,24 @@ function FollowUpForm({
     setNotes(next?.notes ?? '');
   };
   const save = useApiMutation(
-    () =>
-      api.leadPipeline.setFollowUp(lead?.id ?? '', {
-        type,
-        dueAt: toInstant(date, time, timeZone),
-        notes,
-      }),
+    noting(
+      () =>
+        api.leadPipeline.setFollowUp(lead?.id ?? '', {
+          type,
+          dueAt: toInstant(date, time, timeZone),
+          notes,
+        }),
+      'Follow-up saved.',
+      setMessage,
+    ),
     options,
   );
   const complete = useApiMutation(
-    () => api.leadPipeline.completeFollowUp(lead?.id ?? '', { outcome }),
+    noting(
+      () => api.leadPipeline.completeFollowUp(lead?.id ?? '', { outcome }),
+      'Follow-up completed and logged.',
+      setMessage,
+    ),
     options,
   );
   return (
@@ -323,9 +355,9 @@ function FollowUpForm({
                 disabled={!lead || !date || change.isPending}
                 onClick={() =>
                   change.mutate(undefined, {
+                    // The form goes back to the next step (when the card was not remounted).
                     onSuccess: (profile) => {
                       setEditing(null);
-                      setMessage('Follow-up changed.');
                       const n = profile.nextAction;
                       setType(n?.type ?? 'CALL');
                       setDate(n ? localDate(n.dueAt, timeZone) : '');
@@ -345,18 +377,14 @@ function FollowUpForm({
             <>
               <Button
                 disabled={!lead || !date || save.isPending}
-                onClick={() =>
-                  save.mutate(undefined, { onSuccess: () => setMessage('Follow-up saved.') })
-                }
+                onClick={() => save.mutate(undefined)}
               >
                 Save Follow-Up
               </Button>
               <Button
                 variant="secondary"
                 disabled={!lead || !date || add.isPending}
-                onClick={() =>
-                  add.mutate(undefined, { onSuccess: () => setMessage('Follow-up added.') })
-                }
+                onClick={() => add.mutate(undefined)}
               >
                 + Add Follow-Up
               </Button>
@@ -385,14 +413,7 @@ function FollowUpForm({
               <Button
                 variant="secondary"
                 disabled={complete.isPending}
-                onClick={() =>
-                  complete.mutate(undefined, {
-                    onSuccess: () => {
-                      setOutcome('');
-                      setMessage('Follow-up completed and logged.');
-                    },
-                  })
-                }
+                onClick={() => complete.mutate(undefined, { onSuccess: () => setOutcome('') })}
               >
                 Mark Follow-Up Complete
               </Button>
@@ -489,9 +510,16 @@ export function OpenTasksCard() {
 /** Tasks tab: the follow-up and the Open Tasks card. */
 export function TasksTab() {
   const { profile } = useProfile();
+  // R2 5: the card's notice lives here, as on the Overview, so a remount never loses it.
+  const [followUpMessage, setFollowUpMessage] = useState<string>();
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-      <FollowUpCard key={profile ? 'loaded' : 'none'} lead={profile} />
+      <FollowUpCard
+        key={profile ? 'loaded' : 'none'}
+        lead={profile}
+        message={followUpMessage}
+        onMessage={setFollowUpMessage}
+      />
       <div className="flex flex-col gap-4">
         <OpenTasksCard />
         <SequencesCard />

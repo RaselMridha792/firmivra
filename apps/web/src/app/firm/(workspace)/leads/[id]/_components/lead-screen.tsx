@@ -9,17 +9,20 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorCode } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
+import { useFirmTimeZone } from '../../../intake-forms/_components/expiry';
 import { LeadActions } from './lead-actions';
 import { LeadAnswers } from './lead-answers';
 import { leadKey, STATUS } from './lead-shared';
 
-const when = (iso: string) =>
+/** "Sep 18, 2026, 10:24 AM EDT": in the firm's time zone, labelled (Leads Review Two row 26). */
+const when = (iso: string, timeZone: string | undefined) =>
   new Date(iso).toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    ...(timeZone ? { timeZone, timeZoneName: 'short' as const } : {}),
   });
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -33,6 +36,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 
 /** Who sent the request, for which service, and what the firm did with it. */
 function LeadSummary({ lead }: { lead: LeadDetail }) {
+  const timeZone = useFirmTimeZone();
   return (
     <Card title="Request">
       <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -40,12 +44,12 @@ function LeadSummary({ lead }: { lead: LeadDetail }) {
           {lead.service.name}
           {lead.taxYear ? ` · ${lead.taxYear}` : ''}
         </Fact>
-        <Fact label="Sent">{when(lead.submittedAt)}</Fact>
+        <Fact label="Sent">{when(lead.submittedAt, timeZone)}</Fact>
         <Fact label="Email">{lead.email}</Fact>
         <Fact label="Phone">{lead.phone ?? '—'}</Fact>
         {lead.reviewedBy && lead.reviewedAt ? (
           <Fact label="Handled by">
-            {lead.reviewedBy.name} · {when(lead.reviewedAt)}
+            {lead.reviewedBy.name} · {when(lead.reviewedAt, timeZone)}
           </Fact>
         ) : null}
         {lead.client ? (
