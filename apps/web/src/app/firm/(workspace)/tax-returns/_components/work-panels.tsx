@@ -8,6 +8,7 @@ import type {
   TaxReturnWorkflowStatus,
 } from '@firmivra/types';
 import { Badge, Input, Select, Textarea, Timeline } from '@firmivra/ui';
+import { checklistRequests } from './checklist-filter';
 import {
   Check,
   CheckCircle,
@@ -280,7 +281,11 @@ export function ReturnDocumentsPanel({
   const all = (q.data ?? []).filter((d) => !kinds || kinds.includes(d.kind));
   const shown = limit ? all.slice(0, limit) : all;
   const download = async (id: string) => {
-    const link = await act(() => api.documents.download(id), 'Download ready.');
+    // F18: through the return, so its preparer or reviewer gets it without the client.
+    const link = await act(
+      () => api.taxReturnWorkspace.documentDownload(detail.id, id),
+      'Download ready.',
+    );
     if (link) window.location.assign(link.url);
   };
   return (
@@ -446,12 +451,15 @@ const REQUEST: Record<
   CANCELLED: { label: 'Cancelled', tone: 'neutral' },
 };
 
-/** Document Checklist: the client's document requests, with what came in and when. */
+/**
+ * Document Checklist: this return's document requests (ACC-DOC: and its year's unlinked ones of
+ * the same service), with what came in and when.
+ */
 export function DocumentChecklist({ detail, limit }: { detail: TaxReturnDetail; limit?: number }) {
   const q = useApiQuery([...TR_KEY, 'doc-requests', detail.client.id], () =>
     api.documents.requests(detail.client.id),
   );
-  const all = (q.data ?? []).filter((r) => r.status !== 'CANCELLED');
+  const all = checklistRequests(q.data ?? [], detail);
   const shown = limit ? all.slice(0, limit) : all;
   return (
     <Panel
@@ -472,7 +480,7 @@ export function DocumentChecklist({ detail, limit }: { detail: TaxReturnDetail; 
         </p>
       ) : !shown.length ? (
         <p className={quiet}>
-          {q.isPending ? 'Loading…' : 'No documents requested from this client yet.'}
+          {q.isPending ? 'Loading…' : 'No documents requested for this return yet.'}
         </p>
       ) : (
         <table className="w-full text-left text-sm">
@@ -625,8 +633,14 @@ function ReturnServiceDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const service = serviceId || taxServices[0]?.id || '';
+  // F08-S: the services' own state, never "no active tax service" while they load or fail.
+  const servicesNote = catalog.isPending
+    ? 'Loading the services…'
+    : catalog.isError
+      ? 'The services could not be loaded. Close and try again.'
+      : 'No active tax service in Services & Pricing';
   const title = `${detail.taxYear}${detail.quarter ? ` Q${detail.quarter}` : ''} ${detail.formType ?? 'Tax'} Return`;
-  const ready = mode === 'existing' ? !!engagementId : !!service;
+  const ready = mode === 'existing' ? !!engagementId : !!service && catalog.isSuccess;
   const save = async () => {
     setBusy(true);
     setError(undefined);
@@ -689,7 +703,7 @@ function ReturnServiceDialog({
           options={
             taxServices.length
               ? taxServices.map((c) => ({ value: c.id, label: c.name }))
-              : [{ value: '', label: 'No active tax service in Services & Pricing' }]
+              : [{ value: '', label: servicesNote }]
           }
         />
       ) : (

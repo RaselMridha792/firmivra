@@ -984,7 +984,8 @@ describe('the settings', () => {
     await expect(removable('firmDocuments', { engagementId: jobs.recent })).rejects.toEqual(
       kept(`Kept until ${words} under your retention policy`),
     );
-    // Not completed, no job or task, a completed task of an open job, another firm's job: kept.
+    // Not completed, no job or task and no date of its own, a completed task of an open job,
+    // another firm's job: kept.
     const open = kept('Kept: its job isn’t completed yet');
     await expect(removable('intakeSubmissions', { engagementId: jobs.open })).rejects.toEqual(open);
     await expect(removable('systemEmails', {})).rejects.toEqual(open);
@@ -993,6 +994,20 @@ describe('the settings', () => {
       removable('portalMessages', { engagementId: jobs.open, taskId: jobs.oldTask }),
     ).rejects.toEqual(open);
     await expect(removable('clientDocuments', { engagementId: theirs })).rejects.toEqual(open);
+
+    // 14b-ii (the lead's decision of Nov 17): with no job or task, the minimum counts from the
+    // record's own date; with a job or task, its completion still decides.
+    expect(await hold('systemEmails', { recordDate: longAgo })).toEqual({
+      kind: 'UNTIL',
+      until: '2019-03-01',
+    });
+    await expect(removable('systemEmails', { recordDate: longAgo })).resolves.toBeUndefined();
+    await expect(removable('portalMessages', { recordDate: lately })).rejects.toEqual(
+      kept(`Kept until ${words} under your retention policy`),
+    );
+    await expect(
+      removable('intakeSubmissions', { engagementId: jobs.open, recordDate: longAgo }),
+    ).rejects.toEqual(open);
 
     // No minimum set: nothing holds a record.
     await inFirm('a', (tx) =>

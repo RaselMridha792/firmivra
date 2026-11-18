@@ -32,6 +32,7 @@ import { loadEnv } from '../../src/config/env.js';
 import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { IntakeScheduleJobs } from '../../src/intake-workspace/intake-schedule.jobs.js';
+import { IntakeAutomations } from '../../src/intake-workspace/intake-automations.js';
 
 class MemoryFiles implements ReportFiles {
   readonly objects = new Map<string, Buffer>();
@@ -1450,6 +1451,78 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
     expect(
       (await audits(f.id)).find((a) => a.action === 'intake.reminder_skipped')?.metadata,
     ).toEqual({ kind: 'FIRST', reason: 'PORTAL_LOCKED' });
+  });
+
+  it('23-d to 23-f: one follow-up task per form, for its assignee, else the engagement staff (Route by service type), else the default owner', async () => {
+    const automations = app.get(IntakeAutomations);
+    const settings = (data: {
+      autoCreateFollowUpTask?: boolean;
+      routeByService?: boolean;
+      followUpOwnerUserId?: string | null;
+    }) =>
+      inFirm('a', (tx) =>
+        tx.intakeSettings.upsert({
+          where: { businessId: firms.a },
+          create: { businessId: firms.a, ...data },
+          update: data,
+        }),
+      );
+    const tasksOf = (intakeId: string) =>
+      inFirm('a', (tx) =>
+        tx.task.findMany({
+          where: { businessId: firms.a, idempotencyKey: intakeId },
+          select: { id: true, assignedUserId: true, clientId: true },
+        }),
+      );
+    const submitted = async (key: string, assignedUserId: string | null) => {
+      const f = await sentForm(key);
+      await inFirm('a', async (tx) => {
+        await tx.intake.update({
+          where: { id: f.id },
+          data: { assignedUserId, status: 'SUBMITTED' },
+        });
+        await tx.engagement.updateMany({
+          where: { businessId: firms.a, clientId: f.clientId },
+          data: { assignedUserId: staffA.id },
+        });
+      });
+      return f;
+    };
+    await settings({
+      autoCreateFollowUpTask: true,
+      routeByService: true,
+      followUpOwnerUserId: adminA.id,
+    });
+    // No assignee: the client's engagement staff, as Route by service type is on. Once only.
+    const routed = await submitted('auto-route', null);
+    const first = await automations.afterSubmit(firms.a, routed.id);
+    expect((await automations.afterSubmit(firms.a, routed.id)).taskId).toBeNull();
+    expect(await tasksOf(routed.id)).toEqual([
+      { id: first.taskId, assignedUserId: staffA.id, clientId: routed.clientId },
+    ]);
+    // The form's assignee comes first.
+    const assigned = await submitted('auto-assignee', otherStaffA.id);
+    await automations.afterSubmit(firms.a, assigned.id);
+    expect((await tasksOf(assigned.id)).map((t) => t.assignedUserId)).toEqual([otherStaffA.id]);
+    // Route by service type off: the default follow-up owner.
+    await settings({ routeByService: false });
+    const fallback = await submitted('auto-default', null);
+    await automations.afterSubmit(firms.a, fallback.id);
+    expect((await tasksOf(fallback.id)).map((t) => t.assignedUserId)).toEqual([adminA.id]);
+    // Off: nothing, as before.
+    await settings({ autoCreateFollowUpTask: false });
+    const off = await submitted('auto-off', null);
+    expect(await automations.afterSubmit(firms.a, off.id)).toEqual({
+      taskId: null,
+      clientId: null,
+    });
+    expect(await tasksOf(off.id)).toEqual([]);
+    const audits = await inFirm('a', (tx) =>
+      tx.auditLog.count({
+        where: { entityId: routed.id, action: 'intake.follow_up_task_created' },
+      }),
+    );
+    expect(audits).toBe(1);
   });
 
   it('10c order: a first that would come after the final is skipped from the send, in History, and never sent', async () => {

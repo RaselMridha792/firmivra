@@ -52,6 +52,7 @@ import { publishedForm, readDefinition, showsProgressBar } from './intake-forms.
 import { maskStoredNumbers } from './intake-numbers.js';
 import type { IntakeSigner } from './intake-signing.js';
 import { intakeLocked, OPEN_STATUSES, requireOpen, saveIntakeStep } from './intake-step.js';
+import { IntakeAutomations } from '../intake-workspace/intake-automations.js';
 import { lockVersion, prepareSubmit, type SlotFile } from './intake-submit.js';
 
 export { OPEN_STATUSES, requireOpen };
@@ -238,6 +239,7 @@ export class IntakesService {
     private readonly notifier: Notifier,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
     @Inject(ENV) private readonly env: Env,
+    private readonly automations: IntakeAutomations,
   ) {}
 
   /**
@@ -768,6 +770,8 @@ export class IntakesService {
       select: { email: true },
     });
     await sendClientConfirmation(deps, businessId, id, account?.email ?? null);
+    // Intake Review 2 23-c to 23-f: the firm's Automation Rules (a follow-up task), once per form.
+    await this.automations.afterSubmit(businessId, id);
     return intake;
   }
 

@@ -47,14 +47,11 @@ export function TaxStatusesScreen({ fromWorkflow = false }: { fromWorkflow?: boo
       </RequireRole>
 
       <PageState query={statuses} empty="No tax statuses yet">
-        {(rows) => (
-          <>
-            <StatusList rows={rows} />
-            {/* Review 2 (TX-F36): which statuses each tab and preset lists. */}
-            <WhereReturnsAppear rows={rows} />
-          </>
-        )}
+        {(rows) => <StatusList rows={rows} />}
       </PageState>
+      {/* Review 2 (TX-F36): which statuses each tab and preset lists, also for a firm with no
+          labels yet (R61's live check: it sat inside the list's empty state). */}
+      {statuses.data ? <WhereReturnsAppear rows={statuses.data} /> : null}
 
       {/* Review 2: how the firm keeps a return's amounts (Owner and Admin). */}
       <RequireRole roles={['OWNER', 'ADMIN']}>
