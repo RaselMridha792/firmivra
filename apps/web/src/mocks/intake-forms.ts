@@ -38,6 +38,7 @@ import {
 import { mockDelay } from '../lib/mock';
 import { appointmentIntakes } from './appointment-intakes';
 import { mockIntakeAnswers } from './intake-forms-answers';
+import { teamFixtures } from './team';
 
 /** The categories with a mock service, and the service kind (one of the built-in forms' six). */
 const KIND_OF_CATEGORY: Partial<Record<FormCategory, IntakeFormKey>> = {
@@ -79,6 +80,9 @@ const LATER = 'Choose an expiration date and time later than now.';
 const copy = <T>(value: T): T => structuredClone(value);
 const ago = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString();
 const day = (hours: number) => ago(hours).slice(0, 10);
+/** The team mock's Sam Staff, who works with the first form's client (USABILITY-03). */
+const samStaffId = () => teamFixtures().find((m) => m.user.name === 'Sam Staff')!.user.id;
+
 const staff = (n: number, name: string): MemberRef => ({
   userId: `0199c0a0-0b00-7000-8000-${String(n).padStart(12, '0')}`,
   name,
@@ -314,6 +318,8 @@ function seed(empty: boolean): Store {
             name,
             email: `${first.toLowerCase()}@example.test`,
             phone: `(555) 040-${String(1000 + i)}`,
+            // USABILITY-03: the first form's client works with the team mock's Sam Staff.
+            assignedUserId: i === 0 ? samStaffId() : null,
           },
           form: { id: form?.id ?? uuid('0f00', 1), name: form?.name ?? 'Form' },
           service: {
@@ -745,6 +751,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           name: 'Selected recipient',
           email: null,
           phone: null,
+          assignedUserId: null,
         },
         form: { id: form.id, name: form.name },
         service: form.service,
@@ -857,6 +864,18 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       await mockDelay();
       const input = parseInput(UpdateAssignedFormRequest, body);
       const r = find(id);
+      if (input.assignedUserId) {
+        // As the API: a Staff member takes only a form of their own client or lead.
+        const member = teamFixtures().find((m) => m.user.id === input.assignedUserId);
+        if (!member || member.status !== 'ACTIVE')
+          throw new ApiRequestError(409, 'NOT_A_MEMBER', 'The assignee is not an active member');
+        if (member.role === 'STAFF' && member.user.id !== r.recipient.assignedUserId)
+          throw new ApiRequestError(
+            409,
+            'CLIENT_NOT_ASSIGNED',
+            'This client is not assigned to that staff member',
+          );
+      }
       if (input.assignedUserId !== undefined) {
         r.assignedTo = input.assignedUserId
           ? { userId: input.assignedUserId, name: 'Assigned member' }
