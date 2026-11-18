@@ -162,6 +162,15 @@ test('request modal validates the shared schema, submits once and confirms API a
   await expect(dialog.getByRole('button', { name: 'Submitting...' })).toBeDisabled();
   await expect(dialog.getByRole('heading', { name: 'Request submitted' })).toBeVisible();
   expect(submitted).toBe(1);
+  // I-UA03: a reference to quote, the day it was sent, its status and the way to follow it.
+  const receipt = dialog.getByTestId('request-receipt');
+  await expect(receipt).toContainText('Reference:IR-00000000');
+  await expect(receipt).toContainText(/Sent:[A-Z][a-z]{2} \d{1,2}, \d{4}/);
+  await expect(receipt).toContainText('Status:New');
+  await expect(dialog.getByRole('link', { name: 'View my requests' })).toHaveAttribute(
+    'href',
+    '/integrations/requests',
+  );
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(dialog).not.toBeVisible();
 });
