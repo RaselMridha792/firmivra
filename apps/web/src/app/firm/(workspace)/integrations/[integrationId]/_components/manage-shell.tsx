@@ -196,6 +196,10 @@ export function ManageHeader({
                 {blocked}
               </p>
             ) : null}
+            <HelpTip topic="Sync Now">
+              Starts a sync of the enabled objects now, in this connection&apos;s environment. It
+              cannot run while the connection is disconnected or needs attention.
+            </HelpTip>
             {/* The design's Sync Now and menu share one framed box. */}
             <div className="flex items-stretch rounded-control border border-border">
               <div className="p-2">

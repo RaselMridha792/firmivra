@@ -222,6 +222,35 @@ test('I-UA04: a healthy connection shows its last successful sync and no separat
   await expect(page.getByTestId('status-advice')).toHaveCount(0);
 });
 
+test('I-UA01: every tab and each consequential control has its own Help', async ({ page }) => {
+  await serve(page);
+  const tabs: [string, string[]][] = [
+    ['/sync-settings', ['Sync schedule', 'Data to sync', 'Provider options', 'Sync Now']],
+    ['/data-mapping', ['Data mapping']],
+    ['/permissions', ['Granted permissions']],
+    ['/sync-history', ['Sync history']],
+    ['/troubleshooting', ['Connection health']],
+  ];
+  for (const [path, topics] of tabs) {
+    await open(page, `${base}${path}`);
+    for (const topic of topics)
+      await expect(page.getByRole('button', { name: `About ${topic}`, exact: true })).toBeVisible({
+        timeout: 60_000,
+      });
+  }
+  // Each says what the area does and names the consequence (read with the icon).
+  await expect(
+    page.getByRole('button', { name: 'About Connection health', exact: true }),
+  ).toHaveAccessibleDescription(/syncs no data/);
+  await open(page, `${base}/sync-settings`);
+  await expect(
+    page.getByRole('button', { name: 'About Data to sync', exact: true }),
+  ).toHaveAccessibleDescription(/what is already in Firmivra stays/, { timeout: 60_000 });
+  await expect(
+    page.getByRole('button', { name: 'About Sync Now', exact: true }),
+  ).toHaveAccessibleDescription(/cannot run while the connection is disconnected/);
+});
+
 test('sync history filters, pages and opens a failed run with guidance', async ({ page }) => {
   await serve(page);
   await open(page, `${base}/sync-history`);

@@ -578,6 +578,10 @@ function SetupForm({
                 number={3}
                 title="Permissions"
                 subtitle="Review the permissions requested for your enabled features."
+                help={{
+                  topic: 'Permissions step',
+                  text: 'Only the permissions the ticked objects need are asked for. The provider shows the same list when you approve; turning an object off drops its permissions.',
+                }}
               />
               <div className="rounded-control bg-folder-surface p-4">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-heading">
@@ -604,7 +608,15 @@ function SetupForm({
               </div>
             </Card>
             <Card data-testid="setup-complete">
-              <SectionTitle number={4} title="Complete Setup" subtitle={completeCopy(provider)} />
+              <SectionTitle
+                number={4}
+                title="Complete Setup"
+                subtitle={completeCopy(provider)}
+                help={{
+                  topic: 'Complete setup',
+                  text: 'Confirming saves your choices and, when ticked, runs a connection test that syncs no data. Change any choice later under Sync Settings.',
+                }}
+              />
               <Checkbox
                 label="Run a connection test after connecting"
                 disabled={!editable}
@@ -682,10 +694,13 @@ function SectionTitle({
   number,
   title,
   subtitle,
+  help,
 }: {
   number: number;
   title: string;
   subtitle: string;
+  /** I-UA01: a Help icon that says what the step needs and does. */
+  help?: { topic: string; text: string };
 }) {
   return (
     <div className="mb-4 flex gap-3">
@@ -693,7 +708,10 @@ function SectionTitle({
         {number}
       </span>
       <div>
-        <h2 className="text-lg font-bold text-heading">{title}</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-bold text-heading">{title}</h2>
+          {help ? <HelpTip topic={help.topic}>{help.text}</HelpTip> : null}
+        </div>
         <p className="text-sm text-text">{subtitle}</p>
       </div>
     </div>

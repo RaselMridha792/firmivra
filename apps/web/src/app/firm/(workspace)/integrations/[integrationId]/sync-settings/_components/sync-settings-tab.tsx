@@ -159,7 +159,14 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card data-testid="sync-schedule" className="p-5!">
-          <CardTitle>Sync Schedule</CardTitle>
+          <CardTitle
+            help={{
+              topic: 'Sync schedule',
+              text: 'Manual syncs only when you choose Sync Now. Automatic syncs on the interval you pick, and the header shows the next time. Saving a change syncs no data.',
+            }}
+          >
+            Sync Schedule
+          </CardTitle>
           <fieldset className="flex flex-col gap-1" disabled={!canEdit}>
             <legend className="text-sm font-medium text-heading">Sync mode</legend>
             <Radio
@@ -219,7 +226,14 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
         </Card>
 
         <Card data-testid="sync-objects" className="p-5!">
-          <CardTitle>Data to Sync</CardTitle>
+          <CardTitle
+            help={{
+              topic: 'Data to sync',
+              text: 'Only the ticked objects sync, in the direction chosen. Turning one off stops its future syncs; what is already in Firmivra stays.',
+            }}
+          >
+            Data to Sync
+          </CardTitle>
           {provider.entities.length ? (
             <ul className="flex flex-col divide-y divide-divider border-y border-divider">
               {provider.entities.map((entity) => {
@@ -258,7 +272,14 @@ function SettingsForm({ detail }: { detail: IntegrationConnectionDetail }) {
         </Card>
 
         <Card data-testid="provider-options" className="p-5!">
-          <CardTitle>Provider Options</CardTitle>
+          <CardTitle
+            help={{
+              topic: 'Provider options',
+              text: 'This provider’s own settings for the connection. They apply from the next sync.',
+            }}
+          >
+            Provider Options
+          </CardTitle>
           {provider.options.length ? (
             <div className="flex flex-col gap-4">
               {provider.options.map((option) => (
