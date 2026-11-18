@@ -194,6 +194,15 @@ export interface NotifyTemplates {
    */
   'report.published': IgnoredFirmName & { name: string; title: string; link: string };
 
+  // ----- Announcements (CP-3d) -----
+  /**
+   * A general announcement went live in the client's portal: its title (the firm's own words,
+   * filled for the client) and the portal link. Never its text: the portal holds the rest.
+   */
+  'announcement.published': IgnoredFirmName & { name: string; title: string; link: string };
+  /** The same as a text, to a client who agreed to texts about announcements. */
+  'announcement.published-sms': IgnoredFirmName & { title: string; link: string };
+
   // ----- Appointments (R12) -----
   'appointment.booked': AppointmentData;
   'appointment.changed': AppointmentData;
@@ -383,6 +392,8 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'document.requested': 'email',
   'document.requested-sms': 'sms',
   'report.published': 'email',
+  'announcement.published': 'email',
+  'announcement.published-sms': 'sms',
   'appointment.booked': 'email',
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
@@ -446,6 +457,8 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'document.requested': 'firm',
   'document.requested-sms': 'firm',
   'report.published': 'firm',
+  'announcement.published': 'firm',
+  'announcement.published-sms': 'firm',
   'appointment.booked': 'firm',
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
@@ -545,6 +558,8 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'document.requested': 'DOCUMENTS',
   'document.requested-sms': 'DOCUMENTS',
   'report.published': 'SERVICES',
+  'announcement.published': 'ANNOUNCEMENTS',
+  'announcement.published-sms': 'ANNOUNCEMENTS',
   'appointment.booked': 'APPOINTMENTS',
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',

@@ -49,7 +49,16 @@ const item = {
 const prefs = {
   channels: ['EMAIL'],
   smsStopped: false,
-  items: [{ category: 'ACCOUNT', email: true, sms: false, locked: true, emailLocked: true }],
+  items: [
+    {
+      category: 'ACCOUNT',
+      email: true,
+      sms: false,
+      locked: true,
+      emailLocked: true,
+      smsLocked: false,
+    },
+  ],
 };
 
 async function rejection(promise: Promise<unknown>) {
@@ -255,6 +264,9 @@ describe('notification links', () => {
     expect(notificationLink(target('tax_return'), portal)).toBe('/lvp/taxes');
     expect(notificationLink(target('client_note_reminder'), portal)).toBe('/lvp/messages');
     expect(notificationLink(target('user'), portal)).toBe('/lvp/profile');
+    // CP-3d: an announcement's notice opens the portal's Announcements; never the firm site.
+    expect(notificationLink(target('announcement'), portal)).toBe('/lvp/announcements');
+    expect(notificationLink(target('announcement'), firm)).toBeNull();
     // Intake Forms Review Two (ACCESS-01): the exact form sent, not the forms list.
     expect(notificationLink(target('intake'), portal)).toBe(`/lvp/intake/${id}`);
   });

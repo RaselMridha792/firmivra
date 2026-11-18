@@ -15,10 +15,12 @@ import { usePortal } from '../../../layout';
 
 /**
  * Notification Preferences: email and (when the client has a phone) SMS per category. Email is
- * always on: every notice is about the client's own account or services (Client Portal guide
- * 9.2). A Text box is the client's opt-in to texts, so the card says what they agree to; after a
- * STOP reply texts are stopped until the firm turns them back on. The SMS switch only stores the
- * choice until SMS sending is on. Account notices are always sent.
+ * always on for notices about the client's own account or services (Client Portal guide 9.2).
+ * Announcements (CP-3d) follow the firm's policy for each channel: the client's choice, always
+ * sent, or never sent; a box the firm sets is disabled and says so. A Text box is the client's
+ * opt-in to texts, so the card says what they agree to; after a STOP reply texts are stopped until
+ * the firm turns them back on. The SMS switch only stores the choice until SMS sending is on.
+ * Account notices are always sent.
  */
 export function NotificationPreferencesCard({ slug }: { slug: string }) {
   const { business } = usePortal();
@@ -30,7 +32,7 @@ export function NotificationPreferencesCard({ slug }: { slug: string }) {
       api.myNotifications(slug).updatePreferences(body),
     { invalidate: ['my-notification-preferences', slug] },
   );
-  // Locked rows have their switches disabled, so a change never names a locked category.
+  // Locked rows and boxes are disabled, so a change never names a locked category or channel.
   const set = (item: NotificationPreference, channel: 'email' | 'sms', on: boolean) =>
     update.mutate({
       items: [{ category: item.category, [channel]: on }],
@@ -70,12 +72,13 @@ export function NotificationPreferencesCard({ slug }: { slug: string }) {
                     item={item}
                     hasSms={p.channels.includes('SMS')}
                     pending={update.isPending}
+                    firmName={business.name}
                     onChange={set}
                   />
                 ))}
               </ul>
               <p className="text-xs text-muted">
-                Email is always on: these notices are about your own account and services.
+                Email is always on for notices about your own account and services.
               </p>
               {p.channels.includes('SMS') ? (
                 <p data-testid="sms-consent" className="text-xs text-muted">
@@ -107,19 +110,35 @@ function PreferenceRow({
   item,
   hasSms,
   pending,
+  firmName,
   onChange,
 }: {
   item: NotificationPreference;
   hasSms: boolean;
   pending: boolean;
+  firmName: string;
   onChange: (item: NotificationPreference, channel: 'email' | 'sms', on: boolean) => void;
 }) {
   const label = NOTIFICATION_CATEGORY_LABELS[item.category];
+  // CP-3d: the firm's policy may set a channel of its announcements.
+  const firmSets =
+    item.category === 'ANNOUNCEMENTS' && (item.emailLocked || (hasSms && item.smsLocked));
   return (
     <li className="flex flex-wrap items-center gap-4 border-b border-border pb-2">
       <span className="flex-1 text-sm font-medium text-heading">
         {label}
         {item.locked && <span className="block text-xs font-normal text-muted">Always sent</span>}
+        {firmSets ? (
+          <span className="block text-xs font-normal text-muted">
+            {firmName} sets the{' '}
+            {item.emailLocked && hasSms && item.smsLocked
+              ? 'email and text'
+              : item.emailLocked
+                ? 'email'
+                : 'text'}{' '}
+            choice for announcements.
+          </span>
+        ) : null}
       </span>
       <Checkbox
         className="[&>input]:accent-firm-primary"
@@ -135,7 +154,7 @@ function PreferenceRow({
           label="Text"
           aria-label={`${label} by text`}
           checked={item.sms}
-          disabled={item.locked || pending}
+          disabled={item.locked || item.smsLocked || pending}
           onChange={(e) => onChange(item, 'sms', e.target.checked)}
         />
       )}
