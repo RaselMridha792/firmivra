@@ -8,6 +8,7 @@ import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 import {
   linkClientAccount,
   linkUsers,
+  HARNESS_PORTAL_CLIENT_EMAIL,
   parseLinkClient,
   parseLinkUsers,
   resolveLinkUsers,
@@ -212,6 +213,25 @@ describe('parseLinkClient', () => {
     );
   });
 
+  it("takes the harness's own Test Firm B client, and only there (Nov 18)", () => {
+    const h = {
+      sub: entry.sub,
+      firmSlug: 'test-firm-b',
+      accountEmail: HARNESS_PORTAL_CLIENT_EMAIL,
+    };
+    expect(
+      parseLinkClient(JSON.stringify({ ...h, accountEmail: ` ${h.accountEmail.toUpperCase()} ` })),
+    ).toEqual({ ...h, createForClient: true });
+    // Never for the demo firm, and no other simulator address.
+    expect(parse({ ...h, firmSlug: 'demo' })).toThrow(/seeded @demo\.test/);
+    expect(parse({ ...h, accountEmail: 'success+someone-else@simulator.amazonses.com' })).toThrow(
+      /seeded @example\.test address or success\+qa-perf-client-b/,
+    );
+    expect(parse({ ...h, accountEmail: 'qa-perf-client-b@simulator.amazonses.com' })).toThrow(
+      /seeded @example\.test/,
+    );
+  });
+
   it('refuses another firm, a real address and any other key', () => {
     expect(parse({ ...entry, firmSlug: 'lvp' })).toThrow(/firmSlug must be one of demo/);
     expect(parse({ ...entry, firmSlug: 'demo-north' })).toThrow(/firmSlug must be one of demo/);
@@ -328,6 +348,62 @@ describe('linkClientAccount', () => {
     await expect(
       linkClientAccount(owner, { ...entry, sub: randomUUID(), firmSlug: slugs.a }, login),
     ).rejects.toThrow(/has 0 clients with that email/);
+  });
+
+  it("creates the harness's own portal account on its client, and leaves every other account as it was", async () => {
+    const clientId = await runInScope(
+      owner,
+      { kind: 'business', businessId: firms.b },
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: {
+              businessId: firms.b,
+              displayName: 'QA Perf Client B (harness, fake)',
+              email: HARNESS_PORTAL_CLIENT_EMAIL,
+            },
+            select: { id: true },
+          })
+        ).id,
+    );
+    const accounts = () =>
+      db
+        .forBusiness(firms.b)
+        .clientAccount.findMany({ select: { id: true, userId: true, email: true, status: true } });
+    const before = await accounts();
+    const users = await platform().user.findMany({
+      where: { id: { in: before.map((a) => a.userId) } },
+      select: { id: true, cognitoSub: true },
+    });
+    const entry = {
+      sub: randomUUID(),
+      firmSlug: slugs.b,
+      accountEmail: HARNESS_PORTAL_CLIENT_EMAIL,
+      createForClient: true,
+    };
+    const login = { email: HARNESS_PORTAL_CLIENT_EMAIL, name: 'QA Perf Client B (harness, fake)' };
+    const created = await linkClientAccount(owner, entry, login);
+    expect(created).toMatchObject({ businessId: firms.b, changed: true });
+    expect(
+      await db.forBusiness(firms.b).clientAccount.findUniqueOrThrow({
+        where: { id: created.clientAccountId },
+      }),
+    ).toMatchObject({ clientId, email: HARNESS_PORTAL_CLIENT_EMAIL, status: 'ACTIVE' });
+    // Every account that was there is unchanged, and so are their users' logins.
+    const after = await accounts();
+    expect(after).toHaveLength(before.length + 1);
+    for (const a of before) expect(after).toContainEqual(a);
+    expect(
+      await platform().user.findMany({
+        where: { id: { in: users.map((u) => u.id) } },
+        select: { id: true, cognitoSub: true },
+      }),
+    ).toEqual(expect.arrayContaining(users));
+    // Again: the account exists, so nothing changes.
+    expect(await linkClientAccount(owner, entry, login)).toMatchObject({
+      clientAccountId: created.clientAccountId,
+      changed: false,
+    });
   });
 
   it('refuses a missing firm, no matching account, and a sub that is already someone else', async () => {

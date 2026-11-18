@@ -1,7 +1,6 @@
 import type {
   MemberRef,
   TaxReturnActivityList,
-  TaxReturnBlocker,
   TaxReturnRow,
   TaxReturnTab,
   TaxReturnWorkflowStatus,
@@ -27,6 +26,8 @@ import {
   WarningCircle,
   XCircle,
 } from '@phosphor-icons/react';
+
+export { BLOCKER_LABEL, TR_ERRORS, trErrorMessage } from './tr-errors';
 
 /** Every query of the Tax Returns module starts here: a change in one view refreshes the others. */
 export const TR_KEY = ['tax-returns'] as const;
@@ -176,38 +177,6 @@ export const FILING_STATUS_LABEL: Record<TaxpayerFilingStatus, string> = {
   MARRIED_FILING_SEPARATELY: 'Married Filing Separately',
   HEAD_OF_HOUSEHOLD: 'Head of Household',
   QUALIFYING_SURVIVING_SPOUSE: 'Qualifying Surviving Spouse',
-};
-
-export const BLOCKER_LABEL: Record<TaxReturnBlocker, string> = {
-  VALIDATION_NOT_RUN: 'Run final validation',
-  VALIDATION_ERRORS: 'Fix the validation errors',
-  WARNINGS_NOT_ACKNOWLEDGED: 'Acknowledge the validation warnings',
-  APPROVAL_PENDING: 'Complete the required approvals',
-  APPROVAL_RETURNED: 'A reviewer returned it: fix it and ask again',
-  AUTHORIZATION_UNSIGNED: 'Obtain the client signatures',
-  NO_FILING_TRANSMITTED: 'Record a transmission (or paper filing) first',
-  FILINGS_NOT_ACCEPTED: 'Every required filing must be accepted or paper filed',
-  ORIGINAL_NOT_FILED: 'The original return was never filed',
-  VALIDATION_ISSUES_OPEN: 'Resolve the open validation errors',
-};
-
-/** The module's error codes in plain words (lib/errors has the generic ones). */
-export const TR_ERRORS: Record<string, string> = {
-  DUPLICATE_RETURN: 'This client already has this return for that year.',
-  STATUS_BLOCKED: 'This return cannot move there yet. Check its next steps.',
-  REASON_REQUIRED: 'Say why the return goes back a step.',
-  REJECTION_NOT_RECORDED:
-    "Record the agency's rejection of a transmission first, on the E-File page.",
-  RETURN_FILED: 'The return is filed; an extension is for a return not filed yet.',
-  RETURN_LOCKED: 'A filed return, a transmission or a decided approval does not change.',
-  ATTEMPT_PENDING: 'Record the answer to the last transmission first.',
-  FILING_IN_USE: 'A jurisdiction with transmissions stays on the return.',
-  DOCUMENT_LOCKED: 'A filed return or an acknowledgment stays linked.',
-  INVALID_DOCUMENT: "That file is not one of this client's documents.",
-  NOT_A_MEMBER: 'Choose an active member of your firm.',
-  ORIGINAL_NOT_FILED: 'Only a filed return can be amended.',
-  CLIENT_ARCHIVED: 'Restore the client first.',
-  FORBIDDEN: "Your role can't do this. Ask an Owner or Admin.",
 };
 
 /** "T. Williams": the design's short name in lists. */
