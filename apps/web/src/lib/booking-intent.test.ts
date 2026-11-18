@@ -6,6 +6,7 @@ import {
   clearBooking,
   keepBooking,
   pendingBooking,
+  pendingPackage,
   returnPathOf,
   signInWithReturn,
   typeIdOf,
@@ -13,6 +14,7 @@ import {
 
 const TYPE = '0f000000-0000-4000-a000-000000000001';
 const OTHER = '0f000000-0000-4000-a000-000000000002';
+const PACKAGE = '0f000000-0000-4000-a000-000000000003';
 const DAY = 24 * 60 * 60_000;
 
 /** A Storage of the test's own, so each test starts empty. */
@@ -121,5 +123,30 @@ describe('booking intent (Appointments Review 2, row 3)', () => {
     }
     expect(signInWithReturn('/lvp/sign-in', 'lvp', '/lvp/sign-in')).toBe('/lvp/sign-in');
     expect(afterSignIn('lvp', null, '//evil.test/x')).toBe(`/lvp/appointments?book=${OTHER}`);
+  });
+});
+
+describe('booking from a package’s page (S12)', () => {
+  it('carries the package with the type, and only an id that can be one', () => {
+    expect(bookingPath('lvp', TYPE, PACKAGE)).toBe(
+      `/lvp/appointments?book=${TYPE}&package=${PACKAGE}`,
+    );
+    expect(bookingPath('lvp', TYPE, '../home')).toBe(`/lvp/appointments?book=${TYPE}`);
+    expect(afterSignIn('lvp', TYPE, null, PACKAGE)).toBe(bookingPath('lvp', TYPE, PACKAGE));
+  });
+
+  it('keeps the package with the type for the next sign-in, and forgets both together', () => {
+    keepBooking('lvp', TYPE, Date.now(), PACKAGE);
+    expect(pendingPackage('lvp', TYPE)).toBe(PACKAGE);
+    expect(pendingPackage('lvp', OTHER)).toBeNull();
+    expect(afterSignIn('lvp')).toBe(`/lvp/appointments?book=${TYPE}&package=${PACKAGE}`);
+    // A plain booking link for the type later keeps no package.
+    keepBooking('lvp', TYPE);
+    expect(pendingPackage('lvp', TYPE)).toBeNull();
+    keepBooking('lvp', TYPE, Date.now(), 'not-an-id');
+    expect(pendingPackage('lvp', TYPE)).toBeNull();
+    keepBooking('lvp', TYPE, Date.now(), PACKAGE);
+    clearBooking('lvp');
+    expect(pendingPackage('lvp', TYPE)).toBeNull();
   });
 });

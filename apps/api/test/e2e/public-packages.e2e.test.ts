@@ -189,6 +189,7 @@ describe('a package’s public page (SP-1)', () => {
       included: [{ name: `Personal return ${run}` }, { name: `Tax planning ${run}` }],
       notIncluded: [{ name: `Audit defense ${run}` }],
       addOns: [{ name: 'Rush filing', description: null, priceCents: 7_500 }],
+      bookingTypeId: null,
     });
     const raw = JSON.stringify(res.body);
     expect(raw).not.toContain(SECRET);
@@ -241,5 +242,77 @@ describe('the package’s public link for the firm (SP-1)', () => {
       state: 'HIDDEN',
     });
     expect(ok(await linkOf(ids.archived!), PublicLink).state).toBe('ARCHIVED');
+  });
+});
+
+describe('a package’s Booking type (S12)', () => {
+  const type = (firm: 'p' | 'q', name: string, over: object = {}) =>
+    inFirm(firm, (tx) =>
+      tx.appointmentType.create({
+        data: {
+          businessId: firms[firm].id,
+          name,
+          durationMinutes: 30,
+          clientBookable: true,
+          ...over,
+        },
+        select: { id: true },
+      }),
+    ).then((t) => t.id);
+  const firmCall = (method: 'get' | 'patch', path: string, body?: object) => {
+    const req = request(app.getHttpServer())
+      [method](`/api/v1/business/catalog/packages${path}`)
+      .set('authorization', `Bearer ${token}`)
+      .set('x-business-id', firms.p.id);
+    return body ? req.send(body) : req;
+  };
+  const setType = async (id: string, appointmentTypeId: string | null) => {
+    const current = (await firmCall('get', `/${id}`)).body as { version: string };
+    return firmCall('patch', `/${id}`, { appointmentTypeId, version: current.version });
+  };
+
+  it('is one of the firm’s own types, saved and cleared on the package', async () => {
+    const consult = await type('p', `Consultation ${run}`);
+    const saved = await setType(ids.draft!, consult);
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect((saved.body as { bookingType: unknown }).bookingType).toEqual({
+      id: consult,
+      name: `Consultation ${run}`,
+      bookable: true,
+    });
+    const cleared = await setType(ids.draft!, null);
+    expect((cleared.body as { bookingType: unknown }).bookingType).toBeNull();
+  });
+
+  it('opens on the public page only while clients can book the type online', async () => {
+    const consult = await type('p', `Consultation online ${run}`);
+    await inFirm('p', (tx) =>
+      tx.servicePackage.update({ where: { id: ids.live! }, data: { appointmentTypeId: consult } }),
+    );
+    expect(ok(await publicGet(firms.p.slug, ids.live!), PublicPackage).details?.bookingTypeId).toBe(
+      consult,
+    );
+    // Not booked online: the page keeps its sign-in and contact path.
+    await inFirm('p', (tx) =>
+      tx.appointmentType.update({ where: { id: consult }, data: { clientBookable: false } }),
+    );
+    expect(
+      ok(await publicGet(firms.p.slug, ids.live!), PublicPackage).details?.bookingTypeId,
+    ).toBeNull();
+    await inFirm('p', (tx) =>
+      tx.servicePackage.update({ where: { id: ids.live! }, data: { appointmentTypeId: null } }),
+    );
+  });
+
+  it('refuses another firm’s type or an archived one', async () => {
+    const theirs = await type('q', `Their consult ${run}`);
+    const archived = await type('p', `Old consult ${run}`, { archivedAt: new Date() });
+    for (const id of [theirs, archived]) {
+      const res = await setType(ids.draft!, id);
+      expect([res.status, codeOf(res)], JSON.stringify(res.body)).toEqual([
+        400,
+        'VALIDATION_FAILED',
+      ]);
+    }
   });
 });

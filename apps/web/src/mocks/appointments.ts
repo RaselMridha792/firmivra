@@ -292,6 +292,10 @@ const copy = <T>(value: T): T => structuredClone(value);
 let store: Store | undefined;
 const db = () => (store ??= seed());
 
+/** S12: an appointment type of the mock firm, for a package's Booking type (services-pricing mock). */
+export const mockAppointmentType = (typeId: string): AppointmentType | undefined =>
+  copy(db().types.find((t) => t.id === typeId));
+
 /** Free starts on a 15-minute grid for one member, within hours, outside blocks and appointments. */
 function freeStarts(
   s: Store,

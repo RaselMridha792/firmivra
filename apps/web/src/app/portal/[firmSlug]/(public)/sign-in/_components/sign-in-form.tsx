@@ -38,7 +38,9 @@ export function SignInForm() {
   // email's form: INTAKE-ACCESS-01) opens again.
   const home = () => {
     const params = new URLSearchParams(window.location.search);
-    router.replace(afterSignIn(slug, params.get('book'), params.get('next')));
+    router.replace(
+      afterSignIn(slug, params.get('book'), params.get('next'), params.get('package')),
+    );
   };
   const mutation = useApiMutation(async (action: () => Promise<SignInResult | void>) => {
     const result = await action();

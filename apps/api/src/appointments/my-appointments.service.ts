@@ -334,6 +334,32 @@ export class MyAppointmentsService {
         select: { id: true, durationMinutes: true, locationKind: true, meetingMethods: true },
       });
       if (!type) throw errors.notFound();
+      // S12: booked from a package's page. A package that is not this firm's (or none at all)
+      // is 404, as an unknown type is; one of the firm's that is hidden now, or no longer has
+      // this Booking type, books as usual without naming it.
+      const pkg = body.packageId
+        ? await tx.servicePackage.findFirst({
+            where: { businessId, id: body.packageId },
+            select: {
+              name: true,
+              appointmentTypeId: true,
+              status: true,
+              archivedAt: true,
+              visibleToClients: true,
+              displayOnPortal: true,
+            },
+          })
+        : null;
+      if (body.packageId && !pkg) throw errors.notFound();
+      const named =
+        pkg &&
+        pkg.appointmentTypeId === type.id &&
+        pkg.status === 'ACTIVE' &&
+        pkg.archivedAt === null &&
+        pkg.visibleToClients &&
+        pkg.displayOnPortal
+          ? pkg.name
+          : null;
       if (me.archivedAt) throw errors.clientArchivedPortal();
       // One of the type's meeting methods (A1); its first when the client chose none.
       const methods = typeMethods(type);
@@ -353,6 +379,8 @@ export class MyAppointmentsService {
           clientId: me.clientId,
           staffUserId: staff.userId,
           typeId: type.id,
+          // S12: the firm sees the package named in its staff notes (never shown to the client).
+          ...(named ? { internalNotes: `Booked from the package "${named}".` } : {}),
           startsAt: new Date(slot.start),
           endsAt: new Date(slot.end),
           locationKind,
