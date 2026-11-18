@@ -6,6 +6,12 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import { errorMessage } from '../lib/errors';
 
+/** BK-CP4: a Bookkeeping service whose Portal Defaults keep notes out of the portal. */
+const SHARE_ERRORS = {
+  NOTES_HIDDEN_IN_PORTAL:
+    "This client's Portal Defaults keep notes out of the portal. Turn Notes on in the client's bookkeeping Settings first.",
+};
+
 /**
  * B32 (Client Portal Review One, decision 5 option B): Share with Client. The member sees exactly
  * what will go (the message's subject and the note's text, as saved) and confirms; the text then
@@ -33,7 +39,7 @@ export function ShareNoteDialog({
       await api.clientNotes.share(note.id, { updatedAt: note.updatedAt });
       await onShared();
     } catch (e) {
-      setError(errorMessage(e));
+      setError(errorMessage(e, SHARE_ERRORS));
     } finally {
       setBusy(false);
     }

@@ -142,6 +142,25 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'New report',
     body: `A new report is ready${text(p, 'title') ? ` for ${text(p, 'title')}` : ''}. Open the service to see it.`,
   }),
+  // BK-CP3: the service's name only, never the terms' figures.
+  'bookkeeping-terms.sent': (p) => ({
+    title: 'Terms to review',
+    body: `New terms${text(p, 'title') ? ` for ${text(p, 'title')}` : ''} are waiting for your answer. Open My Services to read them.`,
+  }),
+  'bookkeeping-terms.client-accepted': (p) => ({
+    title: 'Terms accepted',
+    body: forClient(
+      p,
+      `${text(p, 'title') ?? 'Bookkeeping'}: the terms were accepted in the portal.`,
+    ),
+  }),
+  'bookkeeping-terms.client-declined': (p) => ({
+    title: 'Terms declined',
+    body: forClient(
+      p,
+      `${text(p, 'title') ?? 'Bookkeeping'}: the terms were declined in the portal and are back to draft.`,
+    ),
+  }),
   // CP-3d: the announcement's title only (filled for the client), never its text.
   'announcement.published': (p) => ({
     title: 'New announcement',

@@ -762,15 +762,26 @@ describe('the client workspace and its service actions', () => {
         categorizationRules: [{ match: 'AMAZON', category: 'Office Supplies' }],
       }),
     );
-    expect(ws.portalDefaults).toEqual({ reports: true, documents: false });
+    // BK-CP4: as they apply, a default never saved reads as shown.
+    expect(ws.portalDefaults).toEqual({
+      reports: true,
+      tasks: true,
+      documents: false,
+      notes: true,
+    });
     expect(ws.alerts).toEqual({ staleSync: false });
     expect(ws.categorizationRules).toEqual([{ match: 'AMAZON', category: 'Office Supplies' }]);
     // Merged, not replaced.
     const again = exact(
       BookkeepingClientWorkspace,
-      await call('patch', `/clients/${bk}`, people.staffA, { portalDefaults: { notes: true } }),
+      await call('patch', `/clients/${bk}`, people.staffA, { portalDefaults: { notes: false } }),
     );
-    expect(again.portalDefaults).toEqual({ reports: true, documents: false, notes: true });
+    expect(again.portalDefaults).toEqual({
+      reports: true,
+      tasks: true,
+      documents: false,
+      notes: false,
+    });
     for (const body of [
       { cadence: 'QUARTERLY' },
       { closeTargetDay: 5 },
