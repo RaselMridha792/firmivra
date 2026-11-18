@@ -415,6 +415,7 @@ export function DetailScreen({ id }: { id: string }) {
           name={r.internal ? 'Team Meeting' : r.contact.name}
           // P4-2: a lead's own appointment (its contact is the lead) records an outcome.
           leadId={r.contact.kind === 'LEAD' ? r.contact.id : null}
+          canConvert={r.contact.kind === 'LEAD' && r.contact.leadReach === true}
           timeZone={r.timezone}
           onClose={() => setAsk(null)}
           onDone={(text) => {
@@ -557,6 +558,7 @@ export function CloseModal({
   ask,
   name,
   leadId = null,
+  canConvert = false,
   timeZone,
   onClose,
   onDone,
@@ -565,6 +567,11 @@ export function CloseModal({
   ask: Ask;
   name: string;
   leadId?: string | null;
+  /**
+   * The member reaches the lead (its owner, or an Owner or Admin): only they are offered Convert to
+   * New client; the appointment's own staff member records the other two (the lead's answer, Nov 18).
+   */
+  canConvert?: boolean;
   /** The firm's time zone: the follow-up date is today or later there. */
   timeZone?: string;
   onClose: () => void;
@@ -633,18 +640,23 @@ export function CloseModal({
               aria-describedby={tried && missing.outcome ? 'outcome-error' : undefined}
             >
               <legend className="mb-1 text-sm font-semibold text-heading">Outcome</legend>
-              {LeadAppointmentOutcome.options.map((value) => (
-                <div key={value} className="flex flex-col">
-                  <Radio
-                    name="lead-outcome"
-                    value={value}
-                    label={LEAD_APPOINTMENT_OUTCOME_LABELS[value]}
-                    checked={outcome === value}
-                    onChange={() => setOutcome(value)}
-                  />
-                  <p className="pl-8 text-xs text-muted">{OUTCOME_HINTS[value]}</p>
-                </div>
-              ))}
+              {LeadAppointmentOutcome.options
+                .filter((value) => canConvert || value !== 'CONVERT_NEW')
+                .map((value) => (
+                  <div key={value} className="flex flex-col">
+                    <Radio
+                      name="lead-outcome"
+                      value={value}
+                      label={LEAD_APPOINTMENT_OUTCOME_LABELS[value]}
+                      checked={outcome === value}
+                      onChange={() => setOutcome(value)}
+                    />
+                    <p className="pl-8 text-xs text-muted">{OUTCOME_HINTS[value]}</p>
+                  </div>
+                ))}
+              {canConvert ? null : (
+                <p className="text-xs text-muted">The lead&apos;s owner can convert this lead.</p>
+              )}
               {tried && missing.outcome ? (
                 <p id="outcome-error" className="text-sm font-medium text-danger">
                   {missing.outcome}

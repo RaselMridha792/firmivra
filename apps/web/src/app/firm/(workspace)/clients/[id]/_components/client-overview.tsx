@@ -15,6 +15,7 @@ import { LinkedProfilesCard } from './client-links';
 import { LocalOfficeCard } from './client-office';
 import { ActiveServicesCard } from './client-services';
 import { ClientSummaryCards } from './client-summary';
+import { ClientTabHeader } from './client-tab-header';
 import { ClientTagsCard } from './client-tags';
 import { useClientRecord } from './use-client-record';
 
@@ -195,24 +196,27 @@ export function ClientOverview() {
   const { id } = useParams<{ id: string }>();
   const record = useClientRecord(id);
   return (
-    <PageState query={record}>
-      {(client) => (
-        <div data-testid="client-overview" className="grid gap-5 lg:grid-cols-2">
-          <ClientSummaryCards clientId={client.id} />
-          <Profile client={client} />
-          <Contact client={client} />
-          <ActiveServicesCard clientId={client.id} />
-          <PortalAccess client={client} />
-          <LocalOfficeCard clientId={client.id} />
-          <FirmDetails client={client} />
-          <ClientTagsCard client={client} />
-          <BillingCard clientId={client.id} />
-          <LinkedProfilesCard client={client} />
-          <div className="lg:col-span-2">
-            <RecentActivityCard clientId={client.id} />
+    <div className="flex flex-col gap-4">
+      <ClientTabHeader title="Overview" />
+      <PageState query={record}>
+        {(client) => (
+          <div data-testid="client-overview" className="grid gap-5 lg:grid-cols-2">
+            <ClientSummaryCards clientId={client.id} />
+            <Profile client={client} />
+            <Contact client={client} />
+            <ActiveServicesCard clientId={client.id} />
+            <PortalAccess client={client} />
+            <LocalOfficeCard clientId={client.id} />
+            <FirmDetails client={client} />
+            <ClientTagsCard client={client} />
+            <BillingCard clientId={client.id} />
+            <LinkedProfilesCard client={client} />
+            <div className="lg:col-span-2">
+              <RecentActivityCard clientId={client.id} />
+            </div>
           </div>
-        </div>
-      )}
-    </PageState>
+        )}
+      </PageState>
+    </div>
   );
 }

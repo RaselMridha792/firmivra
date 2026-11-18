@@ -551,6 +551,17 @@ function syncNext(l: Lead) {
  * one). The lead's stage never changes. Nothing for a lead this mock does not hold (the scheduling
  * mock's own sample leads).
  */
+/**
+ * P4-2, as the API's `reachesLead`: whether the mock member reaches the lead by the lead pages'
+ * rule (Owner and Admin every lead; Staff, Daniel Okafor, the leads assigned to him).
+ */
+export function mockLeadReach(id: string, role: MockRole): boolean {
+  if (role !== 'STAFF') return true;
+  const s = stores?.get('full') ?? storeFor({});
+  const l = s.leads.find((x) => x.profile.id === id);
+  return l?.profile.assignedTo?.userId === staff(3, 'Daniel Okafor').userId;
+}
+
 export function mockLeadAppointmentOutcome(
   id: string,
   outcome: { label: string; followUpAt: string | null; by: MemberRef },
