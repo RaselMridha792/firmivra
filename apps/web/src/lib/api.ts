@@ -49,6 +49,7 @@ import {
   createPublicCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyTasksClient,
   createMyIntakesClient,
   createIntakeLinkClient,
   createLeadRoutingClient,
@@ -504,6 +505,8 @@ export const api = {
     dev && mocked('myDocuments')
       ? myDocumentsMock(firmSlug)
       : createMyDocumentsClient(request, firmSlug),
+  /** Client Portal Review One T16: the tasks the firm shows this client (portal Requests area). */
+  myTasks: (firmSlug: string) => createMyTasksClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   // Dashboard Review Two V6: completing a task can be made to fail (`fv-mock-fail`).
   tasks:
