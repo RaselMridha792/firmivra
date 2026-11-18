@@ -27,12 +27,17 @@ export function mergeListQuery(query: string, view: ListQuery, defaults: ListQue
   return text ? `?${text}` : '';
 }
 
-/** Writes the list's view into the address without navigating (history.replaceState). */
+/**
+ * Writes the list's view into the address without navigating (history.replaceState). The state
+ * is null, as Next's history docs ask, so Next records this address with its own state: passing
+ * the old state kept the page-load address in it, and browser Back could reopen the list as it
+ * first loaded, without the search or filters chosen since (Templates Review Two R01).
+ */
 export function writeListQuery(view: ListQuery, defaults: ListQuery): void {
   const next = mergeListQuery(window.location.search, view, defaults);
   if (next === window.location.search) return;
   window.history.replaceState(
-    window.history.state,
+    null,
     '',
     `${window.location.pathname}${next}${window.location.hash}`,
   );

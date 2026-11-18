@@ -145,13 +145,12 @@ export function TemplateEditorScreen({ id, kindSlug }: { id?: string; kindSlug?:
   const detail = useApiQuery([...TEMPLATES_KEY, 'detail', id ?? 'new'], async () =>
     id ? api.templates.get(id) : null,
   );
+  // R01: a template that cannot be opened goes back to the list it was opened from.
+  const back = safeOrigin(useSearchParams().get(ORIGIN_PARAM)) ?? '/templates';
   if (id && !detail.data) {
     return (
       <div className="flex flex-col gap-4">
-        <Link
-          href="/templates"
-          className="flex w-fit items-center gap-2 text-sm font-medium text-link"
-        >
+        <Link href={back} className="flex w-fit items-center gap-2 text-sm font-medium text-link">
           <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back to Templates
         </Link>
         <p className={`${card} ${quiet}`}>
