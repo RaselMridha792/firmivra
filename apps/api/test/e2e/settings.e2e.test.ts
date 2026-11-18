@@ -210,6 +210,12 @@ describe('GET and PATCH /business/settings', () => {
       timezone: 'America/Chicago',
     });
 
+    // CP-1g: the landing page's button text, one line of at most 30 characters.
+    const labels = await call('patch', '/settings', people.ownerA, firms.a.id, {
+      portalSignUpLabel: 'x'.repeat(31),
+    });
+    expect(labels.status).toBe(400);
+
     const cleared = await call('patch', '/settings', people.ownerA, firms.a.id, {
       website: '',
       portalName: null,
