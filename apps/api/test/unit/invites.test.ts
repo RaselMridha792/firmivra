@@ -325,18 +325,25 @@ describe('InvitesService.resendInvite', () => {
     });
     await resend();
     // The lock, the newest invite's details, the revoke, the membership update, the new invite:
-    // called once each, in order.
+    // called once each, in order. SM21: then, once the email went out, its time on the new invite
+    // (a second updateMany, after the send).
+    const [revoke, stamp] = tx.invite.updateMany.mock.invocationCallOrder;
     const order = [
-      tx.$executeRaw,
-      tx.invite.findFirst,
-      tx.invite.updateMany,
-      tx.membership.updateMany,
-      tx.invite.create,
-    ]
-      .map((fn) => fn.mock.invocationCallOrder)
-      .map((calls) => (calls.length === 1 ? (calls[0] ?? -1) : -1));
+      ...[tx.$executeRaw, tx.invite.findFirst]
+        .map((fn) => fn.mock.invocationCallOrder)
+        .map((calls) => (calls.length === 1 ? (calls[0] ?? -1) : -1)),
+      revoke ?? -1,
+      ...[tx.membership.updateMany, tx.invite.create]
+        .map((fn) => fn.mock.invocationCallOrder)
+        .map((calls) => (calls.length === 1 ? (calls[0] ?? -1) : -1)),
+      stamp ?? -1,
+    ];
     expect(order.every((n) => n > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(tx.invite.updateMany).toHaveBeenCalledTimes(2);
+    expect(tx.invite.updateMany.mock.calls[1]?.[0]).toMatchObject({
+      data: { emailedAt: expect.any(Date) },
+    });
   });
 
   it('keeps a re-invite that committed before its transaction: the role and details read there', async () => {
@@ -483,7 +490,9 @@ describe('InvitesService transaction limits', () => {
       inTx: [{ status: 'INVITED' }],
     });
     await resend();
-    expect(withScope.mock.calls.map((call) => call[2])).toEqual([{ timeout: 15_000 }]);
+    // SM21: then, after the send, a one-row write of the email's time: no lock to wait on, so the
+    // defaults.
+    expect(withScope.mock.calls.map((call) => call[2])).toEqual([{ timeout: 15_000 }, undefined]);
   });
 });
 
@@ -524,11 +533,19 @@ describe('InvitesService.createInvite delivery option', () => {
     return { create, tx };
   }
 
+  const stamped = (tx: ReturnType<typeof newPerson>['tx']) =>
+    tx.invite.updateMany.mock.calls.some(
+      (call) => (call[0] as { data?: { emailedAt?: unknown } }).data?.emailedAt !== undefined,
+    );
+
   it('sends by default and reports it', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
-    const result = await newPerson(send).create();
+    const { create, tx } = newPerson(send);
+    const result = await create();
     expect(send).toHaveBeenCalledOnce();
     expect(result).toMatchObject({ membershipId: 'm1', emailed: true });
+    // SM21: the email went out, so its time is on the invite.
+    expect(stamped(tx)).toBe(true);
   });
 
   it('still throws a failed send by default, as before', async () => {
@@ -543,12 +560,16 @@ describe('InvitesService.createInvite delivery option', () => {
     expect(send).not.toHaveBeenCalled();
     expect(tx.invite.create).toHaveBeenCalledOnce();
     expect(result).toMatchObject({ id: 'i1', membershipId: 'm1', emailed: false });
+    expect(stamped(tx)).toBe(false);
   });
 
   it("'try' keeps the invite when the send fails and reports emailed: false", async () => {
     const send = vi.fn().mockRejectedValue(new Error('SES down'));
-    const result = await newPerson(send).create('try');
+    const { create, tx } = newPerson(send);
+    const result = await create('try');
     expect(send).toHaveBeenCalledOnce();
     expect(result).toMatchObject({ id: 'i1', membershipId: 'm1', emailed: false });
+    // SM21: a failed send never stamps the email's time.
+    expect(stamped(tx)).toBe(false);
   });
 });
