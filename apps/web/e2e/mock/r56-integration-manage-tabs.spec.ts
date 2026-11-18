@@ -163,6 +163,20 @@ test('permissions show what is missing and Reconnect goes to the provider', asyn
   await expect(page).toHaveURL('https://provider.example.test/authorize');
 });
 
+test('I-R2-06: a connection needing attention offers no Sync Now, and says what comes first', async ({
+  page,
+}) => {
+  await serve(page, 'attention');
+  await open(page, base);
+  await expect(page.getByTestId('sync-blocked')).toHaveText(
+    'Fix the connection first (see Troubleshooting): it cannot sync until then.',
+    { timeout: 60_000 },
+  );
+  // Both Sync Now buttons (the header and Sync Controls) are off.
+  for (const button of await page.getByRole('button', { name: 'Sync Now' }).all())
+    await expect(button).toBeDisabled();
+});
+
 test('sync history filters, pages and opens a failed run with guidance', async ({ page }) => {
   await serve(page);
   await open(page, `${base}/sync-history`);

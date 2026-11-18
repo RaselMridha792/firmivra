@@ -146,8 +146,14 @@ function ScopeCard({
           <p className="text-sm text-muted">
             {saved.length} {saved.length === 1 ? 'field' : 'fields'} mapped
           </p>
+          {scope.readOnly ? (
+            <p className="text-sm text-muted" data-testid="mapping-read-only">
+              Saved for an area this provider no longer offers: kept and shown here, but it cannot
+              be changed.
+            </p>
+          ) : null}
         </div>
-        {editing ? null : (
+        {editing || scope.readOnly ? null : (
           <Button
             variant="secondary"
             className="border-action! text-action!"

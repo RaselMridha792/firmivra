@@ -317,6 +317,11 @@ export const IntegrationSort = z.enum(['popular', 'name', 'category']);
 
 /** GET /business/integrations/marketplace: Add Integration, with the category list and counts. */
 export const IntegrationMarketplaceQuery = z.strictObject({
+  /**
+   * I-R2-02 (Integrations Review Two): the environment whose connections the cards show (Live
+   * unless asked), as the overview's switch: never a Test connection on a Live card.
+   */
+  environment: IntegrationEnvironment.optional().default('LIVE'),
   category: IntegrationCategory.optional(),
   search: SearchText.optional(),
   sort: IntegrationSort.optional().default('popular'),
@@ -409,7 +414,16 @@ export type IntegrationMappingPair = z.infer<typeof IntegrationMappingPair>;
 
 /** GET .../mappings: the saved pairs, and the provider's fields to choose from, per scope. */
 export const IntegrationMappings = z.object({
-  scopes: z.array(IntegrationMappingScope.extend({ pairs: z.array(IntegrationMappingPair) })),
+  scopes: z.array(
+    IntegrationMappingScope.extend({
+      pairs: z.array(IntegrationMappingPair),
+      /**
+       * I-R2-03 (Integrations Review Two): pairs saved in a scope the provider no longer lists
+       * are shown, never dropped, in a scope of their own that cannot be edited (no fields).
+       */
+      readOnly: z.boolean().default(false),
+    }),
+  ),
 });
 export type IntegrationMappings = z.infer<typeof IntegrationMappings>;
 
@@ -435,8 +449,11 @@ export type SaveIntegrationMappingsRequest = z.input<typeof SaveIntegrationMappi
 
 export const IntegrationHealthCheck = z.object({
   key: z.enum(['AUTHENTICATION', 'API', 'DATA_SYNC', 'RECENT_ERRORS', 'PERMISSIONS']),
+  /** Says what the check found ("Data sync is failing"), never a healthy line for a failure. */
   label: z.string(),
   ok: z.boolean(),
+  /** I-R2-01: OK, FAIL, or UNKNOWN (nothing has shown it yet); `ok` is OK. */
+  state: z.enum(['OK', 'FAIL', 'UNKNOWN']).optional(),
   message: z.string().nullable(),
 });
 export type IntegrationHealthCheck = z.infer<typeof IntegrationHealthCheck>;
@@ -444,6 +461,15 @@ export type IntegrationHealthCheck = z.infer<typeof IntegrationHealthCheck>;
 /** Connection Health, and Troubleshooting (the checks, what to do, and the last check). */
 export const IntegrationConnectionHealth = z.object({
   ok: z.boolean(),
+  /**
+   * I-R2-01 and I-F03 (Integrations Review Two): the one state the summary, the checks and the
+   * advice follow. UNKNOWN: no check or sync has shown anything yet; STALE: the last one is older
+   * than a week; FAILING: a check fails; DISCONNECTED; HEALTHY only with a check or sync behind it.
+   */
+  state: z.enum(['UNKNOWN', 'HEALTHY', 'FAILING', 'DISCONNECTED', 'STALE']).optional(),
+  /** The last sync that succeeded, apart from the last attempt (which may have failed). */
+  lastSuccessAt: DateTime.nullable().optional(),
+  lastAttemptAt: DateTime.nullable().optional(),
   summary: z.string(),
   checks: z.array(IntegrationHealthCheck),
   /** Plain steps a person can take ("Reconnect to renew the authorization"). */
@@ -487,6 +513,12 @@ export type IntegrationHistoryQuery = z.input<typeof IntegrationHistoryQuery>;
 export const IntegrationHistoryPage = z.object({
   items: z.array(IntegrationSyncRun).max(100),
   ...Page,
+  /**
+   * I-R2-05 (Integrations Review Two): every object the connection's runs have, whatever the
+   * filters, with its label; one the provider no longer lists still filters (connection tests
+   * and webhooks are left out: they have their own choices).
+   */
+  entities: z.array(z.object({ key: z.string(), label: z.string() })).default([]),
 });
 export type IntegrationHistoryPage = z.infer<typeof IntegrationHistoryPage>;
 

@@ -42,6 +42,11 @@ export function RequestIntegrationModal({ open, onClose }: { open: boolean; onCl
     if (create.isSuccess) {
       form.reset();
       create.reset();
+    } else {
+      // I-R2-08: a kept draft comes back without the last attempt's errors (they show again only
+      // when it is submitted).
+      form.clearErrors();
+      if (create.isError) create.reset();
     }
   }
   function cancel() {

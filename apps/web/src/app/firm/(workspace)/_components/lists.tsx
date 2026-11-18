@@ -10,18 +10,27 @@ import {
 import { Button, Modal } from '@firmivra/ui';
 import { MapPin, Phone, VideoCamera } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { DashboardLink as Link, useDashboardNavigate } from './dashboard-link';
 import { useState } from 'react';
 import { useFirm } from '../../../../components/firm-context';
 import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation } from '../../../../lib/query';
-import { type Ask, CloseModal } from '../calendar/[id]/_components/detail-screen';
+import type { Ask } from '../calendar/[id]/_components/detail-screen';
 import { LOCATION_LABELS } from '../calendar/_components/shared';
 import { RowMenu, type RowMenuItem } from '../team/_components/row-menu';
 import { addDays } from '../calendar/_components/time';
 import { rowActions } from './appointment-actions';
 import { Widget } from './widget';
+
+/**
+ * V8: Mark Complete and Cancel ask in the appointment's own dialog, loaded when first asked, so
+ * the dashboard's first load does not carry the appointment screen's code.
+ */
+const CloseModal = dynamic(() =>
+  import('../calendar/[id]/_components/detail-screen').then((m) => m.CloseModal),
+);
 
 const ICONS = { VIDEO: VideoCamera, PHONE: Phone, IN_PERSON: MapPin } as const;
 const BARS = { VIDEO: 'bg-info', PHONE: 'bg-success', IN_PERSON: 'bg-gold' } as const;
