@@ -18,6 +18,7 @@ import {
   SEED_DOCUMENT_IDS,
   SEED_TAX_RETURN_IDS,
   SEED_INTAKE_IDS,
+  SEED_PORTAL_TAB_IDS,
   SEED_NOTIFICATION_IDS,
   SEED_APPOINTMENT_TYPES,
   SEED_CALENDAR_IDS,
@@ -1348,6 +1349,30 @@ async function main() {
         intakeId: SEED_INTAKE_IDS.taxIntake,
         authorUserId: SEED_USERS.lvpStaff.id,
         body: 'Called about the missing W-2; the client will upload it this week (sample).',
+      },
+    });
+    // Client Portal Review One CP-5d, CP-5e: a custom document-upload tab for the LVP client only.
+    await tx.portalTab.upsert({
+      where: { id: SEED_PORTAL_TAB_IDS.payrollTab },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_PORTAL_TAB_IDS.payrollTab,
+        kind: 'CUSTOM',
+        module: 'DOCUMENTS',
+        label: 'Payroll Documents (sample)',
+        sortOrder: 6,
+        audience: 'CLIENTS',
+      },
+    });
+    await tx.portalTabTarget.upsert({
+      where: { id: SEED_PORTAL_TAB_IDS.payrollTarget },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_PORTAL_TAB_IDS.payrollTarget,
+        portalTabId: SEED_PORTAL_TAB_IDS.payrollTab,
+        clientId: SEED_CLIENT_IDS.lvp,
       },
     });
 

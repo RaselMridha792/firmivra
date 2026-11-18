@@ -28,6 +28,8 @@ export const NOTIFICATION_CATEGORY_LABELS = {
   MESSAGES: 'Messages and notes',
   APPOINTMENTS: 'Appointments',
   BILLING: 'Invoices and payments',
+  // Client Portal Review One CP-3d: the firm's general announcements.
+  ANNOUNCEMENTS: 'Announcements',
 } as const satisfies Record<NotificationCategory, string>;
 
 /**
