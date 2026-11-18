@@ -166,7 +166,12 @@ describe('form builder: sections to the engine', () => {
     );
     const second = toDefinition({ title: 'y', settings: { showProgressBar: false } }, first);
     expect(second.subtitle).toBe('Fake description');
-    expect(second.formSettings).toEqual({ expiresAfterDays: 9, showProgressBar: false });
+    // Intake Review 2 23-h: Require e-signature is always on, so every save keeps it on.
+    expect(second.formSettings).toEqual({
+      expiresAfterDays: 9,
+      showProgressBar: false,
+      requireSignature: true,
+    });
     expect(second.steps).toEqual(first.steps);
   });
 });

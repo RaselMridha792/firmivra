@@ -65,6 +65,7 @@ export function createIntakeLinkMock(firmSlug: string = mockBusiness.slug): Inta
       canEdit: i.canEdit,
       consentRequired: i.consentRequired,
       completion: i.completion,
+      showProgressBar: i.showProgressBar,
     });
 
   return {

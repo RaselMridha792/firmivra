@@ -47,10 +47,11 @@ import {
   intakeConsentRequired,
   submittedNoticeExcludes,
 } from './intake-completion.js';
-import { publishedForm, readDefinition } from './intake-forms.js';
+import { publishedForm, readDefinition, showsProgressBar } from './intake-forms.js';
 import { maskStoredNumbers } from './intake-numbers.js';
 import type { IntakeSigner } from './intake-signing.js';
 import { intakeLocked, OPEN_STATUSES, requireOpen, saveIntakeStep } from './intake-step.js';
+import { IntakeAutomations } from '../intake-workspace/intake-automations.js';
 import { lockVersion, prepareSubmit, type SlotFile } from './intake-submit.js';
 
 export { OPEN_STATUSES, requireOpen };
@@ -96,6 +97,8 @@ const summarySelect = {
   correctionRequestedAt: true,
   createdAt: true,
   updatedAt: true,
+  // Intake Review 2 23-g: the Submission ID on the done screen.
+  referenceNumber: true,
   form: { select: { version: true, title: true, definition: true } },
   engagement: {
     select: {
@@ -235,6 +238,7 @@ export class IntakesService {
     private readonly notifier: Notifier,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
     @Inject(ENV) private readonly env: Env,
+    private readonly automations: IntakeAutomations,
   ) {}
 
   /**
@@ -365,7 +369,8 @@ export class IntakesService {
       canEdit: open,
       canSubmit: open,
       consentRequired: await intakeConsentRequired(tx, businessId),
-      completion: await intakeCompletion(tx, businessId, row.form.definition),
+      completion: await intakeCompletion(tx, businessId, row.form.definition, row.referenceNumber),
+      showProgressBar: showsProgressBar(row.form.definition),
     });
   }
 
@@ -763,6 +768,8 @@ export class IntakesService {
       select: { email: true },
     });
     await sendClientConfirmation(deps, businessId, id, account?.email ?? null);
+    // Intake Review 2 23-c to 23-f: the firm's Automation Rules (a follow-up task), once per form.
+    await this.automations.afterSubmit(businessId, id);
     return intake;
   }
 

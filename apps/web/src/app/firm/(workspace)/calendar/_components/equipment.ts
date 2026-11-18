@@ -44,3 +44,19 @@ export function equipmentClashes(error: unknown): string[] {
     ...new Set(result.data.conflicts.filter((c) => c.kind === 'EQUIPMENT').map((c) => c.message)),
   ];
 }
+
+/**
+ * Review 2 (W10): a 409 SCHEDULING_CONFLICT's own answer: whether the signed-in member may book
+ * anyway with a reason (`canOverride`: an Owner or Admin, and no hard conflict such as the client
+ * already booked then), and the conflicts' own words ("This client already has an appointment at
+ * this time"). Null for any other error.
+ */
+export function conflictOf(error: unknown): { canOverride: boolean; messages: string[] } | null {
+  if (!(error instanceof ApiRequestError) || error.code !== 'SCHEDULING_CONFLICT') return null;
+  const result = ConflictResult.safeParse(error.rawDetails);
+  if (!result.success) return { canOverride: false, messages: [] };
+  return {
+    canOverride: result.data.canOverride,
+    messages: [...new Set(result.data.conflicts.map((c) => c.message))],
+  };
+}

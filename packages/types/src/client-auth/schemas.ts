@@ -90,6 +90,12 @@ export const PortalInfo = z.object({
     header: z.string().nullable(),
     /** Welcome text on the landing page; null shows the default. */
     welcomeMessage: z.string().nullable(),
+    /**
+     * Intake Review 2 23-g: Intake Form Settings > "Use this branding on client-facing forms". Off:
+     * the forms outside the portal (a lead's link, a public share link) show the firm's name only,
+     * with no logo or colours; the portal itself keeps its branding.
+     */
+    formBranding: z.boolean().default(true),
   }),
   /** False when the firm closed sign-ups or has not published Terms and Privacy yet. */
   signUpOpen: z.boolean(),

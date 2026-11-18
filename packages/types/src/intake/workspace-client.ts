@@ -149,6 +149,9 @@ export function createIntakeFormsClient(request: ApiRequest) {
       ),
     archiveForm: async (id: string): Promise<IntakeFormDetail> =>
       request(IntakeFormDetail, `${form(id)}/archive`, post()),
+    /** Intake Review 2 24c-i: Owner and Admin bring an archived form back, as a draft. */
+    restoreForm: async (id: string): Promise<IntakeFormDetail> =>
+      request(IntakeFormDetail, `${form(id)}/restore`, post()),
     /** The main form's link and website button: its Begin Online page. 404 for any other form. */
     publicLink: async (id: string): Promise<PublicLink> =>
       request(PublicLink, `${form(id)}/public-link`),
@@ -160,6 +163,9 @@ export function createIntakeFormsClient(request: ApiRequest) {
         method: 'PUT',
         body: parseInput(SaveIntakeShareRequest, body),
       }),
+    /** Intake Review 2 P4-16: Owner and Admin make a new share link; the old one stops at once. */
+    rotateShare: async (id: string): Promise<IntakeShare> =>
+      request(IntakeShare, `${form(id)}/share/rotate`, post()),
 
     // Settings
     settings: async (): Promise<IntakeSettings> => request(IntakeSettings, SETTINGS),
