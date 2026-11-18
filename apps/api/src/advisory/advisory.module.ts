@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MessagesModule } from '../messages/messages.module.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
+import { ReportsModule } from '../reports/reports.module.js';
 import { AdvisoryActionsService } from './advisory-actions.service.js';
 import { AdvisoryClientsService } from './advisory-clients.service.js';
 import { AdvisoryFinancialsService } from './advisory-financials.service.js';
@@ -22,7 +23,7 @@ import { MyAdvisoryService } from './my-advisory.service.js';
  * where the client approves a plan sent for approval (B10).
  */
 @Module({
-  imports: [MessagesModule, NotificationsModule],
+  imports: [MessagesModule, NotificationsModule, ReportsModule],
   controllers: [AdvisoryController, MyAdvisoryController],
   providers: [
     AdvisoryReadService,

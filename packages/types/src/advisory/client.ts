@@ -37,6 +37,7 @@ import {
   AdvisoryRecommendationsQuery,
   AdvisoryResourceKey,
   AdvisoryResourceList,
+  AdvisoryResourcePreview,
   AdvisoryResourcesQuery,
   AdvisoryServiceOptionList,
   AdvisorySettingsView,
@@ -366,6 +367,16 @@ export function createAdvisoryClient(request: ApiRequest) {
       request(
         OkResponse,
         `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/send`,
+        post(parseInput(SendAdvisoryResourceRequest, body)),
+      ),
+    /** B28: what the client would receive and the eligibility checks; nothing is sent. */
+    previewResource: async (
+      key: string,
+      body: SendAdvisoryResourceRequest,
+    ): Promise<AdvisoryResourcePreview> =>
+      request(
+        AdvisoryResourcePreview,
+        `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/preview`,
         post(parseInput(SendAdvisoryResourceRequest, body)),
       ),
     settings: async (): Promise<AdvisorySettingsView> =>

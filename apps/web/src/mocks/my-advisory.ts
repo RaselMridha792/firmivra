@@ -209,7 +209,17 @@ function seed(): { view: MyAdvisory; plans: MyAdvisoryPlan[] } {
           category: 'Funding',
           kind: 'CHECKLIST',
           summary: 'What lenders and investors look for before they say yes.',
+          format: 'SECURE_LINK',
           sentAt: ago(5),
+        },
+        {
+          key: 'cash-flow-basics',
+          title: 'Cash Flow Basics',
+          category: 'Financial Management',
+          kind: 'GUIDE',
+          summary: 'How to read and forecast your cash flow.',
+          format: 'PDF',
+          sentAt: ago(6),
         },
       ],
       files: [
@@ -252,6 +262,17 @@ export function createMyAdvisoryMock(options: { enrolled?: boolean } = {}): MyAd
       const p = options.enrolled === false ? undefined : all().plans.find((x) => x.id === planId);
       if (!p) throw notFound();
       return copy(p);
+    },
+    // B28, as the API: only a resource sent as a PDF downloads (404 otherwise).
+    resourcePdf: async (key) => {
+      await mockDelay();
+      const r =
+        options.enrolled === false ? undefined : all().view.resources.find((x) => x.key === key);
+      if (r?.format !== 'PDF') throw notFound();
+      return {
+        url: `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock PDF: ${r.title}`)}`,
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      };
     },
     approve: async (id, body) => {
       await mockDelay();

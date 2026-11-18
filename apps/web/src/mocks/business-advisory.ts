@@ -24,6 +24,8 @@ import {
   FinalizeAdvisoryPlanRequest,
   ReorderAdvisoryMilestonesRequest,
   RequestAdvisoryPlanApprovalRequest,
+  ADVISORY_RESOURCE_FORMAT_LABELS,
+  type AdvisoryResourcePreview,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
@@ -166,6 +168,19 @@ const serviceOptions = (): AdvisoryServiceOption[] =>
  */
 const NO_PORTAL_LOGIN: readonly string[] = ['Omar Haddad'];
 
+/** The library's words for a resource (apps/api/src/advisory/catalog.ts `summary`). */
+const RESOURCE_SUMMARY: Record<string, string> = {
+  'business-formation-checklist': 'The steps to form your business and get your EIN.',
+  'brand-basics-guide': 'Name, logo and voice: the basics of a brand that fits your business.',
+  'website-launch-checklist': 'What to have ready before your website goes live.',
+  'business-banking-checklist': 'What a bank asks for when you open a business account.',
+  'funding-readiness-checklist': 'What lenders and investors look for before they say yes.',
+  'business-plan-template': 'A simple outline for a business plan you can fill in.',
+  'market-research-guide': 'How to learn who your customers are and what they will pay.',
+  'cash-flow-basics': 'How to read and forecast your cash flow.',
+  'growth-operations-playbook': 'Systems that help a growing business stay organized.',
+};
+
 /** As the API's catalog (apps/api/src/advisory/catalog.ts). */
 const resourceLibrary = (): AdvisoryResource[] =>
   (
@@ -206,6 +221,8 @@ const resourceLibrary = (): AdvisoryResource[] =>
     kind,
     clientFacing,
     url: null,
+    // B28, as the API's catalog: documents go as a Secure Link or a PDF.
+    formats: ['SECURE_LINK', 'PDF'] as AdvisoryResource['formats'],
   }));
 
 /** The API's factors and default weights (apps/api/src/advisory/health.ts). */
@@ -1442,6 +1459,54 @@ export function createAdvisoryMock({
         'Someone saved this after you opened it. Reload to see their changes.',
       );
   };
+  /** B28, as the API: what the client would receive, and the checks in Send's order. */
+  const composeResource = (
+    key: string,
+    req: ReturnType<typeof SendAdvisoryResourceRequest.parse>,
+  ): AdvisoryResourcePreview => {
+    if (!canSend) throw forbidden();
+    const r = RESOURCES.find((x) => x.key === key);
+    if (!r) throw notFound();
+    const c = findClient(req.advisoryClientId);
+    const format = req.format ?? 'SECURE_LINK';
+    const name = c.client.name;
+    const problems: AdvisoryResourcePreview['problems'] = [];
+    if (c.archived)
+      problems.push({ code: 'CLIENT_ARCHIVED', message: 'Restore the advisory client first.' });
+    if (!r.clientFacing)
+      problems.push({
+        code: 'RESOURCE_NOT_CLIENT_FACING',
+        message: 'This resource is for staff and cannot be sent.',
+      });
+    if (!r.formats.includes(format))
+      problems.push({
+        code: 'FORMAT_NOT_AVAILABLE',
+        message: `This resource can't be sent as ${ADVISORY_RESOURCE_FORMAT_LABELS[format]}.`,
+      });
+    const login = !NO_PORTAL_LOGIN.includes(name);
+    if (!login)
+      problems.push({
+        code: 'NO_PORTAL_LOGIN',
+        message: `${name} has no active portal login yet, so the resource would not reach them: it opens only after they sign in to the portal. Send them a portal invitation first.`,
+      });
+    const link = `http://portal.localhost:3000/lvp/services/advisory#${key}`;
+    return {
+      channel: req.channel,
+      format,
+      to: { name, email: login ? c.client.email : null },
+      subject: r.title,
+      body: [
+        RESOURCE_SUMMARY[key] ?? r.title,
+        '',
+        format === 'PDF'
+          ? `A PDF copy is ready to download in your portal (sign in first): ${link}`
+          : `Open it in your portal (sign in first): ${link}`,
+        ...(req.message ? ['', req.message] : []),
+      ].join('\n'),
+      eligible: problems.length === 0,
+      problems,
+    };
+  };
   /** B10: 409 while the plan waits for the client's approval (Modify Plan withdraws it). */
   const awaitingClient = () =>
     fail(
@@ -2635,20 +2700,20 @@ export function createAdvisoryMock({
             (query.clientFacing === undefined || r.clientFacing === query.clientFacing),
         );
       }),
+    previewResource: (key, body) =>
+      run(() => {
+        parseInput(AdvisoryResourceKey, key);
+        return composeResource(key, parseInput(SendAdvisoryResourceRequest, body));
+      }),
     sendResource: (key, body) =>
       run(() => {
         parseInput(AdvisoryResourceKey, key);
         const req = parseInput(SendAdvisoryResourceRequest, body);
-        if (!canSend) throw forbidden();
-        const r = RESOURCES.find((x) => x.key === key);
-        if (!r) throw notFound();
-        if (!r.clientFacing)
-          throw fail(
-            409,
-            'RESOURCE_NOT_CLIENT_FACING',
-            'This resource is for staff and cannot be sent',
-          );
+        const view = composeResource(key, req);
+        const first = view.problems[0];
+        if (first) throw fail(409, first.code, first.message);
         const c = findClient(req.advisoryClientId);
+        const r = RESOURCES.find((x) => x.key === key)!;
         log(c.id, 'advisory.resource_sent', `Resource sent: ${r.title}`);
         return { ok: true as const };
       }),

@@ -27,6 +27,7 @@ import {
   type AdvisoryRecommendationRow,
   AdvisoryResourceKey,
   type AdvisoryResourceList,
+  type AdvisoryResourcePreview,
   type AdvisoryServiceOptionList,
   type AdvisorySettingsView,
   type AdvisoryVersionDetail,
@@ -61,6 +62,7 @@ import {
   MeetingsQuery,
   ReportsQuery,
   PlansQuery,
+  PreviewResourceBody,
   RecommendationsQuery,
   ReorderMilestonesBody,
   RequestApprovalBody,
@@ -612,6 +614,19 @@ export class AdvisoryController {
   ): Promise<OkResponse> {
     const w = who(auth, tenant);
     return this.overview.sendResource(w.businessId, w.tenant, w.userId, key, body);
+  }
+
+  /** B28: what the client would receive, and the eligibility checks; nothing is sent. */
+  @Post('resources/:key/preview')
+  @HttpCode(200)
+  previewResource(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('key', new ZodValidationPipe(AdvisoryResourceKey)) key: string,
+    @Body(new ZodValidationPipe(PreviewResourceBody)) body: Out<typeof PreviewResourceBody>,
+  ): Promise<AdvisoryResourcePreview> {
+    const w = who(auth, tenant);
+    return this.overview.previewResource(w.businessId, w.tenant, w.userId, key, body);
   }
 
   @Get('settings')

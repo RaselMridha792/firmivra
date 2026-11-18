@@ -1,9 +1,11 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import {
   AdvisoryPlanId,
+  AdvisoryResourceKey,
   ApproveMyAdvisoryPlanRequest,
   type MyAdvisory,
   type MyAdvisoryPlan,
+  type MyAdvisoryResourcePdf,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { portalLogin } from '../appointments/request-actors.js';
@@ -56,5 +58,15 @@ export class MyAdvisoryController {
     body: z.output<typeof ApproveMyAdvisoryPlanRequest>,
   ): Promise<MyAdvisoryPlan> {
     return this.mine.approve(caller(auth, tenant), id, body);
+  }
+
+  /** B28: the PDF of a resource the firm sent as a PDF, behind a 5-minute link. */
+  @Get('resources/:key/pdf')
+  resourcePdf(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('key', new ZodValidationPipe(AdvisoryResourceKey)) key: string,
+  ): Promise<MyAdvisoryResourcePdf> {
+    return this.mine.resourcePdf(caller(auth, tenant), key);
   }
 }

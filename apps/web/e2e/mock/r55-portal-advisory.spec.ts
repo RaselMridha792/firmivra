@@ -38,7 +38,9 @@ test('BA-CP: My Services opens Business Advisory, which shows only what the firm
   await expect(tasks.first()).toContainText('Overdue');
   await expect(tasks.first()).toContainText('For you');
   await expect(tasks.nth(1)).toContainText('Your firm is on it');
-  await expect(page.getByTestId('advisory-resource')).toContainText('Funding Readiness Checklist');
+  await expect(
+    page.getByTestId('advisory-resource').filter({ hasText: 'Funding Readiness Checklist' }),
+  ).toHaveCount(1);
   await expect(page.getByTestId('advisory-files')).toContainText('Second shop budget (sample).pdf');
   await expect(page.getByTestId('advisory-disclaimer')).toContainText('not guarantees');
   // Nothing on the page edits anything.

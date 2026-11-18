@@ -205,6 +205,18 @@ export const AdvisoryMeetingRow = z.object({
 });
 export type AdvisoryMeetingRow = z.infer<typeof AdvisoryMeetingRow>;
 
+/**
+ * B28 (Business Advisory review §18): how a resource reaches the client. SECURE_LINK: a link that
+ * opens it in their portal after they sign in. PDF: a PDF copy they download from their portal
+ * (never an email attachment). A resource offers the formats it has (`formats`).
+ */
+export const AdvisoryResourceFormat = z.enum(['SECURE_LINK', 'PDF']);
+export type AdvisoryResourceFormat = z.infer<typeof AdvisoryResourceFormat>;
+export const ADVISORY_RESOURCE_FORMAT_LABELS: Record<AdvisoryResourceFormat, string> = {
+  SECURE_LINK: 'Secure Link',
+  PDF: 'PDF',
+};
+
 export const AdvisoryResource = z.object({
   key: AdvisoryResourceKey,
   title: z.string(),
@@ -214,6 +226,8 @@ export const AdvisoryResource = z.object({
   /** Only a client-facing resource may be sent outside. */
   clientFacing: z.boolean(),
   url: z.string().nullable(),
+  /** B28: the formats it can be sent in (a video or a link: Secure Link only). */
+  formats: z.array(AdvisoryResourceFormat),
 });
 export type AdvisoryResource = z.infer<typeof AdvisoryResource>;
 
@@ -1103,13 +1117,46 @@ export type AdvisoryResourcesQuery = z.input<typeof AdvisoryResourcesQuery>;
 export const AdvisoryResourceList = z.object({ items: z.array(AdvisoryResource) });
 export type AdvisoryResourceList = z.infer<typeof AdvisoryResourceList>;
 
-/** POST .../resources/{key}/send: only a client-facing resource, to a client the caller reaches. Needs "Send plans and resources". */
+/**
+ * POST .../resources/{key}/send: only a client-facing resource, to a client the caller reaches.
+ * Needs "Send plans and resources". B28: `format` (default SECURE_LINK) must be one the resource
+ * offers (409 FORMAT_NOT_AVAILABLE), and the client needs an active portal login, since both
+ * formats open in the portal after sign-in (409 NO_PORTAL_LOGIN). PORTAL_MESSAGE: a portal message
+ * and the usual "you have a message" email; EMAIL: the same message with its text in the email
+ * (where the platform allows message text in email). POST .../preview answers what would be sent
+ * and whether it can be, without sending.
+ */
 export const SendAdvisoryResourceRequest = z.strictObject({
   advisoryClientId: AdvisoryClientId,
   channel: z.enum(['PORTAL_MESSAGE', 'EMAIL']),
+  format: AdvisoryResourceFormat.optional(),
   message: clearable(text(2_000, 'many')),
 });
 export type SendAdvisoryResourceRequest = z.input<typeof SendAdvisoryResourceRequest>;
+
+/** POST .../resources/{key}/preview (B28): what the client would receive, and the checks. */
+export const AdvisoryResourcePreview = z.object({
+  channel: z.enum(['PORTAL_MESSAGE', 'EMAIL']),
+  format: AdvisoryResourceFormat,
+  /** Who it goes to: the client, and the email address of their portal login (null without one). */
+  to: z.object({ name: z.string(), email: z.string().nullable() }),
+  subject: z.string(),
+  body: z.string(),
+  /** False while any check below refuses it: Send answers 409 with the first one's code. */
+  eligible: z.boolean(),
+  problems: z.array(
+    z.object({
+      code: z.enum([
+        'CLIENT_ARCHIVED',
+        'RESOURCE_NOT_CLIENT_FACING',
+        'FORMAT_NOT_AVAILABLE',
+        'NO_PORTAL_LOGIN',
+      ]),
+      message: z.string(),
+    }),
+  ),
+});
+export type AdvisoryResourcePreview = z.infer<typeof AdvisoryResourcePreview>;
 
 /**
  * GET and PUT .../settings (Advisory Admin): how the Business Health Score is calculated (factor
@@ -1273,5 +1320,7 @@ export const AdvisoryErrorCode = z.enum([
   'NOT_THIS_CLIENT',
   /** 409 (B10, B28): the client has no active portal login, so the portal cannot reach them. */
   'NO_PORTAL_LOGIN',
+  /** 409 (B28): the resource is not offered in that format. */
+  'FORMAT_NOT_AVAILABLE',
 ]);
 export type AdvisoryErrorCode = z.infer<typeof AdvisoryErrorCode>;

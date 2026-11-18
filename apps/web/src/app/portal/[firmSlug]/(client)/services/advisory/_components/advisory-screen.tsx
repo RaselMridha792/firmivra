@@ -1,7 +1,12 @@
 'use client';
 
-import { MY_ADVISORY_PLAN_STATE_LABELS, type MyAdvisory } from '@firmivra/types';
-import { Badge, Card } from '@firmivra/ui';
+import {
+  ADVISORY_RESOURCE_FORMAT_LABELS,
+  MY_ADVISORY_PLAN_STATE_LABELS,
+  type MyAdvisory,
+  type MyAdvisoryResource,
+} from '@firmivra/types';
+import { Badge, Button, Card } from '@firmivra/ui';
 import {
   BookOpen,
   BriefcaseBusiness,
@@ -12,9 +17,10 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
+import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { usePortal } from '../../../../layout';
 import { PortalPageHeader } from '../../../_components/portal-page-header';
@@ -248,7 +254,10 @@ function AdvisoryView({ advisory: a, slug }: { advisory: MyAdvisory; slug: strin
                   <Badge tone="info">{r.category}</Badge>
                 </div>
                 <p className="mt-1 text-sm text-text">{r.summary}</p>
-                <p className="mt-1 text-xs text-muted">Sent {dayText(r.sentAt)}</p>
+                <p className="mt-1 text-xs text-muted">
+                  Sent {dayText(r.sentAt)} · {ADVISORY_RESOURCE_FORMAT_LABELS[r.format]}
+                </p>
+                {r.format === 'PDF' ? <PdfDownload slug={slug} resource={r} /> : null}
               </li>
             ))}
           </ul>
@@ -283,5 +292,43 @@ function AdvisoryView({ advisory: a, slug }: { advisory: MyAdvisory; slug: strin
         {a.disclaimer}
       </p>
     </>
+  );
+}
+
+/** B28: a resource the firm sent as a PDF downloads behind a short-lived link. */
+function PdfDownload({ slug, resource }: { slug: string; resource: MyAdvisoryResource }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <div className="mt-2 flex flex-col items-start gap-1">
+      <Button
+        variant="secondary"
+        disabled={busy}
+        aria-label={`Download ${resource.title} (PDF)`}
+        onClick={async () => {
+          setBusy(true);
+          setError('');
+          try {
+            const link = await api.myAdvisory(slug).resourcePdf(resource.key);
+            const save = document.createElement('a');
+            save.href = link.url;
+            save.download = `${resource.key}.pdf`;
+            save.rel = 'noopener';
+            save.click();
+          } catch (e) {
+            setError(errorMessage(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? 'Preparing…' : 'Download PDF'}
+      </Button>
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   AdvisoryArea,
@@ -7,16 +8,19 @@ import type {
   MyAdvisoryPlan,
   MyAdvisoryPlanRow,
   MyAdvisoryResource,
+  MyAdvisoryResourcePdf,
 } from '@firmivra/types';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { Notifier } from '../notifications/notifier.js';
+import { REPORT_FILES, type ReportFiles } from '../reports/report-files.js';
 import { type PortalCaller, type PortalLogin, portalLogin } from '../storage/document-records.js';
 import { visible } from '../storage/my-documents.service.js';
 import { day, memberNames, notFound } from '../workspaces/common.js';
 import { advErrors, DISCLAIMER, todayIn } from './advisory.common.js';
 import { resourceOf } from './catalog.js';
+import { renderResourcePdf } from './resource-pdf.js';
 
 /** What a version keeps (advisory-plans.service.ts `Content`), as the client may read it. */
 interface Kept {
@@ -72,6 +76,7 @@ export class MyAdvisoryService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly notifier: Notifier,
+    @Inject(REPORT_FILES) private readonly files: ReportFiles,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -282,6 +287,8 @@ export class MyAdvisoryService {
         category: r.category,
         kind: r.kind,
         summary: r.summary,
+        // B28: sent before the choice existed: a link.
+        format: meta['format'] === 'PDF' ? 'PDF' : 'SECURE_LINK',
         sentAt: row.createdAt.toISOString(),
       });
     }
@@ -420,6 +427,60 @@ export class MyAdvisoryService {
     });
     await this.tellFirm(businessId, id, body.version, [...new Set(told)]);
     return this.plan(caller, id, false);
+  }
+
+  /**
+   * B28: a 5-minute link to the PDF of a resource the firm sent this client as a PDF (its newest
+   * send says the format), made under the firm's own prefix; any other resource is 404. Audited.
+   */
+  async resourcePdf(caller: PortalCaller, key: string): Promise<MyAdvisoryResourcePdf> {
+    const { businessId } = caller;
+    const found = await this.inFirm(businessId, async (tx) => {
+      const mine = await this.mine(tx, caller);
+      if (!mine) throw notFound();
+      const sent = (await this.sentResources(tx, businessId, mine.advisory.id)).find(
+        (r) => r.key === key,
+      );
+      if (sent?.format !== 'PDF') throw notFound();
+      const firm = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { name: true },
+      });
+      const sentOn = todayIn(await firmTimeZone(tx, businessId), new Date(sent.sentAt));
+      return { advisoryClientId: mine.advisory.id, sent, firm: firm.name, sentOn };
+    });
+    const bytes = await renderResourcePdf({
+      firmName: found.firm,
+      title: found.sent.title,
+      category: found.sent.category,
+      summary: found.sent.summary,
+      sentOn: found.sentOn,
+      disclaimer: DISCLAIMER,
+    });
+    const file = `tenant/${businessId}/reports/advisory-resource-${randomUUID()}.pdf`;
+    let url: string;
+    try {
+      await this.files.put(file, bytes, 'application/pdf');
+      url = await this.files.presignDownload({
+        key: file,
+        fileName: `${key}.pdf`,
+        contentType: 'application/pdf',
+      });
+    } catch {
+      throw new HttpException(
+        {
+          code: 'FILE_STORE_UNAVAILABLE',
+          message: 'The file could not be saved. Try again shortly.',
+        },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    await this.audit.log(
+      'advisory_resource.downloaded',
+      { type: 'advisory_client', id: found.advisoryClientId },
+      { advisoryClientId: found.advisoryClientId, resourceKey: key, format: 'PDF', by: 'CLIENT' },
+    );
+    return { url, expiresAt: new Date(Date.now() + 300_000).toISOString() };
   }
 
   /** The plan's advisor and sender get a bell item; a failure is logged, never the client's error. */

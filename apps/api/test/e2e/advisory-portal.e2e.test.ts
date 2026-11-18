@@ -4,7 +4,9 @@
 // The client is the session's login, never the URL: another client's or another firm's plan is
 // 404. Views are audited. B10: the firm sends a plan in staff review for the client's approval;
 // the client approves exactly that version in the portal, which finalizes it; Modify Plan
-// withdraws a request or clears an approval. Synthetic data only.
+// withdraws a request or clears an approval. B28: a resource goes by portal or email as a Secure
+// Link or a PDF, with a preview and the eligibility checks; the client downloads a PDF one.
+// Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -15,15 +17,19 @@ import { createPrismaClient, type Prisma, runInScope, type TxClient } from '@fir
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   AdvisoryPlanDetail,
+  AdvisoryResourceList,
+  AdvisoryResourcePreview,
   AdvisoryVersionList,
   MyAdvisory,
   MyAdvisoryPlan,
+  MyAdvisoryResourcePdf,
   OkResponse,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { storedType } from '../../src/notifications/notification-text.js';
+import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -52,6 +58,19 @@ const plans = {} as Record<
 const docs = {} as Record<'shared' | 'internal' | 'books' | 'trashed', string>;
 
 let app: INestApplication;
+/** B28: the report file store, in memory: what was put, by key. */
+const stored = new Map<string, { bytes: Uint8Array; contentType: string }>();
+const files: ReportFiles = {
+  put: (key, bytes, contentType) => {
+    stored.set(key, { bytes, contentType });
+    return Promise.resolve();
+  },
+  presignDownload: ({ key }) => Promise.resolve(`https://files.test/${key}?signed=1`),
+  remove: (key) => {
+    stored.delete(key);
+    return Promise.resolve();
+  },
+};
 const tokens = new Map<string, string>();
 let viewers = 0;
 const viewer = () => `198.61.${100 + Math.floor(++viewers / 250)}.${viewers % 250}, 10.0.0.5`;
@@ -486,7 +505,10 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(REPORT_FILES)
+    .useValue(files)
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -931,5 +953,207 @@ describe("B10: the client's approval of the business plan, before it is finalize
     expect(
       MyAdvisoryPlan.parse(ok(await portal('get', `/plans/${other}`, logins.x))),
     ).toMatchObject({ state: 'IN_PREPARATION', can: { approve: false } });
+  });
+});
+
+describe('B28: advisory resources by portal or email, as a Secure Link or a PDF, with a preview', () => {
+  const preview = (key: string, body: object, who: Who = staff.ownerA) =>
+    firm('post', `/resources/${key}/preview`, who, body);
+  const send = (key: string, body: object, who: Who = staff.ownerA) =>
+    firm('post', `/resources/${key}/send`, who, body);
+  /** c3 has no portal login; it joins the program here. */
+  const noLogin = async () => {
+    const found = await inFirm('a', (tx) =>
+      tx.advisoryClient.findFirst({ where: { clientId: clients.c3 }, select: { id: true } }),
+    );
+    if (found) return found.id;
+    return inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.advisoryClient.create({
+            data: { businessId: firms.a.id, clientId: clients.c3 },
+            select: { id: true },
+          })
+        ).id,
+    );
+  };
+
+  it('lists the formats each resource offers', async () => {
+    const items = AdvisoryResourceList.parse(
+      ok(await firm('get', '/resources', staff.ownerA)),
+    ).items;
+    expect(items.find((r) => r.key === 'cash-flow-basics')?.formats).toEqual([
+      'SECURE_LINK',
+      'PDF',
+    ]);
+  });
+
+  it('previews what the client receives and every check, without sending or auditing', async () => {
+    const before = await auditOf('advisory_resource.sent', advisory.a1);
+    const res = await preview('cash-flow-basics', {
+      advisoryClientId: advisory.a1,
+      channel: 'EMAIL',
+      format: 'PDF',
+      message: 'Read before Tuesday (fake)',
+    });
+    const view = AdvisoryResourcePreview.parse(ok(res));
+    expect(view).toMatchObject({
+      channel: 'EMAIL',
+      format: 'PDF',
+      to: { name: 'Jamie Sample (fake)', email: logins.x.email },
+      subject: 'Cash Flow Basics',
+      eligible: true,
+      problems: [],
+    });
+    expect(view.body).toContain('How to read and forecast your cash flow.');
+    expect(view.body).toContain('A PDF copy is ready to download in your portal');
+    expect(view.body).toContain(`/${firms.a.slug}/services/advisory#cash-flow-basics`);
+    expect(view.body).toContain('Read before Tuesday (fake)');
+    // A Secure Link is the default.
+    expect(
+      AdvisoryResourcePreview.parse(
+        ok(
+          await preview('cash-flow-basics', {
+            advisoryClientId: advisory.a1,
+            channel: 'PORTAL_MESSAGE',
+          }),
+        ),
+      ).body,
+    ).toContain('Open it in your portal (sign in first)');
+    // No portal login: both channels are refused, and said why.
+    const a3 = await noLogin();
+    for (const channel of ['PORTAL_MESSAGE', 'EMAIL']) {
+      const refused = AdvisoryResourcePreview.parse(
+        ok(await preview('cash-flow-basics', { advisoryClientId: a3, channel })),
+      );
+      expect(refused).toMatchObject({ eligible: false, to: { email: null } });
+      expect(refused.problems.map((p) => p.code)).toEqual(['NO_PORTAL_LOGIN']);
+      expect(refused.problems[0]?.message).toContain('Send them a portal invitation first');
+    }
+    // A staff-only resource is listed as a problem too.
+    expect(
+      AdvisoryResourcePreview.parse(
+        ok(
+          await preview('advisory-health-score-reference', {
+            advisoryClientId: advisory.a1,
+            channel: 'PORTAL_MESSAGE',
+          }),
+        ),
+      ).problems.map((p) => p.code),
+    ).toEqual(['RESOURCE_NOT_CLIENT_FACING']);
+    // Another firm's client, an unknown resource, a bad format: 404 and 400.
+    expectError(
+      await preview('cash-flow-basics', { advisoryClientId: advisory.aB, channel: 'EMAIL' }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await preview('no-such-resource', { advisoryClientId: advisory.a1, channel: 'EMAIL' }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await preview('cash-flow-basics', {
+        advisoryClientId: advisory.a1,
+        channel: 'EMAIL',
+        format: 'FAX',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect(await auditOf('advisory_resource.sent', advisory.a1)).toEqual(before);
+  });
+
+  it('sends as the preview said, refuses what it refused, and records the format', async () => {
+    const a3 = await noLogin();
+    expectError(
+      await send('cash-flow-basics', { advisoryClientId: a3, channel: 'PORTAL_MESSAGE' }),
+      409,
+      'NO_PORTAL_LOGIN',
+    );
+    OkResponse.parse(
+      ok(
+        await send('cash-flow-basics', {
+          advisoryClientId: advisory.a1,
+          channel: 'EMAIL',
+          format: 'PDF',
+        }),
+      ),
+    );
+    const thread = await inFirm('a', (tx) =>
+      tx.messageThread.findFirstOrThrow({
+        where: { clientId: clients.c1, subject: 'Cash Flow Basics' },
+        include: { messages: true },
+      }),
+    );
+    expect(thread.messages[0]?.body).toContain('A PDF copy is ready to download in your portal');
+    // By email, the email carries the text (where the platform allows it).
+    expect(thread.messages[0]?.emailIncludesBody).toBe(true);
+    const rows = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          action: 'advisory_resource.sent',
+          metadata: { path: ['resourceKey'], equals: 'cash-flow-basics' },
+        },
+        select: { metadata: true },
+      }),
+    );
+    expect(rows.map((r) => r.metadata)).toEqual([
+      {
+        advisoryClientId: advisory.a1,
+        resourceKey: 'cash-flow-basics',
+        channel: 'EMAIL',
+        format: 'PDF',
+      },
+    ]);
+  });
+
+  it('lets the client download a resource sent as a PDF, and only that one', async () => {
+    const mine = MyAdvisory.parse(ok(await portal('get', '', logins.x)));
+    expect(mine.resources.find((r) => r.key === 'cash-flow-basics')?.format).toBe('PDF');
+    // Sent before the choice existed (no format): a link.
+    expect(mine.resources.find((r) => r.key === 'funding-readiness-checklist')?.format).toBe(
+      'SECURE_LINK',
+    );
+    const link = MyAdvisoryResourcePdf.parse(
+      ok(await portal('get', '/resources/cash-flow-basics/pdf', logins.x)),
+    );
+    const key = link.url.replace('https://files.test/', '').replace('?signed=1', '');
+    expect(key).toMatch(new RegExp(`^tenant/${firms.a.id}/reports/advisory-resource-`));
+    const file = stored.get(key);
+    expect(file?.contentType).toBe('application/pdf');
+    expect(Buffer.from(file!.bytes).subarray(0, 5).toString()).toBe('%PDF-');
+    expect((await auditOf('advisory_resource.downloaded', advisory.a1)).at(-1)).toEqual({
+      actorUserId: logins.x.id,
+      metadata: {
+        advisoryClientId: advisory.a1,
+        resourceKey: 'cash-flow-basics',
+        format: 'PDF',
+        by: 'CLIENT',
+      },
+    });
+    // A Secure Link resource, one never sent, another client's: 404.
+    expectError(
+      await portal('get', '/resources/funding-readiness-checklist/pdf', logins.x),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await portal('get', '/resources/brand-basics-guide/pdf', logins.x),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(await portal('get', '/resources/cash-flow-basics/pdf', logins.y), 404, 'NOT_FOUND');
+    expectError(
+      await portal('get', '/resources/cash-flow-basics/pdf', logins.xAuthorized),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await portal('get', '/resources/cash-flow-basics/pdf', logins.b, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
   });
 });

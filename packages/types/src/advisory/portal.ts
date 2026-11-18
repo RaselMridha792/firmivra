@@ -8,7 +8,13 @@ import {
   AdvisoryRecommendationStatus,
   AdvisoryServiceStatus,
 } from '../db-enums.js';
-import { AdvisoryArea, AdvisoryPlanId, AdvisoryResource } from './schemas.js';
+import {
+  AdvisoryArea,
+  AdvisoryPlanId,
+  AdvisoryResource,
+  AdvisoryResourceFormat,
+  AdvisoryResourceKey,
+} from './schemas.js';
 
 /**
  * Client Portal Review One BA-CP (the lead's decision 4, option A): the signed-in client's
@@ -93,6 +99,8 @@ export const MyAdvisoryResource = z.object({
   kind: AdvisoryResource.shape.kind,
   /** What the resource says (the library's own words). */
   summary: z.string(),
+  /** B28: how the firm sent it; a PDF one downloads (`resourcePdf`). */
+  format: AdvisoryResourceFormat,
   sentAt: DateTime,
 });
 export type MyAdvisoryResource = z.infer<typeof MyAdvisoryResource>;
@@ -165,6 +173,13 @@ export type MyAdvisoryPlan = z.infer<typeof MyAdvisoryPlan>;
 export const ApproveMyAdvisoryPlanRequest = z.strictObject({ version: z.number().int().min(1) });
 export type ApproveMyAdvisoryPlanRequest = z.input<typeof ApproveMyAdvisoryPlanRequest>;
 
+/**
+ * GET /portal/{firmSlug}/me/advisory/resources/{key}/pdf (B28): a 5-minute download link to the
+ * PDF of a resource the firm sent this client as a PDF; any other resource is 404. Audited.
+ */
+export const MyAdvisoryResourcePdf = z.object({ url: z.string(), expiresAt: DateTime });
+export type MyAdvisoryResourcePdf = z.infer<typeof MyAdvisoryResourcePdf>;
+
 const post = (body?: unknown) => ({ method: 'POST', ...(body === undefined ? {} : { body }) });
 
 /**
@@ -183,6 +198,11 @@ export function createMyAdvisoryClient(request: ApiRequest, firmSlug: string) {
         MyAdvisoryPlan,
         `${plan(id)}/approve`,
         post(parseInput(ApproveMyAdvisoryPlanRequest, body)),
+      ),
+    resourcePdf: (key: string): Promise<MyAdvisoryResourcePdf> =>
+      request(
+        MyAdvisoryResourcePdf,
+        `${base()}/resources/${parseInput(AdvisoryResourceKey, key)}/pdf`,
       ),
   };
 }

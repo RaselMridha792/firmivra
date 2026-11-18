@@ -90,4 +90,6 @@ export const MeetingsQuery = clean(AdvisoryMeetingsQuery);
 export const ResourcesQuery = clean(AdvisoryResourcesQuery);
 export const ReportsQuery = clean(AdvisoryReportsQuery);
 export const SendResourceBody = clean(SendAdvisoryResourceRequest);
+/** B28: the preview takes what Send takes. */
+export const PreviewResourceBody = SendResourceBody;
 export const SettingsBody = clean(SaveAdvisorySettingsRequest);

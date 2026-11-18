@@ -501,6 +501,12 @@ export const cases: CaseModule['cases'] = {
     bodyIds: { advisoryClientId: 'advisoryClient' },
     body: { advisoryClientId: PLACEHOLDER, channel: 'EMAIL' },
   },
+  // B28: the preview names the client as Send does.
+  [`POST ${BASE}/resources/:key/preview`]: {
+    params: {},
+    bodyIds: { advisoryClientId: 'advisoryClient' },
+    body: { advisoryClientId: PLACEHOLDER, channel: 'EMAIL', format: 'PDF' },
+  },
   [`PUT ${BASE}/settings`]: {
     params: {},
     bodyIds: { defaultAdvisorUserId: 'adminUser' },
