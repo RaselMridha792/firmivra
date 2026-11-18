@@ -129,6 +129,12 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
               Review submitted information, uploaded documents, notes, and activity for this client
               intake form.
             </p>
+            {/* Intake Review 2 23-g: the number Auto-generate submission ID gave the form. */}
+            {r?.submissionId ? (
+              <p className="mt-1 text-sm font-semibold text-heading" data-testid="submission-id">
+                Submission ID {r.submissionId}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Form actions">
             <button

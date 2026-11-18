@@ -14,6 +14,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   AssignedFormRecord,
   FormFileLink,
+  FormNote,
   IntakeFormDetail,
   IntakeFormList,
   INTAKE_FORMS,
@@ -756,13 +757,31 @@ describe('one form', () => {
     expectError(await call('get', '/intakes/nope/record', ownerA), 400, 'VALIDATION_FAILED');
   });
 
-  it('notes need their table: 503 after the checks', async () => {
-    expectError(
-      await call('post', `/intakes/${ids.sent}/notes`, ownerA, { text: 'Fake note' }),
-      503,
-      'NOTES_UNAVAILABLE',
+  it('24b-i: a staff note is kept on the form, newest first, its author and time; the audit has no text', async () => {
+    const first = FormNote.parse(
+      ok(await call('post', `/intakes/${ids.sent}/notes`, ownerA, { text: 'Fake note one' }), 201),
     );
+    expect(first).toMatchObject({ text: 'Fake note one', by: { userId: ownerA.id } });
+    const second = FormNote.parse(
+      ok(await call('post', `/intakes/${ids.sent}/notes`, adminA, { text: 'Fake note two' }), 201),
+    );
+    const record = AssignedFormRecord.parse(
+      ok(await call('get', `/intakes/${ids.sent}/record`, ownerA)),
+    );
+    expect(record.notes.map((n) => n.id).slice(0, 2)).toEqual([second.id, first.id]);
+    const audits = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { entityId: ids.sent, action: 'intake.note_added' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audits.map((a) => a.metadata)).toEqual(
+      expect.arrayContaining([{ noteId: first.id }, { noteId: second.id }]),
+    );
+    expect(JSON.stringify(audits)).not.toContain('Fake note');
     expect((await call('post', `/intakes/${ids.sent}/notes`, ownerA, {})).status).toBe(400);
+    const long = { text: 'x'.repeat(2001) };
+    expect((await call('post', `/intakes/${ids.sent}/notes`, ownerA, long)).status).toBe(400);
     expectError(
       await call('post', `/intakes/${ids.sent}/notes`, otherStaffA, { text: 'x' }),
       404,
@@ -1121,6 +1140,31 @@ describe('the form builder', () => {
       'INVALID_STATUS',
     );
     expectError(await call('post', `/intake-forms/${copy.id}/archive`, staffA), 403, 'FORBIDDEN');
+    // Intake Review 2 24c-i: the Archived view lists it; Restore (Owner and Admin) brings it back
+    // as a draft, its content kept, ready to publish; audited once.
+    const archivedView = IntakeFormList.parse(
+      ok(await call('get', '/intake-forms?archived=true', ownerA)),
+    );
+    expect(archivedView.items.find((f) => f.id === ids.built)).toMatchObject({ archived: true });
+    expect(archivedView.items.every((f) => f.archived)).toBe(true);
+    expectError(await call('post', `/intake-forms/${ids.built}/restore`, staffA), 403, 'FORBIDDEN');
+    const back = IntakeFormDetail.parse(
+      ok(await call('post', `/intake-forms/${ids.built}/restore`, adminA)),
+    );
+    expect(back).toMatchObject({ status: 'DRAFT', archived: false, name: gone.name });
+    expect(back.sections).toEqual(gone.sections);
+    ok(await call('post', `/intake-forms/${ids.built}/restore`, adminA));
+    const live = IntakeFormList.parse(ok(await call('get', '/intake-forms', ownerA)));
+    expect(live.items.map((f) => f.id)).toContain(ids.built);
+    const restored = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({ where: { entityId: ids.built, action: 'intake_form.restored' } }),
+    );
+    expect(restored).toHaveLength(1);
+    // Published again, it can be sent.
+    expect(
+      IntakeFormDetail.parse(ok(await call('post', `/intake-forms/${ids.built}/publish`, ownerA)))
+        .status,
+    ).toBe('PUBLISHED');
   });
 
   it('18d: a copy keeps every question, the description, the settings, the notes and the default assignee, and stays its own form', async () => {
@@ -1243,6 +1287,7 @@ describe('another firm', () => {
       ['post', `/intake-forms/${ids.template}/publish`, undefined],
       ['post', `/intake-forms/${ids.template}/duplicate`, {}],
       ['post', `/intake-forms/${ids.template}/archive`, undefined],
+      ['post', `/intake-forms/${ids.template}/restore`, undefined],
     ] as const) {
       expectError(await call(method, path, ownerB, body, 'b'), 404, 'NOT_FOUND');
     }
@@ -1437,6 +1482,59 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
       ]),
     );
     expect(record.history.map((e) => e.label)).not.toContain('First reminder sent');
+  });
+
+  it("23-g: Auto-generate submission ID gives a sent form SUB-00012 on its record and in the client's completion; off, none", async () => {
+    const settings = async (autoSubmissionId: boolean) => {
+      const s = z
+        .object({ version: z.string() })
+        .parse(ok(await call('get', '/intake-settings', ownerA)));
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: s.version,
+          general: { autoSubmissionId },
+        }),
+      );
+    };
+    const recordOf = async (id: string) =>
+      AssignedFormRecord.parse(ok(await call('get', `/intakes/${id}/record`, ownerA)));
+    await settings(true);
+    const on = await sentForm('subid-on');
+    const record = await recordOf(on.id);
+    expect(record.submissionId).toMatch(/^SUB-\d{5}$/);
+    const mine = await request(app.getHttpServer())
+      .get(`/api/v1/portal/${slugs.a}/me/intakes/${on.id}`)
+      .set('authorization', `Bearer ${await tokenFor(on.email)}`);
+    expect(mine.status, JSON.stringify(mine.body)).toBe(200);
+    expect((mine.body as { completion: { submissionId: string | null } }).completion).toMatchObject(
+      {
+        submissionId: record.submissionId,
+      },
+    );
+    await settings(false);
+    const off = await sentForm('subid-off');
+    expect((await recordOf(off.id)).submissionId).toBeNull();
+  });
+
+  it('22: a submitted or completed form gets no reminder, even with one due', async () => {
+    const jobs = app.get(IntakeScheduleJobs);
+    const submitted = await sentForm('stop-sub');
+    const completed = await sentForm('stop-done');
+    await inFirm('a', async (tx) => {
+      await tx.intake.update({ where: { id: submitted.id }, data: { status: 'SUBMITTED' } });
+      await tx.intake.update({ where: { id: completed.id }, data: { status: 'COMPLETED' } });
+    });
+    const at = (ms: number) => ({ now: new Date(ms), businessIds: [firms.a] });
+    // Both reminders are due by then (first 3 days in, final 7 days before the expiry).
+    await jobs.run('intake-reminders', at(Date.now() + 4320 * MIN + MIN));
+    await jobs.run('intake-reminders', at(submitted.expiresAt - 10080 * MIN + MIN));
+    for (const f of [submitted, completed]) {
+      expect(reminders(f.email)).toEqual([]);
+      expect(await row(f.id)).toMatchObject({
+        firstReminderSentAt: null,
+        finalReminderSentAt: null,
+      });
+    }
   });
 
   it('10c order: when the final goes before a first that was due (the job was behind), the first is skipped, never marked sent', async () => {

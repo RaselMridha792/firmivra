@@ -1,12 +1,15 @@
 'use client';
 
 import { ApiRequestError, type PortalInfo } from '@firmivra/types';
-import { notFound, useParams } from 'next/navigation';
+import { notFound, useParams, usePathname } from 'next/navigation';
 import { createContext, use, type CSSProperties, type ReactNode } from 'react';
 import { PageState } from '../../../components/page-state';
 import { portalAuth } from '../../../lib/auth';
 import { useApiQuery } from '../../../lib/query';
 import { firmThemeVars } from '../../../lib/theme';
+import { plainForm } from './plain-form';
+
+export { plainForm };
 
 export const PortalContext = createContext<PortalInfo | null>(null);
 export function usePortal() {
@@ -15,22 +18,22 @@ export function usePortal() {
   return firm;
 }
 
-/**
- * Every page of one firm's portal (/{firm}/...). The firm's colours are the tokens
- * --color-firm-primary and --color-firm-accent, and its theme colours (sidebar, text, secondary
- * text, buttons: lib/theme.ts), with defaults in packages/ui. R3's public
- * GET /api/v1/portal/{slug}/info lets this layout load the firm and set those colours from it
- * and shows not-found for an unknown slug. Nahid polishes it (N01).
- */
 export default function FirmPortalLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
+  const pathname = usePathname();
   const query = useApiQuery(['portal-info', firmSlug], () => portalAuth(firmSlug).info());
   if (query.error instanceof ApiRequestError && query.error.code === 'NOT_FOUND') notFound();
-  const colors = {
-    '--color-firm-primary': query.data?.branding.primaryColor,
-    '--color-firm-accent': query.data?.branding.accentColor,
-    ...firmThemeVars(query.data?.branding),
-  } as CSSProperties;
+  // Intake Review 2 23-g: a form outside the portal with the firm's form branding off keeps the
+  // platform's colours.
+  const colors = (
+    plainForm(pathname, firmSlug, query.data?.branding)
+      ? {}
+      : {
+          '--color-firm-primary': query.data?.branding.primaryColor,
+          '--color-firm-accent': query.data?.branding.accentColor,
+          ...firmThemeVars(query.data?.branding),
+        }
+  ) as CSSProperties;
   return (
     <div data-theme="portal" className="min-h-screen bg-canvas text-firm-text" style={colors}>
       <PageState query={query}>

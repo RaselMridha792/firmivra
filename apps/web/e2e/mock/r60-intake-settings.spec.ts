@@ -39,7 +39,13 @@ test('shows the numbers, the six cards, the checklist and the side frames', asyn
   await expect(page.getByRole('combobox', { name: 'First reminder' })).toHaveValue('4320');
   // Octavia's I11: encryption is a label, not a switch.
   await expect(page.getByText('Encrypted file uploads', { exact: true })).toBeVisible();
-  await expect(page.getByText('Always on', { exact: true })).toBeVisible();
+  // Encrypted file uploads (Security), and Require e-signature (General, Intake Review 2 23-h).
+  await expect(
+    page.getByTestId('settings-card-security').getByText('Always on', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId('settings-card-general').getByText('Always on', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('switch', { name: /encrypted/i })).toHaveCount(0);
 
   // Real checks, not ticks for every switch: no default owner yet, no automation rules.
@@ -301,8 +307,13 @@ test('Submission Rules opens its own settings and rules', async ({ page }) => {
   await page.getByRole('button', { name: 'Submission Rules', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Submission Rules' });
   await expect(panel).toBeVisible();
-  for (const name of ['Require e-signature', 'Consent checkbox required', 'Allow save and resume'])
+  for (const name of ['Consent checkbox required', 'Allow save and resume'])
     await expect(panel.getByRole('switch', { name })).toBeVisible();
+  // Intake Review 2 23-h (R1): Require e-signature is fixed on, like encryption.
+  await expect(panel.getByRole('switch', { name: 'Require e-signature' })).toHaveCount(0);
+  await expect(panel).toContainText(
+    "Always on: each submission signs your firm's agreements, which keeps a legal record.",
+  );
   await expect(panel.getByRole('combobox', { name: 'Default form expiration' })).toHaveValue('14');
   await expect(panel.getByTestId('submission-rules')).toContainText(
     'After a client submits, the answers are locked for them.',

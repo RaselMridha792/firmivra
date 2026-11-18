@@ -20,6 +20,7 @@ const saved = {
   lastUsedAt: null,
   updatedAt: '2026-10-23T09:00:00.000Z',
   owner: null,
+  archived: false,
   internalNotes: null,
   sections: [
     {

@@ -47,7 +47,7 @@ import {
   intakeConsentRequired,
   submittedNoticeExcludes,
 } from './intake-completion.js';
-import { publishedForm, readDefinition } from './intake-forms.js';
+import { publishedForm, readDefinition, showsProgressBar } from './intake-forms.js';
 import { maskStoredNumbers } from './intake-numbers.js';
 import type { IntakeSigner } from './intake-signing.js';
 import { intakeLocked, OPEN_STATUSES, requireOpen, saveIntakeStep } from './intake-step.js';
@@ -96,6 +96,8 @@ const summarySelect = {
   correctionRequestedAt: true,
   createdAt: true,
   updatedAt: true,
+  // Intake Review 2 23-g: the Submission ID on the done screen.
+  referenceNumber: true,
   form: { select: { version: true, title: true, definition: true } },
   engagement: {
     select: {
@@ -365,7 +367,8 @@ export class IntakesService {
       canEdit: open,
       canSubmit: open,
       consentRequired: await intakeConsentRequired(tx, businessId),
-      completion: await intakeCompletion(tx, businessId, row.form.definition),
+      completion: await intakeCompletion(tx, businessId, row.form.definition, row.referenceNumber),
+      showProgressBar: showsProgressBar(row.form.definition),
     });
   }
 

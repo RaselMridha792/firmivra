@@ -1,6 +1,6 @@
 import type { TxClient } from '@firmivra/db';
 import { BadRequestException } from '@nestjs/common';
-import type { IntakeCompletion } from '@firmivra/types';
+import { type IntakeCompletion, submissionIdOf } from '@firmivra/types';
 import { formMetaOf } from '../intake-workspace/workspace.common.js';
 
 /**
@@ -13,6 +13,8 @@ export async function intakeCompletion(
   tx: TxClient,
   businessId: string,
   definition: unknown,
+  /** Intake Review 2 23-g: the form's reference number, shown as its Submission ID. */
+  referenceNumber: number | null = null,
 ): Promise<IntakeCompletion> {
   const settings = await tx.intakeSettings.findUnique({
     where: { businessId },
@@ -25,7 +27,7 @@ export async function intakeCompletion(
     settings?.redirectAfterCompletion && settings.redirectUrl?.startsWith('https://')
       ? settings.redirectUrl
       : null;
-  return { message, redirectUrl };
+  return { message, redirectUrl, submissionId: submissionIdOf(referenceNumber) };
 }
 
 /**
