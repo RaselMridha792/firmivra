@@ -3,7 +3,7 @@
 import type { MessageThread } from '@firmivra/types';
 import { Button, Card, Input, Table, type Column } from '@firmivra/ui';
 import { Eye, Mail, MessageSquareText, PanelRightClose, PanelRightOpen } from 'lucide-react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
@@ -17,7 +17,9 @@ import { when } from './parts';
 /** F10: one client's messages and internal notes, styled after Messages and notes.png. */
 export function ClientMessagesScreen() {
   const { id } = useParams<{ id: string }>();
-  const [unread, setUnread] = useState(false);
+  // Clients Review 2 N8-12: Overview's Unread messages opens this tab with ?unread=1.
+  const opened = useSearchParams().get('unread') === '1';
+  const [unread, setUnread] = useState(opened);
   const [typed, setTyped] = useState('');
   const [search, setSearch] = useState('');
   const [cursors, setCursors] = useState<string[]>([]);

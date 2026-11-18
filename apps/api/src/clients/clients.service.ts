@@ -9,25 +9,30 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { type Database, Prisma, type TxClient } from '@firmivra/db';
-import type {
-  BulkClientsRequest,
-  BulkClientsResponse,
-  ClientExportLink,
-  ClientListItem,
-  ClientListRow,
-  ClientProfile,
-  ClientRecord,
-  ClientServiceRef,
-  ClientsSummary,
-  CreateClientRequest,
-  ExportClientsRequest,
-  ListClientsQuery,
-  ClientSort,
-  ListClientsResponse,
-  UpdateClientProfileRequest,
-  UpdateClientRequest,
+import {
+  clearedFieldIssues,
+  zipStateCheck,
+  type BulkClientsRequest,
+  type BulkClientsResponse,
+  type ClientExportLink,
+  type ClientListItem,
+  type ClientListRow,
+  type ClientOverviewSummary,
+  type ClientProfile,
+  type ClientProfileWarning,
+  type ClientRecord,
+  type ClientServiceRef,
+  type ClientsSummary,
+  type CreateClientRequest,
+  type ExportClientsRequest,
+  type ListClientsQuery,
+  type ClientSort,
+  type ListClientsResponse,
+  type UpdateClientProfileRequest,
+  type UpdateClientRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
+import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { lockClientEmails } from '../client-auth/client-records.js';
@@ -275,6 +280,14 @@ function toRecord(row: RecordRow, dob: DateOfBirthView): ClientRecord {
  * ACTIVE engagement. Interested, proposed, completed and declined ones are not enrolments.
  */
 const ENROLLED_WORKSTREAMS = ['ACCEPTED', 'IN_PROGRESS', 'AWAITING_CLIENT', 'ON_HOLD'] as const;
+/** N8-12: an intake form sent and not finished (the client's or the firm's turn). */
+const OPEN_INTAKES = [
+  'SENT',
+  'IN_PROGRESS',
+  'NEEDS_CORRECTION',
+  'SUBMITTED',
+  'UNDER_REVIEW',
+] as const;
 
 /** The plain profile columns of a request; SSN, EIN and date of birth go through `secretColumns`. */
 function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInput {
@@ -303,6 +316,56 @@ function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInpu
     data['country'] = address.country;
   }
   return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+}
+
+/**
+ * Clients Review 2 (Edit validation, on the server): 400 VALIDATION_FAILED naming each required
+ * field the change clears (clearedFieldIssues, the web form's rules), the paths without `prefix`
+ * (the profile route's body is the profile).
+ */
+function refuseCleared(issues: { path: string[]; message: string }[], prefix?: string): void {
+  if (issues.length === 0) return;
+  throw new BadRequestException({
+    code: 'VALIDATION_FAILED',
+    message: 'The request is not valid',
+    details: issues.map((i) => ({
+      path: (i.path[0] === prefix ? i.path.slice(1) : i.path).join('.'),
+      message: i.message,
+    })),
+  });
+}
+
+/**
+ * Clients Review 2 §5 (ZIP validity on the server, P4-6): the saved US address's ZIP against its
+ * state, by the forms' own prefix table (zipStateCheck in packages/types): a mismatch or an
+ * unknown prefix is a warning on the ZIP's field, never a refusal. Null when there is nothing to
+ * say, or no ZIP and state to compare. The city is not checked.
+ */
+function addressWarnings(profile: ClientProfile, prefix: string): ClientProfileWarning[] | null {
+  const { country, postalCode, state } = profile.address;
+  if (country !== 'US' || !postalCode || !state) return null;
+  const warning = zipStateCheck(postalCode, state);
+  return warning ? [{ path: `${prefix}address.postalCode`, ...warning }] : null;
+}
+
+/**
+ * Clients Review 2 §5 (duplicate safeguards, P4-5): a client created or saved past the duplicate
+ * warning (Create Anyway, Save Anyway) is audited with the clients it matched, by id only (never a
+ * name, email or phone), and why (PHONE, NAME); nothing when it matched none.
+ */
+function overrideOf(
+  byPhone: string[],
+  byName: string[],
+): { matchedClientIds: string[]; reasons: ('PHONE' | 'NAME')[] } | null {
+  const ids = [...new Set([...byPhone, ...byName])];
+  if (ids.length === 0) return null;
+  return {
+    matchedClientIds: ids,
+    reasons: [
+      ...(byPhone.length ? (['PHONE'] as const) : []),
+      ...(byName.length ? (['NAME'] as const) : []),
+    ],
+  };
 }
 
 /**
@@ -927,6 +990,99 @@ export class ClientsService {
   }
 
   /**
+   * Clients Review 2 N8-12: one client's Overview summaries (GET /business/clients/{id}/summary),
+   * with the client's own reach (404 otherwise), each counted by the rule of the place its card
+   * opens: the balance, missing documents and next appointment as the list's columns count them
+   * (workOf), unread messages as the Messages badge does, open intake forms as the client's
+   * Intake Forms tab lists them, and the Pending or Active enrollments the Overview's Active
+   * Services lists (an advisory enrollment counts once, unless an engagement shows its service).
+   * Audited as a view of the client, with no figures.
+   */
+  async overview(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+  ): Promise<ClientOverviewSummary> {
+    const row = await this.inFirm(businessId, (tx) => this.find(tx, businessId, actor, id));
+    const [work, extra] = await Promise.all([
+      this.workOf(businessId, [row.id]),
+      this.inFirm(businessId, async (tx) => {
+        const now = new Date();
+        const [unread, intakes, invoices, engagements, workstreams, next, timeZone] =
+          await Promise.all([
+            tx.$queryRaw<{ count: number }[]>`
+              SELECT count(*)::int AS count
+              FROM messages m
+              JOIN message_threads t ON t.business_id = m.business_id AND t.id = m.thread_id
+              WHERE m.business_id = ${businessId}::uuid AND t.client_id = ${row.id}::uuid
+                AND m.direction = 'CLIENT_TO_FIRM' AND m.read_at IS NULL`,
+            tx.intake.count({
+              where: {
+                businessId,
+                status: { in: [...OPEN_INTAKES] },
+                engagement: { clientId: row.id },
+              },
+            }),
+            tx.$queryRaw<{ count: number }[]>`
+              SELECT count(*)::int AS count FROM invoices i
+              WHERE i.business_id = ${businessId}::uuid AND i.client_id = ${row.id}::uuid
+                AND i.status = 'OPEN' AND i.total_cents > app_invoice_paid_cents(i.id)`,
+            tx.engagement.findMany({
+              where: { businessId, clientId: row.id },
+              select: { status: true, serviceId: true },
+            }),
+            tx.advisoryWorkstream.findMany({
+              where: {
+                businessId,
+                status: { in: [...ENROLLED_WORKSTREAMS] },
+                advisoryClient: { clientId: row.id, archivedAt: null },
+              },
+              select: { serviceId: true },
+            }),
+            tx.appointment.findFirst({
+              where: { businessId, clientId: row.id, status: 'SCHEDULED', startsAt: { gt: now } },
+              orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+              select: { id: true, startsAt: true, type: { select: { name: true } } },
+            }),
+            firmTimeZone(tx, businessId),
+          ]);
+        // As the Active Services card: each Pending or Active engagement, then each advisory
+        // service no engagement of the client shows.
+        const shown = new Set(engagements.map((e) => e.serviceId));
+        const advisory = new Set(
+          workstreams.map((w) => w.serviceId).filter((serviceId) => !shown.has(serviceId)),
+        );
+        const enrolled = engagements.filter((e) => e.status === 'PENDING' || e.status === 'ACTIVE');
+        return {
+          unread: unread[0]?.count ?? 0,
+          intakes,
+          openInvoices: invoices[0]?.count ?? 0,
+          activeServices: enrolled.length + advisory.size,
+          next,
+          timeZone,
+        };
+      }),
+    ]);
+    await this.audit.log('client.viewed', { type: 'client', id: row.id }, { view: 'summary' });
+    return {
+      balanceDueCents: work.balance.get(row.id) ?? 0,
+      openInvoices: extra.openInvoices,
+      missingDocuments: work.missing.get(row.id) ?? 0,
+      unreadMessages: extra.unread,
+      openIntakeForms: extra.intakes,
+      activeServices: extra.activeServices,
+      nextAppointment: extra.next
+        ? {
+            id: extra.next.id,
+            startsAt: extra.next.startsAt.toISOString(),
+            typeName: extra.next.type?.name ?? null,
+          }
+        : null,
+      timeZone: extra.timeZone,
+    };
+  }
+
+  /**
    * Owner and Admin (the route says so): assign, archive or restore up to 100 clients. Each one
    * goes through the same path as a single change (its lock, checks and audit entry); one whose
    * state refuses the change (CLIENT_ARCHIVED for ASSIGN) is skipped with its code and the rest
@@ -1054,10 +1210,10 @@ export class ClientsService {
     // Sealed before the transaction, to the id the client is then created with.
     const id = uuidv7();
     const secrets = body.profile ? await secretColumns(this.fe, businessId, id, body.profile) : {};
-    const row = await this.write(businessId, async (tx) => {
+    const created = await this.write(businessId, async (tx) => {
       if (assignedUserId) await this.activeMember(tx, businessId, assignedUserId);
       await this.uniqueEmail(tx, businessId, body.email ?? null);
-      await this.phoneInUse(
+      const byPhone = await this.phoneInUse(
         tx,
         businessId,
         actor,
@@ -1065,7 +1221,7 @@ export class ClientsService {
         null,
         body.allowDuplicatePhone,
       );
-      await this.companyInUse(
+      const byName = await this.companyInUse(
         tx,
         businessId,
         actor,
@@ -1094,17 +1250,23 @@ export class ClientsService {
           ...secrets,
         } as Prisma.ClientProfileUncheckedCreateInput,
       });
-      return this.find(tx, businessId, actor, client.id);
+      return { row: await this.find(tx, businessId, actor, client.id), byPhone, byName };
     });
+    const anyway = overrideOf(created.byPhone, created.byName);
     await this.audit.log(
       'client.created',
-      { type: 'client', id: row.id },
+      { type: 'client', id: created.row.id },
       {
         fields: Object.keys(body).sort(),
         profileFields: changedFields(body.profile ?? {}),
+        ...(anyway ? { createdAnyway: anyway } : {}),
       },
     );
-    return this.record(businessId, row, { dateOfBirth: body.profile?.dateOfBirth ?? null });
+    const record = await this.record(businessId, created.row, {
+      dateOfBirth: body.profile?.dateOfBirth ?? null,
+    });
+    const warnings = body.profile?.address ? addressWarnings(record.profile, 'profile.') : null;
+    return warnings ? { ...record, profile: { ...record.profile, warnings } } : record;
   }
 
   async update(
@@ -1114,24 +1276,28 @@ export class ClientsService {
     body: UpdateBody,
   ): Promise<ClientRecord> {
     if (actor.role === 'STAFF' && body.assignedUserId !== undefined) throw forbidden();
+    // Clients Review 2 (Edit validation): the email and phone are changed, never cleared.
+    refuseCleared(clearedFieldIssues({ email: body.email, phone: body.phone }));
     const { allowDuplicatePhone, ...changes } = body;
     const data = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined));
     const row = await this.write(businessId, async (tx) => {
       const current = await this.findForChange(tx, businessId, actor, id);
       if (current.archivedAt) throw archived();
       if (body.assignedUserId) await this.activeMember(tx, businessId, body.assignedUserId);
-      if (body.phone && body.phone !== current.phone) {
-        await this.phoneInUse(tx, businessId, actor, body.phone, id, allowDuplicatePhone);
-      }
+      const byPhone =
+        body.phone && body.phone !== current.phone
+          ? await this.phoneInUse(tx, businessId, actor, body.phone, id, allowDuplicatePhone)
+          : [];
       if (body.email !== undefined && body.email !== current.email) {
         await this.uniqueEmail(tx, businessId, body.email);
       }
       // §6: a business renamed (or made a business) to a likely match pauses too.
       const type = body.accountType ?? current.accountType;
       const name = body.displayName ?? current.displayName;
-      if (name !== current.displayName || type !== current.accountType) {
-        await this.companyInUse(tx, businessId, actor, type, name, id, allowDuplicatePhone);
-      }
+      const byName =
+        name !== current.displayName || type !== current.accountType
+          ? await this.companyInUse(tx, businessId, actor, type, name, id, allowDuplicatePhone)
+          : [];
       await tx.client.update({ where: { businessId_id: { businessId, id } }, data });
       // A new assignee: the open tasks the previous Staff assignee held move along (R12).
       const before = current.assignedMember?.userId ?? null;
@@ -1139,7 +1305,11 @@ export class ClientsService {
       const tasksMoved = reassigned
         ? await reassignClientTasks(tx, businessId, id, before, body.assignedUserId ?? null)
         : undefined;
-      return { row: await this.find(tx, businessId, actor, id), tasksMoved };
+      return {
+        row: await this.find(tx, businessId, actor, id),
+        tasksMoved,
+        anyway: overrideOf(byPhone, byName),
+      };
     });
     await this.audit.log(
       'client.updated',
@@ -1147,6 +1317,7 @@ export class ClientsService {
       {
         fields: Object.keys(data).sort(),
         ...(row.tasksMoved === undefined ? {} : { tasksMoved: row.tasksMoved }),
+        ...(row.anyway ? { savedAnyway: row.anyway } : {}),
       },
     );
     return this.record(businessId, row.row, {});
@@ -1181,6 +1352,12 @@ export class ClientsService {
           ],
         });
       }
+      // Clients Review 2 (Edit validation): the address, and a Business's name, are changed,
+      // never cleared; a part of the address left out keeps what is stored.
+      refuseCleared(
+        clearedFieldIssues({ accountType: current.accountType, profile: body }),
+        'profile',
+      );
       const data = { ...profileData(body), ...secrets };
       await tx.clientProfile.upsert({
         where: { clientId: current.id },
@@ -1198,7 +1375,10 @@ export class ClientsService {
       { type: 'client', id },
       { fields: changedFields(body) },
     );
-    return (await this.record(businessId, row, { dateOfBirth: body.dateOfBirth })).profile;
+    const profile = (await this.record(businessId, row, { dateOfBirth: body.dateOfBirth })).profile;
+    // P4-6: the address just saved, checked as the forms check it; a warning never blocks.
+    const warnings = body.address ? addressWarnings(profile, '') : null;
+    return warnings ? { ...profile, warnings } : profile;
   }
 
   /** Owner and Admin (the route says so). Hidden from the default list; never deleted. */
@@ -1311,7 +1491,8 @@ export class ClientsService {
    * Clients Review 2 §6: a business client whose name likely matches another business client's
    * (companyKey) pauses Add and Edit with 409 POSSIBLE_DUPLICATE until the person confirms it (the
    * same Create Anyway as the phone). Named matches are the ones the caller may see; nothing is
-   * merged. Individuals are matched by phone and email only.
+   * merged. Individuals are matched by phone and email only. Once confirmed (`allow`), the
+   * matched clients' ids, for the audit row (§5 safeguards, P4-5).
    */
   private async companyInUse(
     tx: TxClient,
@@ -1321,10 +1502,10 @@ export class ClientsService {
     name: string,
     exceptId: string | null,
     allow: boolean | undefined,
-  ): Promise<void> {
-    if (accountType !== 'BUSINESS' || allow) return;
+  ): Promise<string[]> {
+    if (accountType !== 'BUSINESS') return [];
     const key = companyKey(name);
-    if (key.length < 2) return;
+    if (key.length < 2) return [];
     const found = await tx.$queryRaw<{ id: string }[]>`
       SELECT id::text AS id FROM clients
       WHERE business_id = ${businessId}::uuid AND account_type = 'BUSINESS'
@@ -1336,7 +1517,7 @@ export class ClientsService {
               '[[:space:]]+', '', 'g') = ${key}
       ORDER BY created_at, id
       LIMIT 20`;
-    if (found.length === 0) return;
+    if (found.length === 0 || allow) return found.map((f) => f.id);
     const rows = await tx.client.findMany({
       where: { businessId, id: { in: found.map((f) => f.id) } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -1359,7 +1540,7 @@ export class ClientsService {
    * pauses Add and Edit with 409 DUPLICATE_PHONE until the person confirms it. Phones are kept as
    * E.164, so "(202) 555-0103" and "2025550103" are the same number here. The answer names only
    * the matches the caller may see (Staff: their own clients) and counts them all; nothing is
-   * merged.
+   * merged. Once confirmed (`allow`), the matched clients' ids, for the audit row (P4-5).
    */
   private async phoneInUse(
     tx: TxClient,
@@ -1368,15 +1549,15 @@ export class ClientsService {
     phone: string | null,
     exceptId: string | null,
     allow: boolean | undefined,
-  ): Promise<void> {
-    if (!phone || allow) return;
+  ): Promise<string[]> {
+    if (!phone) return [];
     const rows = await tx.client.findMany({
       where: { businessId, phone, ...(exceptId ? { id: { not: exceptId } } : {}) },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: 20,
       select: duplicateSelect,
     });
-    if (rows.length === 0) return;
+    if (rows.length === 0 || allow) return rows.map((r) => r.id);
     const visible =
       actor.role === 'STAFF' ? rows.filter((r) => r.assignedUserId === actor.userId) : rows;
     throw new ConflictException({

@@ -30,6 +30,7 @@ import {
   BookBody,
   CalendarQuery,
   CancelBody,
+  CompleteBody,
   FirmSlotsQuery,
   idParam,
   RescheduleBody,
@@ -287,14 +288,22 @@ export class AppointmentsController {
     return this.appointments.cancel(tenant.businessId, firmActor(auth, tenant), id, body.reason);
   }
 
+  /** P4-2: a lead's own appointment needs its outcome and notes; a client's takes no body. */
   @Post(':id/complete')
   @HttpCode(200)
   complete(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
+    @Body(optionalBody(CompleteBody)) body: z.output<typeof CompleteBody>,
   ): Promise<Appointment> {
-    return this.appointments.finish(tenant.businessId, firmActor(auth, tenant), id, 'COMPLETED');
+    return this.appointments.finish(
+      tenant.businessId,
+      firmActor(auth, tenant),
+      id,
+      'COMPLETED',
+      body,
+    );
   }
 
   @Post(':id/no-show')

@@ -14,6 +14,7 @@ import { BillingCard } from './client-billing';
 import { LinkedProfilesCard } from './client-links';
 import { LocalOfficeCard } from './client-office';
 import { ActiveServicesCard } from './client-services';
+import { ClientSummaryCards } from './client-summary';
 import { ClientTagsCard } from './client-tags';
 import { useClientRecord } from './use-client-record';
 
@@ -187,7 +188,8 @@ function FirmDetails({ client }: { client: ClientRecord }) {
 /**
  * Overview: profile (SSN and EIN as the last 4 only), contact, portal logins, firm details, the
  * client's tags, and (Octavia's E4) the services the client is enrolled in, separate from tags,
- * with Recent Activity at the bottom.
+ * with Recent Activity at the bottom. Clients Review 2 N8-12: the client's summaries first, each
+ * opening the place it counts.
  */
 export function ClientOverview() {
   const { id } = useParams<{ id: string }>();
@@ -196,6 +198,7 @@ export function ClientOverview() {
     <PageState query={record}>
       {(client) => (
         <div data-testid="client-overview" className="grid gap-5 lg:grid-cols-2">
+          <ClientSummaryCards clientId={client.id} />
           <Profile client={client} />
           <Contact client={client} />
           <ActiveServicesCard clientId={client.id} />

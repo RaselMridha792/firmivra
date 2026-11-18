@@ -505,6 +505,85 @@ export function addMockLeadAppointment(id: string, appointment: LeadAppointment)
   s.leads.find((x) => x.profile.id === id)?.appointments.push(appointment);
 }
 
+const CLOSED: string[] = ['CONVERTED', 'DECLINED', 'LOST'];
+
+/** L8: the lead's steps; a seeded next action becomes its first step (as the API adopts it). */
+function stepsOf(s: Store, l: Lead) {
+  const p = l.profile;
+  if (!p.followUps.some((f) => !f.doneAt) && p.nextAction && !CLOSED.includes(p.stage))
+    p.followUps.unshift({
+      id: uuid('0f0e', s.next++),
+      type: p.nextAction.type,
+      dueAt: p.nextAction.dueAt,
+      notes: p.nextAction.notes,
+      doneAt: null,
+      outcome: null,
+    });
+  return p.followUps;
+}
+
+/** As the API: the Next Action is the next unfinished step; a closed lead has none. */
+function syncNext(l: Lead) {
+  const open = l.profile.followUps
+    .filter((f) => !f.doneAt)
+    .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+  const next = CLOSED.includes(l.profile.stage) ? undefined : open[0];
+  l.profile.nextAction = next
+    ? {
+        type: next.type,
+        dueAt: next.dueAt,
+        notes: next.notes,
+        overdue: next.type !== 'CLOSE_LEAD' && Date.parse(next.dueAt) < Date.now(),
+      }
+    : null;
+  l.profile.followUps = [
+    ...open,
+    ...l.profile.followUps
+      .filter((f) => f.doneAt)
+      .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? '')),
+  ];
+}
+
+/**
+ * P4-2 (Clients Review 2 N8-18): what came of a lead's own appointment, as the API records it: a
+ * Meeting on the lead's activity titled with the outcome, and for Keep as Lead and Follow Up the
+ * lead's next follow-up (`followUpAt`; 404 for an archived lead, 409 for a closed or converted
+ * one). The lead's stage never changes. Nothing for a lead this mock does not hold (the scheduling
+ * mock's own sample leads).
+ */
+export function mockLeadAppointmentOutcome(
+  id: string,
+  outcome: { label: string; followUpAt: string | null; by: MemberRef },
+): void {
+  const s = stores?.get('full') ?? storeFor({});
+  const l = s.leads.find((x) => x.profile.id === id);
+  if (!l) return;
+  if (outcome.followUpAt !== null) {
+    if (l.profile.archivedAt) throw fail(404, 'NOT_FOUND', 'Not found');
+    if (l.profile.stage === 'CONVERTED')
+      throw fail(409, 'ALREADY_CONVERTED', 'This lead is already a client');
+    if (CLOSED.includes(l.profile.stage))
+      throw fail(409, 'LEAD_CLOSED', 'A closed lead has no follow-up');
+    stepsOf(s, l).push({
+      id: uuid('0f0f', s.next++),
+      type: 'FOLLOW_UP',
+      dueAt: outcome.followUpAt,
+      notes: null,
+      doneAt: null,
+      outcome: null,
+    });
+    syncNext(l);
+  }
+  l.activity.unshift({
+    id: uuid('0f00', s.next++),
+    at: new Date().toISOString(),
+    kind: 'MEETING',
+    label: `Meeting: Appointment completed: ${outcome.label}`,
+    by: outcome.by,
+  });
+  l.profile.version = `v${Number(l.profile.version.slice(1)) + 1}`;
+}
+
 const toRow = (l: Lead): LeadRow => {
   const p = l.profile;
   return {
@@ -697,42 +776,8 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
   const bump = (l: Lead) => {
     l.profile.version = `v${Number(l.profile.version.slice(1)) + 1}`;
   };
-  const CLOSED: string[] = ['CONVERTED', 'DECLINED', 'LOST'];
-  /** L8: the lead's steps; a seeded next action becomes its first step (as the API adopts it). */
-  const steps = (l: Lead) => {
-    const p = l.profile;
-    if (!p.followUps.some((f) => !f.doneAt) && p.nextAction && !CLOSED.includes(p.stage))
-      p.followUps.unshift({
-        id: uuid('0f0e', s.next++),
-        type: p.nextAction.type,
-        dueAt: p.nextAction.dueAt,
-        notes: p.nextAction.notes,
-        doneAt: null,
-        outcome: null,
-      });
-    return p.followUps;
-  };
-  /** As the API: the Next Action is the next unfinished step; a closed lead has none. */
-  const sync = (l: Lead) => {
-    const open = l.profile.followUps
-      .filter((f) => !f.doneAt)
-      .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-    const next = CLOSED.includes(l.profile.stage) ? undefined : open[0];
-    l.profile.nextAction = next
-      ? {
-          type: next.type,
-          dueAt: next.dueAt,
-          notes: next.notes,
-          overdue: next.type !== 'CLOSE_LEAD' && Date.parse(next.dueAt) < Date.now(),
-        }
-      : null;
-    l.profile.followUps = [
-      ...open,
-      ...l.profile.followUps
-        .filter((f) => f.doneAt)
-        .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? '')),
-    ];
-  };
+  const steps = (l: Lead) => stepsOf(s, l);
+  const sync = syncNext;
   const openStep = (l: Lead, followUpId: string) => {
     if (CLOSED.includes(l.profile.stage))
       throw fail(409, 'LEAD_CLOSED', 'A closed lead has no follow-up');
