@@ -69,6 +69,18 @@ const nyDay = (offset: number) => {
 };
 /** 16:00 UTC on that New York day: 11:00 or 12:00 there, so never on another calendar day. */
 const onDay = (offset: number) => new Date(`${nyDay(offset)}T16:00:00.000Z`);
+/**
+ * A fixture appointment's start: a slot of its own on that New York day (06:00 UTC, then every 90
+ * minutes, all within the day there), so the hour-long fixtures of one staff member never overlap
+ * (appointments_no_double_booking_staff), whatever the time of day the suite runs. A start taken
+ * from `Date.now()` could land on another test's fixed one.
+ */
+const slotsTaken = new Map<number, number>();
+const slotOn = (offset: number) => {
+  const n = slotsTaken.get(offset) ?? 0;
+  slotsTaken.set(offset, n + 1);
+  return new Date(Date.parse(`${nyDay(offset)}T06:00:00.000Z`) + n * 90 * 60_000);
+};
 
 let app: INestApplication;
 const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
@@ -254,9 +266,9 @@ beforeAll(async () => {
           cancelledAt: status === 'CANCELLED' ? new Date() : null,
         },
       });
-    await visit(ago(5));
-    await visit(new Date(Date.now() + 2 * DAY), 'CANCELLED');
-    await visit(new Date(Date.now() + 4 * DAY));
+    await visit(slotOn(-5));
+    await visit(slotOn(2), 'CANCELLED');
+    await visit(slotOn(4));
   });
 
   // Firm B: one client with an open Personal Tax engagement and a balance.
@@ -731,8 +743,8 @@ describe("E2: a client's Last Activity is its latest event", () => {
       await note(e.both, onDay(-6));
       await message(e.both, onDay(-2));
       // None of these is activity: a canceled visit, one still to come, an open task, a draft.
-      await visit(e.none, onDay(-1), 'CANCELLED');
-      await visit(e.none, onDay(9), 'SCHEDULED');
+      await visit(e.none, slotOn(-1), 'CANCELLED');
+      await visit(e.none, slotOn(9), 'SCHEDULED');
       await tx.task.create({ data: { businessId, clientId: e.none, title: 'Fake open task' } });
       await tx.invoice.create({
         data: { businessId, clientId: e.none, number: `INV-${randomUUID()}` },
@@ -924,14 +936,14 @@ describe('More Filters and Added Last 30 Days (E2 additions)', () => {
         });
       await deadline(f.b, 'UPCOMING');
       await deadline(f.c, 'COMPLETED');
-      const visit = (clientId: string, status: 'SCHEDULED' | 'CANCELLED') =>
+      const visit = (clientId: string, status: 'SCHEDULED' | 'CANCELLED', startsAt = slotOn(3)) =>
         tx.appointment.create({
           data: {
             businessId,
             clientId,
             staffUserId: people.adminA.id,
-            startsAt: onDay(3),
-            endsAt: new Date(onDay(3).getTime() + 3_600_000),
+            startsAt,
+            endsAt: new Date(startsAt.getTime() + 3_600_000),
             locationKind: 'PHONE',
             status,
             cancelledAt: status === 'CANCELLED' ? new Date() : null,
@@ -1257,11 +1269,8 @@ describe('linked profiles (Clients Review 2, G9)', () => {
 });
 
 describe('GET /business/clients/{id}/summary: the Overview summaries (Clients Review 2 N8-12)', () => {
-  let made = 0;
   /** A client of Staff's with some of everything, made here so no other test's counts move. */
   async function summaryClient() {
-    // Each one's appointments two hours apart from the last one's (the staff member is the same).
-    const shift = (made += 1) * 2 * 3_600_000;
     // The client's own portal login: a client's message comes from it.
     const login = { id: randomUUID(), email: `r1w-summary-${randomUUID().slice(0, 8)}@r1w.test` };
     await runInScope(db, { kind: 'platform' }, (tx) =>
@@ -1400,24 +1409,25 @@ describe('GET /business/clients/{id}/summary: the Overview summaries (Clients Re
         }
       }
       // The next scheduled appointment is in 6 days; a cancelled sooner one and a past one aren't.
+      // Each in a slot of its own (slotOn): the staff member is the same for every client.
       const visit = (at: Date, status: 'SCHEDULED' | 'CANCELLED' = 'SCHEDULED') =>
         tx.appointment.create({
           data: {
             businessId,
             clientId: c.id,
             staffUserId: owner,
-            startsAt: new Date(at.getTime() + shift),
-            endsAt: new Date(at.getTime() + shift + 3_600_000),
+            startsAt: at,
+            endsAt: new Date(at.getTime() + 3_600_000),
             locationKind: 'PHONE',
             status,
             cancelledAt: status === 'CANCELLED' ? new Date() : null,
           },
           select: { id: true },
         });
-      await visit(ago(3));
-      await visit(new Date(Date.now() + 2 * DAY), 'CANCELLED');
-      const next = await visit(new Date(Date.now() + 6 * DAY));
-      await visit(new Date(Date.now() + 9 * DAY));
+      await visit(slotOn(-3));
+      await visit(slotOn(2), 'CANCELLED');
+      const next = await visit(slotOn(6));
+      await visit(slotOn(9));
       return { id: c.id, name: c.displayName, next: next.id };
     });
   }
