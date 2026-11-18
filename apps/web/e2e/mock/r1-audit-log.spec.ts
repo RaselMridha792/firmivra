@@ -19,7 +19,7 @@ test('R01: times and the date filter are the firm’s, with its zone shown', asy
   // 05:23Z is 12:23 AM EST on Nov 16 (11:23 AM in the browser's own zone).
   await expect(rows.first().getByRole('cell').first()).toHaveText('Nov 16, 2026, 12:23 AM EST');
   await expect(rows.nth(1).getByRole('cell').first()).toHaveText('Nov 15, 2026, 11:46 PM EST');
-  await expect(page.getByText('(America/New_York)')).toBeVisible();
+  await expect(page.getByText('Without dates, the log shows')).toContainText('(America/New_York)');
 
   // A day is the firm's day: Nov 16 holds only the newest entry, Nov 15 the other five.
   const apply = page.getByRole('button', { name: 'Apply filters' });
