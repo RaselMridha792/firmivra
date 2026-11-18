@@ -51,6 +51,11 @@ export const NotificationTargetKind = z.enum([
   'document_request',
   'intake',
   'engagement',
+  /**
+   * A bookkeeping client (Client Portal BK-CP3): the firm site only, the client's Terms page. Its
+   * id is the bookkeeping client's (BookkeepingClientRow.id).
+   */
+  'bookkeeping_client',
   'tax_return',
   'message_thread',
   'client_note_reminder',
@@ -117,6 +122,25 @@ export const NOTIFICATION_EVENTS = {
    * never the report's figures or file. It opens the portal's My Services, where the report is.
    */
   'report.published': { category: 'SERVICES', kind: 'engagement', to: 'client' },
+  /**
+   * BK-CP3 (Client Portal Review One): the firm sent bookkeeping terms for the client's answer. A
+   * bell item naming the service; it opens My Services, where the terms wait.
+   */
+  'bookkeeping-terms.sent': { category: 'SERVICES', kind: 'engagement', to: 'client' },
+  /**
+   * BK-CP3: the client accepted (the terms are in force) or declined (back to draft) the terms in
+   * the portal. To the client's assigned member and the Owners and Admins; it opens the Terms page.
+   */
+  'bookkeeping-terms.client-accepted': {
+    category: 'SERVICES',
+    kind: 'bookkeeping_client',
+    to: 'staff',
+  },
+  'bookkeeping-terms.client-declined': {
+    category: 'SERVICES',
+    kind: 'bookkeeping_client',
+    to: 'staff',
+  },
   'tax-return.status-changed': { category: 'SERVICES', kind: 'tax_return', to: 'client' },
   /** A client finished signing up and waits for the firm (R3's queue; Owner and Admin). */
   'client.signup-submitted': { category: 'SERVICES', kind: 'client_account', to: 'staff' },

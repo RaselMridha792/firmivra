@@ -10,6 +10,8 @@ const FIRM: Record<NotificationTargetKind, ((clientId: string) => string) | stri
   document_request: (c) => `/clients/${c}/documents`,
   intake: (c) => `/clients/${c}`,
   engagement: (c) => `/clients/${c}`,
+  // By its own id (below): the bookkeeping client's Terms page.
+  bookkeeping_client: null,
   tax_return: (c) => `/clients/${c}`,
   message_thread: (c) => `/clients/${c}/messages`,
   invoice: (c) => `/clients/${c}/invoices`,
@@ -37,6 +39,8 @@ const PORTAL: Record<NotificationTargetKind, string | null> = {
   document_request: '/documents',
   intake: '/intake',
   engagement: '/services',
+  // BK-CP3: the client's own answer to its terms notifies the firm only.
+  bookkeeping_client: null,
   tax_return: '/taxes',
   message_thread: '/messages',
   client_note_reminder: '/messages',
@@ -77,6 +81,8 @@ export function notificationLink(target: unknown, where: NotificationSite): stri
   }
   // An appointment opens that appointment (Octavia's N3); its page checks access again.
   if (kind === 'appointment') return `/calendar/${id}`;
+  // BK-CP3: the client's answer to its terms opens the bookkeeping client's Terms page.
+  if (kind === 'bookkeeping_client') return `/bookkeeping/clients/${id}/terms`;
   // An automation's run opens in its log; the page loads it through the firm's own API (404 for
   // a run of another firm, or of a client a Staff member isn't assigned to).
   if (kind === 'automation_run') return `/automations/logs?run=${id}`;

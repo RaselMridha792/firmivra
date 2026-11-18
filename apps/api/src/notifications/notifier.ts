@@ -204,6 +204,14 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
     });
     return r && { clientId: r.clientId, values: { title: short(r.title), status: r.status } };
   },
+  // BK-CP3: a bookkeeping client whose terms the client answered; the text names the service.
+  bookkeeping_client: async (tx, businessId, id) => {
+    const r = await tx.bookkeepingProfile.findFirst({
+      where: { businessId, id },
+      select: { engagement: { select: { clientId: true, title: true } } },
+    });
+    return r && { clientId: r.engagement.clientId, values: { title: short(r.engagement.title) } };
+  },
   tax_return: async (tx, businessId, id) => {
     const r = await tx.taxReturn.findFirst({
       where: { businessId, id },

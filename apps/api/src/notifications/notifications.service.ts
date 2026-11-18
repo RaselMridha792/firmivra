@@ -96,6 +96,14 @@ const CLIENT_OF: Partial<Record<NotificationTargetKind, ClientIds>> = {
         select: { id: true, clientId: true },
       }),
     ),
+  // BK-CP3: a bookkeeping client, by its engagement's client.
+  bookkeeping_client: async (tx, businessId, ids) => {
+    const rows = await tx.bookkeepingProfile.findMany({
+      where: { businessId, id: { in: ids } },
+      select: { id: true, engagement: { select: { clientId: true } } },
+    });
+    return new Map(rows.map((r) => [r.id, r.engagement.clientId]));
+  },
   tax_return: async (tx, businessId, ids) =>
     byId(
       await tx.taxReturn.findMany({

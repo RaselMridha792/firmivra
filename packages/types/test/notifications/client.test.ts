@@ -230,6 +230,11 @@ describe('notification links', () => {
       `/clients/${clientId}/invoices`,
     );
     expect(notificationLink(target('engagement', clientId), firm)).toBe(`/clients/${clientId}`);
+    // BK-CP3: a client's answer to its bookkeeping terms opens the Terms page; never the portal.
+    expect(notificationLink(target('bookkeeping_client', clientId), firm)).toBe(
+      `/bookkeeping/clients/${id}/terms`,
+    );
+    expect(notificationLink(target('bookkeeping_client'), portal)).toBeNull();
     // The appointment itself (Octavia's N3), with or without a client.
     expect(notificationLink(target('appointment'), firm)).toBe(`/calendar/${id}`);
     expect(notificationLink(target('appointment', clientId), firm)).toBe(`/calendar/${id}`);

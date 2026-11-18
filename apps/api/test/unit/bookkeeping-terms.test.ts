@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { BookkeepingTermsService } from '../../src/bookkeeping/bookkeeping-terms.service.js';
 
-const service = new BookkeepingTermsService({} as never, {} as never);
+const service = new BookkeepingTermsService({} as never, {} as never, {} as never);
 const mapped = (e: unknown) => {
   try {
     (service as unknown as { mapError(e: unknown): never }).mapError(e);

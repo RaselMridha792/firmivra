@@ -74,8 +74,10 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
     case 'task_series':
     case 'tax_plan':
       return { glyph: 'service', color: 'text-firm-text' };
+    // 'bookkeeping_client' (BK-CP3: a client's answer to its terms) is the firm's: never here.
     case 'client_account':
     case 'membership':
+    case 'bookkeeping_client':
       return { glyph: 'person', color: 'text-purple' };
     case 'user':
       return { glyph: 'account', color: 'text-firm-text' };
