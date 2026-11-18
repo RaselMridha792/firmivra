@@ -31,6 +31,13 @@ export interface NotifyTemplates {
   'staff.invite': IgnoredFirmName & { name: string; link: string; expiresAt: Date };
   /** The 6-digit code that verifies a member's mobile number (R60's column request 13). */
   'staff.phone-code': IgnoredFirmName & { code: string };
+  /** SM33: an Owner of the firm reset the member's two-factor sign-in. */
+  'staff.mfa-reset': IgnoredFirmName & { name: string };
+  /**
+   * SM33: the member set up two-factor sign-in. Firmivra's own notice: one login may be in
+   * several firms.
+   */
+  'platform.mfa-enrolled': { name: string };
 
   // ----- Client portal (R3) -----
   /** The 6-digit code that verifies a sign-up's email. */
@@ -379,6 +386,8 @@ export type NotifyChannel = 'email' | 'sms';
 export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> = {
   'staff.invite': 'email',
   'staff.phone-code': 'sms',
+  'staff.mfa-reset': 'email',
+  'platform.mfa-enrolled': 'email',
   'client.signup-email-code': 'email',
   'client.signup-sms-code': 'sms',
   'client.already-registered': 'email',
@@ -444,6 +453,8 @@ export type NotifySender = 'firm' | 'platform';
 export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'staff.invite': 'firm',
   'staff.phone-code': 'firm',
+  'staff.mfa-reset': 'firm',
+  'platform.mfa-enrolled': 'platform',
   'client.signup-email-code': 'firm',
   'client.signup-sms-code': 'firm',
   'client.already-registered': 'firm',
@@ -506,6 +517,8 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
 export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>([
   'staff.invite',
   'staff.phone-code',
+  'staff.mfa-reset',
+  'platform.mfa-enrolled',
   'client.signup-email-code',
   'client.signup-sms-code',
   'client.already-registered',
@@ -545,6 +558,8 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
 export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCategory>> = {
   'staff.invite': 'ACCOUNT',
   'staff.phone-code': 'ACCOUNT',
+  'staff.mfa-reset': 'ACCOUNT',
+  'platform.mfa-enrolled': 'ACCOUNT',
   'client.signup-email-code': 'ACCOUNT',
   'client.signup-sms-code': 'ACCOUNT',
   'client.already-registered': 'ACCOUNT',

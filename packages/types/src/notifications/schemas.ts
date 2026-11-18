@@ -185,6 +185,12 @@ export const NOTIFICATION_EVENTS = {
   'payment.received': { category: 'BILLING', kind: 'invoice', to: 'both' },
   // ----- Account and team (locked) -----
   'account.password-changed': { category: 'ACCOUNT', kind: 'user', to: 'both' },
+  /**
+   * SM33 (Staff Management Review 2, decision 10a): the member's two-factor sign-in was reset
+   * (by an Owner), or they set it up. To the member themself, with an email of its own.
+   */
+  'account.mfa-reset': { category: 'ACCOUNT', kind: 'user', to: 'staff' },
+  'account.mfa-enrolled': { category: 'ACCOUNT', kind: 'user', to: 'staff' },
   /** A member accepted their invite (Owner and Admin; R2's invites): who can see client data. */
   'staff.joined': { category: 'ACCOUNT', kind: 'membership', to: 'staff' },
   // ----- Automations (R55; the lead's one-off exception, Nov 6) -----

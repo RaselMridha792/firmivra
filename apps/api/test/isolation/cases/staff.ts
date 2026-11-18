@@ -122,6 +122,13 @@ const detailIds = {
 export const cases: CaseModule['cases'] = {
   [`GET ${BASE}/:id`]: { params: { id: 'staffMembership' } },
   [`GET ${BASE}/:id/permissions`]: { params: { id: 'staffMembership' } },
+  // SM05: an exception names one of the firm's accounts; firm P's own get 409, after the ids.
+  'POST /api/v1/business/staff-security-defaults/apply': {
+    params: {},
+    bodyIds: { exceptIds: 'staffMembership' },
+    body: { version: 'stale', confirm: true, exceptIds: [PLACEHOLDER] },
+    expect: 409,
+  },
   [`POST ${BASE}`]: {
     params: {},
     bodyIds: { ...detailIds, draftId: 'staffDraft' },

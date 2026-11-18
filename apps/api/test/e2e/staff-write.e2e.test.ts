@@ -1168,20 +1168,58 @@ describe('drafts', () => {
       ),
     );
     expect(draft).toMatchObject({ step: 1, createdBy: 'Fake R55w adminA' });
-    const list = ok(await call('get', '/staff-drafts', ownerA)) as { items: StaffDraft[] };
+    const list = ok(await call('get', '/staff-drafts', adminA)) as { items: StaffDraft[] };
     expect(list.items.map((d) => d.id)).toContain(draft.id);
     const saved = StaffDraft.parse(
-      ok(await call('put', `/staff-drafts/${draft.id}`, ownerA, { step: 3, data: {} })),
+      ok(await call('put', `/staff-drafts/${draft.id}`, adminA, { step: 3, data: {} })),
     );
     expect(saved.step).toBe(3);
+    // Pay is never kept in a draft.
     expectError(
       await call('post', '/staff-drafts', ownerA, { step: 1, data: { compensation: {} } }),
       400,
       'VALIDATION_FAILED',
     );
     expectError(await call('get', '/staff-drafts', staffA), 403, 'FORBIDDEN');
-    expect(ok(await call('delete', `/staff-drafts/${draft.id}`, ownerA))).toEqual({ ok: true });
+    expect(ok(await call('delete', `/staff-drafts/${draft.id}`, adminA))).toEqual({ ok: true });
+    expectError(await call('get', `/staff-drafts/${draft.id}`, adminA), 404, 'NOT_FOUND');
+  });
+
+  it("SM17: a draft is its creator's own: another Owner or Admin never lists, opens, saves, uses or deletes it", async () => {
+    const draft = StaffDraft.parse(
+      ok(
+        await call('post', '/staff-drafts', adminA, {
+          step: 1,
+          data: { account: { firstName: 'Fake', lastName: 'Private' } },
+        }),
+        201,
+      ),
+    );
+    const owners = ok(await call('get', '/staff-drafts', ownerA)) as { items: StaffDraft[] };
+    expect(owners.items.map((d) => d.id)).not.toContain(draft.id);
     expectError(await call('get', `/staff-drafts/${draft.id}`, ownerA), 404, 'NOT_FOUND');
+    expectError(
+      await call('put', `/staff-drafts/${draft.id}`, ownerA, { step: 2, data: {} }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(await call('delete', `/staff-drafts/${draft.id}`, ownerA), 404, 'NOT_FOUND');
+    expectError(
+      await call('post', '/staff', ownerA, {
+        idempotencyKey: randomUUID(),
+        account: account('not-mine'),
+        draftId: draft.id,
+        sendWelcomeEmail: false,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expect(await membersWith(newEmail('not-mine'))).toBe(0);
+    // Its creator still has it, as saved.
+    expect(StaffDraft.parse(ok(await call('get', `/staff-drafts/${draft.id}`, adminA))).step).toBe(
+      1,
+    );
+    expect(ok(await call('delete', `/staff-drafts/${draft.id}`, adminA))).toEqual({ ok: true });
   });
 
   it('SM16: a draft keeps a changed permission grid and custom security settings as saved', async () => {
