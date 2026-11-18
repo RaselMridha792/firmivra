@@ -117,12 +117,16 @@ export function statusChange(
   const all = number ? [...fields, 'confirmationNumber'].sort() : fields;
   const kept = [
     ...(rest['filedOn'] === undefined && current.filedOn ? ['filedOn'] : []),
-    ...(confirmationNumber === undefined && current.confirmationNumber ? ['confirmationNumber'] : []),
+    ...(confirmationNumber === undefined && current.confirmationNumber
+      ? ['confirmationNumber']
+      : []),
   ];
   return {
     from: current.status,
     ...(typeof status === 'string' ? { to: status } : {}),
-    ...(all.length ? { fields: all, changes: { ...changes, ...(number ? { confirmationNumber: number } : {}) } } : {}),
+    ...(all.length
+      ? { fields: all, changes: { ...changes, ...(number ? { confirmationNumber: number } : {}) } }
+      : {}),
     ...(status === 'UPCOMING' && kept.length ? { kept } : {}),
   };
 }
