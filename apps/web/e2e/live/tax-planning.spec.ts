@@ -48,6 +48,12 @@ import {
  *
  * Firm-wide settings are never changed: a built-in resource's Edit is opened and cancelled, and
  * Run Screening is never pressed.
+ *
+ * Staff notices (checked in the code, Nov 18): the harness staff logins are @dev.firmivra.com
+ * (no MX), so nothing may email them. Send for Internal Review and Record Client's Request notify
+ * no one (the plans service has no notifier); the implementation task has no reminder (no
+ * template) and its assignment sends nothing; a project deadline sends nothing when it is made,
+ * shared or completed, and its reminders here are in-app only, 45 days out, deleted the same day.
  */
 test.describe.configure({ timeout: 180_000 });
 
@@ -168,6 +174,7 @@ interface PlanDetail {
   etag: string;
   archived: boolean;
   strategies: { id: string; name: string; assumptions: string | null }[];
+  inputs: { key: string; kind: string; asOf: string | null }[] | null;
   workflow: { actions: string[]; sentVersion: number | null; approvedVersion: number | null };
   canEdit: boolean;
 }
@@ -453,32 +460,38 @@ async function planE(): Promise<string> {
 
 /**
  * The workflow plan's content (setup): the internal and client notes, one custom strategy with
- * its estimate, and the wages figure with its source and as-of date. A content change starts the
- * work by itself, so this runs after the setup row.
+ * its estimate, and the wages figure with its source and a current as-of date. A content change
+ * starts the work by itself, so this runs after the setup row. It also puts back a current as-of
+ * date when C08 stopped before restoring it (a stale figure blocks every later Finalize).
  */
 async function ensureWContent(id: string) {
   const api = await apiAs('owner');
   try {
     let p = await ok<PlanDetail>(await api.get(`business/tax-planning/plans/${id}`), 'plan');
-    if (p.strategies.some((s) => s.name === W_STRATEGY)) return;
-    p = await ok<PlanDetail>(
-      await api.patch(`business/tax-planning/plans/${id}`, {
-        data: { notes: INTERNAL_NOTE, clientNotes: CLIENT_NOTE, etag: p.etag },
-      }),
-      'notes',
-    );
-    p = await ok<PlanDetail>(
-      await api.post(`business/tax-planning/plans/${id}/strategies`, {
-        data: {
-          kind: 'CUSTOM',
-          name: W_STRATEGY,
-          category: 'RETIREMENT',
-          assumptions: W_ASSUMPTIONS,
-          estimatedSavingsCents: 120_000,
-        },
-      }),
-      'strategy',
-    );
+    if (!p.canEdit) return;
+    if (!p.strategies.some((s) => s.name === W_STRATEGY)) {
+      p = await ok<PlanDetail>(
+        await api.patch(`business/tax-planning/plans/${id}`, {
+          data: { notes: INTERNAL_NOTE, clientNotes: CLIENT_NOTE, etag: p.etag },
+        }),
+        'notes',
+      );
+      p = await ok<PlanDetail>(
+        await api.post(`business/tax-planning/plans/${id}/strategies`, {
+          data: {
+            kind: 'CUSTOM',
+            name: W_STRATEGY,
+            category: 'RETIREMENT',
+            assumptions: W_ASSUMPTIONS,
+            estimatedSavingsCents: 120_000,
+          },
+        }),
+        'strategy',
+      );
+    }
+    const wages = (p.inputs ?? []).find((i) => i.key === 'wages' && i.kind === 'PROJECTED');
+    const current = wages?.asOf && Date.now() - Date.parse(wages.asOf) < 300 * 86_400_000;
+    if (current) return;
     await ok<PlanDetail>(
       await api.put(`business/tax-planning/plans/${id}/inputs`, {
         data: {
@@ -567,7 +580,9 @@ async function requireStatus(id: string, allowed: string[]): Promise<PlanDetail>
   return p;
 }
 
-const toast = (page: Page, text: string | RegExp) => page.getByText(text).first();
+/** The screen's notice (a Toast: role alert for errors, status for success) with this text. */
+const toast = (page: Page, text: string | RegExp) =>
+  page.locator('[role="alert"], [role="status"]').filter({ hasText: text }).first();
 const dialog = (page: Page) => page.getByRole('dialog');
 const header = (page: Page) => page.getByTestId('plan-editor').locator('header').first();
 const action = (page: Page, name: string) =>
@@ -588,12 +603,56 @@ const apptRow = (page: Page) =>
   page.getByTestId('tp-clients').getByRole('row').filter({ hasText: APPT_NAME });
 const centsOf = (text: string) => Math.round(Number(text.replace(/[^0-9.-]/g, '')) * 100);
 
+/**
+ * What sticks out past the viewport and is not clipped by a scrolling box: each element's tag,
+ * test id or label, its right edge and position. Reported only when the page scrolls sideways.
+ */
+async function sideScrollCulprits(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const width = document.documentElement.clientWidth;
+    const clips = (el: Element) => {
+      // An absolute element escapes every scroller below its containing block.
+      let escaping = getComputedStyle(el).position === 'absolute';
+      for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+        const s = getComputedStyle(a);
+        if (escaping) {
+          if (s.position === 'static') continue;
+          escaping = false;
+        }
+        if (s.overflowX !== 'visible') return true;
+      }
+      return false;
+    };
+    const out: string[] = [];
+    for (const el of Array.from(document.querySelectorAll('body *'))) {
+      const r = el.getBoundingClientRect();
+      if (r.right <= width + 1 || r.width === 0 || clips(el)) continue;
+      const name =
+        el.getAttribute('data-testid') ??
+        el.getAttribute('aria-label') ??
+        (el.textContent ?? '').trim().slice(0, 40);
+      out.push(
+        `${el.tagName.toLowerCase()} "${name}" right ${Math.round(r.right)}px (${getComputedStyle(el).position})`,
+      );
+      if (out.length >= 8) break;
+    }
+    return out;
+  });
+}
+
 /** Opens a page of the tab and checks its width (the @narrow rows). */
 async function layout(page: Page, url: string, row: string, info: TestInfo) {
   await page.goto(url);
   await settled(page);
   await expect(page.locator('main').first()).toBeVisible();
-  await expectNoSideScroll(page);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  if (overflow > 1)
+    note(info, 'side-scroll', `${row}: ${(await sideScrollCulprits(page)).join('; ')}`);
+  // Soft (expectNoSideScroll's measure): a page that scrolls fails the row, the next pages are
+  // still checked.
+  expect.soft(overflow, `${row}: page scrolls sideways`).toBeLessThanOrEqual(1);
   await shot(page, TAB, row, info);
 }
 
@@ -791,19 +850,21 @@ test.describe('Tax Planning (Owner)', () => {
     await expect(page.getByTestId('resource-for')).toContainText(APPT_NAME);
     await pick('Opportunities');
     await expect(page).toHaveURL(app(`/tax-planning/opportunities?clientId=${APPT}`));
-    // Assign Staff, Close Plan and Archive Plan each ask first; Cancel changes nothing.
-    for (const [item, title] of [
-      ['Assign Staff', /assign/i],
-      ['Close Plan', /Close this plan\?/],
-      ['Archive Plan', /Archive this plan\?/],
+    // Assign Staff, Close Plan and Archive Plan each ask first; Cancel (Keep it) changes nothing.
+    for (const [item, title, keep] of [
+      ['Assign Staff', /assign/i, 'Cancel'],
+      ['Close Plan', /Close this plan\?/, 'Keep it'],
+      ['Archive Plan', /Archive this plan\?/, 'Keep it'],
     ] as const) {
       await pick(item);
       await expect(dialog(page)).toContainText(title);
       await shot(page, TAB, `C03-${item}`, info);
-      await dialog(page).getByRole('button', { name: 'Cancel' }).click();
+      await dialog(page).getByRole('button', { name: keep, exact: true }).click();
       await expect(dialog(page)).toHaveCount(0);
     }
-    expect((await planDetail(w)).status, 'Cancel changed nothing').toMatch(/DRAFT|IN_PROGRESS/);
+    const after = await planDetail(w);
+    expect(after.status, 'Keep it changed nothing').toMatch(/DRAFT|IN_PROGRESS/);
+    expect(after.archived, 'Keep it changed nothing').toBe(false);
   });
 
   test('C04 a deadline row opens its details and the client it affects', async ({ page }, info) => {
@@ -821,8 +882,11 @@ test.describe('Tax Planning (Owner)', () => {
       await expect(page).toHaveURL(
         app(`/tax-planning/calendar?item=${encodeURIComponent(target.id)}`),
       );
-      await expect(page.getByTestId('deadline-details')).toContainText(target.title);
+      // The details open in a dialog titled with the deadline; the body names its clients.
+      await expect(dialog(page).getByRole('heading', { name: target.title })).toBeVisible();
+      await expect(page.getByTestId('deadline-details')).toContainText(/Affected clients|Client/);
       await shot(page, TAB, 'C04-overview-row', info);
+      await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
     } else note(info, 'note', 'no deadline in the next 120 days on the overview');
 
     // The run's own milestone (its plan's target completion) names its client and opens its plan.
@@ -844,7 +908,7 @@ test.describe('Tax Planning (Owner)', () => {
         await details.getByRole('link', { name: 'Open plan' }).click();
         await expect(page).toHaveURL(app(`/tax-planning/plans/${w}/edit`));
       } else {
-        await dialog(page).getByRole('button', { name: 'Close' }).click();
+        await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
       }
     }
     expect(found, "the run plan's target completion is listed and opens its client").toBe(true);
@@ -1009,6 +1073,10 @@ test.describe('Tax Planning (Owner)', () => {
 
     await step.getByLabel('Client *').selectOption(APPT);
     await expect(page.getByTestId('client-card')).toContainText(APPT_NAME);
+    // The client's record fills the entity type (it can still be changed).
+    const entity = page.getByRole('combobox', { name: 'Entity Type *' });
+    await expect(entity).toHaveValue('Individual');
+    await entity.selectOption('');
     await page.getByRole('combobox', { name: 'Planning Year *' }).selectOption(String(PLAN_YEAR));
     await page.getByLabel('Plan Name *', { exact: true }).fill(PLAN_E);
     await next.click();
@@ -1082,9 +1150,10 @@ test.describe('Tax Planning (Owner)', () => {
     await field(`Wages (W-2) ${PLAN_YEAR}`).fill('95000');
     await field('Wages (W-2) source').selectOption('Tax return');
     await field('Wages (W-2) as of').fill(firmDay(-10));
+    // An item's name comes back from its key (custom_<words>): letters, digits and spaces only.
     for (const [item, amount] of [
-      ['Home office costs (synthetic)', '1200'],
-      ['Vehicle costs (synthetic)', '300'],
+      ['Home office costs live', '1200'],
+      ['Vehicle costs live', '300'],
     ]) {
       await field('Additional item').fill(item);
       await page.getByRole('button', { name: 'Add Item' }).click();
@@ -1100,9 +1169,10 @@ test.describe('Tax Planning (Owner)', () => {
     await expect(field(`Wages (W-2) ${PLAN_YEAR - 1}`)).toHaveValue('90000');
     await expect(field('Wages (W-2) source')).toHaveValue('Tax return');
     await expect(field('Wages (W-2) as of')).toHaveValue(firmDay(-10));
-    await expect(field(`Home office costs (synthetic) ${PLAN_YEAR}`)).toHaveValue('1200');
-    await expect(field(`Vehicle costs (synthetic) ${PLAN_YEAR}`)).toHaveValue('300');
-    await expect(field('Vehicle costs (synthetic) as of')).toHaveValue(firmDay(-3));
+    await expect(field(`Home office costs live ${PLAN_YEAR}`)).toHaveValue('1200');
+    await expect(field(`Vehicle costs live ${PLAN_YEAR}`)).toHaveValue('300');
+    await expect(field('Vehicle costs live source')).toHaveValue('Manual entry');
+    await expect(field('Vehicle costs live as of')).toHaveValue(firmDay(-3));
     await shot(page, TAB, 'C06-after-reload', info);
   });
 
@@ -1217,7 +1287,8 @@ test.describe('Tax Planning (Owner)', () => {
     await d
       .getByLabel('Implementation Checklist (one step per line)')
       .fill('Open the account (synthetic)\nFund it (synthetic)');
-    await expect(d.getByRole('checkbox', { name: 'Active (offered in new plans)' })).toBeChecked();
+    // A new strategy is active; the Active switch shows only once it exists (Edit).
+    await expect(d.getByRole('checkbox', { name: 'Active (offered in new plans)' })).toHaveCount(0);
     await shot(page, TAB, 'C13-new', info);
     const made = nextApi<Created>(page, 'POST', 'business/tax-planning/strategies');
     await dialog(page).getByRole('button', { name: 'Save Strategy' }).click();
@@ -1245,6 +1316,7 @@ test.describe('Tax Planning (Owner)', () => {
     await expect(
       d.getByTestId('required-inputs').getByRole('checkbox', { name: 'Wages (W-2)' }),
     ).toBeChecked();
+    await expect(d.getByRole('checkbox', { name: 'Active (offered in new plans)' })).toBeChecked();
     await dialog(page).getByRole('button', { name: 'Cancel' }).click();
 
     await menu('Archive');
@@ -1284,7 +1356,7 @@ test.describe('Tax Planning (Owner)', () => {
     await expect(view.getByRole('checkbox')).toHaveCount(0);
     await expect(dialog(page).getByRole('button', { name: 'Edit' })).toBeVisible();
     await shot(page, TAB, 'C23-view', info);
-    await dialog(page).getByRole('button', { name: 'Close' }).click();
+    await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
   });
 
   test('C10 Add Opportunity takes its reasoning; Edit Details changes it, Client Data Used and the actions; kept after reload, with its history', async ({
@@ -1390,8 +1462,10 @@ test.describe('Tax Planning (Owner)', () => {
     await expect(page.getByTestId('opp-banner')).toContainText('Under Review', {
       timeout: 60_000,
     });
-    await expect(page.getByTestId('opp-history')).toContainText(/closed/i);
-    await expect(page.getByTestId('opp-history')).toContainText(/reopen/i);
+    // Newest first: the reopen (status: under review) above the close (status: closed).
+    await expect(page.getByTestId('opp-history')).toContainText(
+      /status: under review[\s\S]*status: closed/i,
+    );
     await shot(page, TAB, 'C11-reopened', info);
     await expect(await queue('open'), 'back under Open').toHaveCount(1, { timeout: 60_000 });
   });
@@ -1423,16 +1497,16 @@ test.describe('Tax Planning (Owner)', () => {
     const docs = page.getByTestId('docs-needed');
     const box = docs.getByRole('checkbox').first();
     await expect(box).toBeVisible({ timeout: 60_000 });
+    // The box shows the saved state: it turns once the save answers (a click, not setChecked).
     const was = await box.isChecked();
-    await box.setChecked(!was);
+    await box.click();
     await expect(toast(page, was ? 'Marked not received.' : 'Marked received.')).toBeVisible();
+    await expect(box).toBeChecked({ checked: !was });
     await page.reload();
-    await expect(docs.getByRole('checkbox').first()).toBeChecked({
-      checked: !was,
-      timeout: 60_000,
-    });
-    await docs.getByRole('checkbox').first().setChecked(was);
+    await expect(box).toBeChecked({ checked: !was, timeout: 60_000 });
+    await box.click();
     await expect(toast(page, was ? 'Marked received.' : 'Marked not received.')).toBeVisible();
+    await expect(box).toBeChecked({ checked: was });
     for (const name of ['Mark as Not Applicable', 'Dismiss Opportunity']) {
       await page.getByTestId('additional-actions').getByRole('button', { name }).click();
       const go = dialog(page).getByRole('button', { name });
@@ -1543,13 +1617,15 @@ test.describe('Tax Planning (Owner)', () => {
   test("C20 the plan lists the client's scenarios; one reopens with the result it kept", async ({
     page,
   }, info) => {
+    test.skip(!mine().scenarios.length, 'no scenario of the run (C19 did not save one)');
     const e = await planE();
     await openPlan(page, e, '/goals');
     const link = page
       .getByTestId('plan-scenarios')
       .getByTestId('scenario-link')
       .filter({ hasText: SCENARIO });
-    test.skip(!(await link.count()), 'no scenario of the run (C19 did not save one)');
+    // The list loads after the plan: wait for it rather than count at once.
+    await expect(link, "the plan lists the run's scenario").toHaveCount(1, { timeout: 60_000 });
     await shot(page, TAB, 'C20-plan-scenarios', info);
     await link.first().click();
     await expect(page).toHaveURL(/\/tax-planning\/calculator\?scenario=[0-9a-f-]{36}$/);
@@ -1695,10 +1771,11 @@ test.describe('Tax Planning (Owner)', () => {
     await openPlan(page, id, '/implementation');
     await expect(page.getByTestId('plan-discussions')).toBeVisible();
     const link = page.getByTestId('schedule-discussion');
+    // The planning service comes from the overview, read after the plan: wait for it.
+    await expect(link).toHaveAttribute('href', /serviceId=[0-9a-f-]{36}/, { timeout: 60_000 });
     const href = (await link.getAttribute('href')) ?? '';
     expect(href).toContain(`clientId=${APPT}`);
     expect(href).toContain(`taxPlanId=${id}`);
-    expect(href).toMatch(/serviceId=[0-9a-f-]{36}/);
     await link.click();
     await expect(page).toHaveURL(new RegExp(`/calendar/new\\?.*taxPlanId=${id}`));
     await expect(page.getByTestId('page-title')).toHaveText('Schedule Appointment');
@@ -1838,18 +1915,26 @@ test.describe('Tax Planning (Owner)', () => {
     await ensureWContent(w);
     await openPlan(page, w, '/financials');
     const asOf = page.getByLabel('Wages (W-2) as of', { exact: true });
-    await asOf.fill(`${YEAR - 2}-01-15`);
-    await page.getByRole('button', { name: 'Save as Draft' }).click();
-    await expect(toast(page, 'Figures saved.')).toBeVisible();
-    await action(page, 'Finalize Plan').click();
-    await expect(
-      toast(page, `(${PLAN_YEAR}) is more than a year old: update it in Financial Overview.`),
-    ).toBeVisible();
-    await expect(header(page)).toContainText('In Progress');
-    await shot(page, TAB, 'C08-blocker', info);
-    await asOf.fill(firmDay(0));
-    await page.getByRole('button', { name: 'Save as Draft' }).click();
-    await expect(toast(page, 'Figures saved.')).toBeVisible();
+    try {
+      await asOf.fill(`${YEAR - 2}-01-15`);
+      await page.getByRole('button', { name: 'Save as Draft' }).click();
+      await expect(toast(page, 'Figures saved.')).toBeVisible();
+      await action(page, 'Finalize Plan').click();
+      await expect(
+        toast(
+          page,
+          `Not ready yet. Wages (W-2) (${PLAN_YEAR}) is more than a year old: update it in Financial Overview.`,
+        ),
+      ).toBeVisible();
+      await expect(header(page)).toContainText('In Progress');
+      await shot(page, TAB, 'C08-blocker', info);
+      await asOf.fill(firmDay(0));
+      await page.getByRole('button', { name: 'Save as Draft' }).click();
+      await expect(toast(page, 'Figures saved.')).toBeVisible();
+    } finally {
+      // Setup only: a stale figure left behind would block every later Finalize.
+      await ensureWContent(w);
+    }
 
     await openPlan(page, w, '/review');
     await expect(

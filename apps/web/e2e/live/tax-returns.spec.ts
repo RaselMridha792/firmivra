@@ -85,7 +85,18 @@ function row(id: string, title: string, body: (page: Page, info: TestInfo) => Pr
 async function openReturn(page: Page, id: string, tab?: string) {
   await page.goto(app(`/tax-returns/${id}`));
   await expect(page.getByTestId('return-workspace')).toBeVisible({ timeout: 60_000 });
-  if (tab) await page.getByRole('tab', { name: tab, exact: true }).click();
+  if (tab) await showTab(page, tab);
+}
+/**
+ * Clicks a return tab and waits until it is current. The page renders only the current tab, and
+ * the Overview has its own Document Checklist (Set Up Service, Upload): a click made before the
+ * switch lands on the Overview's copy, which the switch then unmounts with any dialog it opened.
+ */
+async function showTab(page: Page, tab: string) {
+  const t = page.getByRole('tab', { name: tab, exact: true });
+  await t.click();
+  await expect(t).toHaveAttribute('aria-selected', 'true');
+  if (tab !== 'Overview') await expect(page).toHaveURL(/[?&]tab=/);
 }
 async function listRowMenu(page: Page, query = `?q=${encodeURIComponent(CLIENT)}`) {
   await page.goto(app(`/tax-returns${query}`));
@@ -103,6 +114,26 @@ async function menuItem(page: Page, name: string) {
   await button.click();
   await page.getByRole('menuitem', { name, exact: true }).click();
 }
+/**
+ * The Owner's API with a fresh access cookie: the saved session file is not updated when the
+ * browser refreshes its own session, so a long run's file can hold an expired one.
+ */
+async function ownerApi() {
+  const api = await apiAs('owner');
+  await api.post('auth/refresh', { data: {} });
+  return api;
+}
+
+/** The role a file is linked to the return with (DRAFT_RETURN, SIGNATURE_FORM, …). */
+async function linkedKind(returnId: string, fileName: string): Promise<string | undefined> {
+  const api = await ownerApi();
+  const res = await api.get(`business/tax-returns/${returnId}/documents`);
+  const items = (
+    (await res.json()) as { items?: { kind: string; document: { fileName: string } }[] }
+  ).items;
+  return items?.find((d) => d.document.fileName === fileName)?.kind;
+}
+
 const dialog = (page: Page) => page.getByRole('dialog');
 const toast = (page: Page, text: string | RegExp) => page.getByText(text).first();
 
@@ -125,7 +156,7 @@ test.describe('owner', () => {
   }, info) => {
     writeFileSync(stateFile(), JSON.stringify({ tag: freshTag }, null, 1));
     try {
-      const api = await apiAs('owner');
+      const api = await ownerApi();
       // Test Firm B has no tax service in Services & Pricing, so the return could not get one. The
       // harness keeps one LIVE-CHECK service (archived between runs) and turns it on for the run.
       type Svc = {
@@ -208,53 +239,21 @@ test.describe('owner', () => {
       await expect(page.getByTestId('return-workspace')).toBeVisible();
 
       // Set Up Service (the return's own dialog) gives it an engagement of the synthetic service.
-      await page.getByRole('tab', { name: 'Intake & Documents', exact: true }).click();
+      await showTab(page, 'Intake & Documents');
+      // F08-S: the dialog on the Intake & Documents tab (showTab waited for the switch), with the
+      // synthetic service offered once the catalog has loaded.
       const sd = page.getByTestId('return-service-dialog');
       await page.getByTestId('set-up-return-service').click();
       await expect(sd).toBeVisible();
-      await page.waitForTimeout(5_000);
-      const offered = (
-        await sd.innerText({ timeout: 2_000 }).catch(() => '(the dialog closed by itself)')
-      )
-        .replace(/\s+/g, ' ')
-        .slice(0, 300);
-      test.info().annotations.push({ type: 'service-dialog', description: offered });
       const serviceSelect = sd.getByLabel('Service', { exact: true });
-      if (
-        (await serviceSelect.count()) &&
-        ((await serviceSelect.textContent({ timeout: 2_000 }).catch(() => '')) ?? '').includes(
-          'LIVE-CHECK',
-        )
-      ) {
-        await serviceSelect.selectOption({
-          label: (await serviceSelect
-            .locator('option', { hasText: 'LIVE-CHECK' })
-            .first()
-            .textContent())!,
-        });
-        await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
-      } else {
-        if (await sd.count())
-          await dialog(page)
-            .getByRole('button', { name: /Cancel|Close/ })
-            .first()
-            .click();
-        const eng = await api.post(`business/clients/${CLIENT_ID}/engagements`, {
-          data: {
-            serviceId: load().serviceId,
-            title: `${runTagOf()} ${YEAR} 1040 Return`,
-            taxYear: YEAR,
-          },
-        });
-        expect(eng.ok(), await eng.text()).toBe(true);
-        const engId = ((await eng.json()) as { id: string }).id;
-        const upd = await api.patch(`business/tax-returns/${returnId}/details`, {
-          data: { engagementId: engId },
-        });
-        expect(upd.ok(), await upd.text()).toBe(true);
-        await page.reload();
-        await page.getByRole('tab', { name: 'Intake & Documents', exact: true }).click();
-      }
+      await expect(serviceSelect).toContainText('LIVE-CHECK', { timeout: 30_000 });
+      const option = await serviceSelect
+        .locator('option', { hasText: 'LIVE-CHECK' })
+        .first()
+        .textContent();
+      await serviceSelect.selectOption({ label: option! });
+      await dialog(page).getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(sd).toHaveCount(0, { timeout: 30_000 });
       await expect(page.getByRole('button', { name: 'Upload Documents' })).toBeVisible({
         timeout: 60_000,
       });
@@ -264,7 +263,7 @@ test.describe('owner', () => {
       expect(engagementId, 'the return has its service').toBeTruthy();
       save({ engagementId: engagementId! });
       // A note marks the return as this run's, for anyone who sees it before cleanup.
-      await page.getByRole('tab', { name: 'Notes', exact: true }).click();
+      await showTab(page, 'Notes');
       await page.getByTestId('notes').getByRole('button', { name: '+ Add Note' }).click();
       await dialog(page)
         .getByLabel('Note')
@@ -436,7 +435,7 @@ test.describe('owner', () => {
     async (page) => {
       const id = need(load(), 'returnId');
       test.skip(true, NO_SEND);
-      const api = await apiAs('owner');
+      const api = await ownerApi();
       const c = (await (await api.get(`business/clients/${CLIENT_ID}`)).json()) as {
         email?: string;
       };
@@ -567,15 +566,16 @@ test.describe('owner', () => {
       await d.getByRole('button', { name: 'Upload', exact: true }).click();
       await expect(toast(page, new RegExp(`Uploaded ${name}`))).toBeVisible({ timeout: 60_000 });
       save({ docName: name });
-      await expect(page).toHaveURL(here);
+      // Stays on this return (the Documents tab may be added to the address).
+      expect(new URL(page.url()).pathname).toBe(new URL(here).pathname);
       await page.reload();
-      await page.getByRole('tab', { name: 'Intake & Documents', exact: true }).click();
+      await showTab(page, 'Intake & Documents');
       const linked = page
         .getByTestId('return-documents')
         .getByRole('listitem')
         .filter({ hasText: name });
       await expect(linked).toHaveCount(1, { timeout: 60_000 });
-      await expect(linked).toContainText('Draft');
+      expect(await linkedKind(id, name), 'linked as a draft return').toBe('DRAFT_RETURN');
     },
   );
 
@@ -589,7 +589,7 @@ test.describe('owner', () => {
     for (let i = 0; i < 12 && /Scanning/.test(await item.innerText()); i++) {
       await page.waitForTimeout(5_000);
       await page.reload();
-      await page.getByRole('tab', { name: 'Intake & Documents', exact: true }).click();
+      await showTab(page, 'Intake & Documents');
     }
     await expect(item).not.toContainText('Scanning');
     const open = docs
@@ -650,16 +650,94 @@ test.describe('owner', () => {
     await docs.getByRole('button', { name: 'Link Document' }).click();
     const ld = page.getByTestId('link-doc-dialog');
     await ld.getByLabel('Document').selectOption({ label: `${name} (${YEAR})` });
-    const role = ld.getByLabel(/Role|Link as|Kind/).first();
-    await role.selectOption({ label: 'Draft Return' }).catch(() => role.selectOption({ index: 1 }));
+    // The role list reads Draft, Signature Form, Filed Return, … (DOC_KIND).
+    await ld.getByLabel('Role in this return').selectOption({ label: 'Draft' });
     await dialog(page).getByRole('button', { name: /^Link/ }).last().click();
-    await expect(item).toContainText('Draft', { timeout: 30_000 });
+    await expect(item).toHaveCount(1, { timeout: 30_000 });
     await page.reload();
-    await page.getByRole('tab', { name: 'Intake & Documents', exact: true }).click();
+    await showTab(page, 'Intake & Documents');
     await expect(
       page.getByTestId('return-documents').getByRole('listitem').filter({ hasText: name }),
-    ).toContainText('Draft');
+    ).toHaveCount(1, { timeout: 60_000 });
+    // The file name holds "Draft" too, so the role is read from the return's documents.
+    expect(await linkedKind(id, name), 'linked again as a draft return').toBe('DRAFT_RETURN');
   });
+
+  row(
+    'ACC-DOC',
+    "the return's Document Checklist lists only this return's requests",
+    async (page) => {
+      const id = need(load(), 'returnId');
+      const api = await ownerApi();
+      // (a) Read only: run 3's archived return on QA Fixture Client 1, where Payroll's "payroll
+      // register" requests showed before #1601. Nothing is changed or sent there.
+      const OLD = '01a1e9ed-601f-76b8-a476-b4fd2eed2cb4';
+      await page.goto(app(`/tax-returns/${OLD}`));
+      await expect(page.getByTestId('return-workspace')).toBeVisible({ timeout: 60_000 });
+      const oldList = page.getByTestId('document-checklist');
+      if (await oldList.isVisible({ timeout: 15_000 }).catch(() => false)) {
+        await settled(page);
+        const text = (await oldList.innerText()).replace(/\s+/g, ' ');
+        console.warn(`[ACC-DOC] run-3 return checklist: ${text.slice(0, 200)}`);
+        expect(text).not.toMatch(/payroll register/i);
+      } else {
+        console.warn('[ACC-DOC] the archived run-3 return shows no Document Checklist');
+      }
+      // (b) A request made from this return, to the simulator client only (record and login).
+      const c = (await (await api.get(`business/clients/${CLIENT_ID}`)).json()) as {
+        email: string;
+        portalStatus?: string | null;
+      };
+      expect(c.email, 'the client record is on the SES simulator').toMatch(
+        /@simulator\.amazonses\.com$/,
+      );
+      expect(c.portalStatus ?? 'NONE', 'no portal login a notice could reach').not.toBe('ACTIVE');
+      await openReturn(page, id, 'Intake & Documents');
+      await page.getByRole('button', { name: 'Request Documents' }).click();
+      const d = page.getByRole('dialog', { name: 'Request Documents' });
+      const label = `${runTagOf()} W-2 (fake)`;
+      await d.getByLabel('Document needed').fill(label);
+      await d.getByRole('button', { name: 'Send Request' }).click();
+      await expect(toast(page, /^Requested "/)).toBeVisible({ timeout: 30_000 });
+      save({ requestLabel: label });
+      await page.reload();
+      await showTab(page, 'Intake & Documents');
+      const list = page.getByTestId('document-checklist');
+      await expect(list).toContainText(label, { timeout: 60_000 });
+      // (c) Every other request of the client that is not this return's (another return, year or
+      // service) stays off the list.
+      const detail = (await (await api.get(`business/tax-returns/${id}`)).json()) as {
+        taxYear: number;
+        engagement: { id: string } | null;
+      };
+      const reqs = (
+        (await (await api.get(`business/clients/${CLIENT_ID}/document-requests`)).json()) as {
+          items: {
+            title: string;
+            status: string;
+            taxYear: number | null;
+            taxReturn: { id: string } | null;
+            service: { id: string };
+          }[];
+        }
+      ).items.filter((r) => r.status !== 'CANCELLED');
+      const mine = (r: (typeof reqs)[number]) =>
+        r.taxReturn
+          ? r.taxReturn.id === id
+          : r.taxYear === detail.taxYear &&
+            (!detail.engagement || r.service.id === detail.engagement.id);
+      const others = reqs.filter((r) => !mine(r));
+      console.warn(
+        `[ACC-DOC] client requests: ${reqs.length}, this return's: ${reqs.length - others.length}, others: ${others.length}`,
+      );
+      for (const o of others) await expect(list).not.toContainText(o.title);
+      // F10b: the firm's saved request names the return's year.
+      await page.goto(app(`/clients/${CLIENT_ID}/documents`));
+      const req = page.getByTestId('document-requests').getByRole('row').filter({ hasText: label });
+      await expect(req.first()).toBeVisible({ timeout: 60_000 });
+      await expect(req.first()).toContainText(String(YEAR));
+    },
+  );
 
   row(
     'F13',
@@ -675,14 +753,19 @@ test.describe('owner', () => {
       });
       const title = `${runTagOf()} get the K-1 (fake)`;
       await page.locator('#tf-title').fill(title);
-      await page.getByLabel('Task type').selectOption({ index: 1 });
+      // Test Firm B has no task types: the field says so and the task saves without one.
+      const type = page.getByLabel('Task type');
+      if (await type.isEnabled()) await type.selectOption({ index: 1 });
+      else await expect(type).toContainText('No task types set up');
       await page.getByLabel('Assigned to').selectOption({ label: OWNER_NAME });
       await page.locator('#tf-due').fill('2027-03-02');
       await page.getByRole('button', { name: 'Save Task' }).click();
       await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}\?from=/, { timeout: 60_000 });
       save({ taskTitle: title });
-      await page.getByTestId('back-to-origin').click();
-      await expect(page).toHaveURL(returnUrl);
+      await page.getByTestId('back-to-origin').first().click();
+      await expect
+        .poll(() => new URL(page.url()).pathname, { timeout: 60_000 })
+        .toBe(new URL(returnUrl).pathname);
       await expect(tasks.getByRole('link', { name: title })).toBeVisible({ timeout: 60_000 });
       await tasks.getByLabel(`Status of ${title}`).selectOption('BLOCKED');
       const why = page.getByRole('dialog', { name: 'Why is this task blocked?' });
@@ -805,7 +888,7 @@ test.describe('owner', () => {
       await d.getByRole('button', { name: 'Save' }).click();
       await expect(toast(page, 'Amount saved.')).toBeVisible();
       await page.reload();
-      await page.getByRole('tab', { name: 'Payments & Refunds', exact: true }).click();
+      await showTab(page, 'Payments & Refunds');
       await expect(federal).toContainText('$1,250.50', { timeout: 60_000 });
       await expect(federal).toContainText('Tax software');
     },
@@ -841,7 +924,7 @@ test.describe('owner', () => {
     await saveBtn.click();
     await expect(toast(page, 'Amount saved.')).toBeVisible();
     await page.reload();
-    await page.getByRole('tab', { name: 'Payments & Refunds', exact: true }).click();
+    await showTab(page, 'Payments & Refunds');
     await expect(federal).toContainText('$2.35', { timeout: 60_000 });
   });
 
@@ -882,7 +965,7 @@ test.describe('owner', () => {
       await expect(page.getByText(`${CORRECTED} Prior Year Return`).first()).toBeVisible({
         timeout: 60_000,
       });
-      await page.getByRole('tab', { name: 'Activity', exact: true }).click();
+      await showTab(page, 'Activity');
       await expect(page.getByText(new RegExp(`${YEAR}.*${CORRECTED}`)).first()).toBeVisible();
     },
   );
@@ -925,7 +1008,7 @@ test.describe('owner', () => {
       await dialog(page).getByRole('button', { name: 'Assign', exact: true }).click();
       await expect(toast(page, 'Validation item assigned.')).toBeVisible();
       await page.reload();
-      await page.getByRole('tab', { name: 'Review', exact: true }).click();
+      await showTab(page, 'Review');
       const owner = page
         .getByTestId('validation')
         .getByRole('row')
@@ -942,7 +1025,7 @@ test.describe('owner', () => {
     async (page) => {
       const id = need(load(), 'returnId');
       await page.goto(app(`/tax-returns/${id}/review`));
-      const api = await apiAs('owner');
+      const api = await ownerApi();
       const blockers = async () =>
         ((await (await api.get(`business/tax-returns/${id}`)).json()) as { blockers: string[] })
           .blockers;
@@ -967,7 +1050,7 @@ test.describe('owner', () => {
 
   row('F21', 'an Error issue blocks Ready to File; resolving needs a reason', async (page) => {
     const id = need(load(), 'returnId');
-    const api = await apiAs('owner');
+    const api = await ownerApi();
     const add = await api.post(`business/tax-returns/${id}/issues`, {
       data: { severity: 'ERROR', note: `${runTagOf()} W-2 box 1 mismatch (fake)` },
     });
@@ -999,7 +1082,7 @@ test.describe('owner', () => {
 
   row('F20b', 'an open Error blocks a paper filing record, with the reason shown', async (page) => {
     const id = need(load(), 'returnId');
-    const api = await apiAs('owner');
+    const api = await ownerApi();
     const add = await api.post(`business/tax-returns/${id}/issues`, {
       data: { severity: 'ERROR', note: `${runTagOf()} schedule C missing (fake)` },
     });
@@ -1026,17 +1109,29 @@ test.describe('owner', () => {
           .fill('FAKE 9400 0001');
         await page.getByTestId('paper-dialog').getByLabel('Date mailed *').fill('2022-04-12');
         await dialog(page).getByRole('button', { name: 'Record' }).click();
-        await expect(
-          page
-            .getByRole('alert')
-            .filter({ hasText: /error|resolve/i })
-            .first(),
-        ).toBeVisible();
+        // The gate: the refusal comes as a toast (not role=alert), the dialog stays open, and the
+        // API has no paper filing for GA.
+        const refusal = page
+          .getByText(/Resolve the validation errors first|cannot move there yet|validation error/i)
+          .first();
+        await expect(refusal).toBeVisible({ timeout: 15_000 });
+        const shown = (await refusal.innerText()).trim();
+        console.warn(`[F20b] refusal shown: ${shown}`);
+        await expect(page.getByTestId('paper-dialog')).toBeVisible();
+        const filings = (await (await api.get(`business/tax-returns/${id}/filings`)).json()) as {
+          items: { jurisdiction: string; paperFiledOn: string | null }[];
+        };
+        const gaFiling = filings.items.find((f) => f.jurisdiction === 'GA');
+        expect(gaFiling?.paperFiledOn ?? null, 'GA is not recorded as paper filed').toBeNull();
         await expect(ga).not.toContainText('FAKE 9400 0001');
         await dialog(page)
           .getByRole('button', { name: 'Cancel' })
           .click()
           .catch(() => {});
+        // Her F20b: the refusal shows the blocker. The API says "Resolve the validation errors
+        // first" (STATUS_BLOCKED, blockers VALIDATION_ISSUES_OPEN); the screen must not replace it
+        // with the status-move text ("This return cannot move there yet").
+        expect(shown, 'the refusal names the open validation error').toMatch(/validation error/i);
       } else {
         await expect(efile).toContainText(/error/i);
       }
@@ -1065,12 +1160,10 @@ test.describe('owner', () => {
         .getByRole('combobox')
         .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));
       await dialog(page).getByRole('button', { name: 'Cancel' }).click();
-      test
-        .info()
-        .annotations.push({
-          type: 'lists',
-          description: `right away: ${fast.join(', ')}; after load: ${slow.join(', ')}`,
-        });
+      test.info().annotations.push({
+        type: 'lists',
+        description: `right away: ${fast.join(', ')}; after load: ${slow.join(', ')}`,
+      });
       expect(slow).toContain('GA filing method');
       expect(fast, 'the dialog opened right away lists the same filings').toEqual(slow);
     },
@@ -1104,7 +1197,7 @@ test.describe('owner', () => {
       await record.click();
       await expect(toast(page, 'Paper filing recorded.')).toBeVisible();
       await page.reload();
-      await page.getByRole('tab', { name: 'E-File', exact: true }).click();
+      await showTab(page, 'E-File');
       await expect(page.getByTestId('efile').getByTestId('filing-GA')).toContainText(
         'FAKE 9400 0002',
         { timeout: 60_000 },
@@ -1126,7 +1219,7 @@ test.describe('owner', () => {
         .or(page.getByText(/cannot move there yet|Check its next steps/))
         .first(),
     ).toBeVisible();
-    const api = await apiAs('owner');
+    const api = await ownerApi();
     const r = (await (await api.get(`business/tax-returns/${id}`)).json()) as {
       workflowStatus: string;
     };
@@ -1169,7 +1262,7 @@ test.describe('owner', () => {
       const id = need(load(), 'returnId');
       // Ready to File needs the approvals and the 8879: give them through the API (their screens are
       // other rows), then the reviewer (this Owner) moves it on the screen.
-      const api = await apiAs('owner');
+      const api = await ownerApi();
       const approvals = (
         (await (await api.get(`business/tax-returns/${id}/approvals`)).json()) as {
           items: { id: string; status: string; canDecide: boolean }[];
@@ -1243,7 +1336,7 @@ test.describe('owner', () => {
       await ack.getByLabel('Description').fill('Fake: the dependent is claimed on another return');
       await dialog(page).getByRole('button', { name: 'Record' }).click();
       await page.reload();
-      await page.getByRole('tab', { name: 'E-File', exact: true }).click();
+      await showTab(page, 'E-File');
       await expect(page.getByTestId('efile').getByTestId('filing-US')).toContainText(
         'IRS · R0000-504-02',
         { timeout: 60_000 },
@@ -1256,7 +1349,11 @@ test.describe('owner', () => {
     'a rejected return goes to In Correction, never straight to review',
     async (page) => {
       const id = need(load(), 'returnId');
-      const api = await apiAs('owner');
+      const api = await ownerApi();
+      const direct0 = await api.post(`business/tax-returns/${id}/status`, {
+        data: { workflowStatus: 'REJECTED' },
+      });
+      console.warn(`[F22-N] Ready to File -> Rejected: ${direct0.status()}`);
       for (const to of ['TRANSMITTED', 'REJECTED']) {
         const r = (await (await api.get(`business/tax-returns/${id}`)).json()) as {
           workflowStatus: string;
@@ -1293,6 +1390,35 @@ test.describe('owner', () => {
 
   row('F23', 'the rejected attempt keeps its answer after a retransmission', async (page) => {
     const id = need(load(), 'returnId');
+    // By design Rejected and In Correction offer no transmission: the corrected return goes back
+    // through review (Ready for Review, then Ready to File by its reviewer) before it is sent again.
+    const api = await ownerApi();
+    const status = async () =>
+      (await (await api.get(`business/tax-returns/${id}`)).json()) as {
+        workflowStatus: string;
+        blockers: string[];
+      };
+    if ((await status()).workflowStatus === 'IN_CORRECTION') {
+      const back = await api.post(`business/tax-returns/${id}/status`, {
+        data: { workflowStatus: 'READY_FOR_REVIEW', reason: 'Corrected (fake)' },
+      });
+      expect(back.ok(), await back.text()).toBe(true);
+    }
+    const approvals = (
+      (await (await api.get(`business/tax-returns/${id}/approvals`)).json()) as {
+        items: { id: string; status: string }[];
+      }
+    ).items;
+    for (const a of approvals.filter((a) => a.status !== 'APPROVED')) {
+      await api.post(`business/tax-returns/${id}/approvals/${a.id}/approve`, { data: {} });
+    }
+    if ((await status()).blockers.includes('VALIDATION_NOT_RUN')) {
+      await api.post(`business/tax-returns/${id}/final-validation`, { data: {} });
+    }
+    const ready = await api.post(`business/tax-returns/${id}/status`, {
+      data: { workflowStatus: 'READY_TO_FILE' },
+    });
+    expect(ready.ok(), await ready.text()).toBe(true);
     await openReturn(page, id, 'E-File');
     const us = page.getByTestId('efile').getByTestId('filing-US');
     await us.getByRole('button', { name: 'Record Retransmission' }).click();
@@ -1320,7 +1446,7 @@ test.describe('owner', () => {
 
   row('AUD-1', 'history rows do not repeat the previous reason', async (page) => {
     const id = need(load(), 'returnId');
-    const api = await apiAs('owner');
+    const api = await ownerApi();
     const h = (await (await api.get(`business/tax-returns/${id}/history`)).json()) as {
       items: { reason?: string | null }[];
     };
@@ -1333,7 +1459,7 @@ test.describe('owner', () => {
   });
 
   row('F33', 'the Quarterly tab lists a quarterly return with its quarter', async (page) => {
-    const api = await apiAs('owner');
+    const api = await ownerApi();
     const res = await api.post('business/tax-returns', {
       data: {
         clientId: CLIENT_ID,
@@ -1394,10 +1520,10 @@ test.describe('owner', () => {
         page.getByTestId('summary').getByRole('row').filter({ hasText: 'Federal' }),
       ).toContainText('$2.35');
       if (name) {
-        await page.getByRole('tab', { name: 'Intake & Documents', exact: true }).click();
+        await showTab(page, 'Intake & Documents');
         await expect(page.getByTestId('return-documents')).toContainText(name);
       }
-      await page.getByRole('tab', { name: 'Activity', exact: true }).click();
+      await showTab(page, 'Activity');
       await expect(
         page
           .getByTestId('activity')
@@ -1531,7 +1657,7 @@ test.describe('layout', () => {
       const s = load();
       let id = s.returnId;
       let temp: string | undefined;
-      const api = await apiAs('owner');
+      const api = await ownerApi();
       if (name !== 'list') {
         const ok = id ? (await api.get(`business/tax-returns/${id}`)).ok() : false;
         if (!ok) {
@@ -1582,7 +1708,7 @@ test.describe('cleanup', () => {
   test('zz cleanup: remove what this run made', async ({}, info) => {
     test.skip(info.project.name !== 'w1165', 'cleanup runs once');
     const s = load();
-    const api = await apiAs('owner');
+    const api = await ownerApi();
     const left: string[] = [];
     const tryIt = async (
       what: string,
@@ -1609,6 +1735,21 @@ test.describe('cleanup', () => {
         await tryIt(`request ${r.id}`, () =>
           api.post(`business/document-requests/${r.id}/cancel`, { data: {} }),
         );
+    }
+    // The draft uploaded from the return goes to the trash (the product's removal for a file).
+    if (s.returnId) {
+      const docs = (await (
+        await api.get(`business/tax-returns/${s.returnId}/documents`)
+      ).json()) as {
+        items?: { document: { id: string; fileName: string } }[];
+      };
+      for (const d of (docs.items ?? []).filter((d) =>
+        d.document.fileName.startsWith('LIVE-CHECK_'),
+      )) {
+        await tryIt(`document ${d.document.id}`, () =>
+          api.post(`business/documents/${d.document.id}/trash`, { data: {} }),
+        );
+      }
     }
     for (const id of [s.quarterlyId, s.returnId].filter(Boolean) as string[]) {
       const del = await api.delete(`business/tax-returns/${id}`);

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -564,6 +565,65 @@ async function formStatus(browser: Browser, id: string): Promise<string> {
     const r = await api.get(`business/intake-forms/${id}`);
     return r.ok() ? ((await r.json()).status as string) : '';
   });
+}
+
+/**
+ * Setup for a row run on its own (a -g rerun): the run's form, published by the API when 17b did
+ * not publish it on the screen. Owner API; publishing sends nothing.
+ */
+async function publishedFixture(browser: Browser): Promise<Ctx> {
+  const c = await fixture(browser);
+  if ((await formStatus(browser, c.formId)) === 'DRAFT') {
+    await withOwner(browser, async (api) =>
+      ok(await api.post(`business/intake-forms/${c.formId}/publish`), 'publish the run form'),
+    );
+  }
+  return readCtx();
+}
+
+/**
+ * Setup for a row run on its own: the run's form sent to the run's lead, by the API when 19a did
+ * not send it on the screen (a form sent earlier in the run is found, never sent twice). The one
+ * send: the form's email to the lead's SES simulator address, checked on its record first;
+ * assigned to the Owner, reminders off, no copy to the member.
+ */
+async function sentFixture(browser: Browser): Promise<Ctx> {
+  const c = await publishedFixture(browser);
+  if (c.recordId) return c;
+  const recordId = await withOwner(browser, async (api) => {
+    const q = encodeURIComponent(STAMP);
+    const rows = itemsOf(
+      await ok(await api.get(`business/intakes?tab=all&search=${q}&pageSize=100`), 'sent forms'),
+    );
+    const earlier = rows.find((r: Json) => r.recipient?.id === c.leadId)?.id as string | undefined;
+    if (earlier) return earlier;
+    const p = await ok(await api.get(`business/leads/${c.leadId}/profile`), 'lead profile');
+    const others = ((p.otherContacts ?? []) as { kind: string; value: string }[])
+      .filter((x) => x.kind === 'EMAIL')
+      .map((x) => x.value);
+    expectSimulatorOnly([p.email as string, ...others], 'the lead record');
+    const sent = await ok(
+      await api.post('business/intakes/send', {
+        idempotencyKey: randomUUID(),
+        recipient: { kind: 'LEAD', id: c.leadId },
+        formId: c.formId,
+        channel: 'EMAIL',
+        subject: `${runTag} intake form`,
+        message: 'Live check (synthetic): nothing needs filling in.',
+        // 5:00 PM in the firm's zone (EST until March), two days on.
+        expiresAt: new Date(`${firmDay(2)}T17:00:00-05:00`).toISOString(),
+        assignedUserId: c.ownerId,
+        reminders: { enabled: false },
+        allowSaveAndContinue: true,
+        sendMeCopy: false,
+      }),
+      'send the run form to the lead',
+    );
+    expectSimulatorOnly([sent.delivery?.to as string], 'the address the send names');
+    return sent.form.id as string;
+  });
+  saveCtx({ ...readCtx(), recordId });
+  return readCtx();
 }
 
 /** A browser of someone with no session (a website visitor). */
@@ -1520,8 +1580,7 @@ test.describe('Builder and Form Templates (Owner)', () => {
     page,
     browser,
   }, info) => {
-    const c = await fixture(browser);
-    test.skip((await formStatus(browser, c.formId)) === 'DRAFT', '17b did not publish the form');
+    await publishedFixture(browser);
     await openLibrary(page, info, STAMP);
     const share = await openShare(page, FORM);
     const byLink = share.getByRole('switch', { name: 'Share by link' });
@@ -1804,15 +1863,17 @@ test.describe('Intake Forms sharing (Admin)', () => {
   test.use(as('admin'));
   test.skip(() => !hasLogin('admin'), 'no admin login');
 
-  test('23-i an Admin may change the settings and the sharing switches', async ({ page }, info) => {
-    const c = readCtx();
+  test('23-i an Admin may change the settings and the sharing switches', async ({
+    page,
+    browser,
+  }, info) => {
+    await publishedFixture(browser);
     await openSettings(page, info);
     await expect(page.getByText('Only an owner or admin can change these settings.')).toHaveCount(
       0,
     );
     await expect(page.getByRole('switch', { name: 'Allow save and resume' })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Save Changes' }).first()).toBeEnabled();
-    test.skip(!c.formId, 'no run form (the Owner rows make it)');
     await openLibrary(page, info, STAMP);
     const share = await openShare(page, FORM);
     await expect(share.getByText('Only an Owner or Admin can change these.')).toHaveCount(0);
@@ -2252,8 +2313,10 @@ test.describe('Staff before assignment', () => {
 
   test('23-i Staff: the settings are read only; the sharing switches are off for Staff; a form not theirs is neither listed nor opened', async ({
     page,
+    browser,
   }, info) => {
-    const c = readCtx();
+    // The form sent to the run's lead, whose staff member is the Owner (not this Staff member).
+    const c = await sentFixture(browser);
     await openSettings(page, info);
     await expect(
       page.getByText('Only an owner or admin can change these settings.').first(),
@@ -2261,15 +2324,12 @@ test.describe('Staff before assignment', () => {
     await expect(page.getByRole('button', { name: 'Save Changes' }).first()).toBeDisabled();
     await expect(page.getByRole('switch', { name: 'Allow save and resume' })).toBeDisabled();
     await shot(page, TAB, '23i-staff-settings', info);
-    if (c.formId) {
-      await openLibrary(page, info, STAMP);
-      const share = await openShare(page, FORM);
-      await expect(share.getByText('Only an Owner or Admin can change these.')).toBeVisible();
-      await expect(share.getByRole('switch', { name: 'Publish in client portal' })).toBeDisabled();
-      await shot(page, TAB, '23i-staff-share', info);
-      await closeShare(page, FORM);
-    }
-    test.skip(!c.recordId, '19a sent nothing');
+    await openLibrary(page, info, STAMP);
+    const share = await openShare(page, FORM);
+    await expect(share.getByText('Only an Owner or Admin can change these.')).toBeVisible();
+    await expect(share.getByRole('switch', { name: 'Publish in client portal' })).toBeDisabled();
+    await shot(page, TAB, '23i-staff-share', info);
+    await closeShare(page, FORM);
     await openList(page, info);
     await searchList(page, STAMP);
     await expectTotal(page, 0, 'Staff do not see a form that is not theirs');
@@ -2290,8 +2350,7 @@ test.describe('Direct management (Owner)', () => {
     page,
     browser,
   }, info) => {
-    const c = readCtx();
-    test.skip(!c.recordId, '19a sent nothing');
+    const c = await sentFixture(browser);
     await openList(page, info);
     await searchList(page, STAMP);
     await expectTotal(page, 1, 'the run form');
@@ -2317,18 +2376,25 @@ test.describe('Direct management (Owner)', () => {
       await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
     if (c.staffId) {
-      // A Staff member who is not the lead's: refused (409 CLIENT_NOT_ASSIGNED); the words must
-      // say why, not "Something went wrong".
+      // #1613: Assign Staff offers the Owner and Admins, the lead's (or client's) own staff member
+      // and whoever has the form now, and says so. The harness Staff member is not the lead's
+      // yet (the lead is the Owner's): not offered.
+      const dialog = page.getByRole('dialog', { name: 'Assign Staff' });
+      const who = page.getByTestId('assign-dialog').getByLabel('Assigned to');
+      const option = (userId: string) => who.locator(`option[value="${userId}"]`);
       await moreAction(page, 'Assign Staff');
-      await page.getByTestId('assign-dialog').getByLabel('Assigned to').selectOption(c.staffId);
-      await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
-      const generic = page.getByText('Something went wrong. Try again in a moment.');
-      await expect(generic.or(page.getByText('Staff assigned.')).first()).toBeVisible();
-      await shot(page, TAB, 'USABILITY-03-staff-not-theirs', info);
-      await expect.soft(generic, 'a refused assignment says why').toHaveCount(0);
-      const assign = page.getByRole('dialog', { name: 'Assign Staff' });
-      if (await assign.count()) await assign.getByRole('button', { name: 'Cancel' }).click();
-      // Setup: the lead given to that Staff member, so assigning its form to them is allowed.
+      await expect(page.getByTestId('assign-hint')).toHaveText(
+        'Only staff who work with this client can be assigned.',
+      );
+      await expect(option(c.ownerId), 'the Owner is offered').toHaveCount(1);
+      await expect(option(c.staffId), 'a Staff member not the lead’s is not offered').toHaveCount(
+        0,
+      );
+      await shot(page, TAB, 'USABILITY-03-not-offered', info);
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toBeHidden();
+      // The product's way to make them eligible (setup): the lead becomes theirs, as Leads >
+      // Assign Staff does (the same bulk route).
       await withOwner(browser, async (api) =>
         ok(
           await api.post('business/leads/bulk', {
@@ -2342,13 +2408,15 @@ test.describe('Direct management (Owner)', () => {
       await page.reload();
       await expect(page.getByTestId('client-card')).toContainText(LEAD_NAME, { timeout: 60_000 });
       await moreAction(page, 'Assign Staff');
-      await page.getByTestId('assign-dialog').getByLabel('Assigned to').selectOption(c.staffId);
-      await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(option(c.staffId), 'the lead’s own staff member is offered').toHaveCount(1);
+      await who.selectOption(c.staffId);
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click();
       await expect(page.getByText('Staff assigned.')).toBeVisible();
       await page.reload();
-      await expect(page.getByTestId('client-card')).toContainText(c.staffName, {
-        timeout: 60_000,
-      });
+      // The card shortens the first name ("QA Perf Staff B" reads "Q. Perf Staff B").
+      const parts = c.staffName.split(' ');
+      const shown = parts.length > 1 ? parts.slice(1).join(' ') : c.staffName;
+      await expect(page.getByTestId('client-card')).toContainText(shown, { timeout: 60_000 });
       await shot(page, TAB, 'USABILITY-03-assigned', info);
     } else {
       note(info, 'skipped part', 'Assign Staff: no staff login to assign');

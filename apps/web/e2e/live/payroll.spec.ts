@@ -54,9 +54,9 @@ async function snap(page: Page, row: string): Promise<string> {
  * access token, which a bare request context cannot. Writes send the site's Origin.
  */
 interface Api {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- API JSON in a live check; each test reads only the fields it asserts
   get(
     path: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- API JSON in a live check; each test reads only the fields it asserts
   ): Promise<{ ok(): boolean; status(): number; json(): Promise<any>; text(): Promise<string> }>;
   post(path: string, data?: unknown): ReturnType<Api['get']>;
   delete(path: string): ReturnType<Api['get']>;
@@ -102,14 +102,22 @@ async function ensureFixture(api: Api): Promise<string> {
     expect(made.ok(), `category ${made.status()} ${await made.text()}`).toBe(true);
     categoryId = (await made.json()).id as string;
   }
-  const svcs = items<{ id: string; name: string }>(
-    await (await api.get(`business/catalog/services?search=${encodeURIComponent(SERVICE)}`)).json(),
-  );
-  if (!svcs.some((s) => s.name === SERVICE)) {
+  // Our own service from an earlier run, archived by its cleanup: restore it (Activate clears
+  // the archive), never make a second one (409 DUPLICATE_NAME).
+  const own = items<{ id: string; name: string; status: string; archivedAt?: string | null }>(
+    await (
+      await api.get(`business/catalog/services?status=all&search=${encodeURIComponent(SERVICE)}`)
+    ).json(),
+  ).find((x) => x.name === SERVICE);
+  if (own && (own.status !== 'ACTIVE' || own.archivedAt)) {
+    const r = await api.post(`business/catalog/services/${own.id}/activate`);
+    expect(r.ok(), `restore service ${r.status()} ${await r.text()}`).toBe(true);
+  }
+  if (!own) {
     const made = await api.post('business/catalog/services', {
       name: SERVICE,
       categoryId,
-      shortDescription: 'Live check fixture (synthetic), removed by the run',
+      shortDescription: 'Live check fixture (synthetic), archived by each run',
       kind: 'PAYROLL',
       pricingType: 'CUSTOM_QUOTE',
       activate: true,
@@ -125,6 +133,21 @@ async function ensureFixture(api: Api): Promise<string> {
   });
   expect(added.ok(), `add payroll client ${added.status()} ${await added.text()}`).toBe(true);
   return (await added.json()).id as string;
+}
+
+/**
+ * Client-facing sends go only to the SES simulator (lead, Nov 18). Every address a send can reach
+ * (the client record's, its contacts', its portal login's) must be @simulator.amazonses.com; a
+ * portal login whose address the API does not show counts as unsafe.
+ */
+async function sendable(api: Api, clientId: string): Promise<{ ok: boolean; why: string }> {
+  const c = await (await api.get(`business/clients/${clientId}`)).json();
+  const text = JSON.stringify(c);
+  const emails = [...new Set(text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) ?? [])];
+  const unsafe = emails.filter((e) => !/@simulator\.amazonses\.com$/i.test(e));
+  if (unsafe.length) return { ok: false, why: `non-simulator address(es): ${unsafe.join(', ')}` };
+  if (/"portal(Status)?":"ACTIVE"/.test(text)) return { ok: false, why: 'has a portal login' };
+  return { ok: emails.length > 0, why: emails.length ? 'simulator only' : 'no address' };
 }
 
 /** LIVE_PAYROLL_CLEANUP_ONLY=1 runs "zz cleanup" alone without making the fixture again. */
@@ -212,28 +235,51 @@ test('LAYOUT every Payroll page at 390 and 1165 px, no sideways scroll', async (
 
 // ---------- Yellow: F01, F06 ----------
 
-test('F01 providers panel: chosen vs authorized wording, client card agrees', async ({ page }) => {
+/** One provider state, one wording (#1603). */
+const STATE =
+  /Not connected|Pending setup|Connected · waiting for first sync|Connected · last sync/;
+
+test('F01 one provider state, the same words on the panel and the client card', async ({
+  page,
+}) => {
   await openList(page);
   const card = page.getByTestId('card-providers');
   await expect(card.getByTestId('provider-states')).toContainText(
-    'Authorized means the provider allowed access',
+    'Pending setup: chosen for a client, not yet authorized in Integrations.',
   );
   const gusto = card.getByRole('listitem').filter({ hasText: 'Gusto' });
   await expect(gusto).toContainText(/\d+ clients? chose it/);
-  // Chosen is never shown as "N Clients" beside Connect.
   await expect(card).not.toContainText(/\d+ Clients?\b/);
-  const authorized = (await gusto.getByText('Authorized', { exact: true }).count()) > 0;
-  if (!authorized)
-    await expect(gusto.getByRole('button', { name: 'Not authorized · Connect' })).toBeVisible();
-  console.log(`F01 NOTE Gusto shows ${authorized ? 'Authorized' : 'Not authorized'} on the panel`);
+  const panelState = ((await gusto.innerText()).match(STATE) ?? [''])[0];
+  expect(panelState, 'the panel names one of the four states').not.toBe('');
+  console.log(`F01 NOTE Gusto on the panel: ${panelState}`);
   await snap(page, 'F01-list');
   await openWorkspace(page);
   const sync = page.getByTestId('provider-sync');
-  await expect(sync).toContainText(/Never synced/i);
-  await expect(sync).not.toContainText(/Provider connected/i);
-  if (authorized) await expect(sync).not.toContainText(/Not authorized/i);
-  else await expect(sync).toContainText(/Not authorized/i);
+  await expect(sync).toContainText(panelState);
+  await expect(sync).not.toContainText(/Provider connected|Not authorized|Authorized\b/);
   await snap(page, 'F01-client');
+});
+
+test('F01 Upcoming Payroll Runs follow the frequency: Weekly set, no "Set a frequency"', async ({
+  page,
+}) => {
+  await openWorkspace(page);
+  const state = ((await page.getByTestId('provider-sync').innerText()).match(STATE) ?? [''])[0];
+  const upcoming = page.getByRole('region', { name: 'Upcoming Payroll Runs' });
+  await expect(upcoming).not.toContainText('Set a frequency');
+  await expect(upcoming).not.toContainText('set a pay frequency');
+  if (state.startsWith('Connected')) {
+    await expect(upcoming).toContainText(/Next payroll [A-Z][a-z]{2} \d{1,2}, \d{4}/);
+    await expect(upcoming).toContainText(
+      state.includes('waiting') ? 'Weekly · first sync pending' : 'Weekly ·',
+    );
+  } else {
+    await expect(upcoming).toContainText('To see the schedule, connect Gusto in Integrations.');
+  }
+  const said = (await upcoming.innerText()).replace(/\s+/g, ' ').slice(0, 160);
+  console.log(`F01 NOTE Upcoming with "${state}": ${said}`);
+  await snap(page, 'F01-upcoming');
 });
 
 test('F06 chart, tab and Status filter agree; no-match message; Clear Filters', async ({
@@ -272,15 +318,10 @@ test('F06 chart, tab and Status filter agree; no-match message; Clear Filters', 
 
 // ---------- F02 / F03 / UX02: requests, uploads, files ----------
 
-test('F02 (green) Request Documents from Payroll: client, Payroll, portal login; sends', async ({
+test('F02 (green) Request Documents form: client, Payroll, portal login, name and due date', async ({
   page,
   browser,
 }) => {
-  // Safety: the notice goes to the client's own address; send only to a synthetic one.
-  const api = await ownerApi(browser);
-  const client = await (await api.get(`business/clients/${CLIENT1}`)).json();
-  await api.dispose();
-  expect(String(client.email ?? ''), 'recipient must be synthetic').toMatch(/@example\.test$/);
   await openWorkspace(page);
   await page
     .getByTestId('quick-actions')
@@ -293,16 +334,36 @@ test('F02 (green) Request Documents from Payroll: client, Payroll, portal login;
   await form.getByLabel('Document needed').fill(REQUEST_TITLE);
   const due = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
   await form.getByLabel('Due date').fill(due);
+  await expect(page.getByRole('button', { name: 'Send Request' })).toBeEnabled();
   await snap(page, 'F02-request-form');
-  await page.getByRole('button', { name: 'Send Request' }).click();
-  await expect(form).toBeHidden();
-  expect(page.url()).toContain(`/payroll/clients/${pcId}`);
+  // Send only when every address it reaches is the SES simulator; Client 1 has none.
+  const api = await ownerApi(browser);
+  const gate = await sendable(api, CLIENT1);
+  await api.dispose();
+  console.log(`F02 NOTE send to ${NAME1}: ${gate.ok ? 'allowed' : `NOT LIVE (${gate.why})`}`);
+  if (gate.ok) {
+    await page.getByRole('button', { name: 'Send Request' }).click();
+    await expect(form).toBeHidden();
+  } else {
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(form).toBeHidden();
+  }
 });
 
-let _portalFileName = '';
+/** The run's request to Client 1, if one was sent (never, while Client 1 has unsafe addresses). */
+async function sentRequest(browser: Browser): Promise<boolean> {
+  const api = await ownerApi(browser);
+  const list = items<{ title: string; status: string }>(
+    await (await api.get(`business/clients/${CLIENT1}/document-requests`)).json(),
+  );
+  await api.dispose();
+  return list.some((r) => r.title === REQUEST_TITLE && r.status !== 'CANCELLED');
+}
+
 test('F02 (red) portal shows the request with its due date on its own line', async ({
   browser,
 }) => {
+  test.skip(!(await sentRequest(browser)), 'NOT LIVE: no request may be sent to Client 1');
   const { ctx, page } = await asClient(browser);
   try {
     await page.goto(portal('/documents'));
@@ -317,33 +378,35 @@ test('F02 (red) portal shows the request with its due date on its own line', asy
   }
 });
 
-test('F02 (green) portal upload for the request: Received after reload', async ({ browser }) => {
+test('UX02 (green) portal: the client uploads its own file and downloads it', async ({
+  browser,
+}) => {
   const { ctx, page } = await asClient(browser);
   try {
     await page.goto(portal('/documents'));
-    const row = requestRow(page);
-    await row.getByRole('button', { name: 'Upload', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Upload Documents' });
-    await dialog.locator('input[type=file]').setInputFiles({
-      name: PORTAL_FILE,
-      mimeType: 'application/pdf',
-      buffer: PDF,
-    });
-    await dialog.getByRole('button', { name: 'Upload', exact: true }).click();
-    await expect(dialog).toBeHidden({ timeout: 60_000 });
-    _portalFileName = PORTAL_FILE;
-    await page.reload();
-    await expect(requestRow(page).getByText('Received')).toBeVisible();
-    await snap(page, 'F02-portal-received');
-  } finally {
-    await ctx.close();
-  }
-});
-
-test('UX02 (green) portal: the client can download its own file', async ({ browser }) => {
-  const { ctx, page } = await asClient(browser);
-  try {
-    await page.goto(portal('/documents'));
+    if ((await page.getByRole('button', { name: `Download ${PORTAL_FILE}` }).count()) === 0) {
+      await page.getByRole('button', { name: 'Upload Documents' }).first().click();
+      const dialog = page.getByRole('dialog', { name: 'Upload Documents' });
+      await dialog
+        .getByRole('button', { name: /Upload more documents for my business services/ })
+        .click();
+      const service = dialog.getByLabel('Service');
+      const payroll = await service
+        .locator('option')
+        .evaluateAll(
+          (os) => os.find((o) => /Payroll/.test(o.textContent ?? ''))?.getAttribute('value') ?? '',
+        );
+      expect(payroll, 'the portal offers the Payroll service').not.toBe('');
+      await service.selectOption(payroll);
+      await dialog.locator('input[type=file]').setInputFiles({
+        name: PORTAL_FILE,
+        mimeType: 'application/pdf',
+        buffer: PDF,
+      });
+      await dialog.getByRole('button', { name: 'Upload', exact: true }).click();
+      await expect(dialog).toBeHidden({ timeout: 60_000 });
+      await page.reload();
+    }
     const download = page.getByRole('button', { name: `Download ${PORTAL_FILE}` }).first();
     await expect(download).toBeVisible();
     await expect(download).toBeEnabled({ timeout: 90_000 });
@@ -356,7 +419,8 @@ test('UX02 (green) portal: the client can download its own file', async ({ brows
   }
 });
 
-test('F02 (red) staff file names the request, with a link to it', async ({ page }) => {
+test('F02 (red) staff file names the request, with a link to it', async ({ page, browser }) => {
+  test.skip(!(await sentRequest(browser)), 'NOT LIVE: no request may be sent to Client 1');
   await openWorkspace(page, '?tab=documents');
   const doc = page.getByTestId('payroll-document').filter({ hasText: PORTAL_FILE });
   await expect(doc).toBeVisible();
@@ -368,7 +432,6 @@ test('F02 (red) staff file names the request, with a link to it', async ({ page 
   await snap(page, 'F02-staff-file');
 });
 
-let _staffUploaded = false;
 test('F03 (green) staff upload with sharing off, kept after reload, not in the portal', async ({
   page,
   browser,
@@ -386,7 +449,6 @@ test('F03 (green) staff upload with sharing off, kept after reload, not in the p
   await page.getByRole('button', { name: 'Upload', exact: true }).click();
   const row = page.getByTestId('payroll-document').filter({ hasText: STAFF_FILE });
   await expect(row).toBeVisible({ timeout: 60_000 });
-  _staffUploaded = true;
   await page.reload();
   await expect(page.getByTestId('payroll-document').filter({ hasText: STAFF_FILE })).toBeVisible();
   await snap(page, 'F03-staff-upload');
@@ -641,9 +703,7 @@ test('F09 Payroll Runs: columns, empty-state reason, no zero amounts; start gate
   // The start gate needs an authorized provider and a frequency; Test Firm B's seeded Gusto
   // connection is authorized, so the gate is open here. Unauthorized: it must be closed.
   const start = page.getByTestId('run-payroll');
-  const authorized = !(await page.getByTestId('provider-sync').innerText()).match(
-    /Not authorized/i,
-  );
+  const authorized = /Connected · /.test(await page.getByTestId('provider-sync').innerText());
   if (await start.count()) {
     if (authorized) await expect(start).toBeEnabled();
     else await expect(start).toBeDisabled();
@@ -671,9 +731,14 @@ test('F12 plan: dropdown from Services & Pricing, saved plan survives reload, hi
   const plan = dialog.getByLabel('Plan or service');
   await expect(plan.locator('option', { hasText: 'No plan' })).toHaveCount(1);
   await expect(dialog).toContainText('Choosing a plan does not bill the client');
-  await plan.selectOption({ label: SERVICE });
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByText('Plan saved.')).toBeVisible();
+  const save = dialog.getByRole('button', { name: 'Save', exact: true });
+  if ((await plan.locator('option:checked').innerText()).trim() !== SERVICE) {
+    await plan.selectOption({ label: SERVICE });
+    await save.click();
+    await expect(page.getByText('Plan saved.')).toBeVisible();
+  } else {
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+  }
   await openWorkspace(page, '?tab=settings');
   await page.reload();
   const settings = page.getByTestId('tab-settings');
@@ -687,7 +752,9 @@ test('F12 plan: dropdown from Services & Pricing, saved plan survives reload, hi
   if (before >= 0) expect(after, 'an invoice appeared after the plan save').toBe(before);
 });
 
-test('F12 (dialog) Change Payroll Plan/Service opens on the saved plan', async ({ page }) => {
+test('F12 (dialog) Change Payroll Plan/Service opens on the saved plan; untouched Save is off', async ({
+  page,
+}) => {
   await openWorkspace(page, '?tab=settings');
   const saved = await page
     .getByTestId('tab-settings')
@@ -697,8 +764,21 @@ test('F12 (dialog) Change Payroll Plan/Service opens on the saved plan', async (
   await openWorkspace(page);
   await moreActions(page, 'Change Payroll Plan/Service');
   const dialog = page.getByRole('dialog', { name: 'Change Payroll Plan / Service' });
-  await snap(page, 'F12-dialog');
   await expect(dialog.getByLabel('Plan or service').locator('option:checked')).toHaveText(saved);
+  // F01 (#1603): an untouched Save can never clear the plan.
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await snap(page, 'F12-dialog');
+  // Reloaded straight on the Overview (run 2's case): still the saved plan.
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await expect(page.getByTestId('client-title')).toContainText(NAME1);
+  await moreActions(page, 'Change Payroll Plan/Service');
+  await expect(
+    page
+      .getByRole('dialog', { name: 'Change Payroll Plan / Service' })
+      .getByLabel('Plan or service')
+      .locator('option:checked'),
+  ).toHaveText(saved);
 });
 
 test('F13 + cross-service: Service & Billing dialog shows each state and its effects', async ({
@@ -910,26 +990,17 @@ test('zz cleanup: LIVE-CHECK documents, request, payroll client, service, catego
     });
     log.push(`payroll client ${pcId}: remove-service ${r.status()}`);
   }
-  const svcs = items<{ id: string; name: string }>(
+  // Our service is archived (restored by the next run); the category stays for reuse.
+  const svcs = items<{ id: string; name: string; archivedAt?: string | null }>(
     await (
       await api.get(`business/catalog/services?status=all&search=${encodeURIComponent(SERVICE)}`)
     ).json(),
-  ).filter((s) => s.name === SERVICE);
-  for (const s of svcs) {
-    const del = await api.delete(`business/catalog/services/${s.id}`);
-    if (del.ok()) log.push(`service ${s.id}: deleted`);
-    else {
-      const ar = await api.post(`business/catalog/services/${s.id}/archive`);
-      log.push(`service ${s.id}: delete ${del.status()}, archive ${ar.status()}`);
-    }
+  ).filter((x) => x.name === SERVICE);
+  for (const x of svcs) {
+    const ar = await api.post(`business/catalog/services/${x.id}/archive`);
+    log.push(`service ${x.id}: archive ${ar.status()}`);
   }
-  const cats = items<{ id: string; name: string }>(
-    await (await api.get('business/catalog/categories')).json(),
-  ).filter((c) => c.name === CATEGORY);
-  for (const c of cats) {
-    const r = await api.delete(`business/catalog/categories/${c.id}`);
-    log.push(`category ${c.id}: delete ${r.status()}`);
-  }
+  log.push(`category "${CATEGORY}": kept for the next run (in use by the archived service)`);
   console.log(`CLEANUP\n${log.join('\n')}`);
   await api.dispose();
 });

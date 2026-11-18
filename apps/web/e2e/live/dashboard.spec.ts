@@ -27,8 +27,9 @@ import { apiAs, app, as, expectNoSideScroll, hasLogin, narrow, settled, shot } f
  * The run makes one record: the task "LIVE-CHECK <stamp> dashboard task" on the QA seed's
  * synthetic appointments client (its email is the SES simulator's; never QA Fixture Client 1), not
  * visible to the client, with no reminders and no assignee, so nothing is sent to anyone. T5
- * completes it from the dashboard; "zz cleanup" archives it (tasks have no delete). The run changes
- * no setting (layout, cards, tax season or time zone).
+ * completes it from the dashboard; "zz cleanup" archives it (tasks have no delete). N2 lets the
+ * bell mark the harness Owner's own shown notices read (allowed by the lead, Nov 18). The run
+ * changes no setting (layout, cards, tax season or time zone).
  *
  * V8 times the cold load in new browser contexts (the session cookie only) and writes every sample
  * to LIVE_SHOTS_DIR/dashboard/v8-timings.json and to the test's annotations.
@@ -226,11 +227,26 @@ async function loaded(page: Page) {
 
 /** Opens the dashboard (with `query`, such as "?period=LAST_YEAR"); returns what it shows. */
 async function openDashboard(page: Page, query = ''): Promise<Summary> {
-  const summary = nextSummary(page);
-  await page.goto(app(`/${query}`));
-  const s = await summary;
-  await loaded(page);
-  return s;
+  // A summary that never answers OK says how it answered (the error shows on the cards too).
+  const answers: number[] = [];
+  const onAnswer = (r: Response) => {
+    if (new URL(r.url()).pathname === '/api/v1/business/dashboard/summary')
+      answers.push(r.status());
+  };
+  page.on('response', onAnswer);
+  try {
+    const summary = nextSummary(page);
+    await page.goto(app(`/${query}`));
+    const s = await summary.catch((e: unknown) => {
+      throw new Error(
+        `the dashboard summary never answered OK (answers: ${answers.join(', ') || 'none'}): ${String(e)}`,
+      );
+    });
+    await loaded(page);
+    return s;
+  } finally {
+    page.off('response', onAnswer);
+  }
 }
 
 /** Chooses a period in one of the dashboard's dropdowns; returns the summary it loads. */
@@ -262,8 +278,15 @@ const sameMoney = (shown: string, cents: number) =>
     : Math.round(centsOf(shown) / 100) === Math.round(cents / 100);
 
 /** "Showing 1 – 8 of N" under a list, or the rows of a short or empty one. */
-async function shownTotal(page: Page): Promise<number> {
+async function listReady(page: Page) {
   await settled(page);
+  await expect(page.locator('[role="status"][aria-label^="Loading"]')).toHaveCount(0, {
+    timeout: 60_000,
+  });
+}
+
+async function shownTotal(page: Page): Promise<number> {
+  await listReady(page);
   const showing = page
     .getByText(/Showing \d+ \S \d+ of [\d,]+/)
     .filter({ visible: true })
@@ -296,7 +319,11 @@ async function readOnly(page: Page): Promise<string[]> {
     async (route: Route) => {
       const req = route.request();
       const path = new URL(req.url()).pathname;
-      if (['GET', 'HEAD', 'OPTIONS'].includes(req.method()) || /^\/api\/v1\/auth\//.test(path)) {
+      if (
+        ['GET', 'HEAD', 'OPTIONS'].includes(req.method()) ||
+        /^\/api\/v1\/auth\//.test(path) ||
+        /\/(check|preview)$/.test(path)
+      ) {
         return route.fallback();
       }
       held.push(`${req.method()} ${path.replace('/api/v1/', '')}`);
@@ -530,6 +557,21 @@ const seasonDay = (d: string, year: boolean) =>
   });
 const seasonText = (s: { start: string; end: string }) =>
   `${seasonDay(s.start, s.start.slice(0, 4) !== s.end.slice(0, 4))} – ${seasonDay(s.end, true)}`;
+
+/** The entries of Calendar > Today, once it has loaded (an entry or "Nothing is booked today."). */
+/** Today's entries; `withBusy` counts other members' masked Busy blocks too (the Owner's KPI
+ * counts the firm's appointments; a Staff member's counts only their own). */
+async function todayEntries(page: Page, withBusy = true): Promise<number> {
+  const today = page.getByTestId('today-schedule');
+  await expect(today).toBeVisible({ timeout: 60_000 });
+  const links = today.locator('a[href*="/calendar/"]');
+  const busy = today.getByText(/· Busy \(/);
+  await expect(links.or(busy).or(today.getByText('Nothing is booked today.')).first()).toBeVisible({
+    timeout: 60_000,
+  });
+  await settled(page);
+  return (await links.count()) + (withBusy ? await busy.count() : 0);
+}
 
 /** Opens a card or link from the dashboard, checks the page, comes back on Back to Dashboard. */
 async function roundTrip(
@@ -900,36 +942,33 @@ test.describe('Dashboard (Owner)', () => {
   test('N2 opening the bell marks only what it shows; the badge and the list survive a reload', async ({
     page,
   }, info) => {
+    // Allowed (lead, Nov 18): the harness Owner's own notices may be marked read.
+    const marks: string[] = [];
+    await page.route(
+      (u) => /^\/api\/v1\/business\/me\/notifications\/[^/]+\/read$/.test(u.pathname),
+      (route) => {
+        marks.push(new URL(route.request().url()).pathname.split('/').at(-2) ?? '');
+        return route.continue();
+      },
+    );
     const notices = nextJson<{ items: Notice[]; unreadCount: number }>(
       page,
       'business/me/notifications',
     );
     await openDashboard(page);
     const before = await notices;
+    const shownUnread = before.items.filter((n) => !n.readAt).map((n) => n.id);
     const bell = page.getByRole('button', { name: /^Notifications/ });
-    const name = before.unreadCount
-      ? `Notifications, ${before.unreadCount} unread`
-      : 'Notifications';
-    await expect(bell).toHaveAccessibleName(name);
+    const badge = (n: number) => (n ? `Notifications, ${n} unread` : 'Notifications');
+    await expect(bell).toHaveAccessibleName(badge(before.unreadCount));
     await bell.click();
     await expect(page.getByTestId('bell-list').locator('.animate-pulse')).toHaveCount(0, {
       timeout: 30_000,
     });
+    await shot(page, TAB, 'N2-bell-open', info);
+    await expect.poll(() => marks.length, { timeout: 30_000 }).toBe(shownUnread.length);
+    expect([...marks].sort(), 'exactly the unread ones it shows').toEqual([...shownUnread].sort());
     await page.keyboard.press('Escape');
-    if (before.unreadCount) {
-      // Marking them read cannot be undone, so it is held back: the badge and history are checked.
-      const marks = held.filter((h) => /me\/notifications\/.+\/read$/.test(h)).length;
-      note(
-        info,
-        'NOT LIVE',
-        `N2 marking read: ${before.unreadCount} unread, ${marks} marks held back (no undo)`,
-      );
-    } else {
-      expect(
-        held.filter((h) => h.includes('notifications')),
-        'nothing to mark, nothing sent',
-      ).toEqual([]);
-    }
     const again = nextJson<{ items: Notice[]; unreadCount: number }>(
       page,
       'business/me/notifications',
@@ -937,8 +976,16 @@ test.describe('Dashboard (Owner)', () => {
     await page.reload();
     await loaded(page);
     const after = await again;
-    expect(after.unreadCount, 'the badge after a reload').toBe(before.unreadCount);
-    await expect(bell).toHaveAccessibleName(name);
+    expect(after.unreadCount, 'the badge after a reload counts the rest').toBe(
+      before.unreadCount - shownUnread.length,
+    );
+    await expect(bell).toHaveAccessibleName(badge(after.unreadCount));
+    for (const id of shownUnread) {
+      expect(
+        after.items.find((n) => n.id === id)?.readAt ?? null,
+        `notice ${id} read`,
+      ).not.toBeNull();
+    }
     expect(
       after.items.map((n) => n.id),
       'the history stays',
@@ -946,6 +993,11 @@ test.describe('Dashboard (Owner)', () => {
     await bell.click();
     for (const n of before.items.slice(0, 3))
       await expect(page.getByTestId('bell-list')).toContainText(n.title);
+    note(
+      info,
+      'marked read',
+      `${shownUnread.length} of ${before.unreadCount} unread (the ones shown)`,
+    );
     await shot(page, TAB, 'N2-bell-after-reload', info);
   });
 
@@ -1190,7 +1242,9 @@ test.describe('Dashboard (Owner)', () => {
     await page.getByRole('menuitem', { name: 'New message' }).click();
     await expect(page).toHaveURL(/\/messages\/new/, { timeout: 60_000 });
     await expect(page.getByTestId('compose')).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId('compose').getByLabel('Message')).toHaveValue('');
+    await expect(page.getByTestId('compose').getByRole('textbox', { name: 'Message' })).toHaveValue(
+      '',
+    );
     await expect(page.getByTestId('compose-count')).toContainText('Characters: 0');
     await shot(page, TAB, 'Q11-new-message', info);
     expect(held.filter((h) => /message/.test(h))).toEqual([]);
@@ -1442,14 +1496,10 @@ test.describe('Dashboard (Owner)', () => {
     const view = c.getByRole('link', { name: 'View Calendar' });
     await expect(view).toHaveAttribute('href', '/calendar/today?back=dashboard');
     await roundTrip(page, view, /\/calendar\/today\?back=dashboard$/, '/', async () => {
-      const today = page.getByTestId('today-schedule');
-      await expect(today).toBeVisible({ timeout: 60_000 });
-      await settled(page);
-      const entries =
-        (await today.locator('a[href*="/calendar/"]').count()) +
-        (await today.getByText(/· Busy \(/).count());
+      const entries = await todayEntries(page);
       expect(entries, `today ${s.today}`).toBe(k.value);
-      if (!k.value) await expect(today).toContainText('Nothing is booked today.');
+      if (!k.value)
+        await expect(page.getByTestId('today-schedule')).toContainText('Nothing is booked today.');
       await shot(page, TAB, 'K7-today', info);
     });
   });
@@ -1605,9 +1655,12 @@ test.describe('Dashboard (Owner)', () => {
           note(info, 'no count', `${stage} (${s.pipeline.period}) has no number to open`);
           continue;
         }
-        await expect(link).toHaveAccessibleName(`${stage}: ${value}. Open the list`);
+        await expect(link).toHaveAccessibleName(/^.+: \d+\. Open the list$/);
+        const shown = Number(/: (\d+)\./.exec((await link.getAttribute('aria-label')) ?? '')?.[1]);
+        if (shown !== value)
+          note(info, 'changed', `${stage}: ${value} on load, ${shown} at the click (another run)`);
         await roundTrip(page, link, url, address, async () => {
-          expect(await shownTotal(page), `${stage} (${s.pipeline.period})`).toBe(value ?? 0);
+          expect(await shownTotal(page), `${stage} (${s.pipeline.period})`).toBe(shown);
         });
       }
       await shot(page, TAB, `C6-${s.pipeline.period}`, info);
@@ -1886,7 +1939,8 @@ test.describe('Dashboard (Owner)', () => {
           },
         );
         await expect(page.getByTestId('due-set-filter')).toBeVisible();
-        await settled(page);
+        await listReady(page);
+        if (due.length) await expect(page.getByTestId('task-link').first()).toBeVisible();
         const listed = await page.getByTestId('task-link').allInnerTexts();
         for (const t of due)
           expect(
@@ -2070,7 +2124,9 @@ test.describe('Dashboard (Owner)', () => {
     await link.click();
     await expect(page).toHaveURL(/\/messages\/new\?from=%2F$/, { timeout: 60_000 });
     await expect(page.getByTestId('compose')).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId('compose').getByLabel('Message')).toHaveValue('');
+    await expect(page.getByTestId('compose').getByRole('textbox', { name: 'Message' })).toHaveValue(
+      '',
+    );
     await expect(page.getByTestId('compose-count')).toContainText('Characters: 0');
     await shot(page, TAB, 'Q2-send-message', info);
   });
@@ -2244,8 +2300,8 @@ test.describe('Dashboard (Owner)', () => {
       'The end date must be on or after the start date.',
     );
     await expect(page).toHaveURL(app('/'));
-    await dates.getByLabel('From').fill(addDays(s.today, -3));
     await dates.getByLabel('To').fill(addDays(s.today, 1));
+    await dates.getByLabel('From').fill(addDays(s.today, -3));
     await expect(dates.getByRole('alert')).toHaveText('The end date cannot be after today.');
     await expect(page).toHaveURL(app('/'));
     await shot(page, TAB, 'C1-custom-refused', info);
@@ -2336,13 +2392,9 @@ test.describe('Dashboard (Owner)', () => {
       /\/calendar\/today/,
       '/',
       async () => {
-        const today = page.getByTestId('today-schedule');
-        await expect(today).toBeVisible({ timeout: 60_000 });
-        await settled(page);
-        const n =
-          (await today.locator('a[href*="/calendar/"]').count()) +
-          (await today.getByText(/· Busy \(/).count());
-        expect(n, 'Appointments Today').toBe(s.kpis.appointmentsToday!.value);
+        expect(await todayEntries(page), 'Appointments Today').toBe(
+          s.kpis.appointmentsToday!.value,
+        );
       },
     );
     await shot(page, TAB, 'V1-owner', info);
@@ -2606,7 +2658,7 @@ test.describe('Dashboard (Owner)', () => {
     await roundTrip(
       page,
       page.getByRole('region', { name: 'Quick actions' }).getByRole('link', { name: 'Add Client' }),
-      /\/clients\?new=1&back=dashboard$/,
+      /\/clients\?(new=1&)?back=dashboard$/,
       '/?period=LAST_MONTH',
       async () => {
         const dialog = page.getByRole('dialog', { name: 'Add New Client' });
@@ -3193,13 +3245,7 @@ test.describe('Dashboard (Staff)', () => {
         /\/calendar\/today/,
         '/',
         async () => {
-          const today = page.getByTestId('today-schedule');
-          await expect(today).toBeVisible({ timeout: 60_000 });
-          await settled(page);
-          const n =
-            (await today.locator('a[href*="/calendar/"]').count()) +
-            (await today.getByText(/· Busy \(/).count());
-          expect(n).toBe(s.kpis.appointmentsToday!.value);
+          expect(await todayEntries(page, false)).toBe(s.kpis.appointmentsToday!.value);
         },
       );
     }
@@ -3289,10 +3335,18 @@ test.describe('Dashboard V8 (Owner, cold loads)', () => {
     await freshSession(browser, 'owner');
     const samples: Sample[] = [];
     for (let n = 1; n <= V8_SAMPLES; n++) samples.push(await coldSample(browser, n));
-    const bySlowest = [...samples].sort((a, b) => a.slowestMs - b.slowestMs);
-    const mid = bySlowest[Math.floor(bySlowest.length / 2)]!;
+    // Each widget's own median across the cold loads (lead, Nov 18), and its slowest.
     const perWidgetMedian = Object.fromEntries(
       V8_WIDGETS.map((w) => [w, median(samples.map((s) => s.widgets[w]!.ms))]),
+    );
+    const perWidgetSlowest = Object.fromEntries(
+      V8_WIDGETS.map((w) => [w, Math.max(...samples.map((s) => s.widgets[w]!.ms))]),
+    );
+    const failedIn = Object.fromEntries(
+      V8_WIDGETS.map((w) => [
+        w,
+        samples.filter((s) => /error|never/.test(s.widgets[w]!.state)).map((s) => s.sample),
+      ]),
     );
     const summaryTtfb = samples.map(
       (s) =>
@@ -3309,8 +3363,11 @@ test.describe('Dashboard V8 (Owner, cold loads)', () => {
       signal:
         "a widget's first frame with its data, empty state, error or no-access (never a skeleton), from navigation start (performance.now())",
       targets: { widgetMs: V8_TARGET_MS, summaryServerMs: V8_SUMMARY_TARGET_MS },
-      medianSample: mid.sample,
+      assertion:
+        "each widget's own median across the samples, at or under the target, and no sample in error",
       perWidgetMedianMs: perWidgetMedian,
+      perWidgetSlowestMs: perWidgetSlowest,
+      failedSamples: failedIn,
       summaryTtfbMs: { samples: summaryTtfb, median: median(summaryTtfb) },
       samples,
     };
@@ -3323,7 +3380,7 @@ test.describe('Dashboard V8 (Owner, cold loads)', () => {
     for (const s of samples) {
       note(
         info,
-        `V8 sample ${s.sample}${s.sample === mid.sample ? ' (median)' : ''}`,
+        `V8 sample ${s.sample}`,
         `${V8_WIDGETS.map((w) => `${w} ${s.widgets[w]!.ms} ms (${s.widgets[w]!.state})`).join('; ')} | API: ${s.api
           .filter((a) =>
             /dashboard|availability|message-threads|appointments|^me$|^business$/.test(a.path),
@@ -3334,8 +3391,8 @@ test.describe('Dashboard V8 (Owner, cold loads)', () => {
     }
     note(
       info,
-      'V8 per-widget median',
-      V8_WIDGETS.map((w) => `${w} ${perWidgetMedian[w]} ms`).join('; '),
+      'V8 per-widget median / slowest',
+      V8_WIDGETS.map((w) => `${w} ${perWidgetMedian[w]} / ${perWidgetSlowest[w]} ms`).join('; '),
     );
     note(
       info,
@@ -3344,12 +3401,9 @@ test.describe('Dashboard V8 (Owner, cold loads)', () => {
     );
     note(info, 'V8 file', file);
     for (const w of V8_WIDGETS) {
-      const seen = mid.widgets[w]!;
+      expect.soft(failedIn[w], `${w}: samples in error or never loaded`).toEqual([]);
       expect
-        .soft(seen.state, `${w}: loaded, not failed (median sample ${mid.sample})`)
-        .not.toMatch(/error|never/);
-      expect
-        .soft(seen.ms, `${w} in the median sample (${mid.sample})`)
+        .soft(perWidgetMedian[w], `${w}: median of ${samples.length} cold loads`)
         .toBeLessThanOrEqual(V8_TARGET_MS);
     }
   });

@@ -218,7 +218,8 @@ test.describe('Appointments (Owner)', () => {
     const mk = async (name: string, minutes: number, methods: string[]) =>
       (await ok(
         await api.post('business/appointment-types', {
-          data: { name, durationMinutes: minutes, methods, clientBookable: true },
+          // sortOrder 0: the types list shows only its first 10 rows (see the types-list test).
+          data: { name, durationMinutes: minutes, methods, clientBookable: true, sortOrder: 0 },
         }),
         `type ${name}`,
       )) as { id: string; name: string };
@@ -465,6 +466,31 @@ test.describe('Appointments (Owner)', () => {
     await anon.close();
   });
 
+  test('A0 + 3 Types list: every type is listed, or a pager reaches the rest', async ({
+    page,
+  }, info) => {
+    test.skip(info.project.name !== 'w1165');
+    await page.goto(app('/calendar/types'));
+    const rows = page.getByTestId('types-list').locator('button[aria-pressed]');
+    await expect(rows.first()).toBeVisible({ timeout: 60_000 });
+    const api = await pageApi(page);
+    // The screen lists active and archived types (status=all).
+    const all = (await ok(await api.get('business/appointment-types?status=all'), 'types')) as {
+      items: unknown[];
+    };
+    const shown = await rows.count();
+    const pager = await page.getByTestId('types-list').getByRole('navigation').count();
+    info.annotations.push({
+      type: 'types-shown',
+      description: `${shown} of ${all.items.length}, pager ${pager}`,
+    });
+    await shot(page, TAB, 'types-list', info);
+    expect(
+      shown === all.items.length || pager > 0,
+      `${shown} of ${all.items.length} types shown, no pager`,
+    ).toBe(true);
+  });
+
   test('A0 + 3 Archive and Restore a type from its menu; an archived type refuses public booking', async ({
     page,
     browser,
@@ -673,11 +699,27 @@ test.describe('Appointments (Owner)', () => {
     const panel = page
       .getByRole('complementary', { name: 'Staff Availability' })
       .or(page.getByLabel('Staff Availability'));
+    /** The panel's answer once it has loaded: 'free' (No Conflicts) or 'conflict'. */
     const check = async (start: string, end: string) => {
       await page.getByLabel('Start Time *').selectOption(start);
       await page.getByLabel('End Time *').selectOption(end);
-      await page.waitForTimeout(1500);
-      return ((await panel.first().textContent()) ?? '').replace(/\s+/g, ' ');
+      // The check is asked again after a change; give the new answer time to replace the old one.
+      await page.waitForTimeout(2500);
+      let text = '';
+      await expect
+        .poll(
+          async () => {
+            text = ((await panel.first().textContent()) ?? '').replace(/\s+/g, ' ');
+            return /No Conflicts/.test(text)
+              ? 'free'
+              : /Conflict/.test(text)
+                ? 'conflict'
+                : 'loading';
+          },
+          { timeout: 30_000 },
+        )
+        .not.toBe('loading');
+      return /No Conflicts/.test(text) ? 'free' : 'conflict';
     };
     const fill = async () => {
       await newForm(page);
@@ -688,28 +730,27 @@ test.describe('Appointments (Owner)', () => {
     };
     // AP1 is 2:00-2:30 PM. No buffers: 2:00-3:00 overlaps; 2:30-3:00 is free.
     await fill();
-    expect(await check('14:00', '15:00')).toMatch(/Conflict/);
-    expect(await check('14:30', '15:00')).toMatch(/No Conflicts?/);
+    expect(await check('14:00', '15:00')).toBe('conflict');
+    expect(await check('14:30', '15:00')).toBe('free');
     await shot(page, TAB, 'W10-availability', info);
     // B11: 30-minute buffers on the type; 2:30-3:00 is now inside AP1's buffer, before saving too.
     const api = await pageApi(page);
     const put = (b: number) =>
       api.put(`business/appointment-types/${c.t1.id}/config`, {
-        data: { bufferBeforeMinutes: b, bufferAfterMinutes: b },
+        bufferBeforeMinutes: b,
+        bufferAfterMinutes: b,
       });
     const res = await put(30);
-    test
-      .info()
-      .annotations.push({
-        type: 'buffer-put',
-        description: `${res.status()} ${(await res.text()).slice(0, 300)}`,
-      });
+    test.info().annotations.push({
+      type: 'buffer-put',
+      description: `${res.status()} ${(await res.text()).slice(0, 300)}`,
+    });
     await fill();
     const inside = await check('14:30', '15:00');
     await shot(page, TAB, 'B11-buffer-pre-save', info);
     await put(0);
     expect(res.ok(), `buffer config saved (${res.status()})`).toBe(true);
-    expect(inside).toMatch(/Conflict/);
+    expect(inside).toBe('conflict');
   });
 
   test('P1 Save as Draft keeps the form and reopens from Your saved drafts', async ({
@@ -1179,12 +1220,16 @@ test.describe('Appointments (Owner)', () => {
     await page.goto(app('/calendar/availability'));
     const rules = page.getByTestId('availability-rules');
     await expect(rules).toBeVisible({ timeout: 60_000 });
+    await expect(rules).toContainText('Weekly Working Hours', { timeout: 60_000 });
     const before = (await rules.textContent())?.replace(/\s+/g, ' ');
     await page.getByRole('button', { name: 'Save Availability' }).click();
     await expect(page.getByTestId('rules-saved')).toBeVisible({ timeout: 30_000 });
     await page.reload();
     await expect(rules).toBeVisible({ timeout: 60_000 });
-    expect((await rules.textContent())?.replace(/\s+/g, ' ')).toBe(before);
+    // The weekly hours fill in after the card itself shows.
+    await expect
+      .poll(async () => (await rules.textContent())?.replace(/\s+/g, ' '), { timeout: 30_000 })
+      .toBe(before);
     await shot(page, TAB, '5-availability', info);
   });
 

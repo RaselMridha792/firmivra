@@ -862,15 +862,15 @@ test.describe('firm side as Staff', () => {
 
 test.describe('the portal as the client', () => {
   test.use(as('client'));
+  // Not opened here (lead, Nov 18): /announcements records each live announcement as opened (a
+  // write on Octavia's login), and #1619 hides Business from an Individual client (Client 1).
   const pages: [string, string][] = [
     ['documents', 'My Uploaded Documents'],
     ['taxes', 'Tax Return'],
     ['invoices', 'Invoice'],
     ['messages', 'Message'],
     ['intake', 'Intake'],
-    ['business', 'Business'],
     ['appointments', 'Appointment'],
-    ['announcements', 'Announcement'],
     ['notifications', 'Notification'],
     ['profile', 'Profile'],
     ['signatures', 'Signature'],
@@ -885,7 +885,6 @@ test.describe('the portal as the client', () => {
       .first();
     for (const label of [
       'Intake Form',
-      'Business Documents',
       'My Uploaded Documents',
       'Tax Return',
       'Receipts',
@@ -894,6 +893,8 @@ test.describe('the portal as the client', () => {
       await expect(page.locator('body')).toContainText(new RegExp(label));
     }
     await expect(menu).toBeVisible();
+    // #1619: Client 1 is an Individual client, so Business Documents is not one of its areas.
+    await expect(page.locator('body')).not.toContainText(/Business Documents/);
     await shot(page, TAB, 'CP-PT-01', info);
   });
 
