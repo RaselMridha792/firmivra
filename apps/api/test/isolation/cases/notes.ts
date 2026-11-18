@@ -29,4 +29,9 @@ export const cases: CaseModule['cases'] = {
   },
   'PATCH /api/v1/business/notes/:id': { params: { id: 'note' }, body: { body: 'Fake edit' } },
   'DELETE /api/v1/business/notes/:id': { params: { id: 'note' } },
+  // B32: Share with Client sends the note's text as a portal message.
+  'POST /api/v1/business/notes/:id/share': {
+    params: { id: 'note' },
+    body: { updatedAt: '2026-01-01T00:00:00.000Z' },
+  },
 };
