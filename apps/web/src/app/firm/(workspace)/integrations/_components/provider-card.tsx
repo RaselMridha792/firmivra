@@ -10,6 +10,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
 import { dateLabel, linkClass } from './integration-shared';
 import { useFromHere } from './integrations-origin';
+import { nextStepLine, notYetLabel } from './readiness';
 
 const labels = {
   AVAILABLE: 'Not connected',
@@ -93,7 +94,7 @@ export function ProviderCard({ item, canManage }: { item: IntegrationCard; canMa
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-bold text-heading">{item.provider.name}</h2>
           <Badge tone={unavailable ? 'neutral' : tones[item.status]} dot>
-            {unavailable ? 'Not available yet' : labels[item.status]}
+            {unavailable ? notYetLabel(item.provider) : labels[item.status]}
           </Badge>
         </div>
         <ActionMenu
@@ -167,7 +168,9 @@ export function ProviderCard({ item, canManage }: { item: IntegrationCard; canMa
             </Button>
           ) : null
         ) : unavailable ? (
-          <p className="text-xs text-muted">Not available to connect yet.</p>
+          <p className="text-xs text-muted" data-testid="next-step">
+            {nextStepLine(item.provider)}
+          </p>
         ) : canManage || connection ? (
           <Link
             className={`${linkClass} flex-1 ${connection ? '!bg-navigation !text-on-action' : ''}`}

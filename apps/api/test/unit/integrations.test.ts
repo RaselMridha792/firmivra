@@ -3,7 +3,14 @@
 // status becomes the words and action the card shows, and the secret store keeps names, not values.
 import { describe, expect, it } from 'vitest';
 import { IntegrationProvider, IntegrationProviderKey } from '@firmivra/types';
-import { CATEGORY_LABELS, CUSTOM_EVENTS, PROVIDERS } from '../../src/integrations/catalog.js';
+import {
+  CATEGORY_LABELS,
+  CUSTOM_EVENTS,
+  NOT_YET_READY,
+  PROVIDERS,
+} from '../../src/integrations/catalog.js';
+import type { ProviderAdapter } from '../../src/integrations/provider-adapter.js';
+import { ProviderRegistry } from '../../src/integrations/provider-registry.js';
 import {
   cardAction,
   cardStatus,
@@ -87,6 +94,41 @@ describe('the catalog', () => {
     expect(new Set(CUSTOM_EVENTS.map((e) => e.key)).size).toBe(CUSTOM_EVENTS.length);
   });
 
+  it('says how close each provider is to Connect and who acts next (I-UA05)', () => {
+    const by = new Map(PROVIDERS.map((p) => [p.provider, p]));
+    for (const p of PROVIDERS) {
+      // Every provider is classified on purpose, and Ready exactly when it can connect now.
+      expect(Object.keys(NOT_YET_READY), p.provider).toContain(p.provider);
+      expect(p.readiness === 'READY', p.provider).toBe(!p.comingSoon);
+      expect(p.nextStep?.what, p.provider).toMatch(/\w{3,}/);
+    }
+    expect(by.get('website_forms')).toMatchObject({
+      readiness: 'READY',
+      nextStep: { who: 'FIRM' },
+    });
+    expect(by.get('quickbooks')).toMatchObject({
+      readiness: 'SETUP_PENDING',
+      nextStep: { who: 'FIRMIVRA' },
+    });
+    expect(by.get('textmagic')).toMatchObject({
+      readiness: 'SUPPORTED_NOT_ENABLED',
+      nextStep: { who: 'FIRMIVRA' },
+    });
+    expect(by.get('tax_software')).toMatchObject({
+      readiness: 'UNAVAILABLE',
+      nextStep: { who: 'FIRM' },
+    });
+    // A registered adapter makes a provider Ready, whatever the table says.
+    const registry = new ProviderRegistry([{ provider: 'quickbooks' } as ProviderAdapter]);
+    expect(registry.get('quickbooks')).toMatchObject({
+      comingSoon: false,
+      readiness: 'READY',
+      nextStep: { who: 'FIRM' },
+    });
+  });
+});
+
+describe('webhook addresses', () => {
   it('refuse private, loopback, link-local, metadata and reserved addresses', () => {
     for (const a of [
       '127.0.0.1',

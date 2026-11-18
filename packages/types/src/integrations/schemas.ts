@@ -143,6 +143,26 @@ export const IntegrationMappingScope = z.object({
 });
 export type IntegrationMappingScope = z.infer<typeof IntegrationMappingScope>;
 
+/**
+ * I-UA05 (Integrations Review Two): how close a provider is to Connect. READY: connect it now.
+ * SUPPORTED_NOT_ENABLED: Firmivra supports it and only has to turn it on. SETUP_PENDING: Firmivra's
+ * developer setup with the provider is not finished. UNAVAILABLE: not offered as one system yet.
+ */
+export const IntegrationReadiness = z.enum([
+  'READY',
+  'SUPPORTED_NOT_ENABLED',
+  'SETUP_PENDING',
+  'UNAVAILABLE',
+]);
+export type IntegrationReadiness = z.infer<typeof IntegrationReadiness>;
+
+/** I-UA05: who acts next before the provider can be connected, and what they do first. */
+export const IntegrationNextStep = z.object({
+  who: z.enum(['FIRMIVRA', 'FIRM', 'PROVIDER']),
+  what: z.string(),
+});
+export type IntegrationNextStep = z.infer<typeof IntegrationNextStep>;
+
 /** One provider of the catalog (the marketplace card and the setup's definition). */
 export const IntegrationProvider = z.object({
   provider: IntegrationProviderKey,
@@ -171,6 +191,9 @@ export const IntegrationProvider = z.object({
   multipleConnections: z.boolean(),
   /** The provider's API is not live for this firm yet: the card says "Coming soon". */
   comingSoon: z.boolean(),
+  /** I-UA05: how close it is to Connect, and who acts next (the API always sends both). */
+  readiness: IntegrationReadiness.optional(),
+  nextStep: IntegrationNextStep.optional(),
   learnMoreUrl: z.url().nullable(),
 });
 export type IntegrationProvider = z.infer<typeof IntegrationProvider>;
@@ -212,6 +235,8 @@ export const IntegrationCard = z.object({
     badge: true,
     popularity: true,
     comingSoon: true,
+    readiness: true,
+    nextStep: true,
     multipleConnections: true,
   }),
   status: IntegrationCardStatus,

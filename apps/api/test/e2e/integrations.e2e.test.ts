@@ -387,6 +387,22 @@ describe('the main page and marketplace', () => {
     expect(m.items[0]?.provider.popularity).toBeGreaterThanOrEqual(
       m.items.at(-1)?.provider.popularity ?? 0,
     );
+    // I-UA05: each provider says how close it is to Connect and who acts next.
+    const provider = (key: string) => m.items.find((i) => i.provider.provider === key)?.provider;
+    expect(provider('website_forms')).toMatchObject({
+      readiness: 'READY',
+      nextStep: { who: 'FIRM' },
+    });
+    expect(provider('quickbooks')).toMatchObject({
+      readiness: 'SETUP_PENDING',
+      nextStep: { who: 'FIRMIVRA' },
+    });
+    expect(m.items.every((i) => i.provider.readiness && i.provider.nextStep?.what)).toBe(true);
+    // The overview's cards carry them too.
+    const cards = IntegrationsOverview.parse(ok(await call('get', '/integrations', people.staffA)));
+    expect(cards.items.find((i) => i.provider.provider === 'quickbooks')?.provider.readiness).toBe(
+      'SETUP_PENDING',
+    );
     const byName = IntegrationMarketplace.parse(
       ok(await call('get', '/integrations/marketplace?sort=name&category=PAYMENTS', people.ownerA)),
     );

@@ -128,6 +128,67 @@ test('a provider not enabled yet reads so and offers no Connect; readiness and c
   await expect(chips).toHaveCount(0);
 });
 
+/** I-UA05: the API's readiness and next step on each provider that cannot connect yet. */
+function withReadiness<T>(json: T): T {
+  const walk = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(walk);
+    if (value && typeof value === 'object') {
+      const o = Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v)]));
+      if (typeof o['provider'] === 'string' && o['comingSoon'] === true)
+        return {
+          ...o,
+          readiness: 'SETUP_PENDING',
+          nextStep: {
+            who: 'FIRMIVRA',
+            what: `Firmivra finishes its developer setup with ${String(o['name'])}. Then you sign in here.`,
+          },
+        };
+      return o;
+    }
+    return value;
+  };
+  return walk(json) as T;
+}
+
+test('a provider that cannot connect yet says how close it is and who acts next (I-UA05)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.route('**/api/v1/business/integrations**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/marketplace'))
+      return route.fulfill({
+        json: withReadiness(marketplaceFixture({ search: '', sort: 'popular' }, false)),
+      });
+    return route.fulfill({
+      json: withReadiness(
+        integrationOverviewFixture({ tab: 'all', environment: 'LIVE', search: '' }, false),
+      ),
+    });
+  });
+  await page.goto(app('/integrations'));
+  const pending = page
+    .getByTestId('integration-card')
+    .filter({ hasText: 'Developer setup pending' })
+    .first();
+  await expect(pending).toBeVisible({ timeout: 60_000 });
+  await expect(pending.getByTestId('next-step')).toContainText(
+    'Next: Firmivra. Firmivra finishes its developer setup with',
+  );
+  await expect(pending.getByRole('link', { name: 'Connect' })).toHaveCount(0);
+
+  await page.goto(app('/integrations/marketplace'));
+  const payroll = page
+    .getByTestId('marketplace-integration')
+    .filter({ hasText: 'Payroll Providers' });
+  await expect(payroll).toContainText('Next: Firmivra.', { timeout: 60_000 });
+  await payroll.getByRole('button', { name: 'Options for Payroll Providers' }).click();
+  await page.getByRole('menuitem', { name: 'View details' }).click();
+  const facts = page.getByRole('dialog').getByTestId('readiness-facts');
+  await expect(facts).toContainText('Readiness:Developer setup pending');
+  await expect(facts).toContainText('Who acts next:Firmivra.');
+});
+
 test('Cancel on a started request asks Keep draft or Discard; Escape keeps it (IN-Y05)', async ({
   page,
 }) => {

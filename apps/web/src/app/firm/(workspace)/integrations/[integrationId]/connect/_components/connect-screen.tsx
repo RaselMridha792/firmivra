@@ -32,6 +32,7 @@ import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { providerDisc } from '../../_components/manage-integration-shared';
 import { SetupOption } from './setup-option';
+import { nextStepLine, notYetLabel } from '../../../_components/readiness';
 import {
   defaultSettings,
   directionLabels,
@@ -246,7 +247,9 @@ function SetupForm({
       ) : null}
       {provider?.comingSoon ? (
         <Callout icon={ShieldCheck} title="Connection unavailable" surface="warning">
-          This provider is not available to connect yet.
+          {provider.readiness
+            ? `${notYetLabel(provider)}. ${nextStepLine(provider)}`
+            : 'This provider is not available to connect yet.'}
         </Callout>
       ) : null}
       {params.get('result') === 'failed' ? (

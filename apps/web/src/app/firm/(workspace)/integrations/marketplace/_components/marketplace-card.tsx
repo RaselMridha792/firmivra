@@ -6,6 +6,7 @@ import { DotsThreeVertical } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useId } from 'react';
 import { useFromHere } from '../../_components/integrations-origin';
+import { nextStepLine } from '../../_components/readiness';
 import { actionLink, categoryLabel } from './marketplace-shared';
 
 /**
@@ -119,7 +120,7 @@ export function MarketplaceAction({
   const reason = viaIntakeForms(item)
     ? null
     : item.provider.comingSoon && !connected
-      ? 'Not available to connect yet.'
+      ? nextStepLine(item.provider)
       : !canManage && !connected
         ? 'Ask your administrator to connect.'
         : null;
