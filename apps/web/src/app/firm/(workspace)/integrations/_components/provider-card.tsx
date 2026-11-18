@@ -93,6 +93,11 @@ export function ProviderCard({ item, canManage }: { item: IntegrationCard; canMa
         <ProviderLogo name={item.provider.name} />
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-bold text-heading">{item.provider.name}</h2>
+          {item.connections.some((c) => c.environment === 'TEST') ? (
+            <span data-testid="test-badge" className="ml-1">
+              <Badge tone="warning">Test</Badge>
+            </span>
+          ) : null}
           <Badge tone={unavailable ? 'neutral' : tones[item.status]} dot>
             {unavailable ? notYetLabel(item.provider) : labels[item.status]}
           </Badge>
