@@ -174,6 +174,14 @@ export function createPayrollMock({
       return { on: periodAt(r.frequency, today(), 0).pay, source: 'schedule' as const };
     return { on: null, source: null };
   };
+  // F01, as the API: a provider is the firm's to authorize (Integrations), whatever its clients
+  // synced.
+  const authorized = (key: string | null) =>
+    key !== null && store.authorizedProviders.includes(key);
+  const providerOf = (r: Rec) => {
+    const ref = providerRef(r.providerKey);
+    return ref && { ...ref, connected: authorized(r.providerKey) };
+  };
   const syncOf = (r: Rec): PayrollClientRow['syncStatus'] => {
     if (!r.providerKey) return 'NOT_CONNECTED';
     if (!r.lastSyncedAt) return 'NEVER';
@@ -202,7 +210,7 @@ export function createPayrollMock({
       id: r.id,
       client: r.client,
       engagementId: r.engagementId,
-      provider: providerRef(r.providerKey),
+      provider: providerOf(r),
       frequency: r.frequency,
       employeeCount: employees(r),
       status: r.status,
@@ -259,7 +267,7 @@ export function createPayrollMock({
       status: r.status,
       frequency: r.frequency,
       industry: r.industry,
-      provider: providerRef(r.providerKey),
+      provider: providerOf(r),
       serviceSince: r.serviceSince,
       nextPayrollOn: s.on,
       nextPayrollSource: s.source,
@@ -313,7 +321,7 @@ export function createPayrollMock({
       id: x.id,
       payrollClientId: r.id,
       client: r.client,
-      provider: providerRef(r.providerKey),
+      provider: providerOf(r),
       periodStart: x.periodStart,
       periodEnd: x.periodEnd,
       payDate: x.payDate,
@@ -591,8 +599,15 @@ export function createPayrollMock({
             key,
             label: key ? (PROVIDERS[key] ?? key) : 'Not connected',
             clientCount: v.clients,
-            connected:
-              key !== null && clients.some((c) => c.providerKey === key && !!c.lastSyncedAt),
+            connected: authorized(key),
+            // F01: the newest sync of the provider's clients.
+            lastSyncedAt: authorized(key)
+              ? (clients
+                  .filter((c) => c.providerKey === key && c.lastSyncedAt)
+                  .map((c) => c.lastSyncedAt!)
+                  .sort()
+                  .at(-1) ?? null)
+              : null,
           })),
           upcomingRuns: upcoming.map(({ c, s }) => ({
             payrollClientId: c.id,
@@ -802,6 +817,13 @@ export function createPayrollMock({
           : null;
         if (input.catalogServiceId && !chosen) throw fail(404, 'NOT_FOUND', 'No such plan');
         const plan = chosen?.name ?? input.plan ?? null;
+        // F01, as the API: no plan clears a saved one only by Remove Plan.
+        if (!plan && r.plan && input.remove !== true)
+          throw fail(
+            409,
+            'PLAN_REMOVE_EXPLICIT',
+            'The client has a plan: choose a plan, or use Remove Plan to clear it',
+          );
         log(r, 'plan', r.plan, plan);
         r.plan = plan;
         r.catalogServiceId = chosen?.id ?? null;
@@ -815,8 +837,13 @@ export function createPayrollMock({
     sync: (clientId) =>
       run(() => {
         const r = rec(clientId);
-        if (!r.providerKey)
-          throw fail(409, 'PROVIDER_NOT_CONNECTED', 'Connect a payroll provider first.');
+        // F01, as the API: only an authorized provider syncs.
+        if (!authorized(r.providerKey))
+          throw fail(
+            409,
+            'PROVIDER_NOT_CONNECTED',
+            'Connect the payroll provider in Integrations first.',
+          );
         r.lastSyncAttemptAt = nowIso();
         r.lastSyncedAt = nowIso();
         return { queued: true as const, requestedAt: nowIso() };

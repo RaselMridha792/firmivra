@@ -1,5 +1,6 @@
 'use client';
 
+import { payrollConnectionLabel } from '@firmivra/types';
 import type { PayrollOverview } from '@firmivra/types';
 import { Badge, DonutChart, type DonutSegment, type ChartTone } from '@firmivra/ui';
 import {
@@ -253,8 +254,8 @@ export function ProvidersCard({
         }
       />
       <p className="mb-2 text-xs text-muted" data-testid="provider-states">
-        Authorized means the provider allowed access; figures arrive only after the first successful
-        sync, shown on each client&apos;s workspace.
+        Pending setup: chosen for a client, not yet authorized in Integrations. Connected:
+        authorized; figures arrive with the first sync.
       </p>
       {rows.length === 0 ? (
         <p className={quiet}>
@@ -276,15 +277,22 @@ export function ProvidersCard({
                 {/* Review 2 (F01): chosen for clients is not authorized; authorized is not synced. */}
                 {r.clientCount} {r.clientCount === 1 ? 'client chose it' : 'clients chose it'}
               </span>
+              {/* F01: the same words as each client's Overview. */}
               {r.connected ? (
-                <Badge tone="success">Authorized</Badge>
+                <Badge tone={r.lastSyncedAt ? 'success' : 'info'}>
+                  {payrollConnectionLabel({
+                    chosen: true,
+                    authorized: true,
+                    lastSyncedAt: r.lastSyncedAt,
+                  })}
+                </Badge>
               ) : (
                 <button
                   type="button"
                   onClick={onConnect}
                   className="rounded-pill bg-info-soft px-3 py-1 text-xs font-semibold text-action"
                 >
-                  Not authorized · Connect
+                  {r.key ? 'Pending setup' : 'Not connected'} · Connect
                 </button>
               )}
             </li>

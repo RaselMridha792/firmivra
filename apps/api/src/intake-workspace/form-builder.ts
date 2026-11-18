@@ -158,6 +158,8 @@ function settingsOf(input: FormSettingsInput | undefined, before: unknown): Form
   for (const [k, v] of Object.entries(input ?? {})) {
     if (v !== undefined) (out as Json)[k] = v;
   }
+  // Intake Review 2 23-h (lead, Nov 17): Require e-signature is always on.
+  out.requireSignature = true;
   return out;
 }
 

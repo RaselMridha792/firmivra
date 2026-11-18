@@ -176,7 +176,8 @@ export class LeadsController {
     },
   ],
   // Automations' Schedule lead follow-up (R55, the lead's one-off exception): Leads' own
-  // follow-up, with every Leads rule.
-  exports: [LeadFollowUpsService],
+  // follow-up, with every Leads rule. Intake Review 2 23-c: an intake's Auto-create client record
+  // converts the lead through Leads' own conversion.
+  exports: [LeadFollowUpsService, LeadConvertService],
 })
 export class LeadsModule {}

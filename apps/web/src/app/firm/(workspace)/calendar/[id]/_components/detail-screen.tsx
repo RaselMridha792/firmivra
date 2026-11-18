@@ -29,12 +29,14 @@ import {
   dateAndTime,
 } from '../../_components/appointments-parts';
 import { WaitlistRequests } from '../../_components/waitlist-requests';
+import { CALENDAR_ERRORS } from '../../_components/shared';
 
 const card =
   'flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm';
 const quiet = 'rounded-lg bg-subtle p-4 text-sm text-muted';
 
 const DETAIL_ERRORS: Record<string, string> = {
+  ...CALENDAR_ERRORS,
   NOT_FOUND:
     'This appointment was not found. It may have been removed, or you may not have access.',
   APPOINTMENT_CLOSED: 'This appointment is no longer scheduled.',

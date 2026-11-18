@@ -43,4 +43,6 @@ test('Submit waits for the consent box, then shows the firm’s thank-you messag
     'Thank you! We have your form and will be in touch within two business days.',
     { timeout: 60_000 },
   );
+  // Intake Review 2 23-g: the firm numbers its forms, so the done screen gives the Submission ID.
+  await expect(page.getByTestId('submission-id')).toHaveText('Submission ID SUB-00004');
 });

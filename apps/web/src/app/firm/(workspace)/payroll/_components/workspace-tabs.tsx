@@ -906,7 +906,10 @@ export function SettingsTab({ w, notice }: { w: PayrollClientWorkspace; notice: 
       });
       // SH9: the plan is saved by its Services & Pricing id.
       if ((w.catalogServiceId ?? '') !== f.plan)
-        await api.payroll.setPlan(w.id, { catalogServiceId: f.plan || null });
+        await api.payroll.setPlan(
+          w.id,
+          f.plan ? { catalogServiceId: f.plan } : { catalogServiceId: null, remove: true },
+        );
     },
     { invalidate: [...PAYROLL_KEY] },
   );

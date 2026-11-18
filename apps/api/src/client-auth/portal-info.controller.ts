@@ -133,7 +133,7 @@ export class PortalInfoService {
   async info(firmSlug: string): Promise<PortalInfo> {
     const firm = await this.activeFirm(firmSlug);
     const scope = this.db.forBusiness(firm.id);
-    const [settings, terms, privacy, mainOffice] = await Promise.all([
+    const [settings, terms, privacy, mainOffice, intake] = await Promise.all([
       scope.businessSettings.findUnique({
         where: { businessId: firm.id },
         select: {
@@ -178,6 +178,11 @@ export class PortalInfoService {
           },
         },
       }),
+      // Intake Review 2 23-g: whether the forms outside the portal carry the firm's branding.
+      scope.intakeSettings.findUnique({
+        where: { businessId: firm.id },
+        select: { useFirmBranding: true },
+      }),
     ]);
     return {
       business: { slug: firm.slug, name: firm.name },
@@ -197,6 +202,7 @@ export class PortalInfoService {
         portalName: settings?.portalName ?? `${firm.name} Client Portal`,
         header: settings?.portalHeader ?? null,
         welcomeMessage: settings?.welcomeMessage ?? null,
+        formBranding: intake?.useFirmBranding ?? true,
       },
       // Sign-up needs both documents to accept, and the firm's say-so.
       signUpOpen: (settings?.clientSignUpEnabled ?? true) && terms !== null && privacy !== null,
