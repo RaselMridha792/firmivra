@@ -4309,9 +4309,11 @@ model AppointmentType {
   /// R55 (Rasel, Nov 14; Appointments B7): new appointments' confirmation message, up to 2,000.
   confirmationMessage      String?         @map("confirmation_message")
 
-  service      Service?      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  business     Business      @relation(fields: [businessId], references: [id])
-  appointments Appointment[]
+  service         Service?         @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  business        Business         @relation(fields: [businessId], references: [id])
+  appointments    Appointment[]
+  /// R56 (S12): the packages whose Booking type this is.
+  servicePackages ServicePackage[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -6596,6 +6598,10 @@ model ServicePackage {
   displayOnPortal   Boolean              @default(false) @map("display_on_portal")
   /// Staff only, up to 500 characters.
   internalNotes     String?              @map("internal_notes")
+  /// R56 (Services & Pricing S12, decided Nov 19): the package's optional Booking type, one of
+  /// the same firm's appointment types; its public page's Book opens that type's booking. An
+  /// appointment type is archived, never deleted, so one a package names is never removed.
+  appointmentTypeId String?              @map("appointment_type_id") @db.Uuid
   updatedByUserId   String?              @map("updated_by_user_id") @db.Uuid
   archivedAt        DateTime?            @map("archived_at") @db.Timestamptz(3)
   createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -6604,6 +6610,7 @@ model ServicePackage {
   business         Business              @relation(fields: [businessId], references: [id])
   category         ServiceCategory?      @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
   updatedBy        Membership?           @relation("PackageUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  appointmentType  AppointmentType?      @relation(fields: [businessId, appointmentTypeId], references: [businessId, id], onDelete: Restrict)
   items            ServicePackageItem[]
   addOns           ServicePackageAddOn[]
   promotionTargets PromotionTarget[]
@@ -6611,6 +6618,7 @@ model ServicePackage {
   @@unique([businessId, name])
   @@unique([businessId, id])
   @@index([businessId, status])
+  @@index([businessId, appointmentTypeId])
   @@map("service_packages")
 }
 
