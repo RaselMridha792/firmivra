@@ -1,3 +1,4 @@
+import { LIVE_DOCUMENT } from '../storage/document-records.js';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
@@ -170,8 +171,9 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
     return r && { clientId: r.clientId, values: { title: short(r.title), dueOn: day(r.dueOn) } };
   },
   document: async (tx, businessId, id) => {
+    // CP-PT-03: never about a file the firm trashed, archived or replaced.
     const r = await tx.document.findFirst({
-      where: { businessId, id },
+      where: { businessId, id, ...LIVE_DOCUMENT },
       select: { clientId: true },
     });
     return r && { clientId: r.clientId, values: {} };

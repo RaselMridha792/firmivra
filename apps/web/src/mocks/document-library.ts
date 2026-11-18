@@ -35,7 +35,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
-import { mockDocumentLimitMb, setMockDocumentLimitMb } from './documents';
+import { mockDocumentLimitMb, setMockDocumentLimitMb, setMockDocumentRemoved } from './documents';
 import { SAMPLE_PDF_URL } from './esign-common';
 import { teamFixtures } from './team';
 
@@ -784,24 +784,28 @@ export function createDocumentLibraryMock(options: {
     archive: async (id) => {
       await mockDelay();
       edit(id, { archivedAt: new Date().toISOString() });
+      setMockDocumentRemoved(id, { archived: true });
       record(id, 'ARCHIVED', 'Document archived');
       return libraryDoc(id);
     },
     restore: async (id) => {
       await mockDelay();
       edit(id, { archivedAt: null });
+      setMockDocumentRemoved(id, { archived: false });
       record(id, 'RESTORED', 'Document restored');
       return libraryDoc(id);
     },
     trash: async (id) => {
       await mockDelay();
       edit(id, { trashedAt: new Date().toISOString() });
+      setMockDocumentRemoved(id, { trashed: true });
       record(id, 'TRASHED', 'Document moved to Trash');
       return libraryDoc(id);
     },
     untrash: async (id) => {
       await mockDelay();
       edit(id, { trashedAt: null });
+      setMockDocumentRemoved(id, { trashed: false });
       record(id, 'RESTORED', 'Document restored from Trash');
       return libraryDoc(id);
     },
