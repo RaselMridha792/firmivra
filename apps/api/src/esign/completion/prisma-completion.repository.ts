@@ -1,4 +1,3 @@
-import { isLiveDocument } from '../../storage/document-records.js';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
@@ -184,9 +183,9 @@ export class PrismaCompletionRepository implements EsignCompletionRepository {
       select: { finalDocument: { select: FILE }, certificateDocument: { select: FILE } },
     });
     if (!row?.finalDocument || !row.certificateDocument) return null;
-    // CP-PT-03: these are the client's portal downloads: none once the firm trashed or archived
-    // the signed copy or its certificate.
-    if (!isLiveDocument(row.finalDocument) || !isLiveDocument(row.certificateDocument)) return null;
+    // CP-PT-03 (the lead, Nov 18): exempt from LIVE_DOCUMENT. The signed copy and its certificate
+    // are the signer's own legal record of what they signed: they stay downloadable here even when
+    // the firm trashes or archives the documents. Every other portal read keeps the rule.
     return {
       final: completedFile(row.finalDocument),
       certificate: completedFile(row.certificateDocument),
@@ -201,15 +200,7 @@ export class PrismaCompletionRepository implements EsignCompletionRepository {
   }
 }
 
-const FILE = {
-  s3Key: true,
-  fileName: true,
-  sizeBytes: true,
-  sha256: true,
-  trashedAt: true,
-  archivedAt: true,
-  supersededAt: true,
-} as const;
+const FILE = { s3Key: true, fileName: true, sizeBytes: true, sha256: true } as const;
 const completedFile = (d: {
   s3Key: string;
   fileName: string;
