@@ -23,6 +23,12 @@ test('the list shows Owner and Last Refreshed; a rename keeps Last Refreshed (CM
   const panel = page.getByTestId('segments-panel');
   await expect(panel.getByRole('columnheader', { name: 'Owner' })).toBeVisible();
   await expect(panel.getByRole('columnheader', { name: 'Last Refreshed' })).toBeVisible();
+  // C13 (Review Two): the help says what Owner is: who created it.
+  await page
+    .getByRole('button', { name: 'About Managing segments and lists', exact: true })
+    .click();
+  await expect(page.getByTestId('help-tip')).toContainText('Owner is who created the segment');
+  await page.keyboard.press('Escape');
   const payroll = row(page, 'Payroll Clients');
   const before = await payroll.getByRole('cell').nth(5).innerText();
   await page.getByRole('button', { name: 'Actions for Payroll Clients' }).click();
