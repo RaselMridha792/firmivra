@@ -156,7 +156,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-16 Firm PDF content | Scoped pass; the portal byte check is her retest | — | — |
 | N8-17 Intake Accept; New to Active | Done: Accept completes a submitted intake and a New client becomes Active; Start Service, payroll processing and a started document review do too; an upload alone never does; Change Status is the manual override | #1556 (R1) | e2e `intakes` "N8-17: Accept completes a submitted intake and its New client becomes Active; submitting alone never does", `engagements` "N8-17: Start Service", `payroll` "N8-17: Processing makes a New client Active…", `documents-library` "N8-17: a document review started activates a New client; an upload alone never does"; mock `r56-intake-detail` "Accept completes a submitted form and says a New client is now Active (N8-17)" |
 | N8-17 creation part: a submission or sign-up with purchase intent makes a New client | Her decision: today a non-client's share-link or Begin Online submission makes a Lead (the lead's decision), not a New client | — | — |
-| N8-18 Appointment outcomes and notes | Done: Mark Completed on a lead's own appointment asks for the outcome (Keep as Lead; Keep as Lead and Follow Up, with its date, which sets the lead's next follow-up; Convert to New client, which then opens the lead's Convert page with Back) and notes, kept on the appointment and the lead's activity; a meeting alone converts or activates no one, and a client's appointment completes as before | #1611 (P4-2) | e2e `lead-appointments` "a lead’s own appointment needs its outcome and notes (400, the field named)", "Keep as Lead: no status changes; the outcome and notes are on the appointment and the lead; audited by code", "Keep as Lead and Follow Up needs a date, today or later, and sets the lead’s next follow-up", "Keep as Lead and Follow Up on a closed lead is refused, and nothing is saved", "Convert to New client converts nothing by itself: the lead stays a lead, with no client", "a client’s appointment completes as before, and takes no outcome (400)"; mock `r55-lead-appointment-outcome` (3) |
+| N8-18 Appointment outcomes and notes | Done: Mark Completed on a lead's own appointment asks for the outcome (Keep as Lead; Keep as Lead and Follow Up, with its date, which sets the lead's next follow-up; Convert to New client, which then opens the lead's Convert page with Back) and notes, kept on the appointment and the lead's activity; a meeting alone converts or activates no one, and a client's appointment completes as before. Convert to New client is offered only to a member who reaches the lead (its owner, an Owner or an Admin); the appointment's own Staff member without it records Keep as Lead and Follow Up, sees "The lead's owner can convert this lead." instead, and the API refuses Convert for them (403) | #1611 (P4-2), #1617 (the lead's reach) | e2e `lead-appointments` "a lead’s own appointment needs its outcome and notes (400, the field named)", "Keep as Lead: no status changes; the outcome and notes are on the appointment and the lead; audited by code", "Keep as Lead and Follow Up needs a date, today or later, and sets the lead’s next follow-up", "Keep as Lead and Follow Up on a closed lead is refused, and nothing is saved", "Convert to New client converts nothing by itself: the lead stays a lead, with no client", "a client’s appointment completes as before, and takes no outcome (400)"; #1617: "the appointment’s Staff member without the lead: Keep as Lead and Follow Up, never Convert (403); the record and the list say so", "the lead’s own Staff member is offered and may choose Convert to New client"; mock `r55-lead-appointment-outcome` (5; #1617: "Staff on their own appointment with a lead they are not assigned: no Convert, a hint; Keep as Lead saves", "Staff assigned to the lead are offered Convert to New client") |
 | N8-19 Completed appointment fixture | Covered by N8-18's tests (each outcome on a completed lead appointment); her retest on dev with a past lead appointment | #1611 | as N8-18 |
 | N8-20 Existing assignment start (with N8-02) | Done in Intake Forms | #1407, #1425, #1471, #1479 | `intake-forms.md` INTAKE-ACCESS-01 |
 | N8-21 Published template and preview | Scoped pass; nothing to build | — | — |
@@ -186,7 +186,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | §23 Messages: wider Subject, collapsible Internal Notes | Done: Hide / Show Internal Notes on the client's Messages (Messages then take the whole width; a note being typed is kept), and the Subject takes the room while the sender stays on one line | #1558 | mock `r55-client-messages-notes-collapse` "Hide Internal Notes widens the Subject and keeps the draft note" (at her 1165 px) |
 | §23 V-007 for side menus | Main sidebar: Done (#1396). The Internal Notes rail is the R60 row above | #1396 | `r60-sidebar-collapse` |
 | §23 Mobile-friendly Clients | Checked at 375 px: every profile screen (Overview and its tab bar, Activity, Documents, Messages and New Message, Notes, Tasks, Invoices, Signatures, Intake Forms), Add New Client and Edit have no sideways scroll, and their actions are on the screen; they already fit, so nothing changed in the screens. Her own phone and tablet retest is still hers | #1574 (R56) | mock `r56-client-profile-375` (4); also `r23-clients` (cards), `r60-clients-services`, `r60-clients-billing` |
-| §23 Platform heading and action-row consistency | After Nov 17 (decided Nov 16, "Clients design consistency": a cross-module design pass) | — | — |
+| §23 Platform heading and action-row consistency | Done for Clients (the lead's scope, Nov 18): every tab of the client profile (Overview, Activity, Messages, Invoices, Signatures, Documents, Services, Intake Forms, Tasks, Notes) uses one heading and action row (`ClientTabHeader`): the same title size, the primary action on the right, the other actions in its More Actions menu. Other modules' headings: a later design pass | #1617 (P4-7) | mock `r55-client-tab-headers` |
 | §23 Business Overview and Edit visual check | Scoped pass; nothing to build | — | — |
 
 ## GAP status
@@ -198,7 +198,7 @@ G1 to G12 are closed; G9's prefill is #1558 (Nov 15, 2026). The open items are l
 | G1 C2-052 visibility | Fixed, #1426 |
 | G2 Duplicate popup | Fixed, #1429; the matched ids in the audit: #1611 |
 | G3 ZIP format | Fixed, #1429 |
-| G4 Archived notes UI | Fixed, #1429; test gap |
+| G4 Archived notes UI | Fixed, #1429; test #1617 |
 | G5 Full filename on hover | Fixed, #1429; test #1584 (V-008) |
 | G6 Last Activity counts every recorded action | Fixed, #1429 |
 | G7 Bulk message, request, intake | Fixed, #1431 |
@@ -217,6 +217,7 @@ G1 to G12 are closed; G9's prefill is #1558 (Nov 15, 2026). The open items are l
 - #1558 (R55): N8-05 Add to Client Timeline; N8-33 draft services; FC-01 / N8-15; FC-02; §23 Internal Notes and Subject; G9 prefill
 - #1574 (R56): N8-05 and §2 Activity with record links; C2-055 portal notice; V-009 columns; §23 profile screens at 375 px
 - #1575 (R1): §3 Client ID shown; §3/§6 contextual actions; §5 duplicate details; §6 company match; N8-06 phone hint
+- #1617 (R55, Nov 18): §23 one heading and action row on every client tab (P4-7); N8-18 Convert only with the lead's reach; G4's read-only notes test
 - #1611 (R55, Nov 18): N8-18 and N8-19 appointment outcomes; N8-12 Overview summaries; §3 Edit validation on the server; §5 the matched ids in the audit; §5 the ZIP's state on the server
 - #1584 (R55, tests only): §2 and §4 stale profile (C2-034), §4 Last Activity dismissal and names (C2-018, C2-019), N8-10, §4 Dirty Add (C2-029), §6 Edit's Save Anyway, §6 bulk unassign, §6 Reliability a, V-001, N8-09, V-002 to V-006, V-008, C2-051, C2-049, N8-25, N8-37's order, FC-03's words
 
@@ -224,10 +225,10 @@ G1 to G12 are closed; G9's prefill is #1558 (Nov 15, 2026). The open items are l
 - None from the Nov 16 check: N8-36, C2-051's archived file and V-003's long name are fixed in #1584
 
 **Open: tests**
-- G4: the archived client's read-only notes card (only the API's 409 is tested)
+- None: G4's read-only notes card is tested in #1617 (mock `r55-clients-archived-notes`)
 
 **After Nov 17 (decided)**
-- §23: platform heading and action-row consistency (decided Nov 16: a cross-module design pass)
+- §23: the heading and action row of the other modules (Clients is done, P4-7)
 
 **Her retests or decisions (no code)**
 - §6 Reliability and accessibility b: keyboard order, screen reader, zoom, touch, disabled modules and restricted states on dev
