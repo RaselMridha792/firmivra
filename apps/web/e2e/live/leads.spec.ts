@@ -567,7 +567,9 @@ async function listTotal(page: Page): Promise<number> {
     .innerText()
     .catch(() => '');
   const m = /of\s+([\d,]+)\s+lead/.exec(text);
-  return m ? Number(m[1]!.replace(/,/g, '')) : -1;
+  if (m) return Number(m[1]!.replace(/,/g, ''));
+  // No pager: an empty list shows no rows (its empty state may not be the no-match one).
+  return (await rows(page).count()) === 0 ? 0 : -1;
 }
 
 async function rowMenu(page: Page, last: string, item: string) {
@@ -1233,9 +1235,11 @@ test.describe('Leads (Owner)', () => {
     await expect(dialog).toBeHidden();
     await openLead(page, c.beta, 'campaigns');
     await expect(page.locator('main')).toContainText(CAMPAIGN);
+    await expect(page.getByText('Not in a campaign', { exact: true })).toHaveCount(0);
     await shot(page, TAB, '14-campaign', info);
     await openLead(page, c.alpha, 'campaigns');
-    await expect(page.locator('main')).not.toContainText(CAMPAIGN);
+    // Alpha was not chosen: its Campaign field says so (the dropdown still lists the campaign).
+    await expect(page.getByText('Not in a campaign', { exact: true })).toBeVisible();
     // Nothing sent on creation or enrolment.
     await openLead(page, c.beta, 'communications');
     await expect(page.getByTestId('activity-list')).not.toContainText(CAMPAIGN);
@@ -1924,18 +1928,25 @@ test.describe('Leads (Owner)', () => {
   }, info) => {
     test.skip(info.project.name !== 'w1165');
     await openList(page);
-    const before = await listTotal(page);
     await page.getByLabel(/^Date range:/).click();
     const from = page.getByLabel('Date Range: From, start date');
     const to = page.getByLabel('Date Range: To, end date');
     const done = page.getByRole('button', { name: 'Done' });
     const alert = page.getByRole('group', { name: 'Date Range' }).getByRole('alert');
-    await to.fill('2026-11-01');
+    // A valid range first (each date applies live, by design: leads-date-filter.tsx).
+    await from.fill(firmDay(0));
+    await to.fill(firmDay(0));
+    await expect(alert).toHaveCount(0);
+    await expect(page).toHaveURL(/from=/);
+    const applied = page.url();
+    await expect.poll(() => listTotal(page)).toBeGreaterThanOrEqual(0);
+    const before = await listTotal(page);
+    // Reversed: her message, Done disabled, and the applied range stays as it was.
     await from.fill('2026-12-10');
     await expect(alert).toHaveText('End date must be on or after the start date');
     await expect(done).toBeDisabled();
-    await expect(page).not.toHaveURL(/from=/);
-    await expect(rows(page)).toHaveCount(Math.min(before, 24));
+    await expect(page).toHaveURL(applied);
+    await expect.poll(() => listTotal(page)).toBe(before);
     await shot(page, TAB, 'R2-13-reversed', info);
     await from.fill(firmDay(0));
     await to.fill(firmDay(0));
