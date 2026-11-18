@@ -26,7 +26,12 @@ let fixtures: readonly AuditEntry[] | undefined;
 
 /** Built on first use (times relative to now): importing this file runs nothing. */
 export function auditFixtures(): readonly AuditEntry[] {
-  const entry = (n: number, fields: Partial<AuditEntry> & Pick<AuditEntry, 'action' | 'entity'>) =>
+  /** A fixture's fields; the record's name and `deleted` default as the contract does. */
+  type Fields = Partial<Omit<AuditEntry, 'entity'>> &
+    Pick<AuditEntry, 'action'> & {
+      entity: Pick<AuditEntry['entity'], 'type' | 'id'> & Partial<AuditEntry['entity']>;
+    };
+  const entry = (n: number, fields: Fields) =>
     // Parsed, so a fixture that breaks the contract fails on first use.
     AuditEntry.parse({
       id: entryId(n),
@@ -41,7 +46,11 @@ export function auditFixtures(): readonly AuditEntry[] {
     // A change of each kind of value: null to empty text, true to false, zero to a number.
     entry(1, {
       action: 'appointment.rescheduled',
-      entity: { type: 'appointment', id: '0199b6c3-0000-7000-8000-000000000001' },
+      entity: {
+        type: 'appointment',
+        id: '0199b6c3-0000-7000-8000-000000000001',
+        name: 'Tax Planning with Jamie Sample',
+      },
       actor: { ...mockStaff, kind: 'STAFF' },
       metadata: {
         changes: {
@@ -53,12 +62,16 @@ export function auditFixtures(): readonly AuditEntry[] {
     }),
     entry(2, {
       action: 'client_account.approved',
-      entity: { type: 'client_account', id: '0199b6a1-0000-7000-8000-0000000000a1' },
+      entity: {
+        type: 'client_account',
+        id: '0199b6a1-0000-7000-8000-0000000000a1',
+        name: 'Jamie Sample',
+      },
       metadata: { clientId: firstClientId, linked: false },
     }),
     entry(3, {
       action: 'client.created',
-      entity: { type: 'client', id: firstClientId },
+      entity: { type: 'client', id: firstClientId, name: 'Jamie Sample' },
       metadata: { from: 'portal_sign_up' },
     }),
     entry(4, {
@@ -73,7 +86,13 @@ export function auditFixtures(): readonly AuditEntry[] {
     }),
     entry(5, {
       action: 'membership.invited',
-      entity: { type: 'membership', id: '0199b6a0-0000-7000-8000-0000000000e1' },
+      // The invitation was withdrawn since: the record is gone (M01a).
+      entity: {
+        type: 'membership',
+        id: '0199b6a0-0000-7000-8000-0000000000e1',
+        name: 'Deleted team member',
+        deleted: true,
+      },
       metadata: { role: 'STAFF', resent: false },
     }),
     // A Super Admin's read through a support grant: never the person or their IP.
@@ -151,7 +170,7 @@ export function createAuditLogMock(options: { role?: MockFirmRole } = {}): Audit
       refuseStaff();
       const rows = matching(parseInput(AuditLogQuery, query));
       const lines = [
-        'Time (UTC),Time (America/New_York),Actor,Actor type,Action,Record type,Record id,IP,Request id,Details',
+        'Time (UTC),Time (America/New_York),Actor,Actor type,Action,Record type,Record id,Record,IP,Request id,Details',
         ...rows.map((e) =>
           [
             e.at,
@@ -161,6 +180,7 @@ export function createAuditLogMock(options: { role?: MockFirmRole } = {}): Audit
             e.action,
             e.entity.type,
             e.entity.id,
+            e.entity.name,
             e.ip,
             e.requestId,
             Object.keys(e.metadata).length ? JSON.stringify(e.metadata) : null,

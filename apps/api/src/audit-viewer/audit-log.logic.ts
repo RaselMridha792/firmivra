@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { BadRequestException } from '@nestjs/common';
 import type { AuditActor, AuditEntry, AuditLogQuery } from '@firmivra/types';
 import type { z } from 'zod';
+import { recordKey, type RecordNames } from './audit-log.names.js';
 
 /** The parsed query (defaults applied). */
 export type AuditLogFilters = z.output<typeof AuditLogQuery>;
@@ -166,14 +167,24 @@ export function metadataOf(value: unknown): Record<string, unknown> {
   return { value };
 }
 
-export function toEntry(row: AuditRow, known: KnownActors): AuditEntry {
+export function toEntry(
+  row: AuditRow,
+  known: KnownActors,
+  names: RecordNames = new Map(),
+): AuditEntry {
   const { actor, hideIp } = actorOf(row.actorUserId, known);
+  const named = row.entityId ? names.get(recordKey(row.entityType, row.entityId)) : undefined;
   return {
     id: row.id,
     at: row.createdAt.toISOString(),
     action: row.action,
     actor,
-    entity: { type: row.entityType, id: row.entityId },
+    entity: {
+      type: row.entityType,
+      id: row.entityId,
+      name: named?.name ?? null,
+      deleted: named?.deleted ?? false,
+    },
     metadata: metadataOf(row.metadata),
     ip: hideIp ? null : row.ip,
     requestId: row.requestId,

@@ -44,3 +44,17 @@ test('R03c: Details reads each change as old → new, null and empty text apart'
   await expect(details).toContainText('reminderSent:true → false');
   await expect(details).toContainText('bufferMinutes:0 → 15');
 });
+
+test('M01a: each record shows its name; a gone record reads "Deleted team member"', async ({
+  page,
+}) => {
+  await page.goto(app('/audit-log'));
+  const rows = page.getByRole('table', { name: 'Audit log' }).locator('tbody tr');
+  await expect(rows.filter({ hasText: 'appointment.rescheduled' })).toContainText(
+    'Tax Planning with Jamie Sample',
+  );
+  await expect(rows.filter({ hasText: 'client.created' })).toContainText('Jamie Sample');
+  await expect(
+    rows.filter({ hasText: 'membership.invited' }).getByTestId('audit-record-name'),
+  ).toHaveText('Deleted team member');
+});

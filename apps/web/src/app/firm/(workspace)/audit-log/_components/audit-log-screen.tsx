@@ -105,7 +105,16 @@ const columnsIn = (timeZone: string | undefined): Column<AuditEntry>[] => [
     label: 'Record',
     cell: (entry) => (
       <>
-        {entry.entity.type}
+        {/* M01a: the record's current name, or "Deleted <type>" when it is gone. */}
+        {entry.entity.name ? (
+          <span
+            data-testid="audit-record-name"
+            className={`block wrap-anywhere ${entry.entity.deleted ? 'text-muted italic' : 'font-medium text-heading'}`}
+          >
+            {entry.entity.name}
+          </span>
+        ) : null}
+        <span className="block">{entry.entity.type}</span>
         {entry.entity.id ? (
           <span className="block break-all text-xs text-muted">{entry.entity.id}</span>
         ) : null}

@@ -43,7 +43,17 @@ export const AuditEntry = z
     action: z.string(),
     /** Null for the system and signed-out requests. */
     actor: AuditActor.nullable(),
-    entity: z.object({ type: z.string(), id: z.string().nullable() }),
+    /**
+     * The record: its type, its id, and (Audit Log Review 2, M01a) its current name, looked up
+     * when the log is read; "Deleted <type>" with `deleted` when the record is gone; null for a
+     * type the log does not name, or under a Super Admin's support read.
+     */
+    entity: z.object({
+      type: z.string(),
+      id: z.string().nullable(),
+      name: z.string().nullable().default(null),
+      deleted: z.boolean().default(false),
+    }),
     metadata: z.record(z.string(), z.unknown()),
     /** The request's IP; always null for Firmivra Support. */
     ip: z.string().nullable(),
