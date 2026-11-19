@@ -249,7 +249,11 @@ const leadPipelineMock =
   dev && mocked('leadPipeline')
     ? createLeadPipelineMock({ role: MOCK_ROLE, empty: mockedEmpty('leadPipeline') })
     : null;
-const documentsMock = dev && mocked('documents') ? createDocumentsMock({ role: MOCK_ROLE }) : null;
+// Failable, so a spec can slow `documents.list` (Tax Planning C14's loading state).
+const documentsMock =
+  dev && mocked('documents')
+    ? failable('documents', createDocumentsMock({ role: MOCK_ROLE }))
+    : null;
 /** One locations mock, shared with the Settings Overview mock (its Location Management rows). */
 const locationsMock =
   dev && mocked('locations')

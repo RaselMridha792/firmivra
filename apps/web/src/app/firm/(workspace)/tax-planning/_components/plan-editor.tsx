@@ -1605,13 +1605,18 @@ function StepImplementation({ plan, onNotice, onSaved, onNext, onBack }: StepPro
               label="Client document"
               value={docId}
               onChange={(e) => setDocId(e.target.value)}
+              // C14: "no documents" only once the list has loaded.
+              disabled={docs.isPending}
               options={[
                 {
                   value: '',
-                  label:
-                    (docs.data?.items.length ?? 0)
-                      ? 'Choose a document…'
-                      : 'This client has no documents',
+                  label: docs.isPending
+                    ? 'Loading documents…'
+                    : docs.isError
+                      ? 'Documents could not be loaded'
+                      : (docs.data?.items.length ?? 0)
+                        ? 'Choose a document…'
+                        : 'This client has no documents',
                 },
                 ...(docs.data?.items ?? []).map((d) => ({ value: d.id, label: d.fileName })),
               ]}
