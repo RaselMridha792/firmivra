@@ -410,23 +410,23 @@ function pricing(
     : included.reduce((sum, sv) => sum + (sv?.totalPriceCents ?? 0), 0);
   // R1-R3, as the API (`discountProblem`): never negative, at most 100%, at most the total. A
   // save refuses one (and stores nothing); a read reports it with the worked-out price unknown.
-  const value = input.discountValue;
-  const has = input.discountType !== 'NONE' && value !== null;
-  const problem: PackagePricing['discountProblem'] = !has
-    ? null
-    : value < 0
-      ? 'NEGATIVE'
-      : input.discountType === 'PERCENTAGE' && value > 10_000
-        ? 'OVER_100'
-        : input.discountType === 'FIXED' && total !== null && value > total
-          ? 'MORE_THAN_TOTAL'
-          : null;
+  const value = input.discountType === 'NONE' ? null : input.discountValue;
+  const problem: PackagePricing['discountProblem'] =
+    value === null
+      ? null
+      : value < 0
+        ? 'NEGATIVE'
+        : input.discountType === 'PERCENTAGE' && value > 10_000
+          ? 'OVER_100'
+          : input.discountType === 'FIXED' && total !== null && value > total
+            ? 'MORE_THAN_TOTAL'
+            : null;
   if (problem && mode === 'check')
     throw fail(400, 'INVALID_DISCOUNT', 'The discount cannot work', [
       { path: 'discountValue', message: 'The discount cannot work' },
     ]);
   const worked =
-    has && total !== null && !problem
+    value !== null && total !== null && !problem
       ? input.discountType === 'PERCENTAGE'
         ? total - Math.round((total * value) / 10_000)
         : total - value
@@ -668,11 +668,10 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
     s.packages.filter((p) => p.services.some((x) => x.serviceId === id));
   const savePackage = (p: ServicePackage, input: Partial<UpdateServicePackageRequest>) => {
     // R1, as the API: a discount that cannot work is refused before anything changes.
+    const items: { serviceId: string; included?: boolean | undefined }[] =
+      input.services ?? p.services;
     pricing(s, {
-      services: (input.services ?? p.services).map((x) => ({
-        serviceId: x.serviceId,
-        included: x.included ?? true,
-      })),
+      services: items.map((x) => ({ serviceId: x.serviceId, included: x.included ?? true })),
       packagePriceCents:
         input.packagePriceCents !== undefined
           ? input.packagePriceCents
@@ -1165,7 +1164,12 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
       manage();
       const input = parseInput(SavePromotionRequest, body);
       if (input.promoCode && s.promotions.some((p) => p.promoCode === input.promoCode))
-        throw fail(409, 'PROMOTION_CONFLICT', 'This code is already used');
+        throw fail(409, 'PROMO_CODE_TAKEN', 'Another promotion already uses this code', [
+          {
+            path: 'promoCode',
+            message: 'Another promotion already uses this code. Choose another.',
+          },
+        ]);
       const today = new Date().toISOString().slice(0, 10);
       const p: Promotion = {
         id: uuid('0b00', s.next++),

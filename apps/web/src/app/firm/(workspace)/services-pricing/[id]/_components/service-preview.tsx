@@ -18,7 +18,14 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorCode } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
-import { IconTile, Quiet, STATUS_LABEL, STATUS_TONE } from '../../_components/catalog-shared';
+import { useListReturn } from '../../_components/list-return';
+import {
+  IconTile,
+  Quiet,
+  recurringPrice,
+  STATUS_LABEL,
+  STATUS_TONE,
+} from '../../_components/catalog-shared';
 
 function price(service?: CatalogService) {
   if (!service) return 'No price available.';
@@ -28,8 +35,7 @@ function price(service?: CatalogService) {
   );
   if (service.price.type === 'STARTING_AT') return `Starting at ${amount}`;
   if (service.price.type === 'HOURLY') return `${amount}/hour`;
-  if (service.price.type === 'RECURRING')
-    return `${amount} / ${(service.price.frequency ?? 'MONTHLY').toLowerCase().replaceAll('_', ' ')}`;
+  if (service.price.type === 'RECURRING') return recurringPrice(amount, service.price.frequency);
   return amount;
 }
 function Frame({
@@ -166,6 +172,7 @@ export function ServicePreview({ serviceId }: { serviceId: string }) {
   const service = query.data;
   const notFound = query.isError && errorCode(query.error) === 'NOT_FOUND';
   const [full, setFull] = useState(false);
+  const { back, keep } = useListReturn();
   return (
     <div className="min-w-0 space-y-5" data-testid="service-preview-page">
       <PageHeader
@@ -182,14 +189,14 @@ export function ServicePreview({ serviceId }: { serviceId: string }) {
         actions={
           <>
             <Link
-              href="/services-pricing"
+              href={back}
               className="inline-flex min-h-11 items-center gap-2 rounded-control border border-action bg-surface px-4 text-sm text-action"
             >
               <ArrowLeft weight="fill" className="size-4" />
               Back to Services
             </Link>
             <Link
-              href={`/services-pricing/${serviceId}/edit`}
+              href={keep(`/services-pricing/${serviceId}/edit`)}
               className="inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-4 text-sm text-on-action"
             >
               <PencilSimple weight="fill" className="size-4" />

@@ -36,7 +36,22 @@ export const errors = {
       'PACKAGE_HAS_INACTIVE_SERVICE',
       'This package holds a service that is not active. Replace or remove it first.',
     ),
-  promotionConflict: (message: string) => conflict('PROMOTION_CONFLICT', message),
+  /** Y3: an overlap with a promotion that does not stack, named on the dates. */
+  promotionConflict: (message: string) =>
+    new ConflictException({
+      code: 'PROMOTION_CONFLICT',
+      message,
+      details: [{ path: 'startsOn', message }],
+    }),
+  /** Y3: a taken code, on its own field, never called an overlap. */
+  promoCodeTaken: () =>
+    new ConflictException({
+      code: 'PROMO_CODE_TAKEN',
+      message: 'Another promotion already uses this code',
+      details: [
+        { path: 'promoCode', message: 'Another promotion already uses this code. Choose another.' },
+      ],
+    }),
   saveConflict: () =>
     conflict('SAVE_CONFLICT', 'Someone saved this after you opened it. Reload and try again.'),
   activationIncomplete: (message: string) =>

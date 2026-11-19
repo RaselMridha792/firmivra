@@ -593,8 +593,13 @@ export const CatalogErrorCode = z.enum([
   'PACKAGE_HAS_INACTIVE_SERVICE',
   /** 400: a discount that cannot work (negative, over 100%, more than the services cost); nothing is stored. */
   'INVALID_DISCOUNT',
-  /** 409: the promotion overlaps another one that does not stack, or the code is taken. */
+  /**
+   * 409: the promotion overlaps another one that does not stack, in time and in what it covers
+   * (Review Two Y3: never a taken code). `details` name the other promotion on `startsOn`.
+   */
   'PROMOTION_CONFLICT',
+  /** 409: another promotion of the firm already uses this promo code (Y3); on `promoCode`. */
+  'PROMO_CODE_TAKEN',
   /** 409: someone saved it after it was loaded. */
   'SAVE_CONFLICT',
 ]);

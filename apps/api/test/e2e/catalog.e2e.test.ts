@@ -1246,17 +1246,23 @@ describe('promotions', () => {
     );
     expect(live.status).toBe('ACTIVE');
 
-    // Same category, same time, neither stacks: refused. Stacking on both is fine.
-    expectError(
-      await call('post', '/promotions', people.ownerA, body({ activate: true })),
-      409,
-      'PROMOTION_CONFLICT',
+    // Same category, same time, neither stacks: refused, naming the other promotion on the
+    // dates. A taken code is its own answer, on the code (Review Two Y3).
+    const overlap = await call('post', '/promotions', people.ownerA, body({ activate: true }));
+    expectError(overlap, 409, 'PROMOTION_CONFLICT');
+    expect((overlap.body as { error: { details: unknown } }).error.details).toEqual([
+      { path: 'startsOn', message: expect.stringContaining(`“${live.name}”`) as string },
+    ]);
+    const taken = await call(
+      'post',
+      '/promotions',
+      people.ownerA,
+      body({ promoCode: live.promoCode }),
     );
-    expectError(
-      await call('post', '/promotions', people.ownerA, body({ promoCode: live.promoCode })),
-      409,
-      'PROMOTION_CONFLICT',
-    );
+    expectError(taken, 409, 'PROMO_CODE_TAKEN');
+    expect((taken.body as { error: { details: unknown } }).error.details).toEqual([
+      { path: 'promoCode', message: expect.any(String) as string },
+    ]);
     // A later window does not overlap, and shows as Scheduled.
     const scheduled = exact(
       Promotion,
