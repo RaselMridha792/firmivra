@@ -5000,6 +5000,9 @@ model StripeAccount {
   onboardingStatus StripeOnboardingStatus @default(PENDING) @map("onboarding_status")
   chargesEnabled   Boolean                @default(false) @map("charges_enabled")
   payoutsEnabled   Boolean                @default(false) @map("payouts_enabled")
+  /// R55 (IP-041): Stripe has turned on ACH bank payments for this account. Written only by the
+  /// platform-scope writer (onboarding, sync, account.updated).
+  achPaymentsActive Boolean               @default(false) @map("ach_payments_active")
   detailsSubmitted Boolean                @default(false) @map("details_submitted")
   createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -6204,7 +6207,8 @@ enum InvoiceActorKind {
 model PaymentSettings {
   businessId              String           @id @map("business_id") @db.Uuid
   acceptCard              Boolean          @default(true) @map("accept_card")
-  acceptAch               Boolean          @default(true) @map("accept_ach")
+  /// R55 (IP-041): off until the firm turns it on (and Stripe has the capability on).
+  acceptAch               Boolean          @default(false) @map("accept_ach")
   acceptManual            Boolean          @default(true) @map("accept_manual")
   /// R1 (Nov 7, PAY-3): which processor takes card and ACH payments (only Stripe until launch).
   defaultCardProcessor    PaymentProcessor @default(STRIPE) @map("default_card_processor")
@@ -6959,6 +6963,8 @@ model OutboundMessage {
   templateId            String?               @map("template_id") @db.Uuid
   /// The firm's local time, kept as an instant; allowed only while SCHEDULED.
   scheduledFor          DateTime?             @map("scheduled_for") @db.Timestamptz(3)
+  /// R55 (M20): the IANA time zone the staff member chose for `scheduledFor`; null is the firm's own.
+  timezone              String?
   /// The record it is about, e.g. "invoice" and its id (both or neither).
   relatedEntityType     String?               @map("related_entity_type")
   relatedEntityId       String?               @map("related_entity_id") @db.Uuid
@@ -15881,7 +15887,8 @@ model LeadContactPoint {
   businessId String          @map("business_id") @db.Uuid
   leadId     String          @map("lead_id") @db.Uuid
   kind       LeadContactKind
-  /// An email (up to 254) or a phone number (up to 40).
+  /// An email (up to 254), a phone number (up to 40), an address or other detail (up to 300) or a
+  /// website (up to 2048).
   value      String
   /// "Work", "Mobile": up to 40 characters.
   label      String?
@@ -15898,6 +15905,10 @@ model LeadContactPoint {
 enum LeadContactKind {
   EMAIL
   PHONE
+  /// R55 (Leads R2 9): the other contact information.
+  ADDRESS
+  WEBSITE
+  OTHER
 }
 
 /// R1 (Nov 7, SM12): a file saved on a staff draft (Save under Remove): its S3 key under

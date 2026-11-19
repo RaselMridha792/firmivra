@@ -28,9 +28,8 @@ async function taskOnReturn(page: Page, title: string) {
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
   await page.getByRole('button', { name: 'Save Task' }).click();
-  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}\?from=/, { timeout: 60_000 });
-  await page.getByTestId('back-to-origin').click();
-  await expect(page).toHaveURL(returnUrl);
+  // Save returns to where Create Task was opened (Bookkeeping Review 2, N05 original).
+  await expect(page).toHaveURL(returnUrl, { timeout: 60_000 });
   await expect(tasks.getByRole('link', { name: title })).toBeVisible({ timeout: 60_000 });
   return { tasks, returnUrl };
 }

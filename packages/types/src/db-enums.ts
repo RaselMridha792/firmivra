@@ -2422,7 +2422,7 @@ export const ClientTimelineKind = z.enum([
 ]);
 export type ClientTimelineKind = z.infer<typeof ClientTimelineKind>;
 
-export const LeadContactKind = z.enum(['EMAIL', 'PHONE']);
+export const LeadContactKind = z.enum(['EMAIL', 'PHONE', 'ADDRESS', 'WEBSITE', 'OTHER']);
 export type LeadContactKind = z.infer<typeof LeadContactKind>;
 
 export const FirmApplicationInfoRequestStatus = z.enum(['OPEN', 'RESPONDED', 'SUPERSEDED']);
