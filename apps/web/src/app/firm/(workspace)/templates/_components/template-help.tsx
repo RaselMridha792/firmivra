@@ -28,7 +28,7 @@ const HELP = {
   },
   filters: {
     topic: 'Search and filters',
-    text: 'Search looks in names, descriptions and subject lines, and matches a whole tag. Status, Owner, Tag and Sort narrow and order the list; Non-archived shows active templates and drafts. The list is kept as you left it when you come back from a template.',
+    text: 'Search looks in names, descriptions, subject lines and tags, where part of a tag is enough. Status, Owner, Tag and Sort narrow and order the list; Non-archived shows active templates and drafts. The list is kept as you left it when you come back from a template.',
   },
   categories: {
     topic: 'Categories',
@@ -48,7 +48,7 @@ const HELP = {
   },
   structure: {
     topic: 'Structure',
-    text: 'A Task, Document Request or Intake template stands for that module’s own template, and Use starts from it. Tax Workflow and Bookkeeping templates keep their steps here for reference; those modules cannot start from a template yet.',
+    text: 'A Task, Document Request or Intake template stands for that module’s own template, and Use starts from it. Tax Workflow and Bookkeeping templates keep their steps here for reference; those modules cannot start from a template yet. For Bookkeeping: adding a service in Services & Pricing creates no workflow; a client’s bookkeeping starts when you add the client under Bookkeeping, and each new period’s close checklist comes from Bookkeeping Settings.',
   },
   attachments: {
     topic: 'Attachments',
@@ -79,7 +79,8 @@ const HELP = {
   },
   branding: {
     topic: 'Branding & Letterhead',
-    text: 'The footer, disclaimer and signature added to client messages, and whether letters use your letterhead. Your logo and business name come from Settings. Messages already sent keep what they had.',
+    // Y10 (decided Nov 19): exactly what each kind of output gets.
+    text: 'An email sent from a template (Communications or Messages) gets your footer and disclaimer, added once when it is sent. Your firm signature is not added to emails: the sender’s own My Signature stays as it is. Letters & Notices use your letterhead, signature, footer and disclaimer in previews and when printed; emails never get the letterhead. Texts and portal messages do not change. Your logo and business name come from Settings. Messages already sent keep what they had.',
   },
   // Y07: the areas that had no Help yet.
   share: {
@@ -96,7 +97,7 @@ const HELP = {
   },
   tags: {
     topic: 'Tags',
-    text: 'Short labels that help you find a template: type one and press Enter, or Save keeps a tag you have typed. Search and the Tag filter match a whole tag. Up to 20 tags, each up to 40 characters.',
+    text: 'Short labels that help you find a template: type one and press Enter, or Save keeps a tag you have typed. Search matches part of a tag; the Tag filter shows the templates with that exact tag. Up to 20 tags, each up to 40 characters.',
   },
   leadSequences: {
     topic: 'Lead follow-up sequences',

@@ -16,7 +16,7 @@ import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { uploadFile } from '../../../../../lib/upload';
 import { KINDS, TEMPLATES_KEY, TEMPLATE_ERRORS, kindOf, quiet } from './templates-shared';
 import { StructurePreview } from './structure-panel';
-import { HtmlFrame } from './html-preview';
+import { brandedHtml, HtmlFrame, printHtml } from './html-preview';
 import { type TemplateHelpArea, TemplateHelp } from './template-help';
 
 const GROUP_LABEL: Record<MergeField['group'], string> = {
@@ -114,8 +114,27 @@ export function PreviewDialog({
             ) : (
               // TP-F07: as an email shows it (images, alignment, the button), in a frame that runs
               // nothing (sandbox); the API cleaned the HTML already.
-              <HtmlFrame html={p.body} title={`Content of ${template.name}`} />
+              // Y10: with the firm's branding as it goes out (a letter's letterhead too).
+              <HtmlFrame
+                html={p.branding ? brandedHtml(p.body, p.branding) : p.body}
+                title={`Content of ${template.name}`}
+              />
             )}
+            {template.kind === 'LETTER_NOTICE' ? (
+              <div>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    printHtml(
+                      p.branding ? brandedHtml(p.body, p.branding) : p.body,
+                      `Print ${template.name}`,
+                    )
+                  }
+                >
+                  Print Letter
+                </Button>
+              </div>
+            ) : null}
             {p.sms ? (
               <p className="text-xs text-muted">
                 {p.sms.characters} characters, {p.sms.parts} text{' '}
@@ -602,6 +621,7 @@ function BrandingForm({
         </p>
         <Textarea
           label="Footer text"
+          hint="Added once to emails sent from a template, and to letters and notices."
           value={f.footer}
           rows={2}
           maxLength={1000}
@@ -609,6 +629,7 @@ function BrandingForm({
         />
         <Textarea
           label="Disclaimer"
+          hint="Added once to emails sent from a template, and to letters and notices."
           value={f.disclaimer}
           rows={2}
           maxLength={2000}
@@ -616,6 +637,7 @@ function BrandingForm({
         />
         <Textarea
           label="Signature"
+          hint="On letters and notices only. Emails keep the sender’s own My Signature."
           value={f.signature}
           rows={2}
           maxLength={1000}

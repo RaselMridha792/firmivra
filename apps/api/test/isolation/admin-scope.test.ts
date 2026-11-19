@@ -36,6 +36,7 @@ import { prepareSubscriptions, subscriptionsWrites } from './admin-subscriptions
 import { prepareSales, salesWrites } from './admin-sales-writes.js';
 import { prepareTeam, teamWrites } from './admin-team-writes.js';
 import { firmProfileWrites, prepareFirmProfile } from './admin-firm-profile-writes.js';
+import { firmAccountWrites, prepareFirmAccount } from './admin-firm-account-writes.js';
 import { integrationsWrites, prepareIntegrations } from './admin-integrations-writes.js';
 import { apiRoutes, fillPath } from './routes.js';
 
@@ -271,6 +272,7 @@ const WRITES: Record<
   ...teamWrites(),
   ...integrationsWrites(fx),
   ...firmProfileWrites(fx),
+  ...firmAccountWrites(fx),
 };
 
 /** The thread, messages, template and category the communications writes act on (R56). */
@@ -543,6 +545,7 @@ beforeAll(async () => {
   await prepareTeam(fx);
   await prepareIntegrations(fx);
   await prepareFirmProfile(fx);
+  await prepareFirmAccount();
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',

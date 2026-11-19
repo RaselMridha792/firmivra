@@ -154,6 +154,8 @@ describe('TemplateRenderService.render', () => {
       unresolved: ['Tax Year', 'Client Last Name'],
       sample: false,
       sms: null,
+      // Y10: render leaves branding to the preview, which adds the firm's for the kind.
+      branding: null,
     });
   });
 

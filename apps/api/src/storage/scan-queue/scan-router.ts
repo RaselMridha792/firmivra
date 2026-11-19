@@ -81,7 +81,9 @@ export interface RoutedOutcome {
 }
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const KEY = new RegExp(`^tenant/(${UUID})/([a-z]+)/(.+)$`);
+// A prefix is lower-case words joined by single hyphens (`staff-drafts`, SM17): `[a-z]+` alone
+// left a hyphenated prefix IGNORED, so its files stayed "being checked" for ever.
+const KEY = new RegExp(`^tenant/(${UUID})/([a-z]+(?:-[a-z]+)*)/(.+)$`);
 const OBJECT_ID = new RegExp(`^${UUID}$`);
 
 const isPrefix = (p: string): p is ScanPrefix => (SCAN_PREFIXES as readonly string[]).includes(p);

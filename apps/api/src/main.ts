@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { config as loadDotenv } from 'dotenv';
 import { AppModule } from './app.module.js';
+import { keepAliveBehindLoadBalancer } from './common/keep-alive.js';
 import { configureApp } from './configure-app.js';
 import { loadEnv } from './config/env.js';
 
@@ -15,6 +16,8 @@ async function bootstrap(): Promise<void> {
     rawBody: true,
   });
   configureApp(app, env);
+  // Outlast the load balancer's idle timeout: no 502 from a connection the server closed.
+  keepAliveBehindLoadBalancer(app.getHttpServer());
   await app.listen(env.API_PORT);
 }
 

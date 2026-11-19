@@ -20,3 +20,4 @@ export * from './firm-billing.js';
 export * from './portal-tabs.js';
 export * from './portal-contact.js';
 export * from './support-messages.js';
+export * from './firmivra-requests.js';
