@@ -41,7 +41,10 @@ test('SA-FRM-F06: the Owner answers Firmivra’s request with text and a file', 
   const row = page.getByTestId('firmivra-request').filter({ hasText: 'Your business licence' });
   await expect(row).toContainText('Waiting on You', { timeout: 60_000 });
   await row.getByRole('link', { name: 'Your business licence' }).click();
-  await expect(page.getByTestId('page-title')).toHaveText('Your business licence');
+  // The thread's route compiles on its first visit in dev.
+  await expect(page.getByTestId('page-title')).toHaveText('Your business licence', {
+    timeout: 60_000,
+  });
   await expect(page.getByTestId('firmivra-request-text')).toContainText(
     'please send a copy of your current business licence',
   );
