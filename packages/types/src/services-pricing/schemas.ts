@@ -591,7 +591,7 @@ export const CatalogErrorCode = z.enum([
   'CATEGORY_INACTIVE',
   /** 409: the package holds an inactive service: replace or remove it first. */
   'PACKAGE_HAS_INACTIVE_SERVICE',
-  /** 400: the discount makes the package price negative. */
+  /** 400: a discount that cannot work (negative, over 100%, more than the services cost); nothing is stored. */
   'INVALID_DISCOUNT',
   /** 409: the promotion overlaps another one that does not stack, or the code is taken. */
   'PROMOTION_CONFLICT',

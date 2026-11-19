@@ -1106,7 +1106,7 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
     },
     packagePricing: async (body) => {
       await mockDelay();
-      return pricing(s, parseInput(PackagePricingRequest, body));
+      return pricing(s, parseInput(PackagePricingRequest, body), 'read');
     },
     activatePackage: async (id) => {
       await mockDelay();

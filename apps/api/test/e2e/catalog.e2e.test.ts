@@ -830,16 +830,23 @@ describe('packages', () => {
       quoteRequired: true,
       savingsCents: null,
     });
-    expectError(
-      await call('post', '/packages/pricing', people.ownerA, {
-        services: [{ serviceId: s1.id, included: true }],
-        packagePriceCents: null,
-        discountType: 'FIXED',
-        discountValue: 99_999,
-      }),
-      400,
-      'INVALID_DISCOUNT',
-    );
+    // R2: the panel reports a discount that cannot work, so the form keeps its totals and shows
+    // the error on the field; saving it is refused (below).
+    expect(
+      exact(
+        PackagePricing,
+        await call('post', '/packages/pricing', people.ownerA, {
+          services: [{ serviceId: s1.id, included: true }],
+          packagePriceCents: null,
+          discountType: 'FIXED',
+          discountValue: 99_999,
+        }),
+      ),
+    ).toMatchObject({
+      totalSelectedCents: 10_000,
+      packagePriceCents: null,
+      discountProblem: 'MORE_THAN_TOTAL',
+    });
 
     expectError(
       await call('post', '/packages', people.ownerA, {
@@ -864,6 +871,138 @@ describe('packages', () => {
     const list = exact(ServicePackageList, await call('get', '/packages', people.staffA)).items;
     expect(list.map((p) => p.id)).toEqual(expect.arrayContaining([pkg.id, discounted.id]));
     exact(ServicePackage, await call('get', `/packages/${pkg.id}`, people.staffA));
+  });
+
+  it('R1-R3: a discount that cannot work is refused with nothing stored; a stored one never stops a read', async () => {
+    const cat = await mkCategory();
+    const s1 = await mkService(cat.id, { basePriceCents: 20_000 });
+    const patch = (id: string, body: object) =>
+      call('patch', `/packages/${id}`, people.ownerA, body);
+    const detailsOf = (res: { body: unknown }) =>
+      (res.body as { error: { details?: { path: string }[] } }).error.details?.map((d) => d.path);
+
+    // A $200 draft with no discount: a $250 fixed discount is refused and the draft is unchanged.
+    const draft = await mkPackage(cat.id, [s1.id], { packagePriceCents: 20_000, activate: false });
+    const tooMuch = await patch(draft.id, {
+      version: draft.version,
+      discountType: 'FIXED',
+      discountValue: 25_000,
+    });
+    expectError(tooMuch, 400, 'INVALID_DISCOUNT');
+    expect(detailsOf(tooMuch)).toEqual(['discountValue']);
+    const kept = exact(ServicePackage, await call('get', `/packages/${draft.id}`, people.staffA));
+    expect([kept.version, kept.status, kept.packagePriceCents, kept.pricing.discountType]).toEqual([
+      draft.version,
+      'DRAFT',
+      20_000,
+      'NONE',
+    ]);
+    // 101% and -1 are refused on the field, never a server error; with the type stored too.
+    for (const body of [
+      { discountType: 'PERCENTAGE', discountValue: 10_100 },
+      { discountType: 'FIXED', discountValue: -1 },
+    ]) {
+      const res = await patch(draft.id, { version: draft.version, ...body });
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(detailsOf(res)).toEqual(['discountValue']);
+    }
+    const percent = exact(
+      ServicePackage,
+      await patch(draft.id, {
+        version: draft.version,
+        packagePriceCents: null,
+        discountType: 'PERCENTAGE',
+        discountValue: 1_000,
+      }),
+    );
+    expectError(
+      await patch(draft.id, { version: percent.version, discountValue: 10_100 }),
+      400,
+      'INVALID_DISCOUNT',
+    );
+
+    // Create too: a draft with a discount that cannot work is not stored.
+    const lost = name('package');
+    expectError(
+      await call('post', '/packages', people.ownerA, {
+        name: lost,
+        categoryId: cat.id,
+        shortDescription: 'x',
+        services: [{ serviceId: s1.id, included: true }],
+        packagePriceCents: null,
+        discountType: 'FIXED',
+        discountValue: 25_000,
+      }),
+      400,
+      'INVALID_DISCOUNT',
+    );
+    const all = async () =>
+      exact(ServicePackageList, await call('get', '/packages?status=all', people.staffA)).items;
+    expect((await all()).some((p) => p.name === lost)).toBe(false);
+
+    // R3: 100% and the whole total are allowed: a $0 package.
+    const free = await mkPackage(cat.id, [s1.id], {
+      packagePriceCents: null,
+      discountType: 'FIXED',
+      discountValue: 20_000,
+    });
+    expect([free.status, free.packagePriceCents, free.pricing.priceFrom]).toEqual([
+      'ACTIVE',
+      0,
+      'DISCOUNT',
+    ]);
+
+    // Q1: a typed price wins; the discount beside it changes nothing.
+    const typed = await mkPackage(cat.id, [s1.id], {
+      packagePriceCents: 8_000,
+      discountType: 'PERCENTAGE',
+      discountValue: 1_000,
+      activate: false,
+    });
+    expect(typed.pricing).toMatchObject({
+      packagePriceCents: 8_000,
+      priceFrom: 'TYPED',
+      savingsCents: 12_000,
+    });
+
+    // R1: a discount stored before saves checked it (or whose services now cost less) is
+    // reported, and the package, the list and the public page still load.
+    const bad = await mkPackage(cat.id, [s1.id], {
+      packagePriceCents: null,
+      discountType: 'FIXED',
+      discountValue: 5_000,
+      activate: false,
+    });
+    await asOwner(ids.firmA, (tx) =>
+      tx.servicePackage.update({ where: { id: bad.id }, data: { discountCents: 30_000 } }),
+    );
+    const read = exact(ServicePackage, await call('get', `/packages/${bad.id}`, people.staffA));
+    expect(read.pricing).toMatchObject({
+      discountProblem: 'MORE_THAN_TOTAL',
+      packagePriceCents: null,
+      savingsCents: null,
+    });
+    expect((await all()).map((p) => p.id)).toEqual(expect.arrayContaining([bad.id, draft.id]));
+    // Its next save has to fix the discount; one that does is stored.
+    expectError(
+      await patch(bad.id, { version: read.version, name: name('package') }),
+      400,
+      'INVALID_DISCOUNT',
+    );
+    const mended = exact(
+      ServicePackage,
+      await patch(bad.id, {
+        version: read.version,
+        packagePriceCents: 18_000,
+        discountType: 'NONE',
+        discountValue: null,
+      }),
+    );
+    expect(mended.pricing).toMatchObject({
+      discountProblem: null,
+      packagePriceCents: 18_000,
+      priceFrom: 'TYPED',
+    });
   });
 
   it('S9: a quote-required service is not counted as $0, and optional extras never count', async () => {

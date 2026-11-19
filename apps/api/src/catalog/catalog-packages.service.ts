@@ -277,7 +277,11 @@ export class CatalogPackagesService {
     };
   }
 
-  /** The Package Pricing panel for the form's unsaved values. Saves nothing. */
+  /**
+   * The Package Pricing panel for the form's unsaved values. Saves nothing. A discount that cannot
+   * work is reported (`discountProblem`), not refused, so the form keeps its totals and shows the
+   * error beside the discount (R2); the save refuses it.
+   */
   async pricing(businessId: string, body: PackagePricingRequest): Promise<PackagePricing> {
     const ids = [...new Set(body.services.map((s) => s.serviceId))];
     const found = await this.tenantPrisma.db.service.findMany({
@@ -293,14 +297,17 @@ export class CatalogPackagesService {
     if (found.length !== ids.length)
       throw errors.invalid('services', 'Choose services of this firm');
     const byId = new Map(found.map((s) => [s.id, s]));
-    return packagePricing({
-      included: body.services
-        .filter((s) => s.included)
-        .map((s) => pricedService(byId.get(s.serviceId)!)),
-      packagePriceCents: body.packagePriceCents,
-      discountType: body.discountType,
-      discountValue: body.discountValue,
-    });
+    return packagePricing(
+      {
+        included: body.services
+          .filter((s) => s.included)
+          .map((s) => pricedService(byId.get(s.serviceId)!)),
+        packagePriceCents: body.packagePriceCents,
+        discountType: body.discountType,
+        discountValue: body.discountValue,
+      },
+      'read',
+    );
   }
 
   async create(businessId: string, userId: string, body: CreateBody): Promise<ServicePackage> {

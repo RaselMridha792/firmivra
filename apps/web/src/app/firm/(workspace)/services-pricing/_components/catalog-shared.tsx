@@ -100,7 +100,8 @@ export const CATALOG_ERRORS: Record<string, string> = {
   CATEGORY_INACTIVE: 'That category is inactive. Choose another.',
   PACKAGE_HAS_INACTIVE_SERVICE:
     'The package holds an inactive service. Replace or remove it first.',
-  INVALID_DISCOUNT: 'The discount makes the package price negative.',
+  INVALID_DISCOUNT:
+    'This discount cannot be saved. Use a percentage up to 100%, or an amount no more than the included services cost.',
   PROMOTION_CONFLICT: 'This overlaps another promotion that does not stack, or the code is taken.',
   SAVE_CONFLICT: 'Someone saved this after you opened it. Reload and try again.',
 };
