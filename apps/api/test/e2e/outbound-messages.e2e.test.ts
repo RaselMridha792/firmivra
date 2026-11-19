@@ -10,7 +10,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope } from '@firmivra/db';
+import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import { OutboundCheck as CheckShape, OutboundMessage as MessageShape } from '@firmivra/types';
@@ -490,6 +490,69 @@ describe('MSG-F11, F15: templates, merge fields and the review', () => {
       clientIds: [ids.one],
     });
     expect(missing.status).toBe(404);
+  });
+
+  it('an email from a template carries the firm’s footer and disclaimer once; a portal message does not (Y10)', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const inA = <T>(work: (tx: TxClient) => Promise<T>) =>
+      runInScope(owner, { kind: 'business', businessId: ids.firmA }, work);
+    const footer = `Fake footer ${run}`;
+    const disclaimer = `Fake disclaimer ${run}`;
+    const times = (s: string, part: string) => s.split(part).length - 1;
+    try {
+      await inA((tx) =>
+        tx.templateBranding.upsert({
+          where: { businessId: ids.firmA },
+          create: { businessId: ids.firmA, footerText: footer, disclaimer },
+          update: { footerText: footer, disclaimer },
+        }),
+      );
+      const templateId = (
+        await inA((tx) =>
+          tx.messageTemplate.create({
+            data: {
+              businessId: ids.firmA,
+              kind: 'EMAIL',
+              name: `Fake branded template ${run}`,
+              subject: 'Branded',
+              body: 'Hello',
+              status: 'ACTIVE',
+              ownerUserId: people.ownerA.id,
+            },
+          }),
+        )
+      ).id;
+      const send = async (save: object) => {
+        outbox.length = 0;
+        const d = await draft(save);
+        ok(
+          await call('post', `/outbound-messages/${d.id}/send`, people.ownerA, {
+            version: d.updatedAt,
+          }),
+        );
+        return JSON.stringify(outbox.filter((m) => m.template === 'lead.message-email'));
+      };
+      // The body already has the disclaimer: only the footer is added.
+      const branded = await send({
+        channel: 'EMAIL',
+        subject: 'Branded',
+        body: `Branded ${run}\n\n${disclaimer}`,
+        templateId,
+        leadIds: [ids.lead],
+      });
+      expect([times(branded, footer), times(branded, disclaimer)]).toEqual([1, 1]);
+      const plain = await send({
+        channel: 'EMAIL',
+        subject: 'Plain',
+        body: `Plain ${run}`,
+        leadIds: [ids.lead],
+      });
+      expect(plain).toContain(`Plain ${run}`);
+      expect(plain).not.toContain(footer);
+    } finally {
+      await inA((tx) => tx.templateBranding.deleteMany({ where: { businessId: ids.firmA } }));
+      await owner.$disconnect();
+    }
   });
 
   it('the review fills each person’s fields; unfilled ones block the send until confirmed', async () => {

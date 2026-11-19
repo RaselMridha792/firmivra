@@ -1287,6 +1287,8 @@ export function createCommunicationsMock({
             r.d.channel === 'SMS'
               ? { characters: plain.length, parts: Math.max(1, Math.ceil(plain.length / 160)) }
               : null,
+          // Y10: the mock models no template branding here.
+          branding: null,
         };
       }),
     testSend: (communicationId, body = {}) =>

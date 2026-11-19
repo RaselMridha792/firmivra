@@ -27,6 +27,7 @@ import {
 import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
+import { firmFooter, withFirmFooterText } from '../templates/firm-footer.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { legacyFirmRole } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';
@@ -1091,10 +1092,13 @@ export class OutboundMessagesService {
             select: { fileName: true },
           }),
         );
-      return { m, author, firm, queued, people, slug, filesOnly };
+      // Y10: an email from a template carries the firm's footer and disclaimer, once.
+      const footer =
+        m.channel === 'EMAIL' && m.templateId ? await firmFooter(tx, businessId) : null;
+      return { m, author, firm, queued, people, slug, filesOnly, footer };
     });
     if (!plan) return;
-    const { m, author, firm, people, slug, filesOnly } = plan;
+    const { m, author, firm, people, slug, filesOnly, footer } = plan;
     for (const r of plan.queued) {
       const p = people.find((x) => x.id === (r.clientId ?? r.leadId));
       const where = {
@@ -1124,7 +1128,12 @@ export class OutboundMessagesService {
       const text = await this.inFirm(businessId, async (tx) =>
         this.filled(await this.valuesFor(tx, businessId, author, p), m.subject, m.body),
       );
-      const own = { ...m, subject: text.subject, body: filesOnly ? m.body : text.body };
+      const body = filesOnly ? m.body : text.body;
+      const own = {
+        ...m,
+        subject: text.subject,
+        body: footer ? withFirmFooterText(body, footer) : body,
+      };
       const outcome = await this.one(businessId, author, own, p, slug).catch((error: unknown) => {
         this.logger.warn(
           `message ${id}: a recipient failed (${error instanceof Error ? error.name : 'Error'})`,

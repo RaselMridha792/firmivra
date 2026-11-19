@@ -20,6 +20,7 @@ import type {
 import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
+import { firmFooter, withFirmFooterHtml } from '../templates/firm-footer.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { sanitize, stripTags } from '../templates/html.js';
@@ -1052,6 +1053,12 @@ export class CommunicationsService {
         ],
         sample: person === null,
         sms: c.channel === 'SMS' ? smsLength(text.text) : null,
+        // Y10: an email from a template that has not gone out yet: the footer and disclaimer
+        // its send adds (once sent, its body already carries them).
+        branding:
+          c.channel === 'EMAIL' && c.templateId && !FROZEN_STATUSES.includes(c.status)
+            ? { letterhead: null, signature: null, ...(await firmFooter(ctx.tx, ctx.businessId)) }
+            : null,
       };
     });
   }
@@ -1637,7 +1644,12 @@ export class CommunicationsService {
       scheduledFor: null,
       ...(idempotencyKey ? { idempotencyKey } : {}),
       timezone: c.timezone ?? (await firmTimeZone(ctx.tx, ctx.businessId)),
-      body: c.body,
+      // Templates Review Two Y10: an email from a template goes out with the firm's footer and
+      // disclaimer, added here once (what was sent then stays as it was).
+      body:
+        c.channel === 'EMAIL' && c.templateId
+          ? withFirmFooterHtml(c.body, await firmFooter(ctx.tx, ctx.businessId))
+          : c.body,
       updatedByUserId: ctx.userId,
       ...(announce && !c.publishStartsAt ? { publishStartsAt: now } : {}),
     });

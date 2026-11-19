@@ -418,6 +418,23 @@ export const PreviewTemplateRequest = z.strictObject({
     .optional(),
 });
 export type PreviewTemplateRequest = z.input<typeof PreviewTemplateRequest>;
+/**
+ * Templates Review Two Y10 (decided Nov 19): the firm's branding as it goes out. An email (Email,
+ * Campaign) gets the footer and disclaimer (never the firm signature: the sender's My Signature
+ * stays as it is; no letterhead). A Letter or Notice gets the letterhead (when it is on), the firm
+ * signature, the footer and the disclaimer in previews and when printed.
+ */
+export const TemplateBrandingView = z.object({
+  /** The firm's logo, name and contact lines; null when the letterhead is off or not a letter. */
+  letterhead: z
+    .object({ name: z.string(), logoUrl: z.string().nullable(), lines: z.array(z.string()) })
+    .nullable(),
+  signature: z.string().nullable(),
+  footer: z.string().nullable(),
+  disclaimer: z.string().nullable(),
+});
+export type TemplateBrandingView = z.infer<typeof TemplateBrandingView>;
+
 export const RenderedTemplate = z.object({
   subject: z.string().nullable(),
   previewText: z.string().nullable(),
@@ -429,6 +446,8 @@ export const RenderedTemplate = z.object({
   sample: z.boolean(),
   /** An SMS: its length and how many parts it takes. */
   sms: z.object({ characters: z.number().int(), parts: z.number().int() }).nullable(),
+  /** Y10: the branding around the body (emails and letters); null for the other kinds. */
+  branding: TemplateBrandingView.nullable().default(null),
 });
 export type RenderedTemplate = z.infer<typeof RenderedTemplate>;
 

@@ -1900,6 +1900,50 @@ describe('test send, templates and files', () => {
     expect(saved.body).toContain(`src="${image.url}"`);
   });
 
+  it('an email from a template goes out with the firm’s footer and disclaimer, once (Y10)', async () => {
+    const footer = `Fake footer ${run}`;
+    const disclaimer = `Fake disclaimer ${run}`;
+    const firm = async (method: 'put', path: string, body: object) =>
+      request(app.getHttpServer())
+        [method](`/api/v1/business${path}`)
+        .set('x-business-id', firms.a)
+        .set('x-forwarded-for', viewer())
+        .set('authorization', `Bearer ${await tokenFor(ownerA.email)}`)
+        .send(body);
+    const times = (s: string, part: string) => s.split(part).length - 1;
+    ok(await firm('put', '/template-branding', { footerText: footer, disclaimer }));
+    try {
+      // The template's own content already has the footer: only the disclaimer is added.
+      const src = await draft();
+      await edit(src.id, { subject: 'Branded', body: `<p>Hello</p><p>${footer}</p>` });
+      const t = MessageTemplateDetail.parse(
+        ok(
+          await call('post', `/${src.id}/save-as-template`, ownerA, {
+            name: mark('Branded'),
+            activate: true,
+          }),
+          201,
+        ),
+      );
+      const sendIt = async (d: { id: string }) => {
+        ok(await audienceOf(d.id, { clientIds: [people2.p2] }));
+        const fresh = await getDetail(d.id);
+        ok(
+          await call('post', `/${d.id}/send`, ownerA, { idempotencyKey: key(), etag: fresh.etag }),
+        );
+        return (await getDetail(d.id)).body;
+      };
+      const branded = await sendIt(await draft({ templateId: t.id, name: mark('Branded send') }));
+      expect([times(branded, footer), times(branded, disclaimer)]).toEqual([1, 1]);
+      // An email written from scratch, and a text, are sent as written.
+      const plain = await draft({ name: mark('Plain send') });
+      await edit(plain.id, { subject: 'Plain', body: '<p>Plain body</p>' });
+      expect(await sendIt(plain)).not.toContain(disclaimer);
+    } finally {
+      ok(await firm('put', '/template-branding', { footerText: null, disclaimer: null }));
+    }
+  });
+
   it('an archived template can no longer be used (TP-F13)', async () => {
     const d = await draft();
     await edit(d.id, { subject: 'Kept', body: '<p>Kept body</p>' });
