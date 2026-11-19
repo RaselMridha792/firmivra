@@ -10,7 +10,7 @@ import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
 import { endsInCalendar } from './appointments.service.js';
-import { usableTimeZone } from './calendar.js';
+import { addDays, usableTimeZone, zonedDate, zonedInstant } from './calendar.js';
 import { activeMember, type FirmActor, firmTimeZone } from './calendar-data.js';
 import { lockAppointment, lockEquipment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import {
@@ -564,20 +564,36 @@ export class SchedulingWriteService {
         select: { id: true, startsAt: true, endsAt: true, updatedAt: true },
       }),
     );
+    // A new time moves each by the same calendar days and time of day in the firm's zone, so a
+    // series that crosses a daylight saving change keeps its wall-clock time (10:30 stays 10:30).
+    const timeZone = await this.inFirm(businessId, (tx) => firmTimeZone(tx, businessId));
+    const minuteOf = (instant: number) =>
+      Math.round((instant - zonedInstant(timeZone, zonedDate(timeZone, instant), 0)) / MINUTE);
+    const dayNumber = (instant: number) => Date.parse(`${zonedDate(timeZone, instant)}T00:00:00Z`);
+    const shiftOf = (from: number, to: number) => ({
+      days: Math.round((dayNumber(to) - dayNumber(from)) / 86_400_000),
+      minutes: minuteOf(to) - minuteOf(from),
+    });
+    const moved = (instant: number, by: { days: number; minutes: number }) =>
+      new Date(
+        zonedInstant(
+          timeZone,
+          addDays(zonedDate(timeZone, instant), by.days),
+          minuteOf(instant) + by.minutes,
+        ),
+      ).toISOString();
     const moveStart = details.startsAt
-      ? Date.parse(details.startsAt) - before.startsAt.getTime()
+      ? shiftOf(before.startsAt.getTime(), Date.parse(details.startsAt))
       : null;
-    const moveEnd = details.endsAt ? Date.parse(details.endsAt) - before.endsAt.getTime() : null;
+    const moveEnd = details.endsAt
+      ? shiftOf(before.endsAt.getTime(), Date.parse(details.endsAt))
+      : null;
     for (const o of others) {
       await this.updateOne(businessId, actor, o.id, {
         ...details,
         version: versionOf(o.updatedAt),
-        ...(moveStart !== null
-          ? { startsAt: new Date(o.startsAt.getTime() + moveStart).toISOString() }
-          : {}),
-        ...(moveEnd !== null
-          ? { endsAt: new Date(o.endsAt.getTime() + moveEnd).toISOString() }
-          : {}),
+        ...(moveStart ? { startsAt: moved(o.startsAt.getTime(), moveStart) } : {}),
+        ...(moveEnd ? { endsAt: moved(o.endsAt.getTime(), moveEnd) } : {}),
       });
     }
     return record;
