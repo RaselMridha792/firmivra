@@ -3,7 +3,7 @@ import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import { HttpsUrl } from '../content/schemas.js';
 import { ServiceKind } from '../db-enums.js';
-import { AppointmentEvent, checkMeetingMethods, TimeOfDay } from './schemas.js';
+import { AppointmentEvent, checkMeetingMethods, SeriesScope, TimeOfDay } from './schemas.js';
 
 // Appointments workspace (R42 contract, for Tumit's screens): the overview's KPIs, the Calendar /
 // List / Today views with search, the full Schedule Appointment form (Create New and Edit
@@ -364,7 +364,17 @@ export type SaveAppointmentDraftRequest = z.input<typeof SaveAppointmentDraftReq
  * time, staff, place or link sends an update notice. `version` catches a concurrent edit.
  */
 export const UpdateAppointmentDetailsRequest = z
-  .strictObject({ version: z.string().min(1).max(100), ...scheduleFields })
+  .strictObject({
+    version: z.string().min(1).max(100),
+    ...scheduleFields,
+    /**
+     * Review 2 (R2): a repeating appointment's other occurrences this change reaches too
+     * (FOLLOWING: the scheduled ones after it; SERIES: every scheduled one not yet started).
+     * Each gets the same fields, and a new time moves each by the same amount. The repeat itself
+     * changes on one appointment only (400 with another scope).
+     */
+    scope: SeriesScope,
+  })
   .partial()
   .required({ version: true });
 export type UpdateAppointmentDetailsRequest = z.input<typeof UpdateAppointmentDetailsRequest>;

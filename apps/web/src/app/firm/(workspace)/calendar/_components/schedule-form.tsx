@@ -10,9 +10,21 @@ import {
   type ReminderUnit,
   ScheduleAppointmentRequest,
   type SchedulingOptions,
+  SERIES_SCOPE_LABELS,
+  SeriesScope,
   type ServiceKind,
 } from '@firmivra/types';
-import { Button, Callout, Checkbox, Input, Select, Skeleton, Textarea, Toggle } from '@firmivra/ui';
+import {
+  Button,
+  Callout,
+  Checkbox,
+  Input,
+  Radio,
+  Select,
+  Skeleton,
+  Textarea,
+  Toggle,
+} from '@firmivra/ui';
 import {
   ArrowLeft,
   ArrowRight,
@@ -878,6 +890,8 @@ function FormBody({
   };
   const [copied, setCopied] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Review 2 (R2): editing one of a repeating series: which occurrences the change reaches.
+  const [scope, setScope] = useState<SeriesScope>('THIS');
   // Advisory B11 (Octavia, Oct 25): Generate Zoom Link needs Zoom connected (Integrations) and the
   // first staff member's meeting link (Settings > Availability); the form says which is missing
   // and how to fix it, and never generates without both.
@@ -1192,8 +1206,13 @@ function FormBody({
     if (!c) return;
     const body = { ...fields(), contact: c };
     if (record) {
+      // Review 2 (R2): the repeat itself changes on this appointment alone; with another scope
+      // the change keeps the series' repeat as it is.
+      const { recurrence: _repeat, ...rest } = body;
       update.mutate(
-        { version: record.version, ...body },
+        record.seriesId && scope !== 'THIS'
+          ? { version: record.version, ...rest, scope }
+          : { version: record.version, ...body },
         {
           onSuccess: (r) => {
             forgetKept();
@@ -2280,6 +2299,27 @@ function FormBody({
         </Callout>
       </aside>
 
+      {record?.seriesId ? (
+        <fieldset
+          data-testid="edit-scope"
+          className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 min-[1440px]:col-span-2"
+        >
+          <legend className="sr-only">Apply the changes to</legend>
+          <span aria-hidden className="text-sm font-semibold text-heading">
+            Apply the changes to
+          </span>
+          {SeriesScope.options.map((value) => (
+            <Radio
+              key={value}
+              name="edit-scope"
+              value={value}
+              label={SERIES_SCOPE_LABELS[value]}
+              checked={scope === value}
+              onChange={() => setScope(value)}
+            />
+          ))}
+        </fieldset>
+      ) : null}
       <div className="flex flex-wrap items-center justify-end gap-3 min-[1440px]:col-span-2">
         {embedded ? (
           <button
