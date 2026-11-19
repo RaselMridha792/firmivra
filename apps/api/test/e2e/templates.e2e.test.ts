@@ -16,7 +16,6 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import {
   BulkTemplatesResult,
-  DownloadLink,
   EmailImage,
   ImportTemplateResult,
   InstallStartersResult,
@@ -1846,6 +1845,50 @@ describe('merge fields and branding', () => {
       ).letterheadEnabled,
     ).toBe(true);
   });
+
+  it('a preview shows the branding as it goes out: a letter its letterhead and signature, an email the footer and disclaimer (Y10)', async () => {
+    const brand = { footer: `Footer ${run}`, disclaimer: `Disclaimer ${run}` };
+    ok(
+      await call('put', '/template-branding', people.ownerA, {
+        footerText: brand.footer,
+        disclaimer: brand.disclaimer,
+        signatureText: `Signed ${run}`,
+        letterheadEnabled: true,
+      }),
+    );
+    try {
+      const letter = await make({
+        kind: 'LETTER_NOTICE',
+        subject: 'Letter',
+        body: '<p>Dear client</p>',
+      });
+      const email = await make({});
+      const sms = await make({ kind: 'SMS', body: 'x' });
+      const brandingOf = async (id: string) =>
+        RenderedTemplate.parse(
+          ok(await call('post', `/templates/${id}/preview`, people.ownerA, {})),
+        ).branding;
+      expect(await brandingOf(letter.id)).toMatchObject({
+        letterhead: { name: expect.any(String) as string },
+        signature: `Signed ${run}`,
+        ...brand,
+      });
+      // An email: never the letterhead, never the firm signature (the sender's My Signature stays).
+      expect(await brandingOf(email.id)).toEqual({ letterhead: null, signature: null, ...brand });
+      expect(await brandingOf(sms.id)).toBeNull();
+      ok(await call('put', '/template-branding', people.ownerA, { letterheadEnabled: false }));
+      expect((await brandingOf(letter.id))?.letterhead).toBeNull();
+    } finally {
+      ok(
+        await call('put', '/template-branding', people.ownerA, {
+          footerText: null,
+          disclaimer: null,
+          signatureText: null,
+          letterheadEnabled: true,
+        }),
+      );
+    }
+  });
 });
 
 describe('images in the content (TP-F07)', () => {
@@ -1954,12 +1997,13 @@ describe('attachments', () => {
       'UPLOAD_EXPIRED',
     );
 
-    const link = DownloadLink.parse(
-      ok(
-        await call('get', `/templates/${t.id}/attachments/${confirmed.id}/download`, people.staffA),
-      ),
+    // The scan gap (Nov 19): no download until the file's virus check is recorded (the scan
+    // column comes with the db PR), so every download waits.
+    expectError(
+      await call('get', `/templates/${t.id}/attachments/${confirmed.id}/download`, people.staffA),
+      409,
+      'SCAN_PENDING',
     );
-    expect(link.url).toContain('?download');
     expectError(
       await call('get', `/templates/${t.id}/attachments/${randomUUID()}/download`, people.ownerA),
       404,

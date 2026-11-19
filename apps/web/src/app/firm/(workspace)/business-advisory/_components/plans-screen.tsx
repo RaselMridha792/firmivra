@@ -9,6 +9,7 @@ import {
   Modal,
   Select,
   Table,
+  Tabs,
   Textarea,
   type ActionMenuItem,
   type Column,
@@ -69,6 +70,10 @@ export function BusinessPlans() {
   const [type, setType] = useState('');
   const [advisor, setAdvisor] = useState('');
   const [archived, setArchived] = useState(false);
+  // A-X08 (B26): Archive & History, archived and completed plans with their version history.
+  const [view, setView] = useState<'plans' | 'archive'>('plans');
+  const [kept, setKept] = useState<'ARCHIVED' | 'COMPLETED'>('ARCHIVED');
+  const archive = view === 'archive';
   const [page, setPage] = useState(1);
   const [dialog, setDialog] = useState<{
     kind: 'versions' | 'send' | 'approval';
@@ -76,15 +81,19 @@ export function BusinessPlans() {
   }>();
   const term = useDeferredValue(search.trim());
   const q = useApiQuery(
-    [...BA_KEY, 'plans', term, status, year, type, advisor, archived, page],
+    [...BA_KEY, 'plans', view, kept, term, status, year, type, advisor, archived, page],
     () =>
       api.advisory.plans({
         ...(term ? { search: term } : {}),
-        ...(status ? { status: status as never } : {}),
+        ...(archive
+          ? { status: kept, includeArchived: true }
+          : {
+              ...(status ? { status: status as never } : {}),
+              ...(archived ? { includeArchived: true } : {}),
+            }),
         ...(year ? { targetYear: Number(year) } : {}),
         ...(type ? { planType: type } : {}),
         ...(advisor ? { advisorUserId: advisor } : {}),
-        ...(archived ? { includeArchived: true } : {}),
         page,
         pageSize: SIZE,
       }),
@@ -273,17 +282,55 @@ export function BusinessPlans() {
         aria-label="Business plans"
         data-testid="ba-plans"
       >
+        <Tabs
+          label="Business plan views"
+          variant="underline"
+          value={view}
+          onChange={(id) => {
+            setView(id as 'plans' | 'archive');
+            setPage(1);
+          }}
+          items={[
+            { id: 'plans', label: 'Plans' },
+            { id: 'archive', label: 'Archive & History' },
+          ]}
+        />
+        {archive ? (
+          <p className="text-sm text-muted">
+            Archived and completed plans, kept as they were. Each plan’s Version History has every
+            finalized version, who sent it and how; Restore brings an archived plan back to the
+            list.
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-3">
           <SearchBox value={search} onChange={filter(setSearch)} label="Search plans" />
-          <FilterSelect
-            label="Status"
-            all="All Statuses"
-            value={status}
-            onChange={filter(setStatus)}
-            options={Object.entries(PLAN_STATUS)
-              .filter(([v]) => v !== 'ARCHIVED')
-              .map(([value, label]) => ({ value, label }))}
-          />
+          {archive ? (
+            <div className="w-44">
+              <Select
+                label="Kept plans"
+                hideLabel
+                value={kept}
+                onChange={(e) => {
+                  setKept(e.target.value === 'COMPLETED' ? 'COMPLETED' : 'ARCHIVED');
+                  setPage(1);
+                }}
+                options={[
+                  { value: 'ARCHIVED', label: 'Archived' },
+                  { value: 'COMPLETED', label: 'Completed' },
+                ]}
+              />
+            </div>
+          ) : (
+            <FilterSelect
+              label="Status"
+              all="All Statuses"
+              value={status}
+              onChange={filter(setStatus)}
+              options={Object.entries(PLAN_STATUS)
+                .filter(([v]) => v !== 'ARCHIVED')
+                .map(([value, label]) => ({ value, label }))}
+            />
+          )}
           <FilterSelect
             label="Target year"
             all="All Years"
@@ -311,38 +358,52 @@ export function BusinessPlans() {
               options={members}
             />
           ) : null}
-          <Checkbox
-            label="Show archived"
-            checked={archived}
-            onChange={(e) => {
-              setArchived(e.target.checked);
-              setPage(1);
-            }}
-          />
-          <Link
-            href={`${BASE}/plans/new`}
-            aria-disabled={overview.data ? !overview.data.canCreatePlan : false}
-            className={`${primary} ml-auto ${overview.data && !overview.data.canCreatePlan ? 'pointer-events-none opacity-50' : ''}`}
-          >
-            <Plus aria-hidden weight="bold" className="size-4" /> Create Business Plan
-          </Link>
+          {archive ? null : (
+            <>
+              <Checkbox
+                label="Show archived"
+                checked={archived}
+                onChange={(e) => {
+                  setArchived(e.target.checked);
+                  setPage(1);
+                }}
+              />
+              <Link
+                href={`${BASE}/plans/new`}
+                aria-disabled={overview.data ? !overview.data.canCreatePlan : false}
+                className={`${primary} ml-auto ${overview.data && !overview.data.canCreatePlan ? 'pointer-events-none opacity-50' : ''}`}
+              >
+                <Plus aria-hidden weight="bold" className="size-4" /> Create Business Plan
+              </Link>
+            </>
+          )}
         </div>
         <Table
           rows={q.data?.items ?? []}
           columns={cols}
           rowKey={(r) => r.id}
-          caption="Business plans"
+          caption={archive ? 'Archived and completed business plans' : 'Business plans'}
           dense
           noun="plans"
           pageSize={SIZE}
           loading={q.isPending}
-          emptyTitle={q.isError ? 'Business plans are not available' : 'No business plans'}
+          emptyTitle={
+            q.isError
+              ? 'Business plans are not available'
+              : archive
+                ? kept === 'ARCHIVED'
+                  ? 'No archived plans'
+                  : 'No completed plans'
+                : 'No business plans'
+          }
           emptyText={
             q.isError
               ? 'We could not load them. Try again in a moment.'
-              : term || status || year || type || advisor
+              : term || (!archive && status) || year || type || advisor
                 ? 'Try another search or filter.'
-                : 'Create a business plan for an advisory client.'
+                : archive
+                  ? 'Plans you archive or complete are kept here with their history.'
+                  : 'Create a business plan for an advisory client.'
           }
           rowActions={(r) => (
             <ActionMenu
@@ -590,6 +651,14 @@ export function SendPlanDialog({
   const [message, setMessage] = useState('');
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  // A-X13: who receives it on this channel, what it says, and anything that would refuse it.
+  const preview = useApiQuery(['advisory', 'send-preview', plan.id, channel, version], () =>
+    api.advisory.previewSendPlan(plan.id, {
+      channel: channel as never,
+      version: Number(version),
+    }),
+  );
+  const blocked = preview.data ? !preview.data.eligible : false;
   return (
     <Modal
       open
@@ -602,7 +671,7 @@ export function SendPlanDialog({
             Cancel
           </Button>
           <Button
-            disabled={saving}
+            disabled={saving || blocked}
             onClick={async () => {
               setSaving(true);
               setError(undefined);
@@ -652,6 +721,40 @@ export function SendPlanDialog({
           value={message}
           onChange={(e) => setMessage(e.target.value)}
         />
+        {preview.data ? (
+          <div
+            className="flex flex-col gap-2 rounded-card border border-border p-3 text-sm"
+            data-testid="send-plan-preview"
+          >
+            <p className="text-heading">
+              <span className="font-semibold">To:</span> {preview.data.to.name}
+              {channel === 'DOWNLOAD'
+                ? ' (a download for you to share)'
+                : preview.data.to.email
+                  ? ` (${CHANNEL[channel] ?? channel}, ${preview.data.to.email})`
+                  : ` (${CHANNEL[channel] ?? channel})`}
+            </p>
+            {preview.data.problems.length ? (
+              <ul role="alert" className="list-disc pl-5 text-danger">
+                {preview.data.problems.map((p) => (
+                  <li key={p.code}>{p.message}</li>
+                ))}
+              </ul>
+            ) : null}
+            {preview.data.notes.map((n) => (
+              <p key={n} className="text-muted">
+                {n}
+              </p>
+            ))}
+            {preview.data.body ? (
+              <details>
+                <summary className="cursor-pointer text-link">What the client receives</summary>
+                <p className="mt-2 font-semibold text-heading">{preview.data.subject}</p>
+                <p className="mt-1 whitespace-pre-wrap text-text">{preview.data.body}</p>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </Modal>
   );

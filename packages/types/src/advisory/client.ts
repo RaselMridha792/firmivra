@@ -26,6 +26,7 @@ import {
   AdvisoryMilestoneId,
   AdvisoryOverview,
   AdvisoryPlanDetail,
+  AdvisoryPlanSendPreview,
   AdvisoryPlanId,
   AdvisoryPlanPage,
   AdvisoryReports,
@@ -208,6 +209,16 @@ export function createAdvisoryClient(request: ApiRequest) {
       request(
         AdvisoryPlanDetail,
         `${plan(id)}/send`,
+        post(parseInput(SendAdvisoryPlanRequest, body)),
+      ),
+    /** A-X13: what Send would deliver and to whom, and what would refuse it; nothing is sent. */
+    previewSendPlan: async (
+      id: string,
+      body: SendAdvisoryPlanRequest,
+    ): Promise<AdvisoryPlanSendPreview> =>
+      request(
+        AdvisoryPlanSendPreview,
+        `${plan(id)}/send-preview`,
         post(parseInput(SendAdvisoryPlanRequest, body)),
       ),
     /**

@@ -42,12 +42,21 @@ import {
 } from '@firmivra/ui';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useEffect, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { pageOf, readListQuery, writeListQuery } from '../../../../../lib/list-query';
+import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { CATALOG_ERRORS, rowActivationGap, STATUS_LABEL, STATUS_TONE } from './catalog-shared';
+import {
+  CATALOG_ERRORS,
+  recurringPrice,
+  rowActivationGap,
+  STATUS_LABEL,
+  STATUS_TONE,
+} from './catalog-shared';
+import { ServiceChangeConfirm, type ServiceChange } from './service-change-confirm';
 
 const CATALOG_KEY = ['services-pricing'] as const;
 const PAGE_SIZE = 8;
@@ -193,18 +202,8 @@ function priceLabel(row: CatalogServiceRow) {
       return `${amount}+`;
     case 'HOURLY':
       return `${amount}/hour`;
-    case 'RECURRING': {
-      const cadence = {
-        ONE_TIME: 'one time',
-        WEEKLY: 'week',
-        BIWEEKLY: '2 weeks',
-        MONTHLY: 'month',
-        QUARTERLY: 'quarter',
-        SEMIANNUAL: '6 months',
-        ANNUAL: 'year',
-      }[row.price.frequency ?? 'MONTHLY'];
-      return `${amount} / ${cadence}`;
-    }
+    case 'RECURRING':
+      return recurringPrice(amount, row.price.frequency);
     case 'CUSTOM_QUOTE':
       return 'Quote required';
     default:
@@ -321,21 +320,52 @@ function ServiceUsageDialog({
   );
 }
 
+/**
+ * Services & Pricing Review Two R6: the list's view, search, category, sort and page live in the
+ * address, so a refresh keeps them and Back from a service (opened with `?from=`, SH1) returns to
+ * the same list. Defaults are left out of the address.
+ */
+const LIST_VIEW = { view: 'active', q: '', category: '', sort: 'updated', dir: 'desc', page: '1' };
+const SORTS: SortKey[] = ['name', 'category', 'price', 'status', 'updated'];
+const isSort = (value: string): value is SortKey => (SORTS as string[]).includes(value);
+
 export function ServicesPricingScreen() {
   const router = useRouter();
+  const open = useOriginNavigate();
   const params = useSearchParams();
-  const asked = params.get('view');
-  const [view, setView] = useState<ServiceView>(() => (isView(asked) ? asked : 'active'));
+  const [start] = useState(() => readListQuery(Object.fromEntries(params), LIST_VIEW));
+  const [view, setView] = useState<ServiceView>(() => (isView(start.view) ? start.view : 'active'));
   /** A service that cannot be activated yet, and what it still needs. */
   const [blocked, setBlocked] = useState<{ row: CatalogServiceRow; need: string } | null>(null);
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(start.q);
   const search = useDeferredValue(searchText.trim());
-  const [categoryId, setCategoryId] = useState('');
-  const [sort, setSort] = useState<TableSort>({ id: 'updated', descending: true });
-  const [page, setPage] = useState(1);
+  const [categoryId, setCategoryId] = useState(start.category);
+  const [sort, setSort] = useState<TableSort>(() => ({
+    id: isSort(start.sort) ? start.sort : 'updated',
+    descending: start.dir !== 'asc',
+  }));
+  const [page, setPage] = useState(() => pageOf(start.page));
+  useEffect(() => {
+    writeListQuery(
+      {
+        view,
+        q: searchText.trim(),
+        category: categoryId,
+        sort: sort.id,
+        dir: sort.descending ? 'desc' : 'asc',
+        page: String(page),
+      },
+      LIST_VIEW,
+    );
+  }, [view, searchText, categoryId, sort, page]);
   const [selected, setSelected] = useState<string[]>([]);
   const [usageTarget, setUsageTarget] = useState<CatalogServiceRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CatalogServiceRow | null>(null);
+  // R5, R12: archive and deactivate wait for the firm to confirm, after seeing what they affect.
+  const [confirming, setConfirming] = useState<{
+    row: CatalogServiceRow;
+    action: ServiceChange;
+  } | null>(null);
   const [notice, setNotice] = useState('');
 
   const summary = useApiQuery([...CATALOG_KEY, 'summary'], () => api.servicesPricing.summary());
@@ -354,6 +384,11 @@ export function ServicesPricingScreen() {
   const services = useApiQuery([...CATALOG_KEY, 'services', query], () =>
     api.servicesPricing.services(query),
   );
+  // R6: a page past the end (from the address, or after rows left the list) goes to the last one.
+  const lastPage = services.data
+    ? Math.max(1, Math.ceil(services.data.total / services.data.pageSize))
+    : null;
+  if (lastPage !== null && page > lastPage) setPage(lastPage);
 
   const serviceAction = useApiMutation(
     ({ id, action }: { id: string; action: ServiceAction }) => {
@@ -380,12 +415,12 @@ export function ServicesPricingScreen() {
         <div className="flex min-w-72 items-center gap-4">
           <ServiceMark icon={row.icon} />
           <div className="min-w-0">
-            <Link
+            <OriginLink
               href={`/services-pricing/${row.id}`}
               className="block truncate text-sm font-semibold text-heading hover:text-action"
             >
               {row.name}
-            </Link>
+            </OriginLink>
             <p className="mt-0.5 truncate text-xs text-muted">{row.shortDescription}</p>
           </div>
         </div>
@@ -438,7 +473,7 @@ export function ServicesPricingScreen() {
     setSelected([]);
   }
 
-  function handleServiceAction(row: CatalogServiceRow, action: ServiceAction) {
+  function handleServiceAction(row: CatalogServiceRow, action: ServiceAction, confirmed = false) {
     setNotice('');
     setBlocked(null);
     // S3: say what is missing instead of sending a request the API refuses.
@@ -447,19 +482,27 @@ export function ServicesPricingScreen() {
       setBlocked({ row, need: gap.message });
       return;
     }
+    // R5, R12: Archive, and Deactivate of a live service, ask first (Restore does not).
+    const asks = action === 'archive' || (action === 'deactivate' && row.status !== 'ARCHIVED');
+    if (asks && !confirmed) {
+      setConfirming({ row, action: action === 'archive' ? 'archive' : 'deactivate' });
+      return;
+    }
     serviceAction.mutate(
       { id: row.id, action },
       {
-        onSuccess: () =>
+        onSuccess: () => {
+          setConfirming(null);
           setNotice(
             action === 'archive'
-              ? `${row.name} archived. It stays under Archived.`
+              ? `${row.name} archived. It stays under Archived, where you can restore it.`
               : row.status === 'ARCHIVED'
                 ? `${row.name} restored to Inactive Services.`
                 : action === 'activate'
                   ? `${row.name} activated.`
                   : `${row.name} deactivated.`,
-          ),
+          );
+        },
       },
     );
   }
@@ -469,12 +512,12 @@ export function ServicesPricingScreen() {
       {
         label: 'View / Preview',
         icon: Eye,
-        onSelect: () => router.push(`/services-pricing/${row.id}`),
+        onSelect: () => open(`/services-pricing/${row.id}`),
       },
       {
         label: 'Edit',
         icon: PencilSimple,
-        onSelect: () => router.push(`/services-pricing/${row.id}/edit`),
+        onSelect: () => open(`/services-pricing/${row.id}/edit`),
       },
       {
         label: 'Duplicate',
@@ -487,7 +530,7 @@ export function ServicesPricingScreen() {
       {
         label: 'Manage Add-Ons',
         icon: Plus,
-        onSelect: () => router.push(`/services-pricing/${row.id}/edit`),
+        onSelect: () => open(`/services-pricing/${row.id}/edit`),
       },
       { label: 'View Usage', icon: Cube, onSelect: () => setUsageTarget(row) },
       ...(row.status === 'ACTIVE'
@@ -541,7 +584,7 @@ export function ServicesPricingScreen() {
           <button
             type="button"
             className="inline-flex min-h-10 min-w-24 items-center justify-center gap-2 rounded-lg bg-info-soft px-4 text-sm font-semibold text-action hover:bg-info-soft"
-            onClick={() => router.push(`/services-pricing/${row.id}/edit`)}
+            onClick={() => open(`/services-pricing/${row.id}/edit`)}
           >
             <PencilSimple aria-hidden weight="fill" className="size-4" />
             {row.status === 'DRAFT' ? 'Resume' : 'Edit'}
@@ -774,6 +817,21 @@ export function ServicesPricingScreen() {
         </>
       </div>
 
+      {confirming ? (
+        <ServiceChangeConfirm
+          service={confirming.row}
+          action={confirming.action}
+          pending={serviceAction.isPending}
+          error={
+            serviceAction.error ? errorMessage(serviceAction.error, CATALOG_ERRORS) : undefined
+          }
+          onCancel={() => {
+            serviceAction.reset();
+            setConfirming(null);
+          }}
+          onConfirm={() => handleServiceAction(confirming.row, confirming.action, true)}
+        />
+      ) : null}
       {usageTarget ? (
         <ServiceUsageDialog service={usageTarget} onClose={() => setUsageTarget(null)} />
       ) : null}

@@ -245,6 +245,23 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** A-X09: a financial snapshot of the world's advisory client (2025), to correct. */
+  advisoryFinancialSnapshot: {
+    async create({ tx, businessId, owner, get }) {
+      const row = await tx.advisoryFinancialSnapshot.create({
+        data: {
+          businessId,
+          advisoryClientId: await get('advisoryClient'),
+          periodStart: new Date('2025-01-01T00:00:00Z'),
+          periodEnd: new Date('2025-12-31T00:00:00Z'),
+          revenueCents: 900_000,
+          asOf: new Date(),
+          createdByUserId: owner.id,
+        },
+      });
+      return row.id;
+    },
+  },
   advisoryGoal: {
     async create({ tx, businessId, get }) {
       const row = await tx.advisoryGoal.create({
@@ -344,13 +361,15 @@ export const cases: CaseModule['cases'] = {
   [`GET ${BASE}/clients/:id/activity`]: { params: { id: 'advisoryClient' } },
   [`POST ${BASE}/clients/:id/financials`]: {
     params: { id: 'advisoryClient' },
-    bodyIds: { planId: 'advisoryPlan' },
+    // A-X09: the row a correction corrects is the client's own.
+    bodyIds: { planId: 'advisoryPlan', 'corrects.snapshotId': 'advisoryFinancialSnapshot' },
     body: {
       planId: PLACEHOLDER,
       periodStart: '2025-01-01',
       periodEnd: '2025-12-31',
       revenueCents: 1_000_000,
       asOf: '2026-01-01',
+      corrects: { snapshotId: PLACEHOLDER, reason: 'Fake correction' },
     },
   },
 
@@ -382,6 +401,11 @@ export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/plans/:id/send`]: {
     params: { id: 'advisoryPlan' },
     body: { channel: 'DOWNLOAD' },
+  },
+  // A-X13: the preview of a send (nothing is sent).
+  [`POST ${BASE}/plans/:id/send-preview`]: {
+    params: { id: 'advisoryPlan' },
+    body: { channel: 'PORTAL' },
   },
   // B10: a plan in staff review goes to the client for approval.
   [`POST ${BASE}/plans/:id/request-approval`]: {

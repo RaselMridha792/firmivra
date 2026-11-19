@@ -68,14 +68,23 @@ export function AddClientDialog({
   manager,
   members,
   onClose,
+  accountType,
+  onCreated,
 }: {
   manager: boolean;
   /** With their workload (the Clients list) for SM08's warning; plain refs elsewhere. */
   members: Assignee[];
   onClose: () => void;
+  /** The type the form starts with (Business Advisory A-X06); Personal when left out. */
+  accountType?: ClientAccountType;
+  /** Business Advisory A-X06: what happens once it is created, in place of opening its record. */
+  onCreated?: (client: { id: string; displayName: string }) => void;
 }) {
   const router = useRouter();
-  const [values, setValues] = useState(EMPTY_FORM);
+  const start = accountType ? { ...EMPTY_FORM, accountType } : EMPTY_FORM;
+  const [values, setValues] = useState(start);
+  const created = (client: { id: string; displayName: string }) =>
+    onCreated ? onCreated(client) : router.push(`/clients/${client.id}`);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   // Clients Review 2: a phone another client has asks first (Possible duplicate client).
   const [duplicate, setDuplicate] = useState<{
@@ -97,7 +106,7 @@ export function AddClientDialog({
   // Clients Review 2 (C2-029): closing a filled form asks first, as Edit does (E6): Cancel,
   // Escape and the X all come here; Keep Editing keeps every value.
   const [leaving, setLeaving] = useState(false);
-  const dirty = (Object.keys(EMPTY_FORM) as Field[]).some((k) => values[k] !== EMPTY_FORM[k]);
+  const dirty = (Object.keys(start) as Field[]).some((k) => values[k] !== start[k]);
   const close = () => (dirty ? setLeaving(true) : onClose());
 
   const submit = (event: FormEvent) => {
@@ -153,7 +162,7 @@ export function AddClientDialog({
     }
     setErrors({});
     create.mutate(body, {
-      onSuccess: (client) => router.push(`/clients/${client.id}`),
+      onSuccess: created,
       onError: (error) => {
         const details = duplicateOf(error);
         if (details) setDuplicate({ details, body });
@@ -274,7 +283,7 @@ export function AddClientDialog({
             onConfirm={() =>
               create.mutate(
                 { ...duplicate.body, allowDuplicatePhone: true },
-                { onSuccess: (client) => router.push(`/clients/${client.id}`) },
+                { onSuccess: created },
               )
             }
           />

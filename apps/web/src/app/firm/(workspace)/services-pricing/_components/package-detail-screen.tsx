@@ -17,6 +17,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { PublicLinkSection } from '../../../../../components/public-link';
+import { DISCOUNT_PROBLEM_TEXT } from './package-discount-rules';
 import {
   CATALOG_ERRORS,
   CATALOG_KEY,
@@ -245,7 +246,11 @@ export function PackageDetailScreen({ id }: { id: string }) {
                   {selectedTotal(p.pricing)}
                 </dd>
                 <dt className="text-text">Package Price</dt>
-                <dd className="font-semibold text-heading">{money(p.pricing.packagePriceCents)}</dd>
+                <dd className="font-semibold text-heading">
+                  {p.pricing.packagePriceCents === 0
+                    ? `${money(0)} (free)`
+                    : money(p.pricing.packagePriceCents)}
+                </dd>
                 <dt className="text-text">Discount</dt>
                 <dd className="text-heading">
                   {p.pricing.discountType === 'NONE' || p.pricing.discountValue === null
@@ -264,6 +269,17 @@ export function PackageDetailScreen({ id }: { id: string }) {
             ) : (
               <Quiet>{note}</Quiet>
             )}
+            {p?.pricing.discountProblem ? (
+              <p
+                role="status"
+                className="mt-3 flex items-center gap-2 rounded-lg bg-danger-soft p-3 text-sm text-danger"
+                data-testid="detail-discount-problem"
+              >
+                <Warning aria-hidden weight="fill" className="size-5 shrink-0" />
+                {DISCOUNT_PROBLEM_TEXT[p.pricing.discountProblem]} Open Edit to fix the discount;
+                until then the package price is not worked out.
+              </p>
+            ) : null}
             {p?.pricing.quoteRequired ? (
               <QuoteRequiredNote />
             ) : p?.pricing.variablePrice ? (

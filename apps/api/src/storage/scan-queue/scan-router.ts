@@ -38,6 +38,9 @@ export const SCAN_PREFIXES = [
   'support',
   // New Message's files (R60, MSG-F12): outbound_message_files, OutboundFilesService.
   'messages',
+  // The scan gap (Nov 19): a communication's files, on its attachments JSON
+  // (CommunicationsScanHandler); nothing goes out until they are CLEAN.
+  'communications',
   // An applicant's response files (SA-APP-F04): tenant/{applicationId}/applications/, recorded
   // in platform scope by ApplyRespondService (an application has no firm yet).
   'applications',
@@ -81,7 +84,9 @@ export interface RoutedOutcome {
 }
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const KEY = new RegExp(`^tenant/(${UUID})/([a-z]+)/(.+)$`);
+// A prefix is lower-case words joined by single hyphens (`staff-drafts`, SM17): `[a-z]+` alone
+// left a hyphenated prefix IGNORED, so its files stayed "being checked" for ever.
+const KEY = new RegExp(`^tenant/(${UUID})/([a-z]+(?:-[a-z]+)*)/(.+)$`);
 const OBJECT_ID = new RegExp(`^${UUID}$`);
 
 const isPrefix = (p: string): p is ScanPrefix => (SCAN_PREFIXES as readonly string[]).includes(p);

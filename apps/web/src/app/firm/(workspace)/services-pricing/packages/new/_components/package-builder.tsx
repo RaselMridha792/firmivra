@@ -19,10 +19,24 @@ import {
   type FieldPathValue,
 } from 'react-hook-form';
 import { api } from '../../../../../../../lib/api';
-import { errorMessage } from '../../../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { BookingTypeSelect } from '../../../_components/booking-type-select';
 import { CATALOG_ERRORS, money } from '../../../_components/catalog-shared';
+import {
+  FixFields,
+  PriceBreakdown,
+  focusFirst,
+  type FieldProblem,
+} from '../../../_components/package-discount';
+import {
+  DISCOUNT_PROBLEM_TEXT,
+  DISCOUNT_REFUSED,
+  FIELD_ID,
+  PRICE_FROM_DISCOUNT,
+  PRICE_INCLUDES_DISCOUNT,
+  discountFieldError,
+} from '../../../_components/package-discount-rules';
 import { QuoteRequiredNote, selectedTotal } from '../../../_components/package-parts';
 import {
   PackageIcon,
@@ -82,6 +96,8 @@ export function PackageBuilder() {
   const [cancel, setCancel] = useState(false);
   const [addon, setAddon] = useState<{ index: number | null; value: AddOn } | null>(null);
   const [addonError, setAddonError] = useState('');
+  const [checked, setChecked] = useState(false);
+  const [refused, setRefused] = useState(false);
   const put = <K extends FieldPath<Values>>(key: K, next: FieldPathValue<Values, K>) =>
     setValue(key, next, { shouldDirty: true, shouldValidate: true });
   const pricingInput = useMemo<PackagePricingRequest>(
@@ -101,6 +117,22 @@ export function PackageBuilder() {
     api.servicesPricing.packagePricing(deferredPricing),
   );
   const totals = pricing.isError ? undefined : pricing.data;
+  // R2: the discount's own error beside it, and a summary of every field to fix before a save.
+  const discountType = value.discountType ?? 'NONE';
+  const discountRaw = value.discountValue == null ? '' : String(value.discountValue / 100);
+  const discountError =
+    discountFieldError(discountType, discountRaw, totals?.totalSelectedCents ?? null) ??
+    (totals?.discountProblem ? DISCOUNT_PROBLEM_TEXT[totals.discountProblem] : null) ??
+    (refused ? DISCOUNT_REFUSED : null);
+  const showDiscountError =
+    !!discountError && (checked || (value.discountValue ?? 0) !== 0 || refused);
+  const problems: FieldProblem[] = [
+    ...(value.name?.trim() ? [] : [{ id: FIELD_ID.name, message: 'Enter the package name.' }]),
+    ...(value.categoryId ? [] : [{ id: FIELD_ID.categoryId, message: 'Choose a category.' }]),
+    ...(discountError ? [{ id: FIELD_ID.discountValue, message: discountError }] : []),
+  ];
+  // Q1 (decided Nov 19): a typed price wins; a discount works out the price only without one.
+  const priceTyped = discountType === 'NONE' && value.packagePriceCents != null;
   const rows = (value.services ?? []).flatMap((item) => {
     const row = knownServices[item.serviceId];
     return row ? [{ row, included: item.included ?? true }] : [];
@@ -111,14 +143,29 @@ export function PackageBuilder() {
     invalidate: ['services-pricing'],
   });
   const submit = (activate: boolean) => {
+    setChecked(true);
+    if (problems.length) {
+      // The form's own checks still mark each field (aria-invalid, its message) beside the summary.
+      void form.trigger();
+      focusFirst(problems);
+      return;
+    }
     setValue('activate', activate);
     void handleSubmit((body) =>
-      save.mutate(body, {
-        onSuccess: () => {
-          reset(body);
-          router.push('/services-pricing/packages');
+      save.mutate(
+        { ...body, packagePriceCents: discountType === 'NONE' ? body.packagePriceCents : null },
+        {
+          onSuccess: () => {
+            reset(body);
+            router.push('/services-pricing/packages');
+          },
+          onError: (e) => {
+            if (errorCode(e) !== 'INVALID_DISCOUNT') return;
+            setRefused(true);
+            document.getElementById(FIELD_ID.discountValue)?.focus();
+          },
         },
-      }),
+      ),
     )();
   };
   const back = () => (isDirty ? setCancel(true) : router.push('/services-pricing/packages'));
@@ -176,6 +223,7 @@ export function PackageBuilder() {
             <div className="grid gap-3 md:grid-cols-3">
               <div className="min-w-0 space-y-3 md:col-span-2">
                 <Input
+                  id={FIELD_ID.name}
                   label="Package Name *"
                   {...register('name')}
                   error={errors.name?.message}
@@ -183,6 +231,7 @@ export function PackageBuilder() {
                 />
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Select
+                    id={FIELD_ID.categoryId}
                     label="Package Category *"
                     {...register('categoryId')}
                     options={[
@@ -270,76 +319,102 @@ export function PackageBuilder() {
                 </p>
                 <p className="mt-1 text-xs text-muted">Based on current individual prices.</p>
               </div>
-              <div className="flex min-w-0 flex-col gap-1">
-                <p aria-hidden className="text-sm font-medium text-text">
-                  Package Price *
-                </p>
-                <div className="flex items-start gap-2">
-                  <span className="py-2 text-muted">$</span>
-                  <div className="min-w-0 grow">
-                    <Input
-                      label="Package Price *"
-                      hideLabel
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={value.packagePriceCents == null ? '' : value.packagePriceCents / 100}
-                      onChange={(e) =>
-                        put(
-                          'packagePriceCents',
-                          e.target.value === '' ? null : Math.round(Number(e.target.value) * 100),
-                        )
-                      }
-                      error={errors.packagePriceCents?.message}
-                      data-testid="package-price"
-                    />
+              {discountType === 'NONE' ? (
+                <div className="flex min-w-0 flex-col gap-1">
+                  <p aria-hidden className="text-sm font-medium text-text">
+                    Package Price *
+                  </p>
+                  <div className="flex items-start gap-2">
+                    <span className="py-2 text-muted">$</span>
+                    <div className="min-w-0 grow">
+                      <Input
+                        label="Package Price *"
+                        hideLabel
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={value.packagePriceCents == null ? '' : value.packagePriceCents / 100}
+                        onChange={(e) =>
+                          put(
+                            'packagePriceCents',
+                            e.target.value === '' ? null : Math.round(Number(e.target.value) * 100),
+                          )
+                        }
+                        error={errors.packagePriceCents?.message}
+                        data-testid="package-price"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex min-w-0 flex-col gap-1">
+                  <p className="text-sm font-medium text-text">Package Price</p>
+                  <p
+                    className="rounded-control bg-disabled px-3 py-2 text-base text-heading"
+                    data-testid="package-price-worked"
+                  >
+                    {money(totals?.packagePriceCents)}
+                  </p>
+                  <p className="text-xs text-muted">{PRICE_FROM_DISCOUNT}</p>
+                </div>
+              )}
               <div className="min-w-0 space-y-2">
                 <div className="grid grid-cols-2 items-end gap-2">
                   <Select
                     label="Discount (Optional)"
-                    value={value.discountType ?? 'NONE'}
+                    value={discountType}
+                    // Q1: a typed price wins: the discount is off while a price is entered.
+                    disabled={priceTyped}
                     options={[
                       { value: 'NONE', label: 'None' },
                       { value: 'PERCENTAGE', label: 'Percentage' },
                       { value: 'FIXED', label: 'Fixed Amount' },
                     ]}
                     onChange={(e) => {
+                      setRefused(false);
                       put('discountType', e.target.value as Values['discountType']);
                       put('discountValue', e.target.value === 'NONE' ? null : 0);
+                      if (e.target.value !== 'NONE') put('packagePriceCents', null);
                     }}
                   />
                   <div className="flex min-w-0 items-center gap-2">
-                    {value.discountType === 'FIXED' ? <span className="text-muted">$</span> : null}
+                    {discountType === 'FIXED' ? <span className="text-muted">$</span> : null}
                     <div className="min-w-0 grow">
                       <Input
+                        id={FIELD_ID.discountValue}
                         label={
-                          value.discountType === 'PERCENTAGE'
+                          discountType === 'PERCENTAGE'
                             ? 'Discount percentage'
-                            : value.discountType === 'FIXED'
+                            : discountType === 'FIXED'
                               ? 'Discount amount'
                               : 'Discount value'
                         }
                         hideLabel
                         type="number"
                         min={0}
-                        max={value.discountType === 'PERCENTAGE' ? 100 : undefined}
+                        max={discountType === 'PERCENTAGE' ? 100 : undefined}
                         step="0.01"
-                        disabled={value.discountType === 'NONE'}
+                        disabled={discountType === 'NONE'}
                         value={value.discountValue == null ? '' : value.discountValue / 100}
-                        onChange={(e) =>
+                        error={showDiscountError ? (discountError ?? undefined) : undefined}
+                        data-testid="package-discount-value"
+                        onChange={(e) => {
+                          setRefused(false);
                           put(
                             'discountValue',
                             e.target.value === '' ? null : Math.round(Number(e.target.value) * 100),
-                          )
-                        }
+                          );
+                        }}
                       />
                     </div>
-                    {value.discountType === 'FIXED' ? null : <span className="text-muted">%</span>}
+                    {discountType === 'FIXED' ? null : <span className="text-muted">%</span>}
                   </div>
                 </div>
+                {priceTyped ? (
+                  <p className="text-xs text-muted" data-testid="discount-off-note">
+                    {PRICE_INCLUDES_DISCOUNT}
+                  </p>
+                ) : null}
                 <p
                   className="rounded-control bg-success-soft px-3 py-2 text-center text-sm text-success"
                   data-testid="package-savings"
@@ -364,6 +439,10 @@ export function PackageBuilder() {
                 </Button>
               </div>
             ) : null}
+            <PriceBreakdown
+              pricing={(value.services ?? []).length ? totals : null}
+              addOnCount={addOns.filter((a) => a.offered && a.name.trim()).length}
+            />
           </Panel>
           <Panel
             title="Optional Add-Ons (Client Can Choose)"
@@ -490,12 +569,14 @@ export function PackageBuilder() {
               onChange={(typeId) => put('appointmentTypeId', typeId || null)}
             />
           </Panel>
-          {save.error ? (
+          {save.error && errorCode(save.error) !== 'INVALID_DISCOUNT' ? (
             <p role="alert" className="text-sm text-danger">
               {errorMessage(save.error, CATALOG_ERRORS)}
             </p>
           ) : null}
-          {Object.keys(errors).length ? (
+          {checked && problems.length ? (
+            <FixFields problems={problems} />
+          ) : Object.keys(errors).length ? (
             <p role="alert" className="text-sm text-danger">
               Check the highlighted fields before saving.
             </p>

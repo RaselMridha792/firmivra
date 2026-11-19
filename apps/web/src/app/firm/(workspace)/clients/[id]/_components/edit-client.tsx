@@ -14,6 +14,7 @@ import { Button, Input, Modal, Select } from '@firmivra/ui';
 import { useState } from 'react';
 import { type FieldPath, useForm } from 'react-hook-form';
 import { api } from '../../../../../../lib/api';
+import { ENTITY_TYPES, joinOther, splitOther } from '../../../../../../lib/entity-types';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { TextArea } from '../../../../setup/_components/fields';
@@ -272,7 +273,12 @@ export function EditClient({
             {business ? (
               <>
                 <Input label="Business name *" {...field('businessName')} />
-                <Input label="Entity type" placeholder="LLC, S corp..." {...field('entityType')} />
+                {/* A-NEW1: the advisory plan's entity list, with Other and Specify. */}
+                <EntityTypeField
+                  value={form.watch('entityType') ?? ''}
+                  error={form.formState.errors.entityType?.message}
+                  onChange={(v) => form.setValue('entityType', v, { shouldDirty: true })}
+                />
                 {/* A-X01: the EIN's status apart from the number, which goes only with Has EIN. */}
                 <Select
                   label="EIN status"
@@ -486,5 +492,53 @@ function PersonFill({
         {notice || `Linked profile: fills only the blank fields below from ${p.displayName}.`}
       </p>
     </div>
+  );
+}
+
+/**
+ * Entity type (Business Advisory A-NEW1): the list a business plan offers; Other asks the type, and
+ * that text is saved. A type saved before that is outside the list opens as Other with its text.
+ */
+function EntityTypeField({
+  value,
+  error,
+  onChange,
+}: {
+  value: string;
+  error?: string;
+  onChange: (value: string) => void;
+}) {
+  const [split, setSplit] = useState(() => splitOther(ENTITY_TYPES, value));
+  const update = (next: { choice: string; other: string }) => {
+    setSplit(next);
+    onChange(joinOther(next.choice, next.other));
+  };
+  return (
+    <>
+      <Select
+        label="Entity type"
+        value={split.choice}
+        onChange={(e) =>
+          update({
+            choice: e.target.value,
+            other: e.target.value === 'Other' ? split.other : '',
+          })
+        }
+        options={[
+          { value: '', label: 'Not set' },
+          ...ENTITY_TYPES.map((v) => ({ value: v, label: v })),
+        ]}
+        {...(error && split.choice !== 'Other' ? { error } : {})}
+      />
+      {split.choice === 'Other' ? (
+        <Input
+          label="Specify entity type"
+          maxLength={60}
+          value={split.other}
+          onChange={(e) => update({ choice: 'Other', other: e.target.value })}
+          {...(error ? { error } : {})}
+        />
+      ) : null}
+    </>
   );
 }

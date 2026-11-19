@@ -6,10 +6,13 @@ export default function Index() {
   const sites = [
     ['Super Admin console', process.env['ADMIN_BASE_URL'] ?? 'http://admin.localhost:3000'],
     ['Firm workspace', process.env['APP_BASE_URL'] ?? 'http://app.localhost:3000'],
-    [
-      'Client portal (LVP)',
-      `${process.env['PORTAL_BASE_URL'] ?? 'http://portal.localhost:3000'}/lvp`,
-    ],
+    // Locally the seeded beta firm's portal; anywhere else the portal's own page, never one firm.
+    process.env.NODE_ENV === 'development'
+      ? [
+          'Client portal (seeded firm)',
+          `${process.env['PORTAL_BASE_URL'] ?? 'http://portal.localhost:3000'}/lvp`,
+        ]
+      : ['Client portal', process.env['PORTAL_BASE_URL'] ?? 'http://portal.localhost:3000'],
   ] as const;
   return (
     <main className="mx-auto max-w-xl p-6">

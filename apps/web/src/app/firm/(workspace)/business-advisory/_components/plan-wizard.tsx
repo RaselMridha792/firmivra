@@ -23,18 +23,9 @@ import {
 import { type WizardStep, WizardFrame, stepHref, useStepSave } from './plan-frame';
 import { AssessmentStep, ActionStep, ReviewStep, StrategyStep } from './plan-steps';
 import { SearchExistingClientDialog } from './search-existing-client';
+import { ENTITY_TYPES, joinOther, splitOther } from '../../../../../lib/entity-types';
 
 /** Free text in the API; the lists the form offers (a stored value outside them is kept). */
-const ENTITY_TYPES = [
-  'Sole Proprietorship',
-  'LLC',
-  'S Corporation',
-  'C Corporation',
-  'Partnership',
-  'Professional Corporation',
-  'Nonprofit',
-  'Other',
-];
 const INDUSTRIES = [
   'Construction',
   'Retail',
@@ -57,18 +48,6 @@ const options = (list: string[], current: string, empty = 'Select…') => [
     label: v,
   })),
 ];
-
-/**
- * Octavia's B6: Other takes a "specify" text, and that text is what is saved (both fields are
- * free text). A saved value outside the list opens as Other with its text in the box.
- */
-const splitOther = (list: string[], stored: string | null | undefined) =>
-  !stored
-    ? { choice: '', other: '' }
-    : list.includes(stored) && stored !== 'Other'
-      ? { choice: stored, other: '' }
-      : { choice: 'Other', other: stored === 'Other' ? '' : stored };
-const joinOther = (choice: string, other: string) => (choice === 'Other' ? other : choice);
 
 // ---------- The entry point the pages render ----------
 

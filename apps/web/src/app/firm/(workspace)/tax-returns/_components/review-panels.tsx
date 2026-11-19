@@ -297,7 +297,11 @@ export function ValidationPanel({
                         ) : null}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-xs" data-testid="validation-line-owner">
+                    {/* F01b CR-6: a long version file name wraps, so 390 px never scrolls sideways. */}
+                    <td
+                      className="px-2 py-1.5 text-xs wrap-anywhere"
+                      data-testid="validation-line-owner"
+                    >
                       {(() => {
                         const issue = openIssueOf(c.id);
                         if (issue) {
