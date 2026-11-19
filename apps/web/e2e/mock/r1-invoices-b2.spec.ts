@@ -15,6 +15,8 @@ const badge = (list: Locator, label: string) =>
     .locator('span.rounded-pill')
     .filter({ hasText: new RegExp(`^${label}$`) })
     .first();
+/** A badge's background class, as a whole class name (`bg-navy`, never `bg-navy-soft`). */
+const tone = (cls: string) => new RegExp(`(^|\\s)${cls}(\\s|$)`);
 
 test('I-N07: Overdue and Canceled, Due Today and Partially Paid, Scheduled and Sent read apart', async ({
   page,
@@ -24,15 +26,21 @@ test('I-N07: Overdue and Canceled, Due Today and Partially Paid, Scheduled and S
   const main = page.locator('main');
   const table = main.getByRole('table');
   await expect(badge(table, 'Scheduled')).toBeVisible({ timeout: 60_000 });
+  // Review Two: each pair differs in colour (R55, the two new tones), and by icon too.
+  await expect(badge(table, 'Scheduled')).toHaveClass(tone('bg-teal-soft'));
+  await expect(badge(table, 'Sent')).toHaveClass(tone('bg-info-soft'));
   await expect(badge(table, 'Scheduled').locator('svg')).toHaveCount(1);
   await expect(badge(table, 'Sent').locator('svg')).toHaveCount(1);
   // The status filter shows the others.
   const status = main.getByLabel('Status', { exact: true });
   await status.selectOption({ label: 'Overdue' });
-  await expect(badge(table, 'Overdue')).toHaveClass(/bg-danger-soft/);
+  await expect(badge(table, 'Overdue')).toHaveClass(tone('bg-danger-soft'));
   await status.selectOption({ label: 'Canceled' });
-  await expect(badge(table, 'Canceled')).not.toHaveClass(/bg-danger-soft/);
+  // Solid navy: apart from Overdue's red and Draft's grey (I-C11).
+  await expect(badge(table, 'Canceled')).toHaveClass(tone('bg-navy'));
   await expect(badge(table, 'Canceled').locator('svg')).toHaveCount(1);
+  await status.selectOption({ label: 'Draft' });
+  await expect(badge(table, 'Draft')).toHaveClass(tone('bg-disabled'));
 });
 
 test('I-P03: Record Payment starts with Send receipt ticked, and it can be unticked', async ({

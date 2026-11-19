@@ -424,6 +424,23 @@ enum ActionExecutionStatus {
   SKIPPED
 }
 
+/// Automations Review Two R11 (R56, Nov 19): what is done with what fell due while the engine could
+/// not run. RUN_ONCE runs each missed occurrence once on recovery (today's behaviour, the default);
+/// SKIP drops it; REPLAY_WINDOW replays only what fell due within missed_run_window_days.
+enum AutomationMissedRunPolicy {
+  RUN_ONCE
+  SKIP
+  REPLAY_WINDOW
+}
+
+/// Automations Review Two R12 (R56, Nov 19): two rules asking for incompatible changes to one record
+/// in the same scan. PRIORITY_THEN_OLDEST: the higher priority rule wins, then the older one, and the
+/// other's action is skipped and logged (the default); SKIP_BOTH: neither changes it, both logged.
+enum AutomationConflictPolicy {
+  PRIORITY_THEN_OLDEST
+  SKIP_BOTH
+}
+
 /// A bookkeeping client's workflow status (the Bookkeeping status tabs). Set by staff (MANUAL) or
 /// by the firm's status rules from due dates, missing documents and sync problems (AUTOMATIC).
 enum BookkeepingStatus {
@@ -10717,20 +10734,31 @@ model AutomationActionExecution {
 /// loop depth and safety threshold for new rules, who is told when a rule fails, the minutes each
 /// action is counted as saving (the Time Saved figure) and how long logs are kept. One row per firm.
 model AutomationSettings {
-  businessId                String    @id @map("business_id") @db.Uuid
-  quietStart                DateTime? @map("quiet_start") @db.Time(0)
-  quietEnd                  DateTime? @map("quiet_end") @db.Time(0)
-  defaultDedupeDays         Int       @default(7) @map("default_dedupe_days")
-  maxDepth                  Int       @default(3) @map("max_depth")
-  safetyThreshold           Int       @default(500) @map("safety_threshold")
-  failureAlertUserIds       String[]  @default([]) @map("failure_alert_user_ids") @db.Uuid
-  minutesSavedPerAction     Int       @default(5) @map("minutes_saved_per_action")
-  logRetentionDays          Int       @default(365) @map("log_retention_days")
+  businessId                String                    @id @map("business_id") @db.Uuid
+  quietStart                DateTime?                 @map("quiet_start") @db.Time(0)
+  quietEnd                  DateTime?                 @map("quiet_end") @db.Time(0)
+  defaultDedupeDays         Int                       @default(7) @map("default_dedupe_days")
+  maxDepth                  Int                       @default(3) @map("max_depth")
+  safetyThreshold           Int                       @default(500) @map("safety_threshold")
+  failureAlertUserIds       String[]                  @default([]) @map("failure_alert_user_ids") @db.Uuid
+  minutesSavedPerAction     Int                       @default(5) @map("minutes_saved_per_action")
+  logRetentionDays          Int                       @default(365) @map("log_retention_days")
   /// R1 (Oct 29, AU-F29): the Manual Event Confirmation master. While false (the default), no
   /// one can report an external event by hand; only Owner and Admin change it (audited).
-  manualConfirmationEnabled Boolean   @default(false) @map("manual_confirmation_enabled")
-  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  manualConfirmationEnabled Boolean                   @default(false) @map("manual_confirmation_enabled")
+  /// R56 (Nov 19, Review Two R11): the firm's missed-run policy and its replay window (1 to 90
+  /// days, used by REPLAY_WINDOW); a rule may override the policy in its own settings.
+  missedRunPolicy           AutomationMissedRunPolicy @default(RUN_ONCE) @map("missed_run_policy")
+  missedRunWindowDays       Int                       @default(7) @map("missed_run_window_days")
+  /// R56 (Nov 19, Review Two R12): how conflicting rules on one record are resolved.
+  conflictPolicy            AutomationConflictPolicy  @default(PRIORITY_THEN_OLDEST) @map("conflict_policy")
+  /// R56 (Nov 19, Review Two R13): the firm-wide emergency pause. While set, nothing new is
+  /// dispatched; actions already running finish. Set and cleared together (Owner and Admin only;
+  /// the API writes the audit entry).
+  pausedAt                  DateTime?                 @map("paused_at") @db.Timestamptz(3)
+  pausedByUserId            String?                   @map("paused_by_user_id") @db.Uuid
+  createdAt                 DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id])
 

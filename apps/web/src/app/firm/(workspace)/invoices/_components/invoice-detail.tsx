@@ -196,9 +196,6 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                 // IP-F04
                 ['Email to Client', i && !i.emailClient ? 'Off: portal only' : 'On'],
                 ...(i?.allowTip ? [['Tips', 'Allowed (not added to Pay Now yet)'] as const] : []),
-                ...(i?.requirePaymentBeforeDue
-                  ? [['Payment', 'Required before the due date'] as const]
-                  : []),
               ].map(([label, value]) => (
                 <div key={String(label)}>
                   <dt className="text-muted">{label}</dt>
