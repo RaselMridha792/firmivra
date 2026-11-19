@@ -349,6 +349,29 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
+  // SA-FRM-F06: Firmivra asks the firm's owner for information (Firmivra's own message).
+  'platform.firm-info-request': (d, _b, options) => {
+    const replyBy = field(d, 'replyBy');
+    return {
+      channel: 'email',
+      subject: `Firmivra needs information about ${required(d, 'firmName')}`,
+      blocks: [
+        hello(d),
+        text(
+          `Firmivra needs some information about ${required(d, 'firmName')} (request ${required(d, 'reference')}).`,
+        ),
+        quote(required(d, 'subject'), requiredText(d, 'message')),
+        ...(typeof replyBy === 'string'
+          ? [text(`Please answer by ${calendarDate(replyBy)}.`)]
+          : []),
+        button('Answer in Firmivra', link(d, 'link', options)),
+        small(
+          "Sign in to your firm's workspace to answer and attach files: Settings > Requests from Firmivra.",
+        ),
+      ],
+    };
+  },
+
   'staff.phone-code': (d, b) => ({
     channel: 'sms',
     text: `${code(d)} is your ${b.name} code to verify your mobile number. Never share it.`,

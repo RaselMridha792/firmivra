@@ -54,6 +54,7 @@ import {
 } from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
 import { FIRM_ACCOUNT_AUDIT, firmAccountCan } from './firm-account.service.js';
+import { FIRM_INFO_REQUESTED } from './firm-info-request.service.js';
 import { FirmKeyJob } from './firm-key-job.js';
 import { openTicketsFor } from '../admin-support/support-context.js';
 import { OWNER_INVITES } from './owner-invites.js';
@@ -531,11 +532,15 @@ export class FirmApplicationsService {
   async firmRecord(id: string): Promise<FirmRecord> {
     const item = (await this.firmItems(id))[0];
     if (!item) throw notFound();
-    const [application, firm] = await Promise.all([
+    const [application, firm, owners] = await Promise.all([
       this.admin.db.firmApplication.findUnique({ where: { businessId: id }, select: { id: true } }),
       this.admin.db.business.findUniqueOrThrow({
         where: { id },
         select: { activatedAt: true, closedAt: true },
+      }),
+      // SA-FRM-F06: someone to answer a request for information.
+      this.admin.db.membership.count({
+        where: { businessId: id, role: 'OWNER', status: 'ACTIVE' },
       }),
     ]);
     return {
@@ -544,7 +549,7 @@ export class FirmApplicationsService {
       activatedAt: firm.activatedAt?.toISOString() ?? null,
       closedAt: firm.closedAt?.toISOString() ?? null,
       accountHistory: await this.accountHistory(id, firm),
-      can: firmAccountCan(item.status),
+      can: { ...firmAccountCan(item.status), requestInfo: item.status === 'ACTIVE' && owners > 0 },
     };
   }
 
@@ -563,7 +568,7 @@ export class FirmApplicationsService {
         businessId: null,
         entityType: 'business',
         entityId: id,
-        action: { in: Object.values(FIRM_ACCOUNT_AUDIT) },
+        action: { in: [...Object.values(FIRM_ACCOUNT_AUDIT), FIRM_INFO_REQUESTED] },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { action: true, createdAt: true, actorUserId: true, metadata: true },
@@ -573,14 +578,27 @@ export class FirmApplicationsService {
       [FIRM_ACCOUNT_AUDIT.suspend]: 'SUSPENDED',
       [FIRM_ACCOUNT_AUDIT.reactivate]: 'REACTIVATED',
       [FIRM_ACCOUNT_AUDIT.close]: 'CLOSED',
+      [FIRM_INFO_REQUESTED]: 'INFO_REQUESTED',
     };
     const events = rows.map((r): FirmAccountEvent => {
-      const reason = (r.metadata as { reason?: unknown } | null)?.reason;
+      const m = (r.metadata ?? {}) as {
+        reason?: unknown;
+        subject?: unknown;
+        ticketId?: unknown;
+        number?: unknown;
+      };
+      const type = TYPES[r.action]!;
+      // A request for information: its subject, and the Support ticket it is.
+      const asked = type === 'INFO_REQUESTED';
+      const reason = asked ? m.subject : m.reason;
       return {
-        type: TYPES[r.action]!,
+        type,
         at: r.createdAt.toISOString(),
         by: r.actorUserId ? (admins.get(r.actorUserId) ?? null) : null,
         reason: typeof reason === 'string' ? reason : null,
+        ...(asked && typeof m.ticketId === 'string' && typeof m.number === 'number'
+          ? { ticket: { id: m.ticketId, number: m.number } }
+          : {}),
       };
     });
     if (firm.closedAt && !events.some((e) => e.type === 'CLOSED')) {
