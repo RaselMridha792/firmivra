@@ -153,7 +153,7 @@ export function ClientsScreen({
   );
   const [filters, setFilters] = useState<ClientFilters>(() => {
     if (!start) return { ...NO_FILTERS, search: initialSearch };
-    const { page: _page, limit: _limit, ...place } = start;
+    const { page: _page, limit: _limit, sort: _sort, ...place } = start;
     return {
       ...NO_FILTERS,
       ...place,
@@ -181,8 +181,9 @@ export function ClientsScreen({
 
   // The API refuses control characters and more than 100 characters (SearchText).
   const search = useSettled(filters.search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
-  // Clients Review 2 (G12): the order, for the table and the cards alike.
-  const [sort, setSort] = useState<ClientSort>('NEWEST');
+  // Clients Review 2 (G12): the order, for the table and the cards alike. It is part of the list's
+  // place too, so Back and Return to Clients bring the same order back (Clients §6).
+  const [sort, setSort] = useState<ClientSort>(start?.sort || 'NEWEST');
   const query = useMemo<ListClientsQuery>(
     () => ({
       ...listQuery(filters, search, manager),
@@ -194,7 +195,11 @@ export function ClientsScreen({
   );
   const summary = useApiQuery(CLIENTS_SUMMARY, () => api.clients.summary());
   const list = useApiQuery(clientsListKey(query), () => api.clients.list(query));
-  useListPlace({ ...filters, search, page, limit }, fromDashboard, Boolean(list.data));
+  useListPlace(
+    { ...filters, search, sort: sort === 'NEWEST' ? '' : sort, page, limit },
+    fromDashboard,
+    Boolean(list.data),
+  );
   // The firm's people for the staff filter and Assign: Owner and Admin only (403 for Staff).
   const team = useApiQuery(
     manager ? TEAM : [...TEAM, 'not-a-manager'],
