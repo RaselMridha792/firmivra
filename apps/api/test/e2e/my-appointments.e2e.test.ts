@@ -1083,3 +1083,100 @@ describe('confirmation (Review 2, row 8)', () => {
     expectError(await confirm(theirs.id), 409, 'APPOINTMENT_CLOSED');
   });
 });
+
+describe('booking rules (Review 2 row 2): Minimum Notice and Booking Window, on the portal', () => {
+  // Days of margin keep these independent of the time of day the test runs: day 1 and day 2 are
+  // always less than 72 hours away and more than 12 hours away; day 28 is always within 30 days
+  // and more than 72 hours away; day 31 is always more than 30 days away.
+  let notice: AppointmentType;
+  let days: AppointmentType;
+  let hours: AppointmentType;
+  let buffered: AppointmentType;
+  const starts = async (typeId: string, n: number) =>
+    exact(
+      MySlotList,
+      await portal('get', `/slots?typeId=${typeId}&from=${day(n)}&to=${day(n)}`, people.clientB),
+    ).slots.map((s) => s.startsAt);
+  const refused = async (res: Response) => expectError(res, 409, 'SLOT_UNAVAILABLE');
+
+  beforeAll(async () => {
+    const make = async (name: string, config: object) => {
+      const made = exact(
+        AppointmentType,
+        await firm('post', '/appointment-types', {
+          name: `${name} ${run}`,
+          durationMinutes: 30,
+          clientBookable: true,
+        }),
+        201,
+      );
+      const res = await firm('put', `/appointment-types/${made.id}/config`, config);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      return made;
+    };
+    notice = await make('Notice 72h', { minNoticeHours: 72 });
+    days = await make('Window 30d', { maxWindowDays: 30 });
+    hours = await make('Window 12h', { maxWindowHours: 12 });
+    buffered = await make('Buffered 30', { bufferBeforeMinutes: 30, bufferAfterMinutes: 30 });
+  });
+
+  it('free starts begin after the notice and end with the window', async () => {
+    const all = await starts(consult.id, 28);
+    expect(all).toHaveLength(11);
+    expect(await starts(notice.id, 2)).toEqual([]);
+    expect(await starts(notice.id, 28)).toEqual(all);
+    expect(await starts(days.id, 28)).toEqual(all);
+    expect(await starts(days.id, 31)).toEqual([]);
+    expect(await starts(consult.id, 31)).toHaveLength(11);
+    expect(await starts(hours.id, 2)).toEqual([]);
+    expect(await starts(hours.id, 28)).toEqual([]);
+  });
+
+  it('Book and Reschedule refuse a start outside them (409 SLOT_UNAVAILABLE)', async () => {
+    const book = (typeId: string, startsAt: string) =>
+      portal('post', '', people.clientB, { typeId, startsAt });
+    await refused(await book(notice.id, at(1, '11:30')));
+    await refused(await book(days.id, at(31, '10:00')));
+    await refused(await book(hours.id, at(28, '10:00')));
+    // The same starts are free for a type without rules.
+    exact(MyAppointment, await book(consult.id, at(31, '10:00')), 201);
+    const mine = exact(MyAppointment, await book(notice.id, at(28, '10:00')), 201);
+    // A new time of the type's appointment keeps to its rules too.
+    await refused(
+      await portal('post', `/${mine.id}/reschedule`, people.clientB, { startsAt: at(1, '11:30') }),
+    );
+    const moved = exact(
+      MyAppointment,
+      await portal('post', `/${mine.id}/reschedule`, people.clientB, { startsAt: at(28, '11:00') }),
+    );
+    expect(moved.startsAt).toBe(at(28, '11:00'));
+  });
+
+  it('R4: free starts and Book keep the type’s buffers free around the staff’s appointments', async () => {
+    // Both members busy 10:00-10:30 on day 29; a 30-minute type with 30 minutes before and after.
+    await firmBook({ clientId: ids.cX, staffUserId: people.staffP1.id, startsAt: at(29, '10:00') });
+    await firmBook({ clientId: ids.cY, staffUserId: people.staffP2.id, startsAt: at(29, '10:00') });
+    const local = (list: string[]) => list.map((t) => at(29, t));
+    expect(await starts(consult.id, 29)).toEqual(
+      local(['09:00', '09:15', '09:30', '10:30', '10:45', '11:00', '11:15', '11:30']),
+    );
+    // 09:00 ends at 09:30 and its buffer at 10:00 (touching); 11:00's buffer starts at 10:30.
+    expect(await starts(buffered.id, 29)).toEqual(local(['09:00', '11:00', '11:15', '11:30']));
+    await refused(
+      await portal('post', '', people.clientB, { typeId: buffered.id, startsAt: at(29, '10:45') }),
+    );
+    const booked = exact(
+      MyAppointment,
+      await portal('post', '', people.clientB, { typeId: buffered.id, startsAt: at(29, '11:00') }),
+      201,
+    );
+    // The booking keeps the type's buffers, as one the firm makes.
+    const kept = await asOwner(ids.firmP, (tx) =>
+      tx.appointment.findUniqueOrThrow({
+        where: { id: booked.id },
+        select: { bufferBeforeMinutes: true, bufferAfterMinutes: true },
+      }),
+    );
+    expect(kept).toEqual({ bufferBeforeMinutes: 30, bufferAfterMinutes: 30 });
+  });
+});

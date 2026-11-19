@@ -318,19 +318,12 @@ export function DetailScreen({ id }: { id: string }) {
               <Rows
                 rows={[
                   ['Tax return', r.related.taxReturn?.name ?? '—'],
-                  ['Bookkeeping', r.related.bookkeepingEngagement?.name ?? '—'],
-                  ['Invoice', r.related.invoice?.name ?? '—'],
-                  ['Task', r.related.task?.name ?? '—'],
+                  // Review 2 (D2): Bookkeeping, Invoice, Task and Documents links are not built
+                  // yet (nothing can set them), so they are not shown until they are.
                   [
                     'Intake form',
                     r.related.intakeForm
                       ? `${r.related.intakeForm.name} (${r.related.intakeForm.completed ? 'completed' : 'waiting'})`
-                      : '—',
-                  ],
-                  [
-                    'Documents',
-                    r.related.documentRequest
-                      ? `${r.related.documentRequest.name} (${r.related.documentRequest.received ? 'received' : 'waiting'})`
                       : '—',
                   ],
                 ]}

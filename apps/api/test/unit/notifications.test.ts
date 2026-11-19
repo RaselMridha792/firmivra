@@ -64,6 +64,16 @@ describe('notification text', () => {
     expect(notificationText('appointment.booked', 'APPOINTMENTS', payload, 'staff').body).toBe(
       'Jamie Sample: 2025 W-2, Oct 20, 2026, 9:30 AM',
     );
+    // Appointments Review 2 (B7, B9): the client's item carries the firm's note and the
+    // instructions shown in the portal; the staff side never does.
+    const words = { ...payload, note: 'Bring your W-2s.', instructions: 'Use the side door.' };
+    expect(notificationText('appointment.reminder', 'APPOINTMENTS', words, 'client')).toEqual({
+      title: 'Appointment reminder',
+      body: '2025 W-2, Oct 20, 2026, 9:30 AM. Bring your W-2s. Instructions: Use the side door.',
+    });
+    expect(notificationText('appointment.reminder', 'APPOINTMENTS', words, 'staff').body).toBe(
+      'Jamie Sample: 2025 W-2, Oct 20, 2026, 9:30 AM',
+    );
     expect(notificationText('tax_return.status_changed', 'SERVICES', payload, 'client').body).toBe(
       '2025 1040 tax return: In progress',
     );

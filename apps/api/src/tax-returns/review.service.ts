@@ -18,6 +18,7 @@ import type {
   TaxReturnDocumentList,
   TaxReturnExportLink,
   TaxReturnFilingList,
+  TaxReturnWorkflowStatus,
   DownloadLink,
 } from '@firmivra/types';
 import type { z } from 'zod';
@@ -33,6 +34,8 @@ import { documentSelect } from '../storage/document-records.js';
 import { UploadsService } from '../storage/uploads.service.js';
 import {
   backToReview,
+  backToReviewAfterChange,
+  type MaterialField,
   blockersOf,
   CHECK_RANK,
   conflict,
@@ -130,6 +133,29 @@ export class TaxReturnReviewService {
     });
     if (!r) throw notFound();
     return r;
+  }
+
+  /**
+   * CR-3 (R56): after a material change (amounts, states), a return that passed review goes back
+   * to Ready for Review, its approved steps asked again; the move is audited with what changed.
+   */
+  private async afterMaterialChange(
+    tx: TxClient,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    r: { id: string; workflowStatus: TaxReturnWorkflowStatus },
+    fields: MaterialField[],
+  ): Promise<void> {
+    if (await backToReviewAfterChange(tx, tenant.businessId, r, userId, fields)) {
+      await this.audit.logIn(
+        tx,
+        'tax_return.status_changed',
+        { type: 'tax_return', id },
+        { from: r.workflowStatus, to: 'READY_FOR_REVIEW', changed: fields },
+        { businessId: tenant.businessId },
+      );
+    }
   }
 
   private log(
@@ -321,7 +347,7 @@ export class TaxReturnReviewService {
   setFilings(tenant: TenantContext, userId: string, id: string, body: Out<typeof SetFilingsBody>) {
     const businessId = tenant.businessId;
     return this.write(tenant, async (tx) => {
-      await this.reach(tx, tenant, userId, id, true);
+      const ret = await this.reach(tx, tenant, userId, id, true);
       const wanted = new Map(body.filings.map((f) => [f.jurisdiction, f]));
       if (wanted.size !== body.filings.length) throw invalid('Each jurisdiction once', 'filings');
       const have = await tx.taxReturnFiling.findMany({
@@ -353,6 +379,25 @@ export class TaxReturnReviewService {
       await this.log(tx, tenant, id, 'filings_changed', {
         jurisdictions: body.filings.map((f) => f.jurisdiction).sort(),
       });
+      // CR-3 (R56): the states it is filed in changed after approval: back to review.
+      const requiredBefore = have
+        .filter((f) => f.required)
+        .map((f) => f.jurisdiction)
+        .sort()
+        .join(',');
+      const requiredAfter = body.filings
+        .filter((f) => f.required)
+        .map((f) => f.jurisdiction)
+        .sort()
+        .join(',');
+      await this.afterMaterialChange(
+        tx,
+        tenant,
+        userId,
+        id,
+        ret,
+        requiredBefore !== requiredAfter ? ['states'] : [],
+      );
       return this.filingList(tx, businessId, id);
     });
   }
@@ -386,10 +431,10 @@ export class TaxReturnReviewService {
       (k) => (body as Record<string, unknown>)[k] !== undefined,
     );
     return this.write(tenant, async (tx) => {
-      await this.reach(tx, tenant, userId, id, true);
+      const ret = await this.reach(tx, tenant, userId, id, true);
       const f = await this.filing(tx, businessId, id, filingId);
-      // Review 2 (rounding): a firm that rounds to the dollar stores each amount sent rounded
-      // half up; the audit below keeps the figure as entered beside it.
+      // Review 2 (rounding): a firm that rounds up figures stores each amount sent with any cents
+      // taken up to the next whole dollar (toDollar); the audit keeps the figure as entered.
       const settings = await tx.businessSettings.findUnique({
         where: { businessId },
         select: { taxAmountRounding: true },
@@ -455,6 +500,11 @@ export class TaxReturnReviewService {
           ...(body.amountStatus !== undefined ? { amountStatus: body.amountStatus } : {}),
         },
       });
+      // CR-3 (R56): the refund or amount due changed after approval: back to review.
+      const amountChanged =
+        (body.refundCents !== undefined && body.refundCents !== f.refundCents) ||
+        (body.amountDueCents !== undefined && body.amountDueCents !== f.amountDueCents);
+      await this.afterMaterialChange(tx, tenant, userId, id, ret, amountChanged ? ['amounts'] : []);
       await this.log(tx, tenant, id, 'filings_changed', {
         filingId,
         fields: fields.sort(),
