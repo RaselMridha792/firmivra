@@ -21,6 +21,9 @@ RUN pnpm exec turbo run build --filter=@firmivra/web...
 
 FROM ${BASE_REGISTRY}/docker/library/node:22-alpine AS runtime
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
+# Next's standalone server keeps idle connections 125 s, past the load balancer's 120-s idle
+# timeout, so the load balancer never reuses a connection the server closed (502s on dev, Nov 19).
+ENV KEEP_ALIVE_TIMEOUT=125000
 WORKDIR /app
 COPY --from=build --chown=node:node /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=node:node /repo/apps/web/.next/static ./apps/web/.next/static

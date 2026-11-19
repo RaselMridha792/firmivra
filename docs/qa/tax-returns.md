@@ -67,6 +67,8 @@ Her review status is in the second column: Verified, Partial, Correction or Pend
 
 Found by the check of Nov 16: F03c, F03db, F10b, F26d and F32a are done in #1569, and the Status filter kept by Back (found while writing F03a) in #1573. None open.
 
+F01b CR-6 (R61's sweep, Nov 19: at 390 px the Review tab was 463 px wide; a Return Validation line tied to a version never wrapped its file name): fixed in the R1 FAIL PR. Mock `r1-fail-cr6-c14` "F01b CR-6: a validation line naming its version wraps, so the Review tab fits 390 px".
+
 Her retests (no code change known): F01b, F09b, F17, F26bb, F32c, F35b, EXT-4b, and the remaining-acceptance areas CR-1 to CR-4, CR-5b and CR-6. CR-5a (exports audited) is covered: e2e `tax-return-review` "audits each export with who made it and how many rows, and a refused one leaves none" (#1573).
 
 The four listed on Nov 15 stay closed: Messaging (#1508, #1512), F06 (#1519), F21 (#1515) and F36 (#1518).
