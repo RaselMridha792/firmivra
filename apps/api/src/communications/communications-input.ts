@@ -1,6 +1,9 @@
 import { ConfirmUploadRequest } from '@firmivra/types';
 import {
+  AddEligibleContactsRequest,
   AudienceCandidatesQuery,
+  EligibleContactsQuery,
+  RemoveAudienceEntriesRequest,
   SaveAsTemplateRequest,
   StartCommunicationAttachmentRequest,
   TestSendCommunicationRequest,
@@ -66,6 +69,9 @@ export const UpdateCommunicationBody = clean(UpdateCommunicationRequest);
 export const AudienceCandidatesQ = clean(AudienceCandidatesQuery);
 export const SelectAllAudienceBody = clean(SelectAllAudienceRequest);
 export const SetAudienceBody = clean(SetAudienceRequest);
+export const EligibleContactsQ = clean(EligibleContactsQuery);
+export const AddEligibleBody = clean(AddEligibleContactsRequest);
+export const RemoveEntriesBody = clean(RemoveAudienceEntriesRequest);
 export const SendBody = clean(SendCommunicationRequest);
 export const ScheduleBody = clean(ScheduleCommunicationRequest);
 export const RescheduleBody = clean(RescheduleCommunicationRequest);
