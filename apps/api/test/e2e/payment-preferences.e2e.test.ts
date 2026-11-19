@@ -195,6 +195,36 @@ describe('payment preferences (IP-F13)', () => {
     expect(row.reminderDaysBefore).toBe(7);
   });
 
+  it('I-D01: a save ignores payment before the due date (withdrawn); an older screen still saves', async () => {
+    const start = prefs(await call('get', '', fx.users.ownerA));
+    expect(start.taxesAndFees.requirePaymentBeforeDue).toBe(false);
+    const saved = prefs(
+      await call('patch', '', fx.users.ownerA, {
+        ...start,
+        taxesAndFees: {
+          ...start.taxesAndFees,
+          tippingEnabled: true,
+          requirePaymentBeforeDue: true,
+        },
+      }),
+    );
+    expect(saved.taxesAndFees).toMatchObject({
+      tippingEnabled: true,
+      requirePaymentBeforeDue: false,
+    });
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const [log] = await runInScope(db, { kind: 'platform' }, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: fx.firmA.id, action: 'payment_preferences.updated' },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      }),
+    );
+    await db.$disconnect();
+    expect((log?.metadata as { fields: string[] }).fields).toEqual(['tippingEnabled']);
+    await call('post', '/reset', fx.users.ownerA, { updatedAt: saved.updatedAt });
+  });
+
   it("keeps the firm's own terms beside the standard ones, offered as the default", async () => {
     const start = prefs(await call('get', '', fx.users.ownerA));
     const withTerms = (customTermDays: number[], defaultTerms = 'net_14') => ({
