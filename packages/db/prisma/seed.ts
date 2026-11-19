@@ -47,6 +47,7 @@ import { seedR36 } from './seed-r36.js';
 import { seedR37 } from './seed-r37.js';
 import { seedR60 } from './seed-r60.js';
 import { seedR39 } from './seed-r39.js';
+import { seedAdvisoryReview2 } from './seed-r1-advisory.js';
 import { seedWorkModules } from './seed-r38.js';
 import { seedPlatformPlans } from './seed-platform-plans.js';
 import { seedPlatformTeam } from './seed-platform-team.js';
@@ -2798,6 +2799,13 @@ async function main() {
       },
     });
     await seedEsignDraft(tx, businesses.testFirmB);
+    // Business Advisory Review Two (A-X02, A-X10, A-X11): Test Firm B's rows only.
+    await seedAdvisoryReview2(
+      tx,
+      businesses.testFirmB,
+      SEED_CLIENT_IDS.testFirmB,
+      SEED_USERS.firmBOwner.id,
+    );
   });
 
   await seedR36(prisma, businesses);

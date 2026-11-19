@@ -1016,6 +1016,9 @@ model Business {
   intakeSettings               IntakeSettings?
   intakeTemplates              IntakeTemplate[]
   intakeFormNotes              IntakeFormNote[]
+  advisoryIndustries           AdvisoryIndustry[]
+  advisoryResources            AdvisoryResource[]
+  advisoryResourceFiles        AdvisoryResourceFile[]
   staffJobTitles               StaffJobTitle[]
   staffWorkSchedules           StaffWorkSchedule[]
   staffSecurityDefaults        StaffSecurityDefaults?
@@ -1279,6 +1282,12 @@ model Membership {
   intakesAssigned           Intake[]                   @relation("IntakeAssignedTo")
   intakesCompleted          Intake[]                   @relation("IntakeCompletedBy")
   intakeFormNotes           IntakeFormNote[]           @relation("IntakeFormNoteAuthor")
+  // Business Advisory Review Two (r1_advisory_review2).
+  advisoryIndustriesUpdated AdvisoryIndustry[]         @relation("AdvisoryIndustryUpdatedBy")
+  advisoryResourcesCreated  AdvisoryResource[]         @relation("AdvisoryResourceCreatedBy")
+  advisoryResourcesUpdated  AdvisoryResource[]         @relation("AdvisoryResourceUpdatedBy")
+  advisoryResourceFiles     AdvisoryResourceFile[]     @relation("AdvisoryResourceFileUploadedBy")
+  advisoryActionItemNotes   AdvisoryActionItemNote[]   @relation("AdvisoryActionItemNoteAuthor")
   intakeSettingsOwner       IntakeSettings[]           @relation("IntakeSettingsOwner")
   intakeSettingsFollowUp    IntakeSettings[]           @relation("IntakeSettingsFollowUp")
   intakeTemplatesCreated    IntakeTemplate[]           @relation("IntakeTemplateCreatedBy")
@@ -9063,11 +9072,13 @@ model AdvisoryActionItem {
   createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  advisoryClient AdvisoryClient     @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
-  plan           AdvisoryPlan?      @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
-  goal           AdvisoryGoal?      @relation(fields: [businessId, goalId], references: [businessId, id], onDelete: Restrict)
-  milestone      AdvisoryMilestone? @relation(fields: [businessId, milestoneId], references: [businessId, id], onDelete: Restrict)
+  advisoryClient AdvisoryClient           @relation(fields: [businessId, advisoryClientId], references: [businessId, id], onDelete: Restrict)
+  plan           AdvisoryPlan?            @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  goal           AdvisoryGoal?            @relation(fields: [businessId, goalId], references: [businessId, id], onDelete: Restrict)
+  milestone      AdvisoryMilestone?       @relation(fields: [businessId, milestoneId], references: [businessId, id], onDelete: Restrict)
+  notes          AdvisoryActionItemNote[]
 
+  @@unique([businessId, id])
   @@index([businessId, advisoryClientId, status])
   @@index([businessId, assigneeUserId, status])
   @@index([businessId, dueOn])
@@ -9116,6 +9127,130 @@ model AdvisoryFinancialSnapshot {
 
   @@index([businessId, advisoryClientId, periodEnd])
   @@map("advisory_financial_snapshots")
+}
+
+// ---------- Business Advisory Review Two (R1, migration r1_advisory_review2) ----------
+
+/// A-X02 (B16): the firm's own industry choices for an advisory client's profile and the plan
+/// wizard. Until a firm saves its first change the API offers the built-in list, and that first
+/// change saves the list here. A client or plan keeps the text it was saved with: renaming or
+/// archiving an industry here never rewrites one. Archived, never deleted.
+model AdvisoryIndustry {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  /// 1 to 80 characters, one line; unique among the firm's live industries, ignoring case.
+  name            String
+  sortOrder       Int       @default(0) @map("sort_order")
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  updatedByUserId String?   @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business    @relation(fields: [businessId], references: [id])
+  updatedBy Membership? @relation("AdvisoryIndustryUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@index([businessId, sortOrder])
+  @@map("advisory_industries")
+}
+
+/// The kinds of advisory resource (packages/types AdvisoryResource.kind).
+enum AdvisoryResourceKind {
+  PDF
+  CHECKLIST
+  GUIDE
+  TEMPLATE
+  VIDEO
+  LINK
+}
+
+/// A-X10 (B28): the firm's own advisory resources beside the built-in catalog (the API's
+/// catalog.ts), and its edited copy of a built-in one (`catalogKey`, at most one per firm and
+/// key). A resource is its words (title, category, kind and the summary sent with it) and at most
+/// one https link or one uploaded file; a link or video is a link. Only a client-facing one is
+/// ever sent. Archived, never deleted.
+model AdvisoryResource {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  businessId      String               @map("business_id") @db.Uuid
+  /// The built-in resource this edits (catalog.ts key); null for the firm's own.
+  catalogKey      String?              @map("catalog_key")
+  /// 1 to 200 characters, one line.
+  title           String
+  /// 1 to 100 characters, one line.
+  category        String
+  kind            AdvisoryResourceKind
+  /// 1 to 1000 characters: what is sent with it.
+  summary         String
+  /// An https link, up to 2000 characters; never with a file.
+  url             String?
+  /// An uploaded file (advisory_resource_files); offered only once CLEAN.
+  fileId          String?              @map("file_id") @db.Uuid
+  clientFacing    Boolean              @default(false) @map("client_facing")
+  archivedAt      DateTime?            @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String               @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?              @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business              @relation(fields: [businessId], references: [id])
+  file      AdvisoryResourceFile? @relation(fields: [businessId, fileId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership            @relation("AdvisoryResourceCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy Membership?           @relation("AdvisoryResourceUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, catalogKey])
+  // A file belongs to one resource.
+  @@unique([businessId, fileId])
+  @@index([businessId, archivedAt])
+  @@map("advisory_resources")
+}
+
+/// A-X10: a file uploaded for an advisory resource, under `tenant/<business_id>/advisory-resources/`,
+/// at most 25 MB. Starts unscanned; the file is fixed and its scan result is set once (the
+/// database's time). Never deleted: a replaced file stays on record.
+model AdvisoryResourceFile {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  businessId       String     @map("business_id") @db.Uuid
+  fileName         String     @map("file_name")
+  contentType      String     @map("content_type")
+  sizeBytes        Int        @map("size_bytes")
+  /// SHA-256 of the file, hex.
+  sha256           String
+  s3Key            String     @unique @map("s3_key")
+  scanStatus       ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  uploadedByUserId String     @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business   Business          @relation(fields: [businessId], references: [id])
+  uploadedBy Membership        @relation("AdvisoryResourceFileUploadedBy", fields: [businessId, uploadedByUserId], references: [businessId, userId], onDelete: Restrict)
+  resource   AdvisoryResource?
+
+  @@unique([businessId, id])
+  @@map("advisory_resource_files")
+}
+
+/// A-X11 (B30): a progress note on an advisory action item: what was done, the item's status when
+/// it was written, who wrote it and when (the database's time), so the item keeps its
+/// status/actor/time history. The firm's only: never in the portal, an email or a log.
+/// Insert-only: never edited or deleted.
+model AdvisoryActionItemNote {
+  id           String               @id @default(uuid(7)) @db.Uuid
+  businessId   String               @map("business_id") @db.Uuid
+  actionItemId String               @map("action_item_id") @db.Uuid
+  /// 1 to 2000 characters; lines allowed.
+  body         String
+  /// The item's status when the note was written: the item must have it at insert.
+  status       AdvisoryActionStatus
+  authorUserId String               @map("author_user_id") @db.Uuid
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actionItem AdvisoryActionItem @relation(fields: [businessId, actionItemId], references: [businessId, id], onDelete: Restrict)
+  author     Membership         @relation("AdvisoryActionItemNoteAuthor", fields: [businessId, authorUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@index([businessId, actionItemId, createdAt])
+  @@map("advisory_action_item_notes")
 }
 
 // ---------- Staff management (R35, migration r35_staff_roles_teams) ----------
