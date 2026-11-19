@@ -51,7 +51,7 @@ test('TP-F05: Cancel and the breadcrumb ask; Stay keeps the words, Discard leave
   await expect(page).toHaveURL(base);
 });
 
-test('TP-F06: a file is attached and downloadable; a wrong type or size says why', async ({
+test('TP-F06: a file is attached and waits for its virus check; a wrong type or size says why', async ({
   page,
 }) => {
   await openReminder(page);
@@ -65,8 +65,12 @@ test('TP-F06: a file is attached and downloadable; a wrong type or size says why
   await input.setInputFiles({ name: 'tiny.png', mimeType: 'image/png', buffer: png });
   await expect(page.getByText('Attachment added.')).toBeVisible();
   await expect(zone.getByText('tiny.png')).toBeVisible();
+  // The scan gap: no download until the file's virus check is recorded (409 SCAN_PENDING).
   await zone.getByRole('button', { name: 'Download tiny.png' }).click();
-  await expect(page.getByText('tiny.png is ready to download.')).toBeVisible();
+  await expect(
+    page.getByText('This file is still being checked. Try again in a moment.'),
+  ).toBeVisible();
+  await expect(page.getByText('tiny.png is ready to download.')).toHaveCount(0);
 
   await input.setInputFiles({
     name: 'notes.txt',
