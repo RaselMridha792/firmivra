@@ -3482,7 +3482,7 @@ describe('a planning discussion (Tax Planning Review 2 C12)', () => {
 });
 
 describe('Review 2 (TX-F06): Link to Tax Return', () => {
-  it("keeps one of the client's returns (as its engagement), shows it, and takes it off", async () => {
+  it("keeps one of the client's returns, shows it, and takes it off; the return's service too", async () => {
     const fx = await asOwner(ids.firmA, async (tx) => {
       const A = { businessId: ids.firmA };
       const e = await tx.engagement.create({
@@ -3498,22 +3498,47 @@ describe('Review 2 (TX-F06): Link to Tax Return', () => {
           formType: '1040',
         },
       });
+      // F06 (R56): a second return on the same service, made later (so its newest).
+      const sameService = await tx.taxReturn.create({
+        data: {
+          ...A,
+          clientId: ids.c1,
+          engagementId: e.id,
+          taxYear: 2025,
+          quarter: 3,
+          filingType: 'INDIVIDUAL',
+          formType: '1040-ES',
+        },
+      });
       const bare = await tx.taxReturn.create({
         data: { ...A, clientId: ids.c1, taxYear: 2024, filingType: 'INDIVIDUAL', formType: '1040' },
       });
       const theirs = await tx.taxReturn.create({
         data: { ...A, clientId: ids.c2, taxYear: 2025, filingType: 'INDIVIDUAL', formType: '1040' },
       });
-      return { linked: linked.id, bare: bare.id, theirs: theirs.id, engagement: e.id };
+      return {
+        linked: linked.id,
+        sameService: sameService.id,
+        bare: bare.id,
+        theirs: theirs.id,
+        engagement: e.id,
+      };
     });
+    // F06 (R56, Nov 20): the exact return is kept, not the service's newest return.
     const r = await scheduled({ related: { taxReturnId: fx.linked } });
     expect(r.related.taxReturn).toEqual({ id: fx.linked, name: '2025 1040 Return' });
     const stored = await asOwner(ids.firmA, (tx) =>
-      tx.appointment.findUniqueOrThrow({ where: { id: r.id }, select: { engagementId: true } }),
+      tx.appointment.findUniqueOrThrow({
+        where: { id: r.id },
+        select: { engagementId: true, taxReturnId: true },
+      }),
     );
-    expect(stored.engagementId).toBe(fx.engagement);
+    expect(stored).toEqual({ engagementId: fx.engagement, taxReturnId: fx.linked });
 
-    // Another client's return: 404; a return without its service yet: 400 at the field.
+    // F06 (R56): a return without a service links all the same (her case), with no service.
+    const bare = await scheduled({ related: { taxReturnId: fx.bare } });
+    expect(bare.related.taxReturn).toEqual({ id: fx.bare, name: '2024 1040 Return' });
+    // Another client's return: 404.
     expectError(
       await call(
         'post',
@@ -3523,16 +3548,6 @@ describe('Review 2 (TX-F06): Link to Tax Return', () => {
       ),
       404,
       'NOT_FOUND',
-    );
-    expectError(
-      await call(
-        'post',
-        '/appointments/schedule',
-        people.ownerA,
-        schedule({ related: { taxReturnId: fx.bare } }),
-      ),
-      400,
-      'VALIDATION_FAILED',
     );
 
     const off = exact(

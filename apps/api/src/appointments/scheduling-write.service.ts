@@ -385,11 +385,13 @@ export class SchedulingWriteService {
           })
         : null;
 
-    // Review 2 (TX-F06): the tax return this appointment is for, as its engagement.
-    const engagementId =
-      body.related?.taxReturnId && party.clientId
-        ? await this.returnEngagement(tx, businessId, party.clientId, body.related.taxReturnId)
-        : null;
+    // Review 2 (TX-F06; F06 R56, Nov 20): the exact tax return this appointment is for, with or
+    // without its service; with one, the appointment is on that service too.
+    const taxReturnId =
+      body.related?.taxReturnId && party.clientId ? body.related.taxReturnId : null;
+    const engagementId = taxReturnId
+      ? await this.returnEngagement(tx, businessId, party.clientId!, taxReturnId)
+      : null;
     // Review 2 (row 9): Send Intake Form Before Appointment names one of the firm's published
     // forms, checked before anything is booked; it goes to the client's portal after the booking.
     if (body.related?.intakeFormId) {
@@ -441,6 +443,7 @@ export class SchedulingWriteService {
           serviceId,
           taxPlanId,
           engagementId,
+          taxReturnId,
           startsAt: new Date(slot.start),
           endsAt: new Date(slot.end),
           timeZone,
@@ -587,6 +590,14 @@ export class SchedulingWriteService {
                 )
               : null;
           set('taxReturn', 'engagementId', engagementId, engagementId === current.engagementId);
+          // F06 (R56): the exact return itself.
+          const taxReturnId = body.related.taxReturnId ?? null;
+          set(
+            'taxReturn',
+            'taxReturnId',
+            taxReturnId,
+            taxReturnId === (current.taxReturn?.id ?? null),
+          );
         }
 
         let staffUserId = current.staffUserId;
@@ -1120,18 +1131,13 @@ export class SchedulingWriteService {
     businessId: string,
     clientId: string,
     taxReturnId: string,
-  ): Promise<string> {
+  ): Promise<string | null> {
     const r = await tx.taxReturn.findFirst({
       where: { businessId, id: taxReturnId, clientId, archivedAt: null },
       select: { engagementId: true },
     });
     if (!r) throw errors.notFound();
-    if (!r.engagementId) {
-      throw errors.invalidField(
-        'related.taxReturnId',
-        "This return has no service yet: set it in the return's details first",
-      );
-    }
+    // F06 (R56, Nov 20): a return without a service links all the same (tax_return_id).
     return r.engagementId;
   }
 

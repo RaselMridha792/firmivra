@@ -846,13 +846,14 @@ function FormBody({
   // In a side panel the page's address is the workspace's: nothing is kept for it.
   const [kept] = useState<Form | null>(() => (embedded ? null : readKept()));
   const [form, setForm] = useState<Form>(() => kept ?? start);
-  // Review 2 (TX-F06): Link to Tax Return, one of the client's returns that has its service.
+  // Review 2 (TX-F06; F06 R56): Link to Tax Return, any of the client's returns, with or without
+  // its service (the appointment names the exact return).
   const linkClientId = form.contact?.kind === 'CLIENT' ? form.contact.id : null;
   const clientReturns = useApiQuery(
     ['tax-returns', 'for-appointment', linkClientId ?? ''],
     async () => (linkClientId ? api.taxReturns.listForClient(linkClientId) : []),
   );
-  const linkable = (clientReturns.data ?? []).filter((r) => r.engagementId);
+  const linkable = clientReturns.data ?? [];
   const [linkReturn, setLinkReturn] = useState(linkReturnId ?? record?.related.taxReturn?.id ?? '');
   // Another client: a return of the one before never carries over.
   const linkedReturn = linkable.some((r) => r.id === linkReturn) ? linkReturn : '';
@@ -1898,7 +1899,7 @@ function FormBody({
                         ? 'Choose the client first'
                         : linkable.length
                           ? 'No tax return'
-                          : 'No tax return with its service yet',
+                          : 'This client has no tax return yet',
                     },
                     ...linkable.map((r) => ({
                       value: r.id,

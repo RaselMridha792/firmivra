@@ -12,6 +12,7 @@ type Props = {
     engagementId?: Param;
     period?: Param;
     invoice?: Param;
+    taxReturnId?: Param;
     leadId?: Param;
   }>;
 };
@@ -23,7 +24,8 @@ const one = (v: Param) => (typeof v === 'string' && v.length <= 200 ? v : undefi
  * Add Task (Leads R2 2) adds `leadId`: the task is that lead's, with a way back to it.
  */
 export default async function NewTaskPage({ searchParams }: Props) {
-  const { template, clientId, engagementId, period, invoice, leadId } = await searchParams;
+  const { template, clientId, engagementId, period, invoice, taxReturnId, leadId } =
+    await searchParams;
   const lead = one(leadId);
   if (lead) return <LeadTaskForm leadId={lead} />;
   return (
@@ -35,6 +37,8 @@ export default async function NewTaskPage({ searchParams }: Props) {
         period: one(period),
         // I-P01: an invoice's Create Task (its number only).
         invoice: /^[A-Za-z0-9-]{1,40}$/.test(one(invoice) ?? '') ? one(invoice) : undefined,
+        // Tax Returns Review Two F03 (R56): the exact return Create Task came from.
+        taxReturnId: /^[0-9a-f-]{36}$/.test(one(taxReturnId) ?? '') ? one(taxReturnId) : undefined,
       }}
     />
   );
