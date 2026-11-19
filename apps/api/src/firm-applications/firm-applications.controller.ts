@@ -21,6 +21,7 @@ import {
   ListFirmsQuery,
   type ListFirmsResponse,
   RequestFirmInfoRequest,
+  RequestFirmInformationRequest,
   SaveFirmNotesRequest,
   SubmitFirmApplicationRequest,
   type SubmitFirmApplicationResponse,
@@ -49,7 +50,9 @@ import {
   ResponseUploadTokens,
 } from './apply-respond.service.js';
 import { EIN_HASH_KEY, loadEinHashKey } from './ein-hash.js';
+import { AdminSupportModule } from '../admin-support/admin-support.module.js';
 import { FirmAccountService } from './firm-account.service.js';
+import { FirmInfoRequestService } from './firm-info-request.service.js';
 import { FirmApplicationsService } from './firm-applications.service.js';
 import { FirmKeyJob } from './firm-key-job.js';
 import { createFirmKeys, FIRM_KEYS, loadFirmKeysConfig } from './firm-keys.js';
@@ -224,7 +227,21 @@ export class AdminFirmsController {
   constructor(
     private readonly applications: FirmApplicationsService,
     private readonly account: FirmAccountService,
+    private readonly info: FirmInfoRequestService,
   ) {}
+
+  /** SA-FRM-F06: Request Information: a Support ticket and an email to the firm's owner. */
+  @Post(':id/request-info')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  async requestInfo(
+    @Param('id', new ZodValidationPipe(FirmId)) id: string,
+    @Body(new ZodValidationPipe(RequestFirmInformationRequest))
+    body: z.output<typeof RequestFirmInformationRequest>,
+  ): Promise<FirmRecord> {
+    await this.info.request(id, body);
+    return this.applications.firmRecord(id);
+  }
 
   @Get()
   @Roles('SUPER_ADMIN')
@@ -304,7 +321,8 @@ export class AdminDashboardController {
 }
 
 @Module({
-  imports: [SignInModule],
+  // AdminSupportModule: Request Information files a Support ticket (SA-FRM-F06).
+  imports: [SignInModule, AdminSupportModule],
   controllers: [
     FirmApplicationsController,
     ApplyRespondController,
@@ -316,6 +334,7 @@ export class AdminDashboardController {
     AdminPrisma,
     FirmApplicationsService,
     FirmAccountService,
+    FirmInfoRequestService,
     FirmApplicationSubmitService,
     { provide: EIN_HASH_KEY, useFactory: () => loadEinHashKey() },
     { provide: FIRM_KEYS, useFactory: () => createFirmKeys(loadFirmKeysConfig()) },

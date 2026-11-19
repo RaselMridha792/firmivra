@@ -42,5 +42,8 @@ import { SupportTicketsService } from './support-tickets.service.js';
       useFactory: (env: Env) => new SupportUploadTokens(poolSecrets(env)),
     },
   ],
+  // SA-FRM-F06: the firm page's Request Information files a ticket; the firm's owner answers
+  // with Support's files (one scan handler for the `support` prefix).
+  exports: [SupportTicketsService, SupportFilesService],
 })
 export class AdminSupportModule {}

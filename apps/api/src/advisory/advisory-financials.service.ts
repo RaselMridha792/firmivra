@@ -2,10 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import type { AdvisoryFinancialPage, AdvisoryFinancialRow } from '@firmivra/types';
 import type { z } from 'zod';
+import { auditChanges } from '../audit/audit-changes.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
-import { memberNames, toDay } from '../workspaces/common.js';
+import { memberNames, notFound, toDay } from '../workspaces/common.js';
 import { type AdvisoryCtx, AdvisoryReadService } from './advisory-read.service.js';
 import { AdvisoryGoalsService } from './advisory-goals.service.js';
 import type { CreateFinancialBody, FinancialsQuery } from './advisory-input.js';
@@ -143,8 +144,22 @@ export class AdvisoryFinancialsService {
         select: { id: true },
       });
       const replaces = !!fromSource && (body.source === 'MANUAL' || body.source === 'UPLOADED');
+      // A-X09 (B27): a correction of one of this client's rows, for its own period, with a reason.
+      const corrected = body.corrects
+        ? await tx.advisoryFinancialSnapshot.findFirst({
+            where: { businessId, advisoryClientId: c.id, id: body.corrects.snapshotId },
+          })
+        : null;
+      if (body.corrects && !corrected) throw notFound();
+      if (
+        corrected &&
+        (corrected.periodStart.getTime() !== periodStart.getTime() ||
+          corrected.periodEnd.getTime() !== periodEnd.getTime())
+      )
+        throw advErrors.invalid('corrects.snapshotId', 'A correction keeps the period it corrects');
+      const reason = body.override?.reason ?? body.corrects?.reason;
       if (replaces && !ctx.perms.override) throw advErrors.overrideNotAllowed();
-      if (replaces && !body.override)
+      if (replaces && !reason)
         throw advErrors.invalid(
           'override.reason',
           'Say why the figures from the source are replaced',
@@ -170,7 +185,8 @@ export class AdvisoryFinancialsService {
           source: body.source,
           asOf: toDay(body.asOf),
           overridden: replaces,
-          overrideReason: replaces ? (body.override?.reason ?? null) : null,
+          // The reason of an override or of a correction (A-X09), shown on the row.
+          overrideReason: replaces || corrected ? (reason ?? null) : null,
           overriddenByUserId: replaces ? userId : null,
           createdByUserId: userId,
         },
@@ -186,6 +202,32 @@ export class AdvisoryFinancialsService {
           overridden: replaces,
         },
       );
+      // A-X09: the correction, with the figures before and after (Audit Log R03).
+      if (corrected) {
+        await this.audit.logIn(
+          tx,
+          'advisory_financial.corrected',
+          { type: 'advisory_client', id: c.id },
+          {
+            advisoryClientId: c.id,
+            snapshotId: row.id,
+            corrects: corrected.id,
+            ...auditChanges(corrected, row, {
+              fields: [
+                'revenueCents',
+                'expensesCents',
+                'netProfitCents',
+                'cashFlowCents',
+                'debtCents',
+                'budgetRevenueCents',
+                'budgetExpensesCents',
+                'headcount',
+                'source',
+              ],
+            }),
+          },
+        );
+      }
       await this.read.recomputeHealth(ctx, c.id);
       const names = await memberNames(tx, businessId, [row.overriddenByUserId]);
       return this.read.financialRow(ctx, row, names);

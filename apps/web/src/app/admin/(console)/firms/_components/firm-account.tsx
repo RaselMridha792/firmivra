@@ -2,15 +2,17 @@
 
 import type { FirmAccountAction, FirmAccountEvent, FirmRecord } from '@firmivra/types';
 import { ActionMenu, Button, Card, Modal } from '@firmivra/ui';
-import { PauseCircle, PlayCircle, Prohibit } from '@phosphor-icons/react';
+import { ChatText, PauseCircle, PlayCircle, Prohibit } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { History } from 'lucide-react';
+import Link from 'next/link';
 import { useId, useState, type FormEvent } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
 import { CardHeading } from '../../applications/_components/application-cards';
 import { dateText } from '../../applications/_components/application-ui';
+import { RequestInfoDialog } from './request-info';
 
 /** The firm page's query key (firm-detail.tsx). */
 export const firmDetailKey = (id: string) => ['firms', 'detail', id] as const;
@@ -79,6 +81,8 @@ export function FirmAccountActions({ firm }: { firm: FirmRecord }) {
   const [reason, setReason] = useState('');
   const [missing, setMissing] = useState(false);
   const [done, setDone] = useState('');
+  // SA-FRM-F06: the Request Information dialog.
+  const [asking, setAsking] = useState(false);
   const run = useApiMutation(
     (input: { action: FirmAccountAction; reason: string }) =>
       api.firmApplications.firmAction(firm.id, input.action, { reason: input.reason }),
@@ -143,6 +147,27 @@ export function FirmAccountActions({ firm }: { firm: FirmRecord }) {
         align="right"
         className="[&>button]:min-h-11 [&>button]:rounded-control [&>button]:border-border [&>button]:px-4"
         sections={[
+          // SA-FRM-F06 (an older API build sends no requestInfo: no item).
+          ...(can.requestInfo === undefined
+            ? []
+            : [
+                {
+                  title: 'Firm',
+                  items: [
+                    {
+                      label: 'Request Information',
+                      icon: ChatText,
+                      onSelect: () => {
+                        setDone('');
+                        setAsking(true);
+                      },
+                      ...(can.requestInfo
+                        ? {}
+                        : { disabled: 'Only an active firm with an owner can answer' }),
+                    },
+                  ],
+                },
+              ]),
           {
             title: 'Account',
             items: [
@@ -158,6 +183,18 @@ export function FirmAccountActions({ firm }: { firm: FirmRecord }) {
           {done}
         </p>
       ) : null}
+      <RequestInfoDialog
+        firm={firm}
+        open={asking}
+        onClose={() => setAsking(false)}
+        onSent={(record) => {
+          client.setQueryData(firmDetailKey(firm.id), record);
+          const ticket = record.accountHistory?.find((e) => e.type === 'INFO_REQUESTED')?.ticket;
+          setDone(
+            `Your request was sent to ${firm.owner?.name ?? 'the firm owner'}${ticket ? ` as Support ticket #${ticket.number}` : ''}.`,
+          );
+        }}
+      />
       <Modal
         open={action !== null}
         title={action ? ACTIONS[action].title(firm.name) : ''}
@@ -222,6 +259,7 @@ const EVENT_TITLES: Record<FirmAccountEvent['type'], string> = {
   SUSPENDED: 'Suspended',
   REACTIVATED: 'Reactivated',
   CLOSED: 'Closed',
+  INFO_REQUESTED: 'Information requested',
 };
 
 /**
@@ -255,8 +293,17 @@ export function FirmAccountHistory({ events }: { events: FirmAccountEvent[] }) {
               </p>
               {event.reason ? (
                 <p className="mt-1 whitespace-pre-wrap break-words text-text">
-                  Reason: {event.reason}
+                  {event.type === 'INFO_REQUESTED' ? 'Subject' : 'Reason'}: {event.reason}
                 </p>
+              ) : null}
+              {/* SA-FRM-F06: the request is a Support ticket; the owner's answer arrives there. */}
+              {event.ticket ? (
+                <Link
+                  href={`/support/tickets/${event.ticket.id}`}
+                  className="mt-1 inline-block font-medium text-link hover:underline"
+                >
+                  Open Support ticket #{event.ticket.number}
+                </Link>
               ) : null}
             </li>
           ))}

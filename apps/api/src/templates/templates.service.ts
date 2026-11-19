@@ -705,7 +705,10 @@ export class TemplatesService {
             body: cleanBody(t.kind, body.draft.body),
           }
         : t;
-      return this.renderer.render(shown, values, !live);
+      return {
+        ...this.renderer.render(shown, values, !live),
+        branding: await this.renderer.branding(tx, businessId, t.kind),
+      };
     });
     if (live) {
       await this.audit.log(

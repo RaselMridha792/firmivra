@@ -25,13 +25,15 @@ const LINKED: Partial<
 
 /**
  * TP-F08 (the lead's default, Nov 7): Tax Returns and Bookkeeping take no template yet, so these
- * keep their structure for reference; no new flow is invented.
+ * keep their structure for reference; no new flow is invented. Templates Review Two P02: what does
+ * start a client's bookkeeping, said where the Use would be (checked in the API: adding a client
+ * under Bookkeeping opens it; a new period takes Bookkeeping Settings' close checklist).
  */
 const NOT_YET: Partial<Record<MessageTemplateRow['kind'], string>> = {
   TAX_WORKFLOW:
     'Tax Returns cannot start from a template yet. This one keeps its steps for reference.',
   BOOKKEEPING:
-    'Bookkeeping cannot start from a template yet. This one keeps its structure for reference.',
+    'Bookkeeping cannot start from a template yet. Adding a bookkeeping service in Services & Pricing creates no workflow: a client’s bookkeeping starts when you add the client under Bookkeeping, and each new period’s close checklist comes from Bookkeeping Settings. This template keeps a checklist and messages to copy from.',
 };
 
 /**

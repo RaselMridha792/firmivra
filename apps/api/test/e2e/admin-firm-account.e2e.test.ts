@@ -213,14 +213,20 @@ describe('SA-FRM-F02 to F04, Y07, Y10: the firm account actions', () => {
   it('Suspend refuses the firm’s people, Reactivate lets them back, and the history keeps both reasons', async () => {
     expect((await ownerCall()).status).toBe(200);
     const before = FirmRecord.parse((await get(`/admin/firms/${firms.active.id}`)).body);
-    expect(before.can).toEqual({ suspend: true, reactivate: false, close: true });
+    // SA-FRM-F06: an Active firm with an owner can be asked for information; no other.
+    expect(before.can).toEqual({
+      suspend: true,
+      reactivate: false,
+      close: true,
+      requestInfo: true,
+    });
     expect(before.accountHistory?.map((e) => e.type)).toEqual(['ACTIVATED']);
 
     const suspended = await act(firms.active.id, 'suspend', { reason: 'Fake: unpaid invoices' });
     expect(suspended.status, JSON.stringify(suspended.body)).toBe(200);
     const s = FirmRecord.parse(suspended.body);
     expect(s.status).toBe('SUSPENDED');
-    expect(s.can).toEqual({ suspend: false, reactivate: true, close: true });
+    expect(s.can).toEqual({ suspend: false, reactivate: true, close: true, requestInfo: false });
     expect(s.accountHistory?.[0]).toMatchObject({
       type: 'SUSPENDED',
       reason: 'Fake: unpaid invoices',
@@ -257,7 +263,7 @@ describe('SA-FRM-F02 to F04, Y07, Y10: the firm account actions', () => {
     );
     expect(r.status).toBe('PENDING_SETUP');
     expect(r.activatedAt).toBeNull();
-    expect(r.can).toEqual({ suspend: true, reactivate: false, close: true });
+    expect(r.can).toEqual({ suspend: true, reactivate: false, close: true, requestInfo: false });
   });
 
   it('Close is final: the closure time is recorded and nothing reopens the firm', async () => {
@@ -266,7 +272,12 @@ describe('SA-FRM-F02 to F04, Y07, Y10: the firm account actions', () => {
     const c = FirmRecord.parse(closed.body);
     expect(c.status).toBe('CLOSED');
     expect(c.closedAt).not.toBeNull();
-    expect(c.can).toEqual({ suspend: false, reactivate: false, close: false });
+    expect(c.can).toEqual({
+      suspend: false,
+      reactivate: false,
+      close: false,
+      requestInfo: false,
+    });
     expect(c.accountHistory?.[0]).toMatchObject({
       type: 'CLOSED',
       reason: 'Fake: the owner asked to close',
@@ -291,7 +302,12 @@ describe('SA-FRM-F02 to F04, Y07, Y10: the firm account actions', () => {
     expect(f.status).toBe('CLOSED');
     expect(f.closedAt).not.toBeNull();
     expect(f.accountHistory).toEqual([{ type: 'CLOSED', at: f.closedAt, by: null, reason: null }]);
-    expect(f.can).toEqual({ suspend: false, reactivate: false, close: false });
+    expect(f.can).toEqual({
+      suspend: false,
+      reactivate: false,
+      close: false,
+      requestInfo: false,
+    });
   });
 
   it('needs a reason, a known firm and a Super Admin', async () => {
