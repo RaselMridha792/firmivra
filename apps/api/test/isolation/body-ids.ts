@@ -101,20 +101,19 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     why: "the MEMBER recipient variant's member: one case per route carries the CLIENT variant (a body has one variant, so a swap of the other's field would change nothing); documents-requests.e2e refuses another firm's member for both (NOT_A_MEMBER) (R55)",
   },
   ...(
-    [
-      'taxReturnId',
-      'bookkeepingEngagementId',
-      'invoiceId',
-      'taskId',
-      'intakeFormId',
-      'documentRequestId',
-    ] as const
+    ['taxReturnId', 'bookkeepingEngagementId', 'invoiceId', 'taskId', 'documentRequestId'] as const
   ).map((name) => ({
     field: `related.${name}`,
     routes:
       /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
     why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
   })),
+  {
+    field: 'related.intakeFormId',
+    routes:
+      /^(PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
+    why: 'Edit and drafts send no intake form: any value is refused 400 and never read; Schedule reads it (cases/appointments.ts, Review 2 row 9) (R60)',
+  },
   {
     field: 'busyCalendarIds',
     routes: /^PUT \/api\/v1\/business\/availability\/:userId\/rules$/,
@@ -130,20 +129,19 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     why: `${what}: no table keeps it yet, so any value is refused 400 and never read (R58)`,
   })),
   ...(
-    [
-      'taxReturnId',
-      'bookkeepingEngagementId',
-      'invoiceId',
-      'taskId',
-      'intakeFormId',
-      'documentRequestId',
-    ] as const
+    ['taxReturnId', 'bookkeepingEngagementId', 'invoiceId', 'taskId', 'documentRequestId'] as const
   ).map((name) => ({
     field: `related.${name}`,
     routes:
       /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
     why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
   })),
+  {
+    field: 'related.intakeFormId',
+    routes:
+      /^(PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
+    why: 'Edit and drafts send no intake form: any value is refused 400 and never read; Schedule reads it (cases/appointments.ts, Review 2 row 9) (R60)',
+  },
   {
     field: 'senderId',
     routes: /^PATCH \/api\/v1\/business\/communications\/:id$/,

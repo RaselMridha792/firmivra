@@ -856,6 +856,19 @@ function FormBody({
   const [linkReturn, setLinkReturn] = useState(linkReturnId ?? record?.related.taxReturn?.id ?? '');
   // Another client: a return of the one before never carries over.
   const linkedReturn = linkable.some((r) => r.id === linkReturn) ? linkReturn : '';
+  // Review 2 (row 9): Send Intake Form Before Appointment, on a new appointment for a client. Its
+  // form follows the Related Service (that service's default form), else the appointment type's
+  // required form, until the member picks one; on while there is such a form, until changed.
+  const [intakeOn, setIntakeOn] = useState<boolean | null>(null);
+  const [intakePick, setIntakePick] = useState('');
+  const serviceForm = form.serviceId
+    ? o.intakeForms.find((f) => f.serviceId === form.serviceId && f.serviceDefault)?.id
+    : undefined;
+  const typeForm = o.types.find((t) => t.id === form.typeId)?.requiredIntakeFormId ?? undefined;
+  const intakeFormId = o.intakeForms.some((f) => f.id === intakePick)
+    ? intakePick
+    : (serviceForm ?? typeForm ?? '');
+  const sendIntake = linkClientId !== null && (intakeOn ?? intakeFormId !== '');
   // SH1: the workspace's Back asks first once something was changed here.
   const [initial] = useState(() => JSON.stringify(start));
   const dirty = JSON.stringify(form) !== initial;
@@ -1149,6 +1162,8 @@ function FormBody({
     if (!form.typeId) found.typeId = 'Choose an appointment type.';
     if (!form.allDay && minutes <= 0) found.end = 'End time must be after the start.';
     if (!form.staffUserIds.length) found.staff = 'Choose a staff member.';
+    if (!record && sendIntake && !intakeFormId)
+      found.intakeForm = 'Choose the intake form to send.';
     if (!found.contact && !found.typeId) {
       const result = ScheduleAppointmentRequest.safeParse({ idempotencyKey: key, ...fields() });
       if (!result.success) {
@@ -1207,6 +1222,8 @@ function FormBody({
         {
           idempotencyKey: key,
           ...body,
+          // Review 2 (row 9): the form to send, or none (null) when unchecked.
+          related: { ...body.related, intakeFormId: sendIntake ? intakeFormId : null },
           ...(taxPlanId ? { taxPlanId } : {}),
           // Review 2 (Save as Draft): the draft goes with the booking.
           ...(draftId ? { draftId } : {}),
@@ -1868,19 +1885,48 @@ function FormBody({
                   ]}
                 />
               </div>
-              {[
-                'Link to Task',
-                'Link to Bookkeeping Client',
-                'Send Intake Form Before Appointment',
-                'Link to Invoice',
-                'Require Documents Before Appointment',
-              ].map((l) => (
-                <Checkbox key={l} label={l} disabled className="min-h-8 text-xs" />
-              ))}
+              {/* Review 2 (row 9): Link to Task, Bookkeeping Client, Invoice and Require
+                  Documents are not built yet, so they are not shown (her answer is pending). */}
+              {record ? (
+                record.related.intakeForm ? (
+                  <p data-testid="intake-sent" className="col-span-2 text-xs text-muted">
+                    Intake form: {record.related.intakeForm.name} (
+                    {record.related.intakeForm.completed ? 'Completed' : 'Sent'})
+                  </p>
+                ) : null
+              ) : (
+                <div data-testid="send-intake" className="col-span-2 flex flex-col gap-1">
+                  <Checkbox
+                    label="Send Intake Form Before Appointment"
+                    checked={sendIntake}
+                    disabled={!linkClientId || o.intakeForms.length === 0}
+                    onChange={(e) => setIntakeOn(e.target.checked)}
+                    className="min-h-8 text-xs"
+                  />
+                  {sendIntake ? (
+                    <Select
+                      label="Intake form"
+                      data-testid="intake-form"
+                      value={intakeFormId}
+                      error={errors.intakeForm}
+                      onChange={(e) => setIntakePick(e.target.value)}
+                      options={[
+                        { value: '', label: 'Choose a form' },
+                        ...o.intakeForms.map((f) => ({
+                          value: f.id,
+                          label: `${f.name} (${o.services.find((x) => x.id === f.serviceId)?.name ?? 'Other'})`,
+                        })),
+                      ]}
+                    />
+                  ) : null}
+                  <p className="text-xs text-muted">
+                    {linkClientId
+                      ? "Sent to the client's portal when you schedule. The Related Service's default form comes first, then the appointment type's."
+                      : 'Choose a client first: the form goes to their portal.'}
+                  </p>
+                </div>
+              )}
             </div>
-            <p className="text-xs text-muted">
-              Choose these on the appointment once the client is set.
-            </p>
           </Section>
 
           <Section small title="Client Reminders" icon={Bell} testId="client-reminders">

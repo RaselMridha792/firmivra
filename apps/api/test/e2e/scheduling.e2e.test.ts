@@ -679,6 +679,7 @@ describe('options', () => {
       color: '#2563eb',
       serviceId: ids.serviceA,
       methods: ['VIDEO', 'IN_PERSON', 'PHONE'],
+      requiredIntakeFormId: null,
     });
     expect(o.types.find((t) => t.id === ids.typeA2)?.methods).toEqual(['VIDEO']);
     expect(o.types.map((t) => t.id)).not.toContain(ids.typeB);
@@ -1160,8 +1161,9 @@ describe('schedule', () => {
     await refused({ contact: { kind: 'CONTACT', name: 'New Person', email: 'new@sample.test' } });
     await refused({ staffUserIds: [people.staffA.id, people.staffA2.id] });
     await refused({ method: 'OTHER' });
-    // Review 2 (TX-F06): Link to Tax Return is kept now; the other related items still are not.
-    await refused({ related: { intakeFormId: randomUUID() } });
+    // Review 2 (TX-F06, row 9): Link to Tax Return and the intake form are kept now; the other
+    // related items still are not.
+    await refused({ related: { taskId: randomUUID() } });
     await refused({ recurrence: { frequency: 'CUSTOM', interval: 1, count: 3 } });
     await refused({ color: '#123456' });
     await refused({ timezone: 'Not/AZone' });

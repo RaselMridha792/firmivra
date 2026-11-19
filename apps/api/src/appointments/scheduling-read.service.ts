@@ -226,6 +226,7 @@ export class SchedulingReadService {
           serviceId: true,
           locationKind: true,
           meetingMethods: true,
+          requiredIntakeTemplateId: true,
         },
       });
       const services = await tx.service.findMany({
@@ -270,6 +271,29 @@ export class SchedulingReadService {
         orderBy: { connectedAt: 'asc' },
         select: { provider: true },
       });
+      // Review 2 (row 9): the forms Send Intake Form Before Appointment offers: live, published.
+      const templates = await tx.intakeTemplate.findMany({
+        where: { businessId, archivedAt: null, forms: { some: { status: 'PUBLISHED' } } },
+        select: {
+          id: true,
+          serviceId: true,
+          serviceDefault: true,
+          forms: {
+            where: { status: 'PUBLISHED' },
+            orderBy: { version: 'desc' },
+            take: 1,
+            select: { title: true },
+          },
+        },
+      });
+      const intakeForms = templates
+        .map((t) => ({
+          id: t.id,
+          name: t.forms[0]?.title ?? '',
+          serviceId: t.serviceId,
+          serviceDefault: t.serviceDefault,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
       const staff = await activeMembers(tx, businessId);
       const links = await this.links.get(
         tx,
@@ -285,8 +309,10 @@ export class SchedulingReadService {
           color: colorHex(t.color),
           serviceId: t.serviceId,
           methods: typeMethods(t).map(methodOf),
+          requiredIntakeFormId: t.requiredIntakeTemplateId,
         })),
         services,
+        intakeForms,
         staff,
         offices,
         rooms,

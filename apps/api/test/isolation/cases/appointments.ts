@@ -230,7 +230,13 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/appointments/schedule': {
     params: {},
     // C12 (Tax Planning Review 2): a discussion of the client's plan.
-    bodyIds: { ...scheduleIds, taxPlanId: 'taxPlan', draftId: 'appointmentDraftToBook' },
+    // Review 2 (row 9): the intake form Send Intake Form Before Appointment chose.
+    bodyIds: {
+      ...scheduleIds,
+      taxPlanId: 'taxPlan',
+      draftId: 'appointmentDraftToBook',
+      'related.intakeFormId': 'intakeTemplate',
+    },
     body: () => ({
       idempotencyKey: randomUUID(),
       contact: { kind: 'CLIENT', id: '' },
