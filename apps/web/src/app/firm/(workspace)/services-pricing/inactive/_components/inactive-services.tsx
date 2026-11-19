@@ -43,8 +43,10 @@ import {
   CATALOG_ERRORS,
   CATALOG_ICONS,
   dayText,
+  recurringPrice,
   rowActivationGap,
 } from '../../_components/catalog-shared';
+import { ServiceChangeConfirm } from '../../_components/service-change-confirm';
 
 /** The service's icon tile: its approved icon in its tone, or a cube when it has none. */
 function ServiceMark({ icon }: { icon: string | null }) {
@@ -83,7 +85,7 @@ const formatPrice = (row: CatalogServiceRow) => {
     : row.price.type === 'STARTING_AT'
       ? `${amount}+`
       : row.price.type === 'RECURRING'
-        ? `${amount} / ${(row.price.frequency ?? 'MONTHLY').toLowerCase().replaceAll('_', ' ')}`
+        ? recurringPrice(amount, row.price.frequency)
         : amount;
 };
 function Usage({ serviceId }: { serviceId: string }) {
@@ -515,8 +517,27 @@ export function InactiveServices() {
           {errorMessage(duplicate.error, CATALOG_ERRORS)}
         </p>
       ) : null}
+      {action?.type === 'archive' ? (
+        // R5, R12: the same Archive confirmation as the list, with what it affects and Cancel.
+        <ServiceChangeConfirm
+          service={action.row}
+          action="archive"
+          pending={change.isPending}
+          error={change.error ? errorMessage(change.error, CATALOG_ERRORS) : undefined}
+          onCancel={() => {
+            change.reset();
+            setAction(null);
+          }}
+          onConfirm={() =>
+            change.mutate(
+              { row: action.row, type: 'archive' },
+              { onSuccess: () => setAction(null) },
+            )
+          }
+        />
+      ) : null}
       <Modal
-        open={action !== null}
+        open={action !== null && action.type !== 'archive'}
         title={
           action
             ? `${action.type === 'usage' ? 'Usage' : action.type === 'activate' ? 'Activate' : action.type === 'archive' ? 'Archive' : 'Delete'}: ${action.row.name}`
