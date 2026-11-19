@@ -1,4 +1,4 @@
-// Where a person is in the Clients list (Octavia's E7): filters, search, page and page size, kept
+// Where a person is in the Clients list (Octavia's E7): filters, search, sort, page and page size, kept
 // in the list's address so Back and Return to Clients bring the same list back, while a new
 // visit to /clients starts fresh. Plain values, so the server page reads them too.
 
@@ -38,6 +38,8 @@ export interface ClientsPlace {
   /** A lead source code. */
   source: string;
   priority: '' | 'HIGH' | 'MEDIUM' | 'LOW';
+  /** Sort by (G12); '' is the default, Newest first. */
+  sort: '' | 'OLDEST' | 'NAME_ASC' | 'NAME_DESC';
   page: number;
   limit: number;
 }
@@ -100,6 +102,9 @@ export function clientsPlaceFrom(params: Record<string, Param>): ClientsPlace {
     priority: pick('priority', (v) =>
       ['HIGH', 'MEDIUM', 'LOW'].includes(v),
     ) as ClientsPlace['priority'],
+    sort: pick('sort', (v) =>
+      ['OLDEST', 'NAME_ASC', 'NAME_DESC'].includes(v),
+    ) as ClientsPlace['sort'],
     page: Number.isInteger(page) && page > 1 && page <= 10_000 ? page : 1,
     limit: CLIENT_PAGE_SIZES.includes(limit) ? limit : (CLIENT_PAGE_SIZES[0] ?? 8),
   };
@@ -134,6 +139,7 @@ export function clientsPlaceQuery(place: ClientsPlace): string {
   set('tag', place.tagId);
   set('source', place.source);
   set('priority', place.priority);
+  set('sort', place.sort);
   if (place.page > 1) q.set('page', String(place.page));
   if (place.limit !== CLIENT_PAGE_SIZES[0]) q.set('limit', String(place.limit));
   return q.toString();
