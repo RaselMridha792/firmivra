@@ -1244,14 +1244,14 @@ describe('schedule', () => {
       ).items;
       expect(jamie).not.toHaveProperty('textsStopped');
     } finally {
-      await asOwner(ids.firmA, (tx) =>
-        had
-          ? tx.messageSettings.update({
-              where: { businessId: ids.firmA },
-              data: { smsEnabled: had.smsEnabled },
-            })
-          : tx.messageSettings.deleteMany({ where: { businessId: ids.firmA } }),
-      );
+      await asOwner(ids.firmA, async (tx) => {
+        if (had)
+          await tx.messageSettings.update({
+            where: { businessId: ids.firmA },
+            data: { smsEnabled: had.smsEnabled },
+          });
+        else await tx.messageSettings.deleteMany({ where: { businessId: ids.firmA } });
+      });
     }
   });
 

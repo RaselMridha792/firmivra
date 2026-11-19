@@ -315,7 +315,7 @@ export function mockAdoptAdvisoryMeeting(m: {
   s.appointments.push({
     ...copy(template),
     id: m.id,
-    client: { ...template.client, name: m.clientName },
+    client: { ...template.client, displayName: m.clientName },
     startsAt: m.startsAt,
     endsAt: m.endsAt,
     status: 'SCHEDULED',
