@@ -825,7 +825,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       );
     const problem = multi ? fanOutProblem(r, list) : null;
     if (problem) throw fail(400, problem.code, problem.message);
-    const rows = list.map((channel) => {
+    const rows = list.map((channel): OutboundRow => {
       if (channel === r.channel) return r;
       const at = stamp();
       return {
@@ -839,7 +839,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
         results: new Map(),
         createdAt: at,
         updatedAt: at,
-      } satisfies OutboundRow;
+      };
     });
     const portal = rows[list.indexOf('PORTAL')];
     const files = r.files;
@@ -1138,7 +1138,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       const r = find(outboundId);
       if (r.status === 'CANCELED') throw fail(409, 'CANCELED', 'This message was canceled.');
       if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
-        return channels ? { ...(await shape(r)), others: [] } : shape(r);
+        return channels ? { ...(await shape(r)), others: [] } : await shape(r);
       editable(r, version);
       // M19: one message per channel named, each sent on its own.
       const rows = await takeAll(r, channels, confirmUnresolved);
