@@ -117,8 +117,15 @@ export function failable<T extends object>(module: string, client: T): T {
         const result = (value as (...a: unknown[]) => unknown).apply(target, args);
         if (failing.includes(`${module}.${prop}@after`))
           return Promise.resolve(result).then(() => Promise.reject(failure()));
+        // A refusal is late too, so a spec sees the loading state whatever the answer is.
         if (failing.includes(`${module}.${prop}@slow`))
-          return Promise.resolve(result).then((answer) => mockDelay(1500).then(() => answer));
+          return Promise.resolve(result).then(
+            (answer) => mockDelay(1500).then(() => answer),
+            (error: unknown) =>
+              mockDelay(1500).then(() => {
+                throw error;
+              }),
+          );
         return result;
       };
     },
