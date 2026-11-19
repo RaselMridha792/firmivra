@@ -259,6 +259,9 @@ function DetailsForm({
     startDraft ? (keptFiles.get(startDraft) ?? []) : [],
   );
   const [fileNote, setFileNote] = useState('');
+  // SM17: Save under Remove keeps a file and its type with the draft (its creator's alone).
+  const [savingKey, setSavingKey] = useState('');
+  const [fileError, setFileError] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [stepOne, setStepOne] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -280,6 +283,48 @@ function DetailsForm({
     draft.touched();
   };
   const data = (): StaffDraftData => ({ ...base, details: toDetails(form) });
+  const keptKey = ['staff', 'drafts', draft.draftId ?? 'none', 'files'];
+  const kept = useApiQuery(keptKey, async () =>
+    draft.draftId ? ((await api.staff.draft(draft.draftId)).attachments ?? []) : [],
+  );
+  const saveFile = (q: QueuedFile) => {
+    setFileError('');
+    setSavingKey(q.key);
+    const upload = async (id: string) => {
+      try {
+        await uploadFile(q.file, {
+          start: (facts) =>
+            api.staff.createDraftUpload(id, {
+              ...facts,
+              contentType: facts.contentType as never,
+              type: q.type,
+            }),
+          finish: (uploadToken) => api.staff.confirmDraftUpload(id, { uploadToken }),
+          maxBytes: STAFF_DOCUMENT_LIMITS.maxBytes,
+        });
+        setFiles((list) => list.filter((x) => x.key !== q.key));
+        await client.invalidateQueries({ queryKey: ['staff', 'drafts', id, 'files'] });
+      } catch (e) {
+        setFileError(errorMessage(e, STAFF_ERRORS));
+      } finally {
+        setSavingKey('');
+      }
+    };
+    // No draft yet: the form is saved as one first, then the file goes with it.
+    if (draft.draftId) void upload(draft.draftId);
+    else draft.save(data(), (id) => void upload(id));
+  };
+  const removeKept = async (fileId: string) => {
+    if (!draft.draftId) return;
+    setFileError('');
+    try {
+      await api.staff.deleteDraftAttachment(draft.draftId, fileId);
+      await client.invalidateQueries({ queryKey: keptKey });
+    } catch (e) {
+      setFileError(errorMessage(e, STAFF_ERRORS));
+    }
+  };
+  const keptFilesHere = kept.data ?? [];
   const pending = draft.pending || create.isPending || uploading;
 
   const submit = () => {
@@ -661,7 +706,30 @@ function DetailsForm({
                     </tr>
                   </thead>
                   <tbody>
-                    {files.length ? (
+                    {keptFilesHere.map((f) => (
+                      <tr key={f.id} className="border-t border-divider" data-testid="kept-file">
+                        <td className="px-3 py-1.5">{DOCUMENT_TYPES[f.type]}</td>
+                        <td className="max-w-48 truncate px-3 py-1.5 text-link">{f.fileName}</td>
+                        <td className="px-3 py-1.5 text-muted">
+                          {f.scanStatus === 'CLEAN'
+                            ? 'Saved with this draft'
+                            : f.scanStatus === 'PENDING'
+                              ? 'Saved · being checked'
+                              : 'Failed the check: will not be added'}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <button
+                            type="button"
+                            disabled={pending}
+                            onClick={() => void removeKept(f.id)}
+                            className="min-h-9 rounded-control px-2 text-sm font-semibold text-danger hover:bg-danger-soft"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {files.length || keptFilesHere.length ? (
                       files.map((q) => (
                         <tr key={q.key} className="border-t border-divider">
                           <td className="px-3 py-1.5">
@@ -687,15 +755,28 @@ function DetailsForm({
                           <td className="max-w-48 truncate px-3 py-1.5 text-link">{q.file.name}</td>
                           <td className="px-3 py-1.5 text-muted">On submit</td>
                           <td className="px-3 py-1.5">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setFiles((list) => list.filter((x) => x.key !== q.key))
-                              }
-                              className="min-h-9 rounded-control px-2 text-sm font-semibold text-danger hover:bg-danger-soft"
-                            >
-                              Remove
-                            </button>
+                            <div className="flex flex-col items-start">
+                              <button
+                                type="button"
+                                disabled={savingKey === q.key}
+                                onClick={() =>
+                                  setFiles((list) => list.filter((x) => x.key !== q.key))
+                                }
+                                className="min-h-9 rounded-control px-2 text-sm font-semibold text-danger hover:bg-danger-soft"
+                              >
+                                Remove
+                              </button>
+                              {/* SM17: kept with the draft, so it survives closing this tab. */}
+                              <button
+                                type="button"
+                                aria-label={`Save ${q.file.name} with this draft`}
+                                disabled={savingKey !== '' || pending}
+                                onClick={() => saveFile(q)}
+                                className="min-h-9 rounded-control px-2 text-sm font-semibold text-link hover:bg-subtle"
+                              >
+                                {savingKey === q.key ? 'Saving…' : 'Save'}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -710,9 +791,13 @@ function DetailsForm({
                 </table>
               </div>
             </div>
-            {fileNote ? (
+            <p className="text-xs text-muted">
+              Save keeps a file and its type with this draft; only you can see your drafts. Files
+              not saved stay while this tab is open and upload when you submit.
+            </p>
+            {fileNote || fileError ? (
               <p role="alert" className="text-sm text-danger">
-                {fileNote}
+                {fileNote || fileError}
               </p>
             ) : null}
           </SubCard>

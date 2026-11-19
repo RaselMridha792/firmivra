@@ -10,7 +10,10 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
+  CreateStaffResponse,
   StaffDocument,
+  StaffDraft,
+  StaffDraftAttachment,
   StaffImportPreview,
   StaffImportResult,
   UPLOAD_LIMITS,
@@ -20,6 +23,7 @@ import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { StaffDocumentsService } from '../../src/staff/staff-documents.service.js';
+import { StaffDraftFilesService } from '../../src/staff/staff-draft-files.service.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
 import {
   DOCUMENT_STORAGE,
@@ -53,12 +57,22 @@ class MemoryStorage implements DocumentStorage {
   read(key: string) {
     return Promise.resolve(this.objects.get(key) ?? null);
   }
+  /** SM17: storage down for deletes (a draft file's copy is then left for a sweep). */
+  failRemoves = false;
   remove(key: string) {
+    if (this.failRemoves) return Promise.reject(new Error('storage down'));
     this.objects.delete(key);
     return Promise.resolve();
   }
   presignDownload(file: { key: string }) {
     return Promise.resolve(`memory:${file.key}?download`);
+  }
+  // SM17: a draft's file onto its new member.
+  copy(fromKey: string, toKey: string) {
+    const b = this.objects.get(fromKey);
+    if (!b) return Promise.reject(new Error('NoSuchKey'));
+    this.objects.set(toKey, Buffer.from(b));
+    return Promise.resolve();
   }
   put(ticket: UploadTicket, bytes: Buffer) {
     this.uploads.send(ticket, bytes);
@@ -93,6 +107,7 @@ const firms = {} as Record<'a' | 'b', string>;
 
 let app: INestApplication;
 let files: StaffDocumentsService;
+let draftFiles: StaffDraftFilesService;
 const tokens = new Map<string, string>();
 let viewers = 0;
 const viewer = () => `198.65.${100 + Math.floor(++viewers / 250)}.${viewers % 250}, 10.0.0.5`;
@@ -124,7 +139,7 @@ async function tokenFor(email: string): Promise<string> {
   return token;
 }
 
-type Method = 'get' | 'post' | 'patch';
+type Method = 'get' | 'post' | 'patch' | 'delete';
 async function call(
   method: Method,
   path: string,
@@ -260,6 +275,7 @@ beforeAll(async () => {
   await nest.listen(0, '127.0.0.1');
   app = nest;
   files = nest.get(StaffDocumentsService);
+  draftFiles = nest.get(StaffDraftFilesService);
 });
 
 afterAll(async () => {
@@ -472,6 +488,176 @@ describe('staff documents', () => {
       403,
       'FORBIDDEN',
     );
+  });
+});
+
+describe('draft files (SM17)', () => {
+  /** Save under Remove: ticket, PUT and confirm with the draft, as the browser does. */
+  const save = async (who: Who, draftId: string, bytes: Buffer, type = 'W4') => {
+    const ticket = ok(
+      await call('post', `/staff-drafts/${draftId}/attachments/uploads`, who, {
+        type,
+        fileName: 'Fake W-4.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: bytes.length,
+        sha256: sha256(bytes),
+      }),
+      201,
+    ) as UploadTicket;
+    storage.put(ticket, bytes);
+    return call('post', `/staff-drafts/${draftId}/attachments/uploads/confirm`, who, {
+      uploadToken: ticket.uploadToken,
+    });
+  };
+  const draftKey = (fileId: string) =>
+    inFirm('a', async (tx) => {
+      const rows = await tx.$queryRaw<
+        { s3_key: string }[]
+      >`SELECT s3_key FROM staff_draft_attachments WHERE id = ${fileId}::uuid`;
+      return rows[0]?.s3_key;
+    });
+  const scan = (key: string, status: 'NO_THREATS_FOUND' | 'THREATS_FOUND') =>
+    draftFiles.recordScan({ key, status, reasons: [], versionId: null });
+
+  it("keeps files with their creator's draft, then the clean ones become the new member's", async () => {
+    const draft = StaffDraft.parse(
+      ok(await call('post', '/staff-drafts', adminA, { step: 4, data: {} }), 201),
+    );
+    const clean = StaffDraftAttachment.parse(ok(await save(adminA, draft.id, PDF), 201));
+    expect(clean).toMatchObject({ type: 'W4', fileName: 'Fake W-4.pdf', scanStatus: 'PENDING' });
+    const cleanKey = (await draftKey(clean.id))!;
+    expect(cleanKey).toMatch(new RegExp(`^tenant/${firms.a}/staff-drafts/${draft.id}/`));
+    expect(await scan(cleanKey, 'NO_THREATS_FOUND')).toBe('CLEAN');
+    expect(await scan(cleanKey, 'THREATS_FOUND')).toBe('IGNORED');
+    const infected = StaffDraftAttachment.parse(ok(await save(adminA, draft.id, PDF, 'NDA'), 201));
+    const infectedKey = (await draftKey(infected.id))!;
+    expect(await scan(infectedKey, 'THREATS_FOUND')).toBe('INFECTED');
+    // Remove: the stored file and its row.
+    const gone = StaffDraftAttachment.parse(ok(await save(adminA, draft.id, PDF), 201));
+    const goneKey = (await draftKey(gone.id))!;
+    expect(
+      ok(await call('delete', `/staff-drafts/${draft.id}/attachments/${gone.id}`, adminA)),
+    ).toEqual({ ok: true });
+    expect(storage.objects.has(goneKey)).toBe(false);
+    // Bytes that are not what was declared are refused and deleted.
+    expectError(
+      await save(adminA, draft.id, Buffer.from('not a pdf at all')),
+      409,
+      'UPLOAD_MISMATCH',
+    );
+    // Read back with the draft, kept and typed.
+    const read = StaffDraft.parse(ok(await call('get', `/staff-drafts/${draft.id}`, adminA)));
+    expect(read.attachments?.map((a) => [a.id, a.type, a.scanStatus])).toEqual([
+      [clean.id, 'W4', 'CLEAN'],
+      [infected.id, 'NDA', 'INFECTED'],
+    ]);
+    // Another Owner or Admin never reaches them.
+    expectError(
+      await call('post', `/staff-drafts/${draft.id}/attachments/uploads`, ownerA, {
+        type: 'W4',
+        fileName: 'Fake W-4.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: PDF.length,
+        sha256: sha256(PDF),
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('delete', `/staff-drafts/${draft.id}/attachments/${clean.id}`, ownerA),
+      404,
+      'NOT_FOUND',
+    );
+    expect(storage.objects.has(cleanKey)).toBe(true);
+
+    // Create Staff from the draft: the clean file is the member's; the draft's copies are gone.
+    const created = CreateStaffResponse.parse(
+      ok(
+        await call('post', '/staff', adminA, {
+          idempotencyKey: randomUUID(),
+          account: {
+            firstName: 'Fake',
+            lastName: 'Drafted',
+            email: `r55d-drafted-${run}@r55.test`,
+            departmentIds: [dept.tax],
+            jobTitle: 'Tax Preparer',
+            role: 'TAX_PREPARER',
+          },
+          draftId: draft.id,
+          sendWelcomeEmail: false,
+        }),
+        201,
+      ),
+    );
+    const id = created.staff.id;
+    const docs = (
+      ok(await call('get', `/staff/${id}/documents`, adminA)) as { items: StaffDocument[] }
+    ).items;
+    expect(docs.map((d) => [d.type, d.fileName, d.scanStatus])).toEqual([
+      ['W4', 'Fake W-4.pdf', 'PENDING'],
+    ]);
+    const docKey = await keyOf(docs[0]!.id);
+    expect(docKey).toMatch(new RegExp(`^tenant/${firms.a}/staff/${id}/`));
+    expect(storage.objects.get(docKey)?.equals(PDF)).toBe(true);
+    expect([storage.objects.has(cleanKey), storage.objects.has(infectedKey)]).toEqual([
+      false,
+      false,
+    ]);
+    // The copy is scanned as a new file, then downloads like any other.
+    expect(
+      await files.recordScan({
+        key: docKey,
+        status: 'NO_THREATS_FOUND',
+        reasons: [],
+        versionId: null,
+      }),
+    ).toBe('CLEAN');
+    ok(await call('get', `/staff/${id}/documents/${docs[0]!.id}/download`, adminA));
+    const audit = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({ where: { businessId: firms.a, entityId: draft.id } }),
+    );
+    expect(audit.map((a) => a.action)).toEqual(
+      expect.arrayContaining([
+        'staff_draft.file_saved',
+        'staff_draft.file_scanned',
+        'staff_draft.file_removed',
+      ]),
+    );
+    expect(JSON.stringify(audit.map((a) => a.metadata))).not.toContain('Fake W-4');
+  });
+
+  it('removes the row even when storage cannot delete the stored file (left for a sweep)', async () => {
+    const draft = StaffDraft.parse(
+      ok(await call('post', '/staff-drafts', ownerA, { step: 4, data: {} }), 201),
+    );
+    const file = StaffDraftAttachment.parse(ok(await save(ownerA, draft.id, PDF), 201));
+    const key = (await draftKey(file.id))!;
+    storage.failRemoves = true;
+    try {
+      expect(
+        ok(await call('delete', `/staff-drafts/${draft.id}/attachments/${file.id}`, ownerA)),
+      ).toEqual({ ok: true });
+      expect(await draftKey(file.id)).toBeUndefined();
+      expect(storage.objects.has(key)).toBe(true);
+      // Delete Draft too: the draft goes whatever storage says.
+      const other = StaffDraftAttachment.parse(ok(await save(ownerA, draft.id, PDF), 201));
+      expect(ok(await call('delete', `/staff-drafts/${draft.id}`, ownerA))).toEqual({ ok: true });
+      expect(await draftKey(other.id)).toBeUndefined();
+    } finally {
+      storage.failRemoves = false;
+    }
+  });
+
+  it('deletes the stored files with the draft', async () => {
+    const draft = StaffDraft.parse(
+      ok(await call('post', '/staff-drafts', ownerA, { step: 4, data: {} }), 201),
+    );
+    const file = StaffDraftAttachment.parse(ok(await save(ownerA, draft.id, PDF), 201));
+    const key = (await draftKey(file.id))!;
+    expect(storage.objects.has(key)).toBe(true);
+    expect(ok(await call('delete', `/staff-drafts/${draft.id}`, ownerA))).toEqual({ ok: true });
+    expect(storage.objects.has(key)).toBe(false);
+    expect(await draftKey(file.id)).toBeUndefined();
   });
 });
 
