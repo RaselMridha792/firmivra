@@ -521,11 +521,73 @@ export class SchedulingWriteService {
 
   // ---------- Edit Existing ----------
 
+  /**
+   * Edit Existing. Review 2 (R2): with a scope, the same change reaches the series' other
+   * scheduled occurrences (FOLLOWING: those after this one; SERIES: every one not yet started),
+   * each through the same checks as this one, its own version read now; a new start or end moves
+   * each by the same amount. This one first: a refusal there changes nothing. A later occurrence
+   * that is refused (a conflict) stops the run there with its error; the ones before it keep the
+   * change, as if edited one by one.
+   */
   async updateDetails(
     businessId: string,
     actor: FirmActor,
     id: string,
     body: Details,
+  ): Promise<AppointmentRecord> {
+    const { scope = 'THIS', ...details } = body;
+    if (scope === 'THIS') return this.updateOne(businessId, actor, id, details);
+    if (details.recurrence !== undefined) {
+      throw errors.unsupported(
+        'Change how it repeats on this appointment alone (This appointment).',
+      );
+    }
+    const before = await this.inFirm(businessId, (tx) =>
+      tx.appointment.findFirst({
+        where: { businessId, id },
+        select: { seriesId: true, startsAt: true, endsAt: true },
+      }),
+    );
+    const record = await this.updateOne(businessId, actor, id, details);
+    if (!before?.seriesId) return record;
+    const seriesId = before.seriesId;
+    const others = await this.inFirm(businessId, (tx) =>
+      tx.appointment.findMany({
+        where: {
+          businessId,
+          seriesId,
+          status: 'SCHEDULED',
+          id: { not: id },
+          startsAt: { gt: scope === 'FOLLOWING' ? before.startsAt : new Date() },
+        },
+        orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, startsAt: true, endsAt: true, updatedAt: true },
+      }),
+    );
+    const moveStart = details.startsAt
+      ? Date.parse(details.startsAt) - before.startsAt.getTime()
+      : null;
+    const moveEnd = details.endsAt ? Date.parse(details.endsAt) - before.endsAt.getTime() : null;
+    for (const o of others) {
+      await this.updateOne(businessId, actor, o.id, {
+        ...details,
+        version: versionOf(o.updatedAt),
+        ...(moveStart !== null
+          ? { startsAt: new Date(o.startsAt.getTime() + moveStart).toISOString() }
+          : {}),
+        ...(moveEnd !== null
+          ? { endsAt: new Date(o.endsAt.getTime() + moveEnd).toISOString() }
+          : {}),
+      });
+    }
+    return record;
+  }
+
+  private async updateOne(
+    businessId: string,
+    actor: FirmActor,
+    id: string,
+    body: Omit<Details, 'scope'>,
   ): Promise<AppointmentRecord> {
     const checked: Checked = { actor };
     const outcome = await this.write(

@@ -608,7 +608,24 @@ export const RescheduleAppointmentRequest = z.strictObject({
 });
 export type RescheduleAppointmentRequest = z.input<typeof RescheduleAppointmentRequest>;
 
-export const CancelAppointmentRequest = z.strictObject({ reason: Reason });
+/**
+ * Appointments Review 2 (R2): which occurrences of a repeating appointment a change or cancel
+ * reaches: this one (THIS, the default), this and the later ones (FOLLOWING), or every one of the
+ * series still scheduled and not yet started, with this one (SERIES). Outside a series, THIS.
+ */
+export const SeriesScope = z.enum(['THIS', 'FOLLOWING', 'SERIES']);
+export type SeriesScope = z.infer<typeof SeriesScope>;
+export const SERIES_SCOPE_LABELS: Readonly<Record<SeriesScope, string>> = {
+  THIS: 'This appointment',
+  FOLLOWING: 'This and later appointments',
+  SERIES: 'All appointments in the series',
+};
+
+export const CancelAppointmentRequest = z.strictObject({
+  reason: Reason,
+  /** Review 2 (R2): a repeating appointment's occurrences to cancel with it. */
+  scope: SeriesScope.optional(),
+});
 export type CancelAppointmentRequest = z.input<typeof CancelAppointmentRequest>;
 
 /**

@@ -4,6 +4,8 @@ import {
   type AppointmentRecord,
   LEAD_APPOINTMENT_OUTCOME_LABELS,
   LeadAppointmentOutcome,
+  SERIES_SCOPE_LABELS,
+  SeriesScope,
 } from '@firmivra/types';
 import {
   Badge,
@@ -417,6 +419,7 @@ export function DetailScreen({ id }: { id: string }) {
           leadId={r.contact.kind === 'LEAD' ? r.contact.id : null}
           canConvert={r.contact.kind === 'LEAD' && r.contact.leadReach === true}
           timeZone={r.timezone}
+          series={r.seriesId !== null}
           onClose={() => setAsk(null)}
           onDone={(text) => {
             setAsk(null);
@@ -560,12 +563,15 @@ export function CloseModal({
   leadId = null,
   canConvert = false,
   timeZone,
+  series = false,
   onClose,
   onDone,
 }: {
   id: string;
   ask: Ask;
   name: string;
+  /** Review 2 (R2): one of a repeating series: Cancel asks which occurrences. */
+  series?: boolean;
   leadId?: string | null;
   /**
    * The member reaches the lead (its owner, or an Owner or Admin): only they are offered Convert to
@@ -579,6 +585,7 @@ export function CloseModal({
 }) {
   const look = ASKS[ask];
   const [reason, setReason] = useState('');
+  const [scope, setScope] = useState<SeriesScope>('THIS');
   const withOutcome = ask === 'complete' && !!leadId;
   const [outcome, setOutcome] = useState<LeadAppointmentOutcome | null>(null);
   const [notes, setNotes] = useState('');
@@ -596,7 +603,10 @@ export function CloseModal({
   const run = useApiMutation(
     () =>
       ask === 'cancel'
-        ? api.appointments.cancel(id, { reason: reason.trim() || null })
+        ? api.appointments.cancel(id, {
+            reason: reason.trim() || null,
+            ...(series ? { scope } : {}),
+          })
         : ask === 'complete'
           ? api.appointments.complete(
               id,
@@ -683,6 +693,21 @@ export function CloseModal({
               error={tried ? missing.notes : undefined}
             />
           </>
+        ) : null}
+        {ask === 'cancel' && series ? (
+          <fieldset className="flex flex-col gap-1" data-testid="cancel-scope">
+            <legend className="mb-1 text-sm font-semibold text-heading">Cancel</legend>
+            {SeriesScope.options.map((value) => (
+              <Radio
+                key={value}
+                name="cancel-scope"
+                value={value}
+                label={SERIES_SCOPE_LABELS[value]}
+                checked={scope === value}
+                onChange={() => setScope(value)}
+              />
+            ))}
+          </fieldset>
         ) : null}
         {ask === 'cancel' ? (
           <Textarea

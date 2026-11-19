@@ -1004,6 +1004,13 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
     updateDetails: async (id, body) => {
       await mockDelay();
       const input = parseInput(UpdateAppointmentDetailsRequest, body);
+      // Review 2 (R2), as the API: the repeat changes on one appointment only.
+      if (input.scope && input.scope !== 'THIS' && input.recurrence !== undefined)
+        throw fail(
+          400,
+          'VALIDATION_FAILED',
+          'Change how it repeats on this appointment alone (This appointment).',
+        );
       const r = find(id);
       if (input.version !== r.version)
         throw fail(409, 'SAVE_CONFLICT', 'Someone saved this appointment first');
