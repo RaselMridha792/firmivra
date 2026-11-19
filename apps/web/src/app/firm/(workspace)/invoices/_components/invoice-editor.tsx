@@ -199,14 +199,12 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   const [notesToClient, setNotesToClient] = useState(editing?.notesToClient ?? '');
   const [internalNote, setInternalNote] = useState(editing?.internalNote ?? '');
   const [previewing, setPreviewing] = useState(false);
-  // IP-F04: nothing on to start. The email is the invoice's own choice; the tip and the
-  // payment-before-due options appear while Settings > Payments has them on (a draft keeps its own).
+  // IP-F04: nothing on to start. The email is the invoice's own choice; the tip appears while
+  // Settings > Payments has it on (a draft keeps its own). Invoices Review 2 I-D01: no invoice
+  // asks for payment before its due date (withdrawn).
   const [emailClient, setEmailClient] = useState(editing?.emailClient ?? false);
   const [allowTip, setAllowTip] = useState(editing?.allowTip ?? false);
-  const [payBeforeDue, setPayBeforeDue] = useState(editing?.requirePaymentBeforeDue ?? false);
   const tipOffered = !!prefs.data?.taxesAndFees.tippingEnabled || !!editing?.allowTip;
-  const beforeDueOffered =
-    !!prefs.data?.taxesAndFees.requirePaymentBeforeDue || !!editing?.requirePaymentBeforeDue;
   // IP-F05: off keeps a one-time invoice; on, the schedule starts the day the invoice opens.
   const [recurring, setRecurring] = useState(() => recurringDraftOf(editing?.recurring));
   const startOn = scheduledFor && scheduledFor > localToday() ? scheduledFor : localToday();
@@ -345,7 +343,6 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       documentIds,
       emailClient,
       allowTip: tipOffered && allowTip,
-      requirePaymentBeforeDue: beforeDueOffered && payBeforeDue,
       ...(correcting ? { reason: reason.trim(), ...(sentOne ? { sendUpdate } : {}) } : {}),
     };
     const check = invoiceId
@@ -929,17 +926,9 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 </p>
               </>
             ) : null}
-            {beforeDueOffered ? (
-              <Checkbox
-                label="Require payment before due date"
-                checked={payBeforeDue}
-                onChange={(e) => setPayBeforeDue(e.target.checked)}
-                className="text-sm"
-              />
-            ) : null}
-            {!tipOffered && !beforeDueOffered ? (
+            {!tipOffered ? (
               <p className="mt-1 text-xs text-muted">
-                Tipping and payment before the due date show here once turned on in{' '}
+                Tipping shows here once turned on in{' '}
                 <Link href="/settings/payments" className="text-link">
                   Settings &gt; Payments
                 </Link>
@@ -1036,11 +1025,6 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
               <dd>{shownDue || 'Not chosen yet'}</dd>
             </div>
           </dl>
-          {beforeDueOffered && payBeforeDue ? (
-            <p className="rounded-lg bg-warning-soft p-2 font-semibold text-heading">
-              Please pay before the due date.
-            </p>
-          ) : null}
           <table className="w-full text-left">
             <thead className="text-xs text-muted">
               <tr>

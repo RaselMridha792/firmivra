@@ -122,7 +122,11 @@ const TaxesAndFees = z.object({
   lateFeeCents: z.number().int().positive().max(100_000_00).nullable(),
   /** Clients may add a tip, on invoices that allow it. */
   tippingEnabled: z.boolean(),
-  /** Invoices may require payment before the due date. */
+  /**
+   * Invoices Review 2 I-D01: withdrawn (no invoice asks for payment before its due date). GET
+   * still answers the stored value and a save still takes the field, so older screens keep
+   * saving, but the save never writes it and nothing else uses it.
+   */
   requirePaymentBeforeDue: z.boolean(),
 });
 

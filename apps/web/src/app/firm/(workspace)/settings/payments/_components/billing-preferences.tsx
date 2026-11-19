@@ -591,12 +591,6 @@ function PreferencesForm({
           checked={f.tippingEnabled}
           onChange={(on) => set('taxesAndFees', { tippingEnabled: on })}
         />
-        <Switch
-          label="Payment before the due date"
-          hint="Lets an invoice ask for payment before it is due."
-          checked={f.requirePaymentBeforeDue}
-          onChange={(on) => set('taxesAndFees', { requirePaymentBeforeDue: on })}
-        />
       </Card>
 
       <Card className="flex flex-col gap-3" aria-labelledby="deposit-accounts-title">
