@@ -60,7 +60,7 @@ Her review status is in the second column: Verified, Partial, Correction or Pend
 | Rejected return (In Correction) | Done | #1488 (db), #1499 | db: Rejected never goes straight to review; e2e: a reason is required and the client sees In Progress; mock "Start Correction" |
 | Replacement request | Done | #1502 | e2e `documents-packets-portal` "Request Replacement on a submitted item opens the packet ..." |
 | Mailing date | Done | #1422 | Mock `r60-tax-returns-mail` |
-| Rounding | Done | #1488 (db), #1499 | e2e: Round to the dollar stores 1482.50 as 1483 and keeps 1482.50 in the audit; mock: the setting in Settings > Tax statuses |
+| Rounding | Done | #1488 (db), #1499; her labels and wording (R56, Nov 20) | e2e: Round up figures stores 1482.50, 1482.49 and 1482.01 as 1483 and keeps the figure as entered in the audit; mock: the setting in Settings > Tax statuses reads "Keep exactly as entered" and "Round up figures" |
 | Amount history | Done | #1492 | Mock `r60-tax-returns-amounts` "Review 2: Edit shows the saved amount beside the new one ..." |
 
 ## GAPs
@@ -89,7 +89,7 @@ Defined by the lead for her Clarify row, shown in a help note on Validation Issu
 
 **Amount precision and storage: answered by the design, open to change.** Her question was how precisely amounts are kept. Each firm chooses in Settings > Tax statuses (Owner and Admin):
 - **Exact** (the default) keeps the cents.
-- **Round to the dollar** stores each refund or amount due rounded half up when it is saved. This is her "Round up figures", never down.
+- **Round up figures** stores each refund or amount due with any cents taken up to the next whole dollar when it is saved ($1,482.01 becomes $1,483), never down. **Keep exactly as entered** keeps the cents. Amounts are stored to the cent either way.
 
 The audit entry of every save keeps the figure exactly as entered beside the stored one, so nothing entered is lost. The choice applies to amounts saved from then on; saved amounts stay as they are. If she wants another rule, such as rounding only on display, the setting can change without losing data.
 

@@ -388,8 +388,8 @@ export class TaxReturnReviewService {
     return this.write(tenant, async (tx) => {
       await this.reach(tx, tenant, userId, id, true);
       const f = await this.filing(tx, businessId, id, filingId);
-      // Review 2 (rounding): a firm that rounds to the dollar stores each amount sent rounded
-      // half up; the audit below keeps the figure as entered beside it.
+      // Review 2 (rounding): a firm that rounds up figures stores each amount sent with any cents
+      // taken up to the next whole dollar (toDollar); the audit keeps the figure as entered.
       const settings = await tx.businessSettings.findUnique({
         where: { businessId },
         select: { taxAmountRounding: true },
