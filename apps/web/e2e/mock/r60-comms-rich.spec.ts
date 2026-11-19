@@ -14,10 +14,9 @@ const png = Buffer.from(
 );
 test.use({ viewport: { width: 1440, height: 1000 } });
 
+/** New Communication opens the composer itself (Q3: nothing saved until its first save). */
 const start = async (page: Page, channel: 'EMAIL' | 'ANNOUNCEMENT') => {
   await page.goto(`${base}/new?channel=${channel}`);
-  await page.getByRole('button', { name: /^Start / }).click();
-  await page.waitForURL(/\/edit$/);
   await expect(page.getByTestId('composer')).toBeVisible();
 };
 
@@ -64,8 +63,7 @@ for (const channel of ['EMAIL', 'ANNOUNCEMENT'] as const) {
 
 test('an SMS has no fonts or images: plain text (CM-F08)', async ({ page }) => {
   await page.goto(`${base}/new?channel=SMS`);
-  await page.getByRole('button', { name: /^Start / }).click();
-  await page.waitForURL(/\/edit$/);
+  await expect(page.getByTestId('composer')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Insert image' })).toHaveCount(0);
   await expect(page.getByLabel('Font')).toHaveCount(0);
 });

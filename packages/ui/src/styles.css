@@ -52,6 +52,13 @@
   /* R25: the Super Admin mockup's purple (Total Users, Team, Tasks, Platform Settings). */
   --color-purple: #6d28d9;
   --color-purple-soft: #f1ebfe;
+  /* R55, Invoices Review 2 I-N07: two more status tones, so each pair of invoice statuses reads
+     apart by colour (Scheduled teal beside Sent blue; Canceled solid navy beside Draft grey and
+     Overdue red). Fixed: a firm's theme never changes them. Text contrast (WCAG): teal on
+     teal-soft 5.42:1, white on navy 10.98:1. */
+  --color-teal: #006d70;
+  --color-teal-soft: #e1f5f2;
+  --color-navy: #103f63;
   /* R27: the firm dashboard mockup's gold (welcome name, + New, amber tiles), orange and light-blue stage colours. */
   --color-gold: #d38a00;
   /* R33: the firm sidebar's slogan and the bars in its motto, measured from the dashboard design. */

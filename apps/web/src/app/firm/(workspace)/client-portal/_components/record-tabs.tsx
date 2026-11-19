@@ -1,7 +1,7 @@
 'use client';
 
 import type { InvoiceStatus, TaxReturnStatus } from '@firmivra/types';
-import { Badge, Button, Card } from '@firmivra/ui';
+import { Badge, type BadgeTone, Button, Card } from '@firmivra/ui';
 import { CalendarPlus, ChatCircleText, FilePlus, Megaphone, Receipt } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -281,15 +281,13 @@ export function PortalTaxReturns({ clientId }: { clientId: string }) {
   );
 }
 
-const INVOICE_STATUS: Record<
-  InvoiceStatus,
-  { label: string; tone: 'info' | 'success' | 'danger' | 'neutral' | 'warning' }
-> = {
+// Invoices Review 2 I-N07: the Invoices module's colours (Scheduled teal, Canceled navy).
+const INVOICE_STATUS: Record<InvoiceStatus, { label: string; tone: BadgeTone }> = {
   DRAFT: { label: 'Draft', tone: 'neutral' },
-  SCHEDULED: { label: 'Scheduled', tone: 'info' },
+  SCHEDULED: { label: 'Scheduled', tone: 'teal' },
   OPEN: { label: 'Open', tone: 'warning' },
   PAID: { label: 'Paid', tone: 'success' },
-  CANCELED: { label: 'Canceled', tone: 'neutral' },
+  CANCELED: { label: 'Canceled', tone: 'navy' },
 };
 
 /** Invoices, balances and status (canonical Invoices & Payments), with the outstanding total. */

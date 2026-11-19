@@ -6,18 +6,19 @@ import {
   type MyInvoice,
   type MyInvoiceStatus,
 } from '@firmivra/types';
-import { Badge, Button } from '@firmivra/ui';
+import { Badge, type BadgeTone, Button } from '@firmivra/ui';
 import { ArrowRight } from 'lucide-react';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 
-const TONE: Record<MyInvoiceStatus, 'info' | 'success' | 'warning' | 'danger' | 'neutral'> = {
+// Invoices Review 2 I-N07: Canceled is solid navy, as in the firm's Invoices.
+const TONE: Record<MyInvoiceStatus, BadgeTone> = {
   PENDING: 'warning',
   DUE_SOON: 'danger',
   PAID: 'success',
   UPCOMING: 'info',
-  CANCELED: 'neutral',
+  CANCELED: 'navy',
 };
 
 export const money = (cents: number, currency: string) =>
