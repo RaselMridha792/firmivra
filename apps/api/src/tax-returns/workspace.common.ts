@@ -78,6 +78,61 @@ export async function backToReview(
   return true;
 }
 
+/**
+ * Tax Returns Review Two CR-3 (R56, Nov 20; lead's decision): the changes that, after approval,
+ * send a return back to review. Answered to her: "amounts, filing status, form type, states".
+ */
+export const MATERIAL_LABEL = {
+  amounts: 'the refund or amount due',
+  filingStatus: 'the filing status',
+  formType: 'the form type',
+  states: 'the states it is filed in',
+} as const;
+export type MaterialField = keyof typeof MATERIAL_LABEL;
+
+/**
+ * CR-3: a material change (MATERIAL_LABEL) to a return that passed review (Ready for Signature or
+ * Ready to File) sends it back to Ready for Review. Each approved review step is asked again as a
+ * new pending step (the decided ones stay as they were, as history), and the history row names
+ * what changed. A filed return stays as filed. True when it moved.
+ */
+export async function backToReviewAfterChange(
+  tx: TxClient,
+  businessId: string,
+  r: { id: string; workflowStatus: TaxReturnWorkflowStatus },
+  userId: string,
+  fields: MaterialField[],
+): Promise<boolean> {
+  if (fields.length === 0) return false;
+  if (r.workflowStatus !== 'READY_FOR_SIGNATURE' && r.workflowStatus !== 'READY_TO_FILE') {
+    return false;
+  }
+  const steps = await tx.taxReturnApproval.findMany({
+    where: { businessId, taxReturnId: r.id },
+    orderBy: { sortOrder: 'asc' },
+    select: { step: true, assignedUserId: true, status: true, sortOrder: true },
+  });
+  const again = new Map<string, string | null>();
+  for (const s of steps) if (s.status === 'APPROVED') again.set(s.step, s.assignedUserId);
+  for (const s of steps) if (s.status === 'PENDING') again.delete(s.step);
+  let order = steps.reduce((top, s) => Math.max(top, s.sortOrder), -1) + 1;
+  for (const [step, assignedUserId] of again) {
+    await tx.taxReturnApproval.create({
+      data: { businessId, taxReturnId: r.id, step, assignedUserId, sortOrder: order++ },
+    });
+  }
+  const what = fields.map((f) => MATERIAL_LABEL[f]).join(', ');
+  await tx.taxReturn.update({
+    where: { id: r.id },
+    data: {
+      workflowStatus: 'READY_FOR_REVIEW',
+      statusReason: `Sent back to review: ${what} changed after approval`.slice(0, 500),
+      updatedByUserId: userId,
+    },
+  });
+  return true;
+}
+
 /** Validation results from least to most severe (a lower one is a downgrade). */
 export const CHECK_RANK: Record<string, number> = { VALID: 0, INFO: 1, WARNING: 2, ERROR: 3 };
 

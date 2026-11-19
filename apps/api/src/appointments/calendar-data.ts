@@ -3,6 +3,7 @@ import type { Appointment, AppointmentLeadRef, BusyAppointment, MemberRef } from
 import {
   addDays,
   type Interval,
+  MINUTE,
   timeOfDayFromDb,
   usableTimeZone,
   type WorkingRange,
@@ -221,6 +222,9 @@ export interface BusyTimes {
     clientIds: string[];
     start: number;
     end: number;
+    /** Minutes the staff member keeps free before and after it (B11). */
+    bufferBefore: number;
+    bufferAfter: number;
   }[];
   /** Blocked time; userId null blocks the whole firm. */
   blocks: { userId: string | null; start: number; end: number }[];
@@ -241,6 +245,8 @@ export async function busyTimes(
       clientId: true,
       startsAt: true,
       endsAt: true,
+      bufferBeforeMinutes: true,
+      bufferAfterMinutes: true,
       attendees: { select: { clientId: true } },
     },
   });
@@ -258,6 +264,8 @@ export async function busyTimes(
         .map((id) => id.toLowerCase()),
       start: a.startsAt.getTime(),
       end: a.endsAt.getTime(),
+      bufferBefore: a.bufferBeforeMinutes,
+      bufferAfter: a.bufferAfterMinutes,
     })),
     blocks: blocks.map((b) => ({
       userId: b.userId,
@@ -272,6 +280,30 @@ export function memberBusy(busy: BusyTimes, userId: string, exceptId?: string): 
   const [user, except] = [userId.toLowerCase(), exceptId?.toLowerCase()];
   return [
     ...busy.appointments.filter((a) => a.staffUserId === user && a.id !== except),
+    ...busy.blocks.filter((b) => b.userId === null || b.userId === user),
+  ];
+}
+
+/**
+ * Review 2 (R4, as B11 for staff): one member's busy times for a new appointment that keeps
+ * `own` minutes free before and after it. Each of their appointments is widened by its own
+ * buffers and the new one's, so a start that overlaps the widened time would leave either one
+ * without its buffer; touching ends are fine. Blocked time is not widened (as B11).
+ */
+export function memberBusyBuffered(
+  busy: BusyTimes,
+  userId: string,
+  own: { before: number; after: number },
+  exceptId?: string,
+): Interval[] {
+  const [user, except] = [userId.toLowerCase(), exceptId?.toLowerCase()];
+  return [
+    ...busy.appointments
+      .filter((a) => a.staffUserId === user && a.id !== except)
+      .map((a) => ({
+        start: a.start - (a.bufferBefore + own.after) * MINUTE,
+        end: a.end + (a.bufferAfter + own.before) * MINUTE,
+      })),
     ...busy.blocks.filter((b) => b.userId === null || b.userId === user),
   ];
 }

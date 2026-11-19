@@ -353,6 +353,8 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
           recordId: g.appointmentId,
           audience: 'client',
           eventKey: `appointment.reminder:${g.appointmentId}:${g.offsetMinutes}:${g.startsAt.toISOString()}`,
+          // Review 2 (B7): the reminder due at this run is the one whose note goes on the bell.
+          at: now,
           channels: {
             inApp: channels.has('EMAIL') || channels.has('PORTAL'),
             email: channels.has('EMAIL'),
