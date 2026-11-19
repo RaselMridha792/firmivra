@@ -107,7 +107,10 @@ const Reminders = z.object({
   overdueReminderMax: z.number().int().min(1).max(OVERDUE_REMINDER_MAX_LIMIT),
   /** A receipt goes out by itself after each successful payment (IP-F12). */
   autoReceipts: z.boolean(),
-  /** A client's payment pays their oldest open invoice first when it names none. */
+  /**
+   * Will apply a client's credit to their oldest open invoices. Invoices Review 2 I-C02: saved
+   * only, and shown as Not active yet: nothing reads it until client credit balances exist.
+   */
   autoApplyPayments: z.boolean(),
   /** AutoPay retries after a failed charge, where the provider supports them. */
   retryAttempts: z.number().int().min(0).max(10),

@@ -56,6 +56,7 @@ function Switch({
   checked,
   onChange,
   notActive,
+  notActiveTestId,
 }: {
   label: string;
   hint: string;
@@ -63,6 +64,7 @@ function Switch({
   onChange: (on: boolean) => void;
   /** Saved, but not acted on yet: says so beside the label (as Intake's settings). */
   notActive?: string;
+  notActiveTestId?: string;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 border-t border-divider pt-3">
@@ -77,7 +79,7 @@ function Switch({
         </p>
         <p className="text-xs text-muted">{hint}</p>
         {notActive ? (
-          <p className="text-xs text-muted" data-testid="tip-not-active">
+          <p className="text-xs text-muted" data-testid={notActiveTestId}>
             Not active yet: {notActive}
           </p>
         ) : null}
@@ -486,7 +488,10 @@ function PreferencesForm({
           />
           <Switch
             label="Auto-apply payments"
-            hint="A payment that names no invoice pays the client's oldest open invoice."
+            hint="Will apply a client's credit to their oldest open invoices."
+            // Invoices Review 2 I-C02 (the lead's choice a): saved, but nothing reads it yet.
+            notActive="it starts once client credit balances exist"
+            notActiveTestId="auto-apply-not-active"
             checked={r.autoApplyPayments}
             onChange={(on) => set('reminders', { autoApplyPayments: on })}
           />
@@ -591,6 +596,7 @@ function PreferencesForm({
           hint="Lets an invoice offer the client a tip."
           // I-N05: saved, but Pay Now does not charge a tip yet (after Nov 17).
           notActive="clients can't add a tip at Pay Now yet"
+          notActiveTestId="tip-not-active"
           checked={f.tippingEnabled}
           onChange={(on) => set('taxesAndFees', { tippingEnabled: on })}
         />

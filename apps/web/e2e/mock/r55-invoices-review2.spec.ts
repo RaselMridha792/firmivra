@@ -107,3 +107,19 @@ test('R1-2: the billing sections ask too; after Cancel nothing is asked', async 
   await expect(page).toHaveURL(/\/invoices$/, { timeout: 60_000 });
   await expect(ask).toHaveCount(0);
 });
+
+test('I-C02: Auto-apply payments says it is not active yet, and still saves', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/settings/payments'));
+  const toggle = page.getByRole('switch', { name: 'Auto-apply payments' });
+  await expect(toggle).toBeEnabled({ timeout: 60_000 });
+  await expect(page.getByTestId('auto-apply-not-active')).toHaveText(
+    'Not active yet: it starts once client credit balances exist',
+  );
+  // No promise that a payment pays an invoice by itself.
+  await expect(page.locator('main')).not.toContainText('A payment that names no invoice');
+  await toggle.click();
+  await page.getByTestId('billing-actions').getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Changes saved.' })).toBeVisible();
+  await expect(toggle).toBeChecked();
+});
