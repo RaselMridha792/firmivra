@@ -9,6 +9,7 @@ import {
   UsersThree,
 } from '@phosphor-icons/react';
 import { createElement } from 'react';
+import { useFirm } from '../../../../../../components/firm-context';
 import { ROLE_LOOKS } from './role-parts';
 
 const card = 'rounded-xl border border-divider bg-surface p-4 shadow-sm';
@@ -138,11 +139,13 @@ export function RoleTemplates({
 
 /** Permission Notes, with what each column means (GET /business/permission-modules). */
 export function PermissionNotes({ modules }: { modules: PermissionModuleList | undefined }) {
+  // The signed-in firm, never a fixed firm's name.
+  const { firm } = useFirm();
   return (
     <Callout icon={FileText} iconStyle="tile" tone="blue" surface="plain" title="Permission Notes">
       <p>
-        Permissions control what people with this role can see and do in LVP. A change applies to
-        everyone with the role on their next page load.
+        Permissions control what people with this role can see and do in {firm.name}. A change
+        applies to everyone with the role on their next page load.
       </p>
       {modules ? (
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">

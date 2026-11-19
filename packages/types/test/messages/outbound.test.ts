@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { SaveOutboundRequest, UpdateOutboundRequest } from '../../src/index.js';
+import {
+  OutboundReviewQuery,
+  reviewChannels,
+  SaveOutboundRequest,
+  ScheduleOutboundRequest,
+  SendOutboundRequest,
+  UpdateOutboundRequest,
+} from '../../src/index.js';
 
 // M22 (Messaging Review 2): New Message's text may be left out on the Portal channel only, for a
 // message of files alone; a text that is there is read exactly as before.
@@ -41,5 +48,65 @@ describe('SaveOutboundRequest and UpdateOutboundRequest: the body (M22)', () => 
         }),
       ),
     ).toContain('A text message is at most 1,600 characters');
+  });
+});
+
+// M19 (Messaging Review 2): one New Message to several channels. Send and Schedule may name the
+// channels (each once); left out, a request is read exactly as before.
+describe('SendOutboundRequest and ScheduleOutboundRequest: channels (M19)', () => {
+  const at = '2026-11-20T15:00:00.000Z';
+
+  it('a request without channels is as before', () => {
+    expect(SendOutboundRequest.parse({ version })).toEqual({ version });
+    expect(SendOutboundRequest.parse({ version, confirmUnresolved: true })).toEqual({
+      version,
+      confirmUnresolved: true,
+    });
+    expect(ScheduleOutboundRequest.parse({ version, scheduledFor: at })).toEqual({
+      version,
+      scheduledFor: at,
+    });
+    expect(SendOutboundRequest.safeParse({ version, channel: 'EMAIL' }).success).toBe(false);
+  });
+
+  it('two or three channels, in the order named', () => {
+    expect(SendOutboundRequest.parse({ version, channels: ['PORTAL', 'EMAIL'] }).channels).toEqual([
+      'PORTAL',
+      'EMAIL',
+    ]);
+    expect(
+      ScheduleOutboundRequest.parse({
+        version,
+        scheduledFor: at,
+        channels: ['SMS', 'PORTAL', 'EMAIL'],
+      }).channels,
+    ).toEqual(['SMS', 'PORTAL', 'EMAIL']);
+  });
+
+  it('each channel once, at least one, and only the three there are', () => {
+    expect(
+      issues(SendOutboundRequest.safeParse({ version, channels: ['EMAIL', 'EMAIL'] })),
+    ).toEqual(['Choose each channel once']);
+    expect(issues(SendOutboundRequest.safeParse({ version, channels: [] }))).toEqual([
+      'Choose a channel',
+    ]);
+    expect(SendOutboundRequest.safeParse({ version, channels: ['FAX'] }).success).toBe(false);
+  });
+});
+
+describe('OutboundReviewQuery: the review for several channels (M19)', () => {
+  it('names them as PORTAL,EMAIL,SMS, each once; left out, the draft’s own', () => {
+    expect(reviewChannels(OutboundReviewQuery.parse({}))).toBeUndefined();
+    expect(reviewChannels(OutboundReviewQuery.parse({ channels: 'PORTAL,EMAIL' }))).toEqual([
+      'PORTAL',
+      'EMAIL',
+    ]);
+    expect(issues(OutboundReviewQuery.safeParse({ channels: 'PORTAL,PORTAL' }))).toEqual([
+      'Choose each channel once',
+    ]);
+    expect(issues(OutboundReviewQuery.safeParse({ channels: 'PORTAL,FAX' }))).toEqual([
+      'List channels as PORTAL,EMAIL,SMS',
+    ]);
+    expect(OutboundReviewQuery.safeParse({ channels: 'PORTAL', other: 'x' }).success).toBe(false);
   });
 });

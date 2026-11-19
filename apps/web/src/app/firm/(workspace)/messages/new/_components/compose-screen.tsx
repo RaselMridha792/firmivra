@@ -73,6 +73,14 @@ const CHANNELS: { channel: Channel; label: string; hint: string; icon: typeof En
   { channel: 'EMAIL', label: 'Email', hint: 'Send via email', icon: EnvelopeSimple },
   { channel: 'SMS', label: 'Text / SMS', hint: 'Send via text message', icon: ChatText },
 ];
+/** M19: a channel by its name on the screen. */
+const CHANNEL_LABEL = Object.fromEntries(CHANNELS.map((c) => [c.channel, c.label])) as Record<
+  Channel,
+  string
+>;
+/** M19: files alone go only by portal; email and text carry the words. */
+const TEXT_REQUIRED =
+  'Email and text carry the words: write a message. Only a portal message can go with files alone.';
 const NOTE: Record<Channel, string> = {
   PORTAL:
     'Clients read it in their portal and get the usual notice there and by email, if they allow it.',
@@ -93,7 +101,13 @@ export const REASON: Record<OutboundExclusion, string> = {
 const UNAVAILABLE = { TURNED_OFF: 'Turned off in Messages Settings', NOT_SET_UP: 'Not set up yet' };
 
 type Form = {
+  /** The channel the draft is saved on. */
   channel: Channel;
+  /**
+   * M19: the other channels it also goes on, one message each, made at Send or Schedule. Kept on
+   * screen only: a saved draft keeps its own channel.
+   */
+  also: Channel[];
   subject: string;
   body: string;
   /** The template it started from (MSG-F11). */
@@ -112,6 +126,7 @@ type Form = {
 };
 const emptyForm = (subject = ''): Form => ({
   channel: 'PORTAL',
+  also: [],
   subject,
   body: '',
   templateId: null,
@@ -128,6 +143,7 @@ const formOf = (m: OutboundMessage, timeZone: string): Form => {
   const at = m.scheduledFor ? localParts(m.scheduledFor, timeZone) : null;
   return {
     channel: m.channel,
+    also: [],
     subject: m.subject ?? '',
     body: m.body,
     templateId: m.templateId,
@@ -153,6 +169,10 @@ const ERRORS: Record<string, string> = {
   ATTACHMENT_TOO_LARGE: 'This file is over the size Messages Settings allow.',
   TOO_MANY_FILES: `A message carries at most ${OUTBOUND_FILES_MAX} files.`,
   BODY_REQUIRED: 'Write a message or attach a file.',
+  TEXT_REQUIRED,
+  SMS_TOO_LONG: 'A text message is at most 1,600 characters. Shorten it, or leave Text out.',
+  CHANNELS_FIXED:
+    'A scheduled message stays on its channel. Send it as it is, or cancel it and start a new one.',
 };
 const words = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0);
 
@@ -182,6 +202,8 @@ export function ComposeScreen({
   // a client), else to Messages.
   const cancelHref = safeOrigin(useSearchParams().get(ORIGIN_PARAM)) ?? '/messages';
   const [saved, setSaved] = useState<OutboundMessage>();
+  /** M19: the messages made for the other channels by the last Send. */
+  const [others, setOthers] = useState<OutboundMessage[]>([]);
   const [form, setForm] = useState<Form>(() => emptyForm(initialSubject));
   // M26: merge fields, emoji and a template go in at the cursor; typed text is never replaced.
   const caret = useCaret();
@@ -255,11 +277,28 @@ export function ComposeScreen({
     api.messages.outbound.check({ channel: 'PORTAL' }),
   );
   const can = check.data?.recipients.filter((r) => r.canReceive).length ?? 0;
-  const smsTooLong = form.channel === 'SMS' && form.body.length > 1600;
+  // M19: every channel it goes on, the draft's own first; a scheduled message stays on its own.
+  const fixed = saved?.status === 'SCHEDULED';
+  const extra = fixed
+    ? []
+    : CHANNELS.map((c) => c.channel).filter((c) => c !== form.channel && form.also.includes(c));
+  const channels: Channel[] = [form.channel, ...extra];
+  const multi = channels.length > 1;
+  const alsoCheck = useApiQuery(
+    [...KEY, 'check-also', extra, ids.clientIds, ids.leadIds],
+    async () =>
+      chosen > 0 && extra.length > 0
+        ? Promise.all(extra.map((c) => api.messages.outbound.check({ channel: c, ...ids })))
+        : null,
+  );
+  const smsTooLong = channels.includes('SMS') && form.body.length > 1600;
   // M22: a Portal message may go with files alone (they reach clients through their portal).
   const hasText = form.body.trim() !== '';
-  const hasContent = hasText || (form.channel === 'PORTAL' && (saved?.files.length ?? 0) > 0);
-  const subjectMissing = form.channel === 'EMAIL' && !form.subject.trim();
+  const files = saved?.files.length ?? 0;
+  const hasContent = hasText || (form.channel === 'PORTAL' && files > 0);
+  // M19: with Email or Text also chosen, files alone are not enough.
+  const textRequired = !hasText && files > 0 && channels.some((c) => c !== 'PORTAL');
+  const subjectMissing = channels.includes('EMAIL') && !form.subject.trim();
   const when = form.later && form.date ? toInstant(form.date, form.time, timeZone) : null;
   const finished = saved && !saved.editable;
   const step = finished
@@ -306,21 +345,33 @@ export function ComposeScreen({
     try {
       const draft = await prepare();
       if (what === 'draft') setNotice({ text: 'Draft saved.', tone: 'success' });
+      // M19: the channels go only when there are several: one channel is asked as before.
+      const fanOut = multi ? { channels } : {};
       if (what === 'send') {
         const sent = await api.messages.outbound.send(draft.id, {
           version: draft.updatedAt,
           confirmUnresolved,
+          ...fanOut,
         });
         setSaved(sent);
+        setOthers(sent.others ?? []);
       }
       if (what === 'schedule' && when) {
         const scheduled = await api.messages.outbound.schedule(draft.id, {
           version: draft.updatedAt,
           scheduledFor: when,
           confirmUnresolved,
+          ...fanOut,
         });
         setSaved(scheduled);
-        setNotice({ text: 'Message scheduled.', tone: 'success' });
+        // Each one is its own scheduled message now (in Drafts and Scheduled, with Cancel).
+        setForm((f) => ({ ...f, also: [] }));
+        setNotice({
+          text: multi
+            ? `${channels.length} messages scheduled, one for each channel.`
+            : 'Message scheduled.',
+          tone: 'success',
+        });
       }
       setReviewing(false);
       await qc.invalidateQueries({ queryKey: ['messages'] });
@@ -341,7 +392,13 @@ export function ComposeScreen({
     setBusy(false);
   };
   const sendDisabled =
-    busy || chosen === 0 || !hasContent || can === 0 || smsTooLong || subjectMissing;
+    busy ||
+    chosen === 0 ||
+    !hasContent ||
+    can === 0 ||
+    smsTooLong ||
+    subjectMissing ||
+    textRequired;
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="compose">
@@ -398,7 +455,12 @@ export function ComposeScreen({
       {initialId && !seeded && !opened.isError ? <p className={quiet}>Loading…</p> : null}
 
       {finished && saved ? (
-        <Outcome message={saved} timeZone={timeZone} />
+        // M19: one result for each channel's message.
+        <div className="flex min-w-0 flex-col gap-4">
+          {[saved, ...others].map((m, i, all) => (
+            <Outcome key={m.id} message={m} timeZone={timeZone} last={i === all.length - 1} />
+          ))}
+        </div>
       ) : initialId && !seeded ? null : (
         <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)]">
           <Recipients form={form} onChange={set} />
@@ -418,7 +480,9 @@ export function ComposeScreen({
                       type="button"
                       role="radio"
                       aria-checked={form.channel === c.channel}
-                      onClick={() => set({ channel: c.channel })}
+                      onClick={() =>
+                        set({ channel: c.channel, also: form.also.filter((x) => x !== c.channel) })
+                      }
                       className={`flex flex-col gap-1 rounded-lg border p-3 text-left ${form.channel === c.channel ? 'border-action bg-accent-soft' : 'border-divider hover:bg-canvas'}`}
                     >
                       <span className="flex items-center gap-2 font-semibold text-heading">
@@ -435,9 +499,45 @@ export function ComposeScreen({
                   );
                 })}
               </div>
-              <p className="flex items-start gap-2 text-xs text-muted">
-                <Info aria-hidden weight="fill" className="mt-0.5 size-4 shrink-0 text-action" />
-                {NOTE[form.channel]}
+              {channels.map((c) => (
+                <p key={c} className="flex items-start gap-2 text-xs text-muted">
+                  <Info aria-hidden weight="fill" className="mt-0.5 size-4 shrink-0 text-action" />
+                  {multi ? `${CHANNEL_LABEL[c]}: ` : ''}
+                  {NOTE[c]}
+                </p>
+              ))}
+            </fieldset>
+            {/* M19: the same message on more channels, one message each. */}
+            <fieldset className="flex flex-col gap-1" data-testid="compose-also">
+              <legend className="text-sm font-semibold text-heading">
+                Also send by <span className="font-normal text-muted">(optional)</span>
+              </legend>
+              <div className="flex flex-wrap gap-x-4">
+                {CHANNELS.filter((c) => c.channel !== form.channel).map((c) => {
+                  const off = firmChannels.data?.channels.find(
+                    (x) => x.channel === c.channel,
+                  )?.unavailable;
+                  return (
+                    <Checkbox
+                      key={c.channel}
+                      label={c.label}
+                      checked={extra.includes(c.channel)}
+                      disabled={fixed || Boolean(off)}
+                      onChange={(e) =>
+                        set({
+                          also: e.target.checked
+                            ? [...form.also, c.channel]
+                            : form.also.filter((x) => x !== c.channel),
+                        })
+                      }
+                    />
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted">
+                {fixed
+                  ? 'A scheduled message stays on its channel.'
+                  : 'Each channel gets its own message, to the people that channel reaches. A saved draft keeps its first channel: tick the others again before you send.'}
               </p>
             </fieldset>
             <TemplatePicker
@@ -453,10 +553,10 @@ export function ComposeScreen({
                 })
               }
             />
-            {form.channel !== 'SMS' ? (
+            {channels.some((c) => c !== 'SMS') ? (
               <Input
                 label={
-                  form.channel === 'EMAIL' ? 'Subject (required for email)' : 'Subject (optional)'
+                  channels.includes('EMAIL') ? 'Subject (required for email)' : 'Subject (optional)'
                 }
                 maxLength={200}
                 value={form.subject}
@@ -477,20 +577,24 @@ export function ComposeScreen({
             <Textarea
               label="Message"
               rows={9}
-              maxLength={form.channel === 'SMS' ? 1600 : 10_000}
+              maxLength={channels.includes('SMS') ? 1600 : 10_000}
               value={form.body}
               onChange={(e) => set({ body: e.target.value })}
               {...caret.track}
             />
             <p className="text-right text-xs text-muted" data-testid="compose-count">
               Words: {words(form.body)} · Characters: {form.body.length}
-              {form.channel === 'SMS' ? ` of 1,600` : ''}
+              {channels.includes('SMS') ? ` of 1,600` : ''}
             </p>
             {/* MSG-F12: files, to clients through their portal. */}
             <ComposeFiles
               message={saved}
-              channel={form.channel}
-              canSave={chosen > 0 && (hasText || form.channel === 'PORTAL') && !smsTooLong}
+              channels={channels}
+              canSave={
+                chosen > 0 &&
+                (hasText || form.channel === 'PORTAL') &&
+                !(form.channel === 'SMS' && form.body.length > 1600)
+              }
               prepare={prepare}
               onChanged={setSaved}
               onError={(text) => setNotice({ text, tone: 'error' })}
@@ -562,8 +666,24 @@ export function ComposeScreen({
               </ul>
               {chosen > 0 && check.data ? (
                 <p className="text-xs text-muted" data-testid="compose-reach">
+                  {multi ? `${CHANNEL_LABEL[form.channel]}: ` : ''}
                   {can} of {chosen} can receive it. Anyone who cannot is skipped, never sent to.
                 </p>
+              ) : null}
+              {/* M19: each other channel reaches whom its own rules allow. */}
+              {chosen > 0 && extra.length > 0 && alsoCheck.data ? (
+                <ul
+                  className="flex flex-col gap-0.5 text-xs text-muted"
+                  data-testid="compose-reach-also"
+                >
+                  {extra.map((c, i) => (
+                    <li key={c}>
+                      {CHANNEL_LABEL[c]}:{' '}
+                      {alsoCheck.data?.[i]?.recipients.filter((r) => r.canReceive).length ?? 0} of{' '}
+                      {chosen} can receive it.
+                    </li>
+                  ))}
+                </ul>
               ) : null}
             </section>
 
@@ -571,6 +691,12 @@ export function ComposeScreen({
               <h2 className={h2}>5. Send Message</h2>
               {subjectMissing ? (
                 <p className="text-xs text-danger">An email needs a subject.</p>
+              ) : null}
+              {textRequired ? <p className="text-xs text-danger">{TEXT_REQUIRED}</p> : null}
+              {smsTooLong && multi ? (
+                <p className="text-xs text-danger">
+                  A text message is at most 1,600 characters. Shorten it, or leave Text out.
+                </p>
               ) : null}
               <div className="flex flex-wrap gap-2">
                 <Link
@@ -629,6 +755,7 @@ export function ComposeScreen({
             {reviewing ? (
               <ReviewDialog
                 prepare={prepare}
+                channels={channels}
                 later={form.later}
                 busy={busy}
                 onBack={() => setReviewing(false)}
@@ -769,14 +896,15 @@ function Recipients({ form, onChange }: { form: Form; onChange: (patch: Partial<
  */
 function ComposeFiles({
   message,
-  channel,
+  channels,
   canSave,
   prepare,
   onChanged,
   onError,
 }: {
   message?: OutboundMessage;
-  channel: OutboundMessage['channel'];
+  /** M19: every channel it goes on; the files go with the Portal message. */
+  channels: readonly OutboundMessage['channel'][];
   /** A draft can be saved: someone is chosen, and a message (or the Portal channel, M22). */
   canSave: boolean;
   prepare: () => Promise<OutboundMessage>;
@@ -857,7 +985,7 @@ function ComposeFiles({
           ))}
         </ul>
       ) : null}
-      {channel !== 'PORTAL' && files.length > 0 ? (
+      {!channels.includes('PORTAL') && files.length > 0 ? (
         <p role="alert" className="text-xs text-danger">
           Files go to clients through their portal. Choose Portal, or remove the files.
         </p>
@@ -1007,8 +1135,8 @@ function Drafts({ currentId }: { currentId?: string }) {
               </span>
               <span className="text-muted">
                 {' '}
-                · {m.status === 'SCHEDULED' ? 'Scheduled' : 'Draft'} · {m.counts.total}{' '}
-                {m.counts.total === 1 ? 'recipient' : 'recipients'}
+                · {CHANNEL_LABEL[m.channel]} · {m.status === 'SCHEDULED' ? 'Scheduled' : 'Draft'} ·{' '}
+                {m.counts.total} {m.counts.total === 1 ? 'recipient' : 'recipients'}
               </span>
             </span>
             <Link href={`/messages/new?id=${m.id}`} className="shrink-0 font-medium text-link">
@@ -1022,7 +1150,16 @@ function Drafts({ currentId }: { currentId?: string }) {
 }
 
 /** Sent (or canceled): who got it on which channel, who was skipped and why. */
-function Outcome({ message, timeZone }: { message: OutboundMessage; timeZone: string }) {
+function Outcome({
+  message,
+  timeZone,
+  last = true,
+}: {
+  message: OutboundMessage;
+  timeZone: string;
+  /** M19: the links go once, under the last channel's result. */
+  last?: boolean;
+}) {
   const sent = message.recipients.filter((r) => r.status === 'SENT');
   const title =
     message.status === 'CANCELED'
@@ -1070,17 +1207,19 @@ function Outcome({ message, timeZone }: { message: OutboundMessage; timeZone: st
           </li>
         ))}
       </ul>
-      <div className="flex flex-wrap gap-2">
-        <Link href="/messages" className={gold}>
-          Back to Messages
-        </Link>
-        <Link
-          href="/messages/new?fresh=1"
-          className="inline-flex min-h-11 items-center rounded-control border border-action px-4 text-sm font-semibold text-action hover:bg-accent-soft"
-        >
-          New Message
-        </Link>
-      </div>
+      {last ? (
+        <div className="flex flex-wrap gap-2">
+          <Link href="/messages" className={gold}>
+            Back to Messages
+          </Link>
+          <Link
+            href="/messages/new?fresh=1"
+            className="inline-flex min-h-11 items-center rounded-control border border-action px-4 text-sm font-semibold text-action hover:bg-accent-soft"
+          >
+            New Message
+          </Link>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1092,19 +1231,26 @@ function Outcome({ message, timeZone }: { message: OutboundMessage; timeZone: st
  */
 function ReviewDialog({
   prepare,
+  channels,
   later,
   busy,
   onBack,
   onConfirm,
 }: {
   prepare: () => Promise<OutboundMessage>;
+  /** M19: every channel it goes on, the draft's own first. */
+  channels: readonly OutboundMessage['channel'][];
   later: boolean;
   busy: boolean;
   onBack: () => void;
   onConfirm: (confirmUnresolved: boolean) => void;
 }) {
-  const review = useApiQuery([...KEY, 'review', later], async () =>
-    api.messages.outbound.review((await prepare()).id),
+  const multi = channels.length > 1;
+  const review = useApiQuery([...KEY, 'review', later, ...channels], async () =>
+    api.messages.outbound.review(
+      (await prepare()).id,
+      multi ? { channels: channels.join(',') } : {},
+    ),
   );
   const [confirm, setConfirm] = useState(false);
   const r = review.data;
@@ -1117,8 +1263,10 @@ function ReviewDialog({
       title="Review Your Message"
       subtitle={
         r?.timing.mode === 'SCHEDULED' || later
-          ? `Scheduled, in your firm's time zone (${r?.timing.timezone ?? ''}).`
-          : 'Sends now.'
+          ? `Scheduled, in your firm's time zone (${r?.timing.timezone ?? ''}).${multi ? ' One message for each channel.' : ''}`
+          : multi
+            ? 'Sends now: one message for each channel.'
+            : 'Sends now.'
       }
       onClose={onBack}
       footer={
@@ -1141,6 +1289,31 @@ function ReviewDialog({
           <p role="alert" className={quiet}>
             {errorMessage(review.error)}
           </p>
+        ) : null}
+        {/* M19: each channel's message: how many can receive it, and who cannot and why. */}
+        {r?.channels ? (
+          <ul
+            className="flex flex-col gap-2 text-sm"
+            aria-label="Each channel"
+            data-testid="review-channels"
+          >
+            {r.channels.map((c) => (
+              <li key={c.channel} className="rounded-lg border border-divider p-2">
+                <p className="font-semibold text-heading">
+                  {CHANNEL_LABEL[c.channel]}: {c.canReceive} of {c.total} can receive it
+                </p>
+                {c.cannotReceive.length > 0 ? (
+                  <ul className="mt-1 flex flex-col text-xs text-danger">
+                    {c.cannotReceive.map((p) => (
+                      <li key={`${p.kind}${p.id}`}>
+                        {p.name}: {p.reason ? REASON[p.reason] : 'Cannot receive'}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         ) : null}
         <ul className="flex flex-col gap-1 text-sm" aria-label="Checks">
           {(r?.checks ?? []).map((c) => (
