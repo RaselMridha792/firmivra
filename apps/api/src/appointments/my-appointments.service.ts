@@ -21,6 +21,7 @@ import {
   BOOKING_RULES_SELECT,
   type BookingRules,
   bookingSpan,
+  buffersOf,
   changeableUntil,
   DEFAULT_CUTOFF_HOURS,
   freeStarts,
@@ -39,7 +40,7 @@ import {
   clientBusy,
   dateSpan,
   firmTimeZone,
-  memberBusy,
+  memberBusyBuffered,
   workingHours,
 } from './calendar-data.js';
 import { lockAppointment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
@@ -321,7 +322,11 @@ export class MyAppointmentsService {
       const mineBusy = people.flatMap((c) => clientBusy(busy, c, moving?.id));
       const starts = new Map<number, number>();
       for (const m of members) {
-        const taken = [...memberBusy(busy, m.userId, moving?.id), ...mineBusy];
+        // Review 2 (R4): the type's buffers and each appointment's own stay free (as B11).
+        const taken = [
+          ...memberBusyBuffered(busy, m.userId, buffersOf(type), moving?.id),
+          ...mineBusy,
+        ];
         for (const s of freeStarts(query, hours.get(m.userId) ?? [], taken)) {
           starts.set(s.start, s.end);
         }
@@ -398,6 +403,9 @@ export class MyAppointmentsService {
           ...(named ? { internalNotes: `Booked from the package "${named}".` } : {}),
           startsAt: new Date(slot.start),
           endsAt: new Date(slot.end),
+          // Review 2 (R4): the type's buffers, as a booking by the firm copies them.
+          bufferBeforeMinutes: type.bufferBeforeMinutes,
+          bufferAfterMinutes: type.bufferAfterMinutes,
           locationKind,
           locationDetails,
           bookedByClient: true,
@@ -564,7 +572,10 @@ export class MyAppointmentsService {
     if (onGrid.length === 0) throw errors.slotUnavailable();
     const busy = await busyTimes(tx, businessId, dateSpan(timeZone, date, date));
     const free = onGrid.filter(
-      (m) => !memberBusy(busy, m.userId, moving?.id).some((b) => overlaps(b, slot)),
+      (m) =>
+        !memberBusyBuffered(busy, m.userId, buffersOf(rules), moving?.id).some((b) =>
+          overlaps(b, slot),
+        ),
     );
     const load = (userId: string) =>
       busy.appointments.filter((a) => a.staffUserId === userId && a.id !== moving?.id).length;

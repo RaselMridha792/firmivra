@@ -180,7 +180,13 @@ describe('free slots', () => {
   });
   it("a client booking keeps to the type's Minimum Notice and Booking Window (Review 2 row 2)", () => {
     const now = at('2026-10-12T08:05:00Z');
-    const rules = { minNoticeMinutes: 0, maxAdvanceDays: null, maxWindowHours: null };
+    const rules = {
+      minNoticeMinutes: 0,
+      maxAdvanceDays: null,
+      maxWindowHours: null,
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+    };
     expect(bookingSpan(null, now)).toEqual({ notBefore: now });
     expect(bookingSpan(rules, now)).toEqual({ notBefore: now });
     // Hours win over days when both are set.

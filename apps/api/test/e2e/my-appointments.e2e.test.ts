@@ -1091,6 +1091,7 @@ describe('booking rules (Review 2 row 2): Minimum Notice and Booking Window, on 
   let notice: AppointmentType;
   let days: AppointmentType;
   let hours: AppointmentType;
+  let buffered: AppointmentType;
   const starts = async (typeId: string, n: number) =>
     exact(
       MySlotList,
@@ -1116,6 +1117,7 @@ describe('booking rules (Review 2 row 2): Minimum Notice and Booking Window, on 
     notice = await make('Notice 72h', { minNoticeHours: 72 });
     days = await make('Window 30d', { maxWindowDays: 30 });
     hours = await make('Window 12h', { maxWindowHours: 12 });
+    buffered = await make('Buffered 30', { bufferBeforeMinutes: 30, bufferAfterMinutes: 30 });
   });
 
   it('free starts begin after the notice and end with the window', async () => {
@@ -1148,5 +1150,33 @@ describe('booking rules (Review 2 row 2): Minimum Notice and Booking Window, on 
       await portal('post', `/${mine.id}/reschedule`, people.clientB, { startsAt: at(28, '11:00') }),
     );
     expect(moved.startsAt).toBe(at(28, '11:00'));
+  });
+
+  it('R4: free starts and Book keep the type’s buffers free around the staff’s appointments', async () => {
+    // Both members busy 10:00-10:30 on day 29; a 30-minute type with 30 minutes before and after.
+    await firmBook({ clientId: ids.cX, staffUserId: people.staffP1.id, startsAt: at(29, '10:00') });
+    await firmBook({ clientId: ids.cY, staffUserId: people.staffP2.id, startsAt: at(29, '10:00') });
+    const local = (list: string[]) => list.map((t) => at(29, t));
+    expect(await starts(consult.id, 29)).toEqual(
+      local(['09:00', '09:15', '09:30', '10:30', '10:45', '11:00', '11:15', '11:30']),
+    );
+    // 09:00 ends at 09:30 and its buffer at 10:00 (touching); 11:00's buffer starts at 10:30.
+    expect(await starts(buffered.id, 29)).toEqual(local(['09:00', '11:00', '11:15', '11:30']));
+    await refused(
+      await portal('post', '', people.clientB, { typeId: buffered.id, startsAt: at(29, '10:45') }),
+    );
+    const booked = exact(
+      MyAppointment,
+      await portal('post', '', people.clientB, { typeId: buffered.id, startsAt: at(29, '11:00') }),
+      201,
+    );
+    // The booking keeps the type's buffers, as one the firm makes.
+    const kept = await asOwner(ids.firmP, (tx) =>
+      tx.appointment.findUniqueOrThrow({
+        where: { id: booked.id },
+        select: { bufferBeforeMinutes: true, bufferAfterMinutes: true },
+      }),
+    );
+    expect(kept).toEqual({ bufferBeforeMinutes: 30, bufferAfterMinutes: 30 });
   });
 });

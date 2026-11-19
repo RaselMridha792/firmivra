@@ -147,13 +147,24 @@ export interface BookingRules {
   maxAdvanceDays: number | null;
   /** Hours, for windows shorter than a day; when set it wins over `maxAdvanceDays`. */
   maxWindowHours: number | null;
+  /** Review 2 (R4): minutes the staff member keeps free before and after it. */
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
 }
 
 export const BOOKING_RULES_SELECT = {
   minNoticeMinutes: true,
   maxAdvanceDays: true,
   maxWindowHours: true,
+  bufferBeforeMinutes: true,
+  bufferAfterMinutes: true,
 } as const;
+
+/** Review 2 (R4): the buffers a client's new time keeps (none without a type). */
+export const buffersOf = (rules: BookingRules | null) => ({
+  before: rules?.bufferBeforeMinutes ?? 0,
+  after: rules?.bufferAfterMinutes ?? 0,
+});
 
 /**
  * When a client may book a start (portal Book and Reschedule): after now plus the type's Minimum
