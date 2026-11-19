@@ -13,6 +13,8 @@ test('Create Campaign: the builder in a panel, a draft only, the page kept', asy
   const actions = page.getByTestId('add-lead').locator('..');
   await expect(actions.getByRole('button')).toHaveText([
     'Add New Tag',
+    // Leads' Export (the Owner may export).
+    'Export',
     'Create Campaign',
     'Add New Lead',
   ]);
