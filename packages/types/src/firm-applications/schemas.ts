@@ -742,10 +742,22 @@ export const FirmListItem = BusinessSummary.extend({
 });
 export type FirmListItem = z.infer<typeof FirmListItem>;
 
-/** GET /admin/firms. Search matches the firm name, owner name and owner email. Newest first. */
+/** SA-FRM-Y08: the columns the firms list sorts by (firm name; the day Firmivra approved it). */
+export const FirmSort = z.enum(['name', 'approved']);
+export type FirmSort = z.infer<typeof FirmSort>;
+
+/**
+ * GET /admin/firms. Search matches the firm name, owner name and owner email. Newest first, or by
+ * `sort` (SA-FRM-Y08): `order` asc is A to Z or oldest first; a firm never approved (created by
+ * hand) sorts after the approved ones either way. `plan`: the plan its application asked for.
+ */
 export const ListFirmsQuery = z.strictObject({
   status: FirmStatusFilter.optional(),
   search: SearchText.optional(),
+  plan: FirmPlan.optional(),
+  sort: FirmSort.optional(),
+  /** With `sort`: asc (the default) or desc. */
+  order: z.enum(['asc', 'desc']).optional(),
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });
@@ -768,8 +780,82 @@ export type FirmCounts = z.infer<typeof FirmCounts>;
  * (null for a firm created without one, such as the beta firm); notes are saved on the application.
  * An application whose form could not be read has `formReadable` false, as on its review page.
  */
-export const FirmRecord = FirmListItem.extend({ application: FirmApplicationRecord.nullable() });
+/**
+ * One entry of a firm's Account History (SA-FRM-F03, F04, Y07, Y10). ACTIVATED: the owner finished
+ * setup. SUSPENDED, REACTIVATED and CLOSED: a Super Admin's account action, with its reason; a firm
+ * closed before closures were recorded shows CLOSED at its closure time with no one and no reason.
+ */
+export const FirmAccountEvent = z.object({
+  /** INFO_REQUESTED (SA-FRM-F06): a Super Admin asked the owner for information; see `ticket`. */
+  type: z.enum(['ACTIVATED', 'SUSPENDED', 'REACTIVATED', 'CLOSED', 'INFO_REQUESTED']),
+  at: DateTime,
+  /** The Super Admin who acted; null for activation and for older closures. */
+  by: AdminRef.nullable(),
+  /** The reason; for INFO_REQUESTED, the request's subject. */
+  reason: z.string().nullable(),
+  /** INFO_REQUESTED: the Support ticket the request is (Support > the ticket). */
+  ticket: z.object({ id: z.uuid(), number: z.number().int().positive() }).nullable().optional(),
+});
+export type FirmAccountEvent = z.infer<typeof FirmAccountEvent>;
+
+export const FirmRecord = FirmListItem.extend({
+  application: FirmApplicationRecord.nullable(),
+  /** When the owner finished setup (the firm's first Active); null before. */
+  activatedAt: DateTime.nullable().optional(),
+  /** SA-FRM-F03: when the firm was closed (UTC, set by the database); null unless Closed. */
+  closedAt: DateTime.nullable().optional(),
+  /** SA-FRM-F03, F04, Y07, Y10: the account's lifecycle, newest first. */
+  accountHistory: z.array(FirmAccountEvent).optional(),
+  /**
+   * SA-FRM-F02: what the Actions menu offers for the firm's status now (the API refuses the rest
+   * with 409 FIRM_STATUS_CHANGED). Suspend: Active or Pending Setup. Reactivate: Suspended.
+   * Close: any status but Closed.
+   */
+  can: z
+    .object({
+      suspend: z.boolean(),
+      reactivate: z.boolean(),
+      close: z.boolean(),
+      /** SA-FRM-F06: Active, with an active owner to answer (409 FIRM_CANNOT_ANSWER otherwise). */
+      requestInfo: z.boolean().optional(),
+    })
+    .optional(),
+});
 export type FirmRecord = z.infer<typeof FirmRecord>;
+
+/**
+ * POST /admin/firms/{id}/suspend, /reactivate and /close (SA-FRM-F03, F04, Y10): the account
+ * actions, Super Admin only. The reason is kept in the firm's Account History and the audit log;
+ * it is never sent to the firm. Suspend: from Active or Pending Setup; the firm's people are
+ * refused (403 BUSINESS_INACTIVE) until it is reactivated. Reactivate: from Suspended, back to
+ * Active (or Pending Setup if the owner never finished setup). Close: from any status but Closed;
+ * final, and the database records the closure time. 409 FIRM_STATUS_CHANGED when the firm is no
+ * longer in a status the action starts from; 404 for an unknown firm. Answers the firm page.
+ */
+export const FirmAccountActionRequest = z.strictObject({
+  reason: text(1000, 'many', 'Enter the reason'),
+});
+export type FirmAccountActionRequest = z.input<typeof FirmAccountActionRequest>;
+export const FIRM_ACCOUNT_ACTIONS = ['suspend', 'reactivate', 'close'] as const;
+
+/**
+ * POST /admin/firms/{id}/request-info (SA-FRM-F06, Y09): Firmivra asks the firm's owner for
+ * information. It becomes a Support ticket to the owner (subject "Information request: …",
+ * Waiting on Customer, source Internal, assigned to the Super Admin), an Information requested
+ * entry in the firm's Account History, and an email to the owner, who answers in Settings >
+ * Requests from Firmivra. The same `requestId` again answers the same ticket. 409
+ * FIRM_CANNOT_ANSWER unless the firm is Active with an active owner; Support's own refusals
+ * (403 when the Super Admin is not on the support team) pass through. Answers the firm page.
+ */
+export const RequestFirmInformationRequest = z.strictObject({
+  requestId: z.uuid(),
+  subject: text(120, 'one', 'Enter a subject'),
+  message: text(4000, 'many', 'Write what you need from the firm'),
+  /** The day to answer by (YYYY-MM-DD, today or later in US Eastern time); optional. */
+  replyBy: CalendarDate.optional(),
+});
+export type RequestFirmInformationRequest = z.input<typeof RequestFirmInformationRequest>;
+export type FirmAccountAction = (typeof FIRM_ACCOUNT_ACTIONS)[number];
 
 // ---------- Dashboard (Super Admin) ----------
 /** GET /admin/dashboard: the stat cards and "Tasks Requiring Attention". */

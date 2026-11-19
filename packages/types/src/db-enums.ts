@@ -1589,6 +1589,17 @@ export const AdvisoryFinancialSource = z.enum([
 ]);
 export type AdvisoryFinancialSource = z.infer<typeof AdvisoryFinancialSource>;
 
+/** The kinds of advisory resource (packages/types AdvisoryResource.kind). */
+export const AdvisoryResourceKind = z.enum([
+  'PDF',
+  'CHECKLIST',
+  'GUIDE',
+  'TEMPLATE',
+  'VIDEO',
+  'LINK',
+]);
+export type AdvisoryResourceKind = z.infer<typeof AdvisoryResourceKind>;
+
 export const StaffGroupStatus = z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']);
 export type StaffGroupStatus = z.infer<typeof StaffGroupStatus>;
 

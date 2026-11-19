@@ -40,6 +40,10 @@ const WORDS: Record<ClientLinkRole, { linked: string; addedTo: string; choice: s
   OTHER: { linked: 'Linked profile', addedTo: 'Linked profile', choice: 'Other' },
 };
 const ROLES = Object.keys(WORDS) as ClientLinkRole[];
+/** How a new profile is related to this one (Business Advisory A-X06), with its words. */
+export const LINK_ROLE_CHOICES = ROLES.map((role) => ({ value: role, label: WORDS[role].choice }));
+/** The query key of a client's links (refreshed after Advisory adds one). */
+export const clientLinksKey = (clientId: string) => key(clientId);
 export const relationText = (l: ClientLink) =>
   l.side === 'LINKED' ? WORDS[l.role].linked : WORDS[l.role].addedTo;
 

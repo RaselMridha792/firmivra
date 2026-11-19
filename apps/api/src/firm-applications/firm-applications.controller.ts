@@ -10,6 +10,8 @@ import {
   ApproveFirmApplicationRequest,
   AssignFirmReviewerRequest,
   DeclineFirmApplicationRequest,
+  type FirmAccountAction,
+  FirmAccountActionRequest,
   FirmApplicationId,
   type FirmApplicationCounts,
   type FirmApplicationFileLink,
@@ -23,6 +25,7 @@ import {
   ListFirmsQuery,
   type ListFirmsResponse,
   RequestFirmInfoRequest,
+  RequestFirmInformationRequest,
   SaveFirmNotesRequest,
   SubmitFirmApplicationRequest,
   type SubmitFirmApplicationResponse,
@@ -52,6 +55,9 @@ import {
 } from './apply-respond.service.js';
 import { DashboardGrowthService } from './dashboard-growth.js';
 import { EIN_HASH_KEY, loadEinHashKey } from './ein-hash.js';
+import { AdminSupportModule } from '../admin-support/admin-support.module.js';
+import { FirmAccountService } from './firm-account.service.js';
+import { FirmInfoRequestService } from './firm-info-request.service.js';
 import { FirmApplicationsService } from './firm-applications.service.js';
 import { FirmKeyJob } from './firm-key-job.js';
 import { createFirmKeys, FIRM_KEYS, loadFirmKeysConfig } from './firm-keys.js';
@@ -223,7 +229,24 @@ export class AdminFirmApplicationsController {
 /** The firms page (N04): every firm with its owner, plan and status. */
 @Controller('admin/firms')
 export class AdminFirmsController {
-  constructor(private readonly applications: FirmApplicationsService) {}
+  constructor(
+    private readonly applications: FirmApplicationsService,
+    private readonly account: FirmAccountService,
+    private readonly info: FirmInfoRequestService,
+  ) {}
+
+  /** SA-FRM-F06: Request Information: a Support ticket and an email to the firm's owner. */
+  @Post(':id/request-info')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  async requestInfo(
+    @Param('id', new ZodValidationPipe(FirmId)) id: string,
+    @Body(new ZodValidationPipe(RequestFirmInformationRequest))
+    body: z.output<typeof RequestFirmInformationRequest>,
+  ): Promise<FirmRecord> {
+    await this.info.request(id, body);
+    return this.applications.firmRecord(id);
+  }
 
   @Get()
   @Roles('SUPER_ADMIN')
@@ -244,7 +267,51 @@ export class AdminFirmsController {
   get(@Param('id', new ZodValidationPipe(FirmId)) id: string): Promise<FirmRecord> {
     return this.applications.getFirm(id);
   }
+
+  /** SA-FRM-F04: Suspend Account (Active or Pending Setup), with a reason. */
+  @Post(':id/suspend')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  suspend(
+    @Param('id', new ZodValidationPipe(FirmId)) id: string,
+    @Body(new ZodValidationPipe(FirmAccountActionRequest)) body: AccountActionBody,
+  ): Promise<FirmRecord> {
+    return this.act(id, 'suspend', body);
+  }
+
+  /** SA-FRM-Y10: Reactivate a Suspended firm, with a reason. */
+  @Post(':id/reactivate')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  reactivate(
+    @Param('id', new ZodValidationPipe(FirmId)) id: string,
+    @Body(new ZodValidationPipe(FirmAccountActionRequest)) body: AccountActionBody,
+  ): Promise<FirmRecord> {
+    return this.act(id, 'reactivate', body);
+  }
+
+  /** SA-FRM-F03: Close Account (final), with a reason; the database records the closure time. */
+  @Post(':id/close')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  close(
+    @Param('id', new ZodValidationPipe(FirmId)) id: string,
+    @Body(new ZodValidationPipe(FirmAccountActionRequest)) body: AccountActionBody,
+  ): Promise<FirmRecord> {
+    return this.act(id, 'close', body);
+  }
+
+  private async act(
+    id: string,
+    action: FirmAccountAction,
+    body: AccountActionBody,
+  ): Promise<FirmRecord> {
+    await this.account.change(id, action, body.reason);
+    return this.applications.firmRecord(id);
+  }
 }
+
+type AccountActionBody = z.output<typeof FirmAccountActionRequest>;
 
 /** SA-DSH-F01: the header search on every Super Admin page (firms and applications only). */
 @Controller('admin/search')
@@ -285,7 +352,8 @@ export class AdminDashboardController {
 }
 
 @Module({
-  imports: [SignInModule],
+  // AdminSupportModule: Request Information files a Support ticket (SA-FRM-F06).
+  imports: [SignInModule, AdminSupportModule],
   controllers: [
     FirmApplicationsController,
     ApplyRespondController,
@@ -298,6 +366,8 @@ export class AdminDashboardController {
     AdminPrisma,
     FirmApplicationsService,
     DashboardGrowthService,
+    FirmAccountService,
+    FirmInfoRequestService,
     FirmApplicationSubmitService,
     { provide: EIN_HASH_KEY, useFactory: () => loadEinHashKey() },
     { provide: FIRM_KEYS, useFactory: () => createFirmKeys(loadFirmKeysConfig()) },
