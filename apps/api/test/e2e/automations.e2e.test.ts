@@ -822,6 +822,12 @@ describe('activation, pausing and copies', () => {
         ok(await call('get', `/rules?search=${run}&includeArchived=true`, ownerA)),
       ).items.map((r) => r.id),
     ).toContain(copy.id);
+    // Automations Review Two R09: the Archived filter (as Manage Rules sends it) finds it too.
+    expect(
+      AutomationRulePage.parse(
+        ok(await call('get', `/rules?search=${run}&status=ARCHIVED`, ownerA)),
+      ).items.map((r) => r.id),
+    ).toContain(copy.id);
     // Restoring needs the name to be free.
     await call('patch', `/rules/${copy2.id}`, ownerA, { etag: copy2.etag, name: copy.name });
     expectError(await call('post', `/rules/${copy.id}/restore`, ownerA), 409, 'DUPLICATE_NAME');
@@ -1525,13 +1531,14 @@ describe('the logs', () => {
     expect(
       AutomationRunsSummary.parse(ok(await call('get', '/runs/summary?tab=failed', ownerA))),
     ).toEqual(summary);
-    expect((await runs('?tab=failed&pageSize=100')).items.every((r) => r.status === 'FAILED')).toBe(
-      true,
-    );
+    // Automations Review Two R06: a partly failed run is under Failed, never under Successful.
     expect(
-      (await runs('?tab=success&pageSize=100')).items.every((r) =>
-        ['SUCCESS', 'PARTIAL_SUCCESS'].includes(r.status),
+      (await runs('?tab=failed&pageSize=100')).items.every((r) =>
+        ['FAILED', 'PARTIAL_SUCCESS'].includes(r.status),
       ),
+    ).toBe(true);
+    expect(
+      (await runs('?tab=success&pageSize=100')).items.every((r) => r.status === 'SUCCESS'),
     ).toBe(true);
     expect(
       (await runs('?tab=pending&pageSize=100')).items.every((r) =>
@@ -1980,6 +1987,46 @@ describe('trigger events from the source modules (AU-F08 to F11)', () => {
       recordKind: 'client',
       client: { id: clients.c2 },
     });
+  });
+
+  it('R01, R02: Edit Client is a profile change; a second change in the window shows as Skipped', async () => {
+    const live = await createRule(
+      {
+        trigger: { module: 'CLIENTS', event: 'client.profile_changed' },
+        actions: [note({ config: { body: 'Profile changed' } })],
+        settings: { preventDuplicatesDays: 30 },
+      },
+      { name: mark('Profile changed') },
+    );
+    expect(AutomationRuleDetail.parse(ok(await activate(live.id))).status).toBe('ACTIVE');
+    const was = await inFirm('a', (tx) =>
+      tx.client.findUniqueOrThrow({ where: { id: clients.c2 }, select: { displayName: true } }),
+    );
+    const edit = async (body: object) =>
+      ok(
+        await request(app.getHttpServer())
+          .patch(`/api/v1/business/clients/${clients.c2}`)
+          .set('x-business-id', firms.a)
+          .set('x-forwarded-for', viewer())
+          .set('authorization', `Bearer ${await tokenFor(ownerA.email)}`)
+          .send(body),
+      );
+    try {
+      // Two name changes to one client before a scan: one run, and the second occurrence is a
+      // visible Skipped run (inside the 30-day window), never a second run or a silent nothing.
+      await edit({ displayName: `Fake renamed ${run} one` });
+      await edit({ displayName: `Fake renamed ${run} two` });
+      expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1, duplicates: 1 });
+      const page = await runs(`?ruleId=${live.id}&pageSize=100`);
+      expect(page.total).toBe(2);
+      expect(page.items.filter((r) => r.status === 'SKIPPED')).toHaveLength(1);
+      // Scanned again, nothing new: both occurrences are already accounted for.
+      expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 0 });
+      expect((await runs(`?ruleId=${live.id}`)).total).toBe(2);
+    } finally {
+      await call('post', `/rules/${live.id}/pause`, ownerA, {});
+      await edit({ displayName: was.displayName });
+    }
   });
 });
 

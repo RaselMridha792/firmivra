@@ -4,7 +4,7 @@ export { Input, type InputProps } from './input';
 export { Textarea, type TextareaProps } from './textarea';
 export { Select, Checkbox, type SelectProps, type CheckboxProps } from './fields';
 export { Radio, type RadioProps } from './radio';
-export { Badge } from './badge';
+export { Badge, type BadgeTone } from './badge';
 export { Avatar, AvatarGroup, type AvatarSize } from './avatar';
 export { Toggle, type ToggleProps } from './toggle';
 export { IconTile, KpiCard, type KpiCardProps, type KpiTone, type KpiTrend } from './kpi-card';

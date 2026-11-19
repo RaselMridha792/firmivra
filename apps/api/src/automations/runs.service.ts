@@ -28,12 +28,39 @@ type Out<S extends z.ZodType> = z.output<S>;
 const MAX_EXPORT_ROWS = 50_000;
 const BOM = String.fromCharCode(0xfeff);
 const URL_SECONDS = 300;
+/**
+ * Automations Review Two R06: a run where some actions failed (PARTIAL_SUCCESS) is never shown as
+ * successful: it is under Failed, in the Failed count and in a Failed export, with its "Partial"
+ * status on the row. Successful is only a run where everything that ran succeeded.
+ */
 const TABS: Record<string, Prisma.AutomationRunWhereInput> = {
   all: {},
-  success: { status: { in: ['SUCCESS', 'PARTIAL_SUCCESS'] } },
-  failed: { status: 'FAILED' },
+  success: { status: 'SUCCESS' },
+  failed: { status: { in: ['FAILED', 'PARTIAL_SUCCESS'] } },
   skipped: { status: 'SKIPPED' },
   pending: { status: { in: ['PENDING', 'RUNNING'] } },
+};
+
+/** R07: "The client (trigger)", "Task created": a record kind in words, never a code. */
+const KIND_WORDS: Record<string, string> = {
+  client: 'Client',
+  lead: 'Lead',
+  task: 'Task',
+  note: 'Note',
+  invoice: 'Invoice',
+  intake: 'Intake form',
+  document: 'Document',
+  document_request: 'Document request',
+  tax_return: 'Tax return',
+  tax_plan: 'Tax plan',
+  appointment: 'Appointment',
+  deadline: 'Deadline',
+  membership: 'Team member',
+  communication: 'Communication',
+};
+const recordLabel = (kind: string, trigger: boolean) => {
+  const word = KIND_WORDS[kind] ?? kind.replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase());
+  return trigger ? `${word} (what started the run)` : `${word} (from an action)`;
 };
 
 const REMEDIATION: Record<string, string> = {
@@ -151,8 +178,8 @@ export class RunsService {
         grouped.filter((g) => s.includes(g.status)).reduce((t, g) => t + g._count._all, 0);
       return {
         total: grouped.reduce((t, g) => t + g._count._all, 0),
-        success: n('SUCCESS', 'PARTIAL_SUCCESS'),
-        failed: n('FAILED'),
+        success: n('SUCCESS'),
+        failed: n('FAILED', 'PARTIAL_SUCCESS'),
         skipped: n('SKIPPED'),
         pending: n('PENDING', 'RUNNING'),
       };
@@ -222,16 +249,17 @@ export class RunsService {
       })),
       ruleSnapshot: view,
       ruleChanged: run.rule.currentVersionId !== run.ruleVersionId,
+      // Automations Review Two R07: each with a readable label; the page links the ones it can.
       related: [
         ...(run.recordKind && run.recordId
-          ? [{ kind: run.recordKind, id: run.recordId, label: run.recordKind }]
+          ? [{ kind: run.recordKind, id: run.recordId, label: recordLabel(run.recordKind, true) }]
           : []),
         ...run.executions
           .filter((e) => e.resultKind && e.resultId)
           .map((e) => ({
             kind: e.resultKind as string,
             id: e.resultId as string,
-            label: e.resultKind as string,
+            label: recordLabel(e.resultKind as string, false),
           })),
       ],
       rerun: {

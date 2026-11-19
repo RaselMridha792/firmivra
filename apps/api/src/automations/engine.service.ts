@@ -241,6 +241,8 @@ export class AutomationEngine {
                   businessId,
                   ruleId,
                   dryRun: false,
+                  // A skip (below) is not a run that acted: it never extends the window.
+                  status: { not: 'SKIPPED' },
                   recordId: { in: fresh.map((c) => c.recordId) },
                   createdAt: { gte: new Date(now.getTime() - window * DAY) },
                 },
@@ -253,6 +255,9 @@ export class AutomationEngine {
       for (const c of fresh) {
         if (recent.has(c.recordId)) {
           result.duplicates += 1;
+          // Automations Review Two R01: a skip is shown, never silent: a Skipped run for this
+          // occurrence (its key keeps it to one), saying why.
+          await this.skippedRun(tx, businessId, rule.id, v, c, now, window);
           continue;
         }
         ids.push(
@@ -268,6 +273,8 @@ export class AutomationEngine {
             now,
           ),
         );
+        // R02: the same record's next occurrence in this scan is inside the window too.
+        if (window) recent.add(c.recordId);
         result.started += 1;
       }
       if (ids.length) {
@@ -280,6 +287,39 @@ export class AutomationEngine {
     });
     for (const runId of created) await this.advance(businessId, runId, now);
     return result;
+  }
+
+  /** R01: a run that did not act because the record had one inside the duplicate window. */
+  private async skippedRun(
+    tx: TxClient,
+    businessId: string,
+    ruleId: string,
+    v: {
+      id: string;
+      triggerModule: Prisma.AutomationRunUncheckedCreateInput['sourceModule'];
+      triggerEvent: string;
+    },
+    c: Candidate,
+    now: Date,
+    window: number,
+  ): Promise<void> {
+    await tx.automationRun.create({
+      data: {
+        businessId,
+        ruleId,
+        ruleVersionId: v.id,
+        sourceModule: v.triggerModule,
+        sourceEventKey: `${v.triggerEvent}:${c.recordId}:${c.occurrence}`,
+        clientId: c.clientId,
+        recordKind: c.recordKind,
+        recordId: c.recordId,
+        correlationId: randomUUID(),
+        status: 'SKIPPED',
+        finishedAt: now,
+        errorCode: 'DUPLICATE_WINDOW',
+        message: `This record already had a run of this rule in the last ${window} day${window === 1 ? '' : 's'} (Prevent duplicates, in the rule's Settings).`,
+      },
+    });
   }
 
   private async createRun(

@@ -403,7 +403,11 @@ function RecurringForm({
       onSuccess: (s) => {
         if (another) return onAnother(s.title);
         guard.allow();
-        router.push(`/tasks/recurring/${s.id}`);
+        // Bookkeeping Review 2 (N05 original): opened from a workspace, Save returns there.
+        router.push(
+          safeOrigin(new URLSearchParams(window.location.search).get(ORIGIN_PARAM)) ??
+            `/tasks/recurring/${s.id}`,
+        );
       },
       onError: (er) => setMessage({ text: errorMessage(er, TASK_ERRORS), tone: 'error' }),
       onSettled: () => {

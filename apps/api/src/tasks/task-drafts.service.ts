@@ -45,6 +45,7 @@ const FIELDS = [
   'engagementId',
   'taxPlanId',
   'deadlineId',
+  'taxReturnId',
   'relatedText',
   'details',
   'dueOn',

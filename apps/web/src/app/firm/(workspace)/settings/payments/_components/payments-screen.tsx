@@ -17,11 +17,13 @@ import { ArrowRight, ArrowSquareOut, CreditCard, Info, LockSimple } from '@phosp
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { LeaveGuard } from '../../../../../../components/leave-guard';
 import { PageState } from '../../../../../../components/page-state';
 import { RequireRole } from '../../../../../../components/require-role';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../../lib/unsaved';
 import { NOT_LOADED, Quiet, SettingsHeader } from '../../_components/settings-parts';
 import { BillingPreferences } from './billing-preferences';
 
@@ -92,6 +94,8 @@ export function PaymentsScreen({ stripe }: StripeOnboardingReturn) {
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
+      {/* Invoices Review 2 R1-2: leaving with unsaved changes asks first (CP-7.1's guard). */}
+      <LeaveGuard />
       <SettingsHeader
         icon={CreditCard}
         title="Payments"
@@ -410,6 +414,8 @@ function AcceptedForm({
     { invalidate: ACCEPTED },
   );
   const dirty = JSON.stringify(form) !== JSON.stringify(start);
+  // R1-2: unsaved choices ask before the page is left.
+  useUnsavedChanges(dirty);
   const change = (patch: Partial<SaveAcceptedPaymentsRequest>) => {
     setDone(null);
     setForm({ ...form, ...patch });

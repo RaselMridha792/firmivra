@@ -166,6 +166,11 @@ const scheduleIds = {
   // A1: the other clients of a group appointment.
   attendeeClientIds: 'attendeeClient',
 };
+/**
+ * Tax Returns Review Two F06 (R56): Link to Tax Return, one of the client's returns, kept on a
+ * booking and its edit (a draft refuses related items, so its cases do not send one).
+ */
+const bookingIds = { ...scheduleIds, 'related.taxReturnId': 'taxReturn' };
 
 const inOneHour = () => ({
   startsAt: at3pm(22),
@@ -218,11 +223,12 @@ export const cases: CaseModule['cases'] = {
   // Found with the right records, but a made-up version is stale (409 SAVE_CONFLICT).
   'PATCH /api/v1/business/appointments/:id/details': {
     params: { id: 'appointment' },
-    bodyIds: scheduleIds,
+    bodyIds: bookingIds,
     body: {
       version: '2020-01-01T00:00:00.000Z',
       contact: { kind: 'CLIENT', id: '' },
       method: 'IN_PERSON',
+      related: { taxReturnId: '' },
     },
     expect: 409,
   },
@@ -230,10 +236,11 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/appointments/schedule': {
     params: {},
     // C12 (Tax Planning Review 2): a discussion of the client's plan.
-    bodyIds: { ...scheduleIds, taxPlanId: 'taxPlan', draftId: 'appointmentDraftToBook' },
+    bodyIds: { ...bookingIds, taxPlanId: 'taxPlan', draftId: 'appointmentDraftToBook' },
     body: () => ({
       idempotencyKey: randomUUID(),
       contact: { kind: 'CLIENT', id: '' },
+      related: { taxReturnId: '' },
       startsAt: at3pm(21),
       endsAt: new Date(new Date(at3pm(21)).getTime() + 30 * 60_000).toISOString(),
       method: 'IN_PERSON',
