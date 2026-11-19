@@ -100,6 +100,8 @@ export const COMM_ERRORS: Record<string, string> = {
   SCHEDULE_IN_PAST: 'Choose a time in the future.',
   NO_ELIGIBLE_RECIPIENTS: 'No one can receive this message.',
   STILL_SENDING: 'It is sending now. Pause it instead.',
+  AUDIENCE_TOO_LARGE:
+    'That is more than 5,000 people one by one. Narrow the search, or choose a saved segment such as All Clients.',
   EXPORT_NOT_ALLOWED: 'Your role cannot export results.',
   FORBIDDEN: 'Your role cannot do this.',
   ACTIVATE_NOT_ALLOWED: 'Only an Owner or Admin can activate a template. Ask one to activate it.',
