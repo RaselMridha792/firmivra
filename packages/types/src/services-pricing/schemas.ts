@@ -327,6 +327,15 @@ export type MergeCategoryRequest = z.input<typeof MergeCategoryRequest>;
 export const DiscountType = z.enum(['NONE', 'PERCENTAGE', 'FIXED']);
 export type DiscountType = z.infer<typeof DiscountType>;
 
+/**
+ * Services & Pricing Review Two R1-R3: why a package discount cannot work. A discount is never
+ * negative; a percentage is at most 100%; a fixed amount is at most the included services' total
+ * (a $0 package is fine). Saves refuse one (400 INVALID_DISCOUNT, nothing stored); reads report a
+ * stored one instead of failing, so one package never stops a list or page from loading.
+ */
+export const DiscountProblem = z.enum(['NEGATIVE', 'OVER_100', 'MORE_THAN_TOTAL']);
+export type DiscountProblem = z.infer<typeof DiscountProblem>;
+
 export const PackageService = z.object({
   serviceId: z.uuid(),
   name: z.string(),
@@ -372,6 +381,19 @@ export const PackagePricing = z.object({
   variablePrice: z.boolean(),
   /** A Custom Quote service is included: no total and no savings ("Quote required"). */
   quoteRequired: z.boolean(),
+  /**
+   * R1: a stored discount that no longer works (its services now cost less, or it was saved
+   * before saves checked it): the package still loads, its worked-out price is unknown, and Edit
+   * asks for the discount to be fixed. Null when the discount is fine.
+   */
+  discountProblem: DiscountProblem.nullable().default(null),
+  /**
+   * Q1 (decided Nov 19, "a typed price wins"): where the package price comes from. TYPED, a price
+   * the firm entered (any discount then changes nothing; the form turns it off); DISCOUNT, worked
+   * out from the discount (also a live package's price stored from it, while it still matches);
+   * null, no price yet.
+   */
+  priceFrom: z.enum(['TYPED', 'DISCOUNT']).nullable().default(null),
 });
 export type PackagePricing = z.infer<typeof PackagePricing>;
 
@@ -438,7 +460,14 @@ const packageFields = {
     .optional(),
   packagePriceCents: Cents.nullable().optional(),
   discountType: DiscountType.optional(),
-  discountValue: z.number().int().min(0).nullable().optional(),
+  /** R2: never negative; a percentage at most 10000 (100%), checked with its type below. */
+  discountValue: z
+    .number()
+    .int()
+    .min(0, 'The discount cannot be negative')
+    .max(100_000_000)
+    .nullable()
+    .optional(),
   addOns: z
     .array(
       z.strictObject({
@@ -460,17 +489,29 @@ const packageFields = {
   internalNotes: clearable(text(500, 'many')),
 };
 
+/** R2: a percentage discount is at most 100%, named on its own field. */
+const percentAtMost100 = (
+  p: { discountType?: DiscountType | undefined; discountValue?: number | null | undefined },
+  ctx: z.RefinementCtx,
+) => {
+  if (p.discountType === 'PERCENTAGE' && (p.discountValue ?? 0) > 10_000)
+    ctx.addIssue({ code: 'custom', path: ['discountValue'], message: 'Use at most 100%' });
+};
+
 /** POST /business/catalog/packages: Save as Draft or Save & Activate. */
-export const CreateServicePackageRequest = z.strictObject({
-  ...packageFields,
-  activate: z.boolean().default(false),
-});
+export const CreateServicePackageRequest = z
+  .strictObject({
+    ...packageFields,
+    activate: z.boolean().default(false),
+  })
+  .superRefine(percentAtMost100);
 export type CreateServicePackageRequest = z.input<typeof CreateServicePackageRequest>;
 
 export const UpdateServicePackageRequest = z
   .strictObject(packageFields)
   .partial()
-  .extend({ version: z.string().min(1).max(100) });
+  .extend({ version: z.string().min(1).max(100) })
+  .superRefine(percentAtMost100);
 export type UpdateServicePackageRequest = z.input<typeof UpdateServicePackageRequest>;
 
 /** POST /business/catalog/packages/pricing: the pricing panel for unsaved values (no save). */
@@ -478,7 +519,7 @@ export const PackagePricingRequest = z.strictObject({
   services: z.array(z.strictObject({ serviceId: z.uuid(), included: z.boolean() })).max(30),
   packagePriceCents: Cents.nullable(),
   discountType: DiscountType,
-  discountValue: z.number().int().min(0).nullable(),
+  discountValue: z.number().int().min(0).max(100_000_000).nullable(),
 });
 export type PackagePricingRequest = z.input<typeof PackagePricingRequest>;
 

@@ -11,6 +11,7 @@ import type {
   CatalogErrorCode,
   CatalogStatus,
   CategoryRef,
+  DiscountProblem,
   DiscountType,
   PackagePricing,
   PriceDisplay,
@@ -40,8 +41,13 @@ export const errors = {
     conflict('SAVE_CONFLICT', 'Someone saved this after you opened it. Reload and try again.'),
   activationIncomplete: (message: string) =>
     new BadRequestException({ code: 'ACTIVATION_INCOMPLETE', message }),
+  /** R2: names the field, so the form shows the error beside the discount. */
   invalidDiscount: (message: string) =>
-    new BadRequestException({ code: 'INVALID_DISCOUNT', message }),
+    new BadRequestException({
+      code: 'INVALID_DISCOUNT',
+      message,
+      details: [{ path: 'discountValue', message }],
+    }),
   /** A request that passed the contract but cannot be stored (a column is narrower, an id is not the firm's). */
   invalid: (path: string, message: string) =>
     new BadRequestException({
@@ -182,20 +188,50 @@ export const pricedService = (s: ServicePriceParts): PricedService => ({
   pricingType: s.pricingType,
 });
 
+const DISCOUNT_PROBLEM: Record<DiscountProblem, string> = {
+  NEGATIVE: 'The discount cannot be negative',
+  OVER_100: 'Use at most 100%',
+  MORE_THAN_TOTAL: 'The discount is more than the services cost',
+};
+
+/**
+ * Services & Pricing Review Two R1-R3: why a discount cannot work, or null. Never negative; a
+ * percentage at most 100%; a fixed amount at most the included services' total when that is known
+ * (equal to it makes a $0 package, which is allowed).
+ */
+export function discountProblem(
+  type: DiscountType,
+  value: number | null,
+  totalCents: number | null,
+): DiscountProblem | null {
+  if (type === 'NONE' || value === null) return null;
+  if (value < 0) return 'NEGATIVE';
+  if (type === 'PERCENTAGE' && value > 10_000) return 'OVER_100';
+  if (type === 'FIXED' && totalCents !== null && value > totalCents) return 'MORE_THAN_TOTAL';
+  return null;
+}
+
 /**
  * The Package Pricing panel. "Total of selected services" counts the included services' current
  * prices; optional services and add-ons never count. When an included service needs a quote the
  * total is unknown, never $0 (Octavia's S9), and so is a price worked out from a discount. With a
  * discount and no package price, the price is the total less the discount. Savings are known only
  * when the package has a price and every included service has a fixed price.
+ *
+ * R1: a discount that cannot work throws INVALID_DISCOUNT (`check`, for saves and the form's
+ * panel), or is reported in `discountProblem` with the worked-out price unknown (`read`, for
+ * stored packages), so a bad record never stops a list or page from loading.
  */
-export function packagePricing(input: {
-  included: PricedService[];
-  packagePriceCents: number | null;
-  discountType: DiscountType;
-  /** Basis points for PERCENTAGE, cents for FIXED. */
-  discountValue: number | null;
-}): PackagePricing {
+export function packagePricing(
+  input: {
+    included: PricedService[];
+    packagePriceCents: number | null;
+    discountType: DiscountType;
+    /** Basis points for PERCENTAGE, cents for FIXED. */
+    discountValue: number | null;
+  },
+  mode: 'check' | 'read' = 'check',
+): PackagePricing {
   const quoteRequired = input.included.some((s) => s.pricingType === 'CUSTOM_QUOTE');
   const total = input.included.some((s) => s.priceCents === null)
     ? null
@@ -204,26 +240,24 @@ export function packagePricing(input: {
     ['STARTING_AT', 'HOURLY', 'CUSTOM_QUOTE'].includes(s.pricingType),
   );
   const hasDiscount = input.discountType !== 'NONE' && input.discountValue !== null;
-  let price = input.packagePriceCents;
-  if (price === null && hasDiscount && total !== null) {
-    const off =
-      input.discountType === 'PERCENTAGE'
-        ? Math.round((total * (input.discountValue ?? 0)) / 10_000)
-        : (input.discountValue ?? 0);
-    if (off > total) throw errors.invalidDiscount('The discount is more than the services cost');
-    price = total - off;
-  }
-  if (hasDiscount && input.discountType === 'PERCENTAGE' && (input.discountValue ?? 0) > 10_000) {
-    throw errors.invalidDiscount('Use at most 100%');
-  }
-  if (
-    hasDiscount &&
-    input.discountType === 'FIXED' &&
-    total !== null &&
-    (input.discountValue ?? 0) > total
-  ) {
-    throw errors.invalidDiscount('The discount is more than the services cost');
-  }
+  const problem = discountProblem(input.discountType, input.discountValue, total);
+  if (problem && mode === 'check') throw errors.invalidDiscount(DISCOUNT_PROBLEM[problem]);
+  const worked =
+    hasDiscount && total !== null && !problem
+      ? total -
+        (input.discountType === 'PERCENTAGE'
+          ? Math.round((total * (input.discountValue ?? 0)) / 10_000)
+          : (input.discountValue ?? 0))
+      : null;
+  // Q1: a typed price wins; a discount works out the price only when none is typed. A live
+  // package stores the price its discount worked out, which still counts as the discount's.
+  const price = input.packagePriceCents ?? worked;
+  const priceFrom =
+    price === null
+      ? null
+      : input.packagePriceCents === null || input.packagePriceCents === worked
+        ? 'DISCOUNT'
+        : 'TYPED';
   const known = price !== null && total !== null && !variable && input.included.length > 0;
   const savings = known ? Math.max(0, (total ?? 0) - (price ?? 0)) : null;
   return {
@@ -235,6 +269,8 @@ export function packagePricing(input: {
     savingsPercent: savings !== null && total ? Math.round((savings / total) * 10_000) / 100 : null,
     variablePrice: variable,
     quoteRequired,
+    discountProblem: problem,
+    priceFrom,
   };
 }
 
