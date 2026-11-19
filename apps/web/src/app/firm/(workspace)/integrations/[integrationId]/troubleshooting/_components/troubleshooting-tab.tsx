@@ -101,9 +101,10 @@ function Troubleshooting({
                 permissions. Run Test checks again now and syncs no data.
               </HelpTip>
               <p className="text-sm text-muted">
+                {/* I-R2-01: the same test time the checks are based on. */}
                 {shown?.checkedAt
                   ? `Last checked ${formatDate(shown.checkedAt)}`
-                  : 'No check has run yet.'}
+                  : 'No connection test has run yet.'}
               </p>
             </div>
             <Button

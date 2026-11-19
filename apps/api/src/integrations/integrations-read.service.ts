@@ -136,10 +136,10 @@ export class IntegrationsReadService {
         comingSoon: all.filter((c) => c.connections.length === 0 && c.provider.comingSoon).length,
         paused: all.filter((c) => c.status === 'PAUSED').length,
         total: all.length,
-        // The last time one of them was checked: a connection test or a sync.
+        // The last time one of them was checked: a connection test (I-R2-01/02, R61 sweep).
         lastCheckAt:
           visible
-            .flatMap((c) => [c.lastCheckAt, c.lastSyncAt])
+            .map((c) => c.lastCheckAt)
             .filter((d): d is Date => d !== null)
             .sort((a, b) => b.getTime() - a.getTime())[0]
             ?.toISOString() ?? null,
@@ -201,8 +201,10 @@ export class IntegrationsReadService {
         summary,
         items,
         health: {
-          operational: visible.filter((c) => c.status === 'CONNECTED' || c.status === 'SYNCING')
-            .length,
+          // I-R2-02 (R61 sweep): working means connected and checked; none before any check.
+          operational: visible.filter(
+            (c) => (c.status === 'CONNECTED' || c.status === 'SYNCING') && c.lastCheckAt !== null,
+          ).length,
           authorizationIssues: authIssues,
           failedSyncs: failed,
           recordsPending: pending,
@@ -540,12 +542,10 @@ export class IntegrationsReadService {
     );
     const permissionsBad = reason === 'permission_missing' || missing.length > 0;
     const disconnected = c.status === 'DISCONNECTED';
-    // I-R2-01: what is known comes from a connection test or a finished sync; before either,
-    // nothing is "working" yet.
-    const evidence = [c.lastCheckAt, last?.finishedAt ?? null].filter((d): d is Date => !!d);
-    const checkedAt = evidence.length
-      ? new Date(Math.max(...evidence.map((d) => d.getTime())))
-      : null;
+    // I-R2-01 (R61 sweep): a check is a connection test. Before one has run, authentication, the
+    // API, recent errors and permissions are unknown, never passed; a finished sync shows only that
+    // data syncs (DATA_SYNC). The page's "Last checked" is the same test time.
+    const checkedAt = c.lastCheckAt;
     const known = checkedAt !== null && !disconnected;
     type CheckState = 'OK' | 'FAIL' | 'UNKNOWN';
     const LABEL: Record<IntegrationHealthCheck['key'], Record<CheckState, string>> = {
@@ -656,7 +656,7 @@ export class IntegrationsReadService {
                 ];
     const summary = {
       HEALTHY: 'Connection is active and working properly.',
-      UNKNOWN: 'No check has run yet: run a connection test to check it.',
+      UNKNOWN: 'No connection test has run yet: run one to check the connection.',
       STALE: `Last checked over a week ago: run a connection test to check it again.`,
       DISCONNECTED: 'This integration is disconnected. Reconnect it to sync again.',
       FAILING: reasonInfo(c.statusReason)?.message ?? 'This connection needs attention.',

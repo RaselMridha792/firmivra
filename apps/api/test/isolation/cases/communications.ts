@@ -78,6 +78,20 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** C20: the world's client chosen one by one in the world's campaign (Undo removes it). */
+  communicationAudienceEntry: {
+    async create({ tx, businessId, get }) {
+      const row = await tx.communicationAudienceEntry.create({
+        data: {
+          businessId,
+          communicationId: await get('communication'),
+          kind: 'CLIENT',
+          clientId: await get('client'),
+        },
+      });
+      return row.id;
+    },
+  },
   /** A saved list holding the world's client. */
   communicationSegment: {
     async create({ tx, businessId, owner, get }) {
@@ -165,6 +179,17 @@ export const cases: CaseModule['cases'] = {
       excludeClientIds: [PLACEHOLDER],
       excludeLeadIds: [PLACEHOLDER],
     },
+  },
+  // C20: All Contacts' Add all eligible, its count, and its Undo.
+  [`GET ${BASE}/:id/audience/eligible`]: { params: { id: 'communication' } },
+  [`POST ${BASE}/:id/audience/add-eligible`]: {
+    params: { id: 'communication' },
+    body: { etag: ETAG },
+  },
+  [`POST ${BASE}/:id/audience/remove-entries`]: {
+    params: { id: 'communication' },
+    bodyIds: { entryIds: 'communicationAudienceEntry' },
+    body: { etag: ETAG, entryIds: [PLACEHOLDER] },
   },
   [`POST ${BASE}/audience/select-all`]: {
     params: {},

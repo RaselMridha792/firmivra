@@ -27,7 +27,7 @@ import {
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
-import { activationGap, CATALOG_ERRORS } from '../../_components/catalog-shared';
+import { activationGap, CATALOG_ERRORS, recurringPrice } from '../../_components/catalog-shared';
 import { lineCents, serviceTotalCents } from '../../_components/service-total';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { CatalogHeader, ClientPreview, IconPicker, money, Panel, TextList } from './service-parts';
@@ -188,7 +188,7 @@ export function ServiceEditor({
         : value.pricingType === 'STARTING_AT'
           ? `Starting at ${currency}`
           : value.pricingType === 'RECURRING'
-            ? `${currency} / ${frequencies.find((f) => f.value === value.billingFrequency)?.label.toLowerCase() ?? 'billing period'}`
+            ? recurringPrice(currency, value.billingFrequency)
             : currency;
   return (
     <div className="min-w-0 space-y-4" data-testid="service-editor">
@@ -218,7 +218,11 @@ export function ServiceEditor({
                   <Select
                     label="Service Category *"
                     options={categoryOptions}
-                    {...register('categoryId')}
+                    // R7: controlled, so a saved category shows even when the categories arrive
+                    // after the service (an uncontrolled select stayed blank).
+                    name="categoryId"
+                    value={value.categoryId ?? ''}
+                    onChange={(event) => put('categoryId', event.target.value)}
                     error={
                       errors.categoryId?.message ??
                       (categories.isError && !categories.data

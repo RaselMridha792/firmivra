@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { moveFolderChoices, moveFolderHint } from './move-folder-choices';
 
 /** Every Documents list and count refetches after a change. */
 const DOCUMENTS = ['documents'] as const;
@@ -164,15 +165,15 @@ function RenameDialog({ row, onClose, onDone }: DialogProps) {
 
 function MoveDialog({ row, onClose, onDone }: DialogProps) {
   const folders = useApiQuery(['document-folders'], () => api.documentLibrary.folders());
-  // A client's file goes in a client folder; an internal one in a firm folder.
-  const scope = row.direction === 'INTERNAL' ? 'FIRM' : 'CLIENT';
-  const fit = (folders.data ?? []).filter((f) => f.scope === scope);
+  // Any folder it could be uploaded into: a client's file, client folders; an internal one,
+  // client or firm folders (Clients, R61's sweep).
+  const choices = moveFolderChoices(folders.data ?? [], row.direction);
   const [folderId, setFolderId] = useState('');
   const save = useApiMutation(
     (id: string | null) => api.documentLibrary.update(row.id, { folderId: id }),
     { invalidate: DOCUMENTS },
   );
-  const name = fit.find((f) => f.id === folderId)?.name;
+  const name = folders.data?.find((f) => f.id === folderId)?.name;
   return (
     <Modal
       open
@@ -203,16 +204,9 @@ function MoveDialog({ row, onClose, onDone }: DialogProps) {
           value={folderId}
           disabled={folders.isPending}
           onChange={(event) => setFolderId(event.target.value)}
-          options={[
-            { value: '', label: 'No folder' },
-            ...fit.map((f) => ({ value: f.id, label: f.name })),
-          ]}
+          options={[{ value: '', label: 'No folder' }, ...choices]}
         />
-        <p className="text-xs text-muted">
-          {scope === 'CLIENT'
-            ? 'Client folders only: a firm folder never holds a file the client can see.'
-            : 'Firm folders only: this file is internal.'}
-        </p>
+        <p className="text-xs text-muted">{moveFolderHint(row.direction)}</p>
         {folders.isError || save.error ? (
           <p role="alert" className="text-sm text-danger">
             {errorMessage(save.error ?? folders.error, DOCUMENT_ERRORS)}

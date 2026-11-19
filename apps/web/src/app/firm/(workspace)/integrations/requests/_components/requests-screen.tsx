@@ -31,6 +31,12 @@ const TONES: Record<IntegrationRequestRow['status'], 'neutral' | 'info' | 'succe
 export function RequestsScreen() {
   const environment = useSearchParams().get('environment') === 'TEST' ? 'TEST' : 'LIVE';
   const requests = useApiQuery(['integration-requests'], () => api.integrations.requests());
+  // R61 sweep: only an Owner or Admin may send a request (the API answers 403 otherwise); the same
+  // capability (and cache) as the marketplace's request buttons.
+  const permission = useApiQuery(['integrations-marketplace', 'capabilities'], () =>
+    api.integrations.overview(),
+  );
+  const canRequest = permission.isSuccess && permission.data.canManage;
   const [asking, setAsking] = useState(false);
   const rows = [...(requests.data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return (
@@ -42,7 +48,20 @@ export function RequestsScreen() {
             The tools your firm asked Firmivra to connect, and where each request stands.
           </p>
         </div>
-        <Button onClick={() => setAsking(true)}>Request an integration</Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            disabled={!canRequest}
+            aria-describedby={permission.isSuccess && !canRequest ? 'request-why' : undefined}
+            onClick={() => setAsking(true)}
+          >
+            Request an integration
+          </Button>
+          {permission.isSuccess && !canRequest ? (
+            <p id="request-why" className="text-xs text-muted" data-testid="request-why">
+              Only an Owner or Admin can request an integration.
+            </p>
+          ) : null}
+        </div>
       </header>
       <IntegrationsNav current="requests" environment={environment} />
       {requests.isError ? (

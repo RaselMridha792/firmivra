@@ -8,6 +8,9 @@ import {
   type OutboundMessage,
   type OutboundMessageList,
   type OutboundReview,
+  OutboundReviewQuery,
+  type OutboundSendResult,
+  reviewChannels,
   SaveOutboundRequest,
   ScheduleOutboundRequest,
   SendOutboundRequest,
@@ -730,12 +733,18 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
   /** M22: the text each person gets: the message's own, or the files line for files alone. */
   const textFor = (r: OutboundRow, p: MockPerson) =>
     r.body ? fillFor(p, r.body).text : filesOnlyBody(r.files.map((f) => f.fileName));
-  const ready = async (r: OutboundRow) => {
+  const ready = async (r: OutboundRow, multi = false) => {
     if (!r.body && r.files.length === 0) throw bodyRequired();
     if (r.channel === 'EMAIL' && !r.subject?.trim())
       throw fail(400, 'SUBJECT_REQUIRED', 'An email needs a subject');
     if ((await shape(r)).counts.canReceive === 0)
-      throw fail(409, 'NO_RECIPIENTS', 'Nobody you chose can receive it on this channel.');
+      throw fail(
+        409,
+        'NO_RECIPIENTS',
+        multi
+          ? `Nobody you chose can receive it ${HOW[r.channel]}. Leave that channel out.`
+          : 'Nobody you chose can receive it on this channel.',
+      );
     if (r.files.length > 0 && r.channel !== 'PORTAL')
       throw fail(409, 'FILES_NEED_PORTAL', FILES_NEED_PORTAL);
   };
@@ -774,6 +783,144 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
   const confirmed = async (r: OutboundRow, confirm: boolean | undefined) => {
     if (!confirm && (await unresolvedOf(r)).length > 0)
       throw fail(409, 'UNRESOLVED_FIELDS', 'Some merge fields cannot be filled.');
+  };
+  /** M19: the channels a Send, Schedule or review covers, as the API: the draft's own first. */
+  const channelsFor = (r: OutboundRow, channels?: readonly OutboundMessage['channel'][]) => {
+    if (!channels) return [r.channel];
+    if (!channels.includes(r.channel))
+      throw fail(400, 'VALIDATION_FAILED', 'Include the channel the message is saved on');
+    return [r.channel, ...channels.filter((c) => c !== r.channel)];
+  };
+  /** M19: files alone need Portal alone; a text is at most 1,600 characters (400, as the API). */
+  const fanOutProblem = (r: OutboundRow, list: readonly OutboundMessage['channel'][]) =>
+    !r.body && r.files.length > 0 && list.some((c) => c !== 'PORTAL')
+      ? {
+          code: 'TEXT_REQUIRED' as const,
+          message:
+            'Email and text carry the words: write a message. Only a portal message can go with files alone',
+        }
+      : list.includes('SMS') && r.body.length > 1600
+        ? {
+            code: 'SMS_TOO_LONG' as const,
+            message: 'A text message is at most 1,600 characters. Shorten it, or leave Text out',
+          }
+        : null;
+  /**
+   * M19: the messages a Send or Schedule takes, as the API: the draft, and from a draft a copy for
+   * each other channel named (the same people and text, no subject on a text, the files with the
+   * Portal one). Each is checked; on a refusal nothing is kept.
+   */
+  const takeAll = async (
+    r: OutboundRow,
+    channels: readonly OutboundMessage['channel'][] | undefined,
+    confirm: boolean | undefined,
+  ): Promise<OutboundRow[]> => {
+    const list = channelsFor(r, channels);
+    const multi = list.length > 1;
+    if (multi && r.status !== 'DRAFT')
+      throw fail(
+        409,
+        'CHANNELS_FIXED',
+        'A scheduled message stays on its channel. Send it as it is, or cancel it and start a new one.',
+      );
+    const problem = multi ? fanOutProblem(r, list) : null;
+    if (problem) throw fail(400, problem.code, problem.message);
+    const rows = list.map((channel): OutboundRow => {
+      if (channel === r.channel) return r;
+      const at = stamp();
+      return {
+        ...r,
+        id: id('0199b6e4', next()),
+        channel,
+        subject: channel === 'SMS' ? null : r.subject,
+        clientIds: [...r.clientIds],
+        leadIds: [...r.leadIds],
+        files: [],
+        results: new Map(),
+        createdAt: at,
+        updatedAt: at,
+      };
+    });
+    const portal = rows[list.indexOf('PORTAL')];
+    const files = r.files;
+    if (portal && portal !== r) {
+      portal.files = files;
+      r.files = [];
+    }
+    try {
+      for (const x of rows) {
+        await ready(x, multi);
+        await confirmed(x, confirm);
+      }
+    } catch (e) {
+      r.files = files;
+      throw e;
+    }
+    for (const x of rows) if (x !== r) outboundRows.push(x);
+    return rows;
+  };
+  /** Sends one message to each person its channel reaches; the others are skipped. */
+  const deliverRow = async (r: OutboundRow) => {
+    for (const p of await people(r.clientIds, r.leadIds)) {
+      const reason = mockExclusion(p, r.channel);
+      if (reason) {
+        r.results.set(p.id, { status: 'SKIPPED', reason, threadId: null });
+        continue;
+      }
+      let threadId: string | null = null;
+      if (p.kind === 'CLIENT') {
+        const t: ThreadRow = {
+          id: id('0199b6e1', next()),
+          clientId: p.id,
+          engagementId: null,
+          subject: r.subject?.trim() || 'A message from your firm',
+          related: r.related ? { type: r.related.type, id: r.related.id } : null,
+          repliesEnabled: true,
+          automated: false,
+          archivedAt: null,
+          createdAt: now(),
+        };
+        s().threads.push(t);
+        addMessage(
+          t,
+          staff(me),
+          textFor(r, p),
+          r.files.map((f) => ({
+            kind: 'FILE' as const,
+            id: f.id,
+            fileName: f.fileName,
+            contentType: f.contentType,
+            sizeBytes: f.sizeBytes,
+            status: f.status,
+          })),
+        );
+        threadId = t.id;
+      } else if (r.channel !== 'PORTAL') {
+        // A lead's email or text is kept in the lead's own thread (the Leads tab).
+        threadId = leadCopy(p, r.subject, fillFor(p, r.body).text, r.channel, staff(me));
+      }
+      r.results.set(p.id, { status: 'SENT', reason: null, threadId });
+      // MSG-F16: the client's own timeline, never the body or file names.
+      if (r.addToTimeline && p.kind === 'CLIENT') {
+        const title = { PORTAL: 'Portal message', EMAIL: 'Email', SMS: 'Text message' };
+        const how = { PORTAL: 'through the client portal', EMAIL: 'by email', SMS: 'by text' };
+        addTimelineEntry(p.id, {
+          id: id('0199b6e7', next()),
+          kind: r.channel === 'PORTAL' ? 'MESSAGE' : r.channel,
+          title: r.subject?.trim() || title[r.channel],
+          summary: `Sent ${how[r.channel]} by ${me.name}`,
+          occurredAt: now(),
+          href:
+            threadId && r.channel === 'PORTAL'
+              ? `/messages?thread=${threadId}`
+              : `/messages/new?id=${r.id}`,
+          createdBy: { userId: me.userId, name: me.name },
+        });
+      }
+    }
+    r.status = 'SENT';
+    r.completedAt = now();
+    r.updatedAt = stamp();
   };
   const insert = async (b: {
     channel: OutboundMessage['channel'];
@@ -851,11 +998,34 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       return { items: await Promise.all(rows.map(shape)) };
     },
     get: async (outboundId: string) => (await mockDelay(), shape(find(outboundId))),
-    review: async (outboundId: string): Promise<OutboundReview> => {
+    review: async (
+      outboundId: string,
+      query: OutboundReviewQuery = {},
+    ): Promise<OutboundReview> => {
       await mockDelay();
+      const named = reviewChannels(parseInput(OutboundReviewQuery, query));
       const r = find(outboundId);
       const m = await shape(r);
       const found = await people(r.clientIds, r.leadIds);
+      // M19: each channel's reach, as the API.
+      const list = channelsFor(r, named);
+      const multi = list.length > 1;
+      const reach = list.map((channel) => {
+        const out = found.flatMap((p) => {
+          const reason =
+            channel === r.channel
+              ? m.recipients.find((x) => x.id === p.id)?.reason
+              : mockExclusion(p, channel);
+          return reason ? [{ kind: p.kind, id: p.id, name: p.name, reason }] : [];
+        });
+        return {
+          channel,
+          total: found.length,
+          canReceive: found.length - out.length,
+          cannotReceive: out,
+        };
+      });
+      const on = (c: OutboundMessage['channel']) => (multi ? HOW[c] : 'on this channel');
       const recipients = m.recipients.map((x) => {
         const p = found.find((y) => y.id === x.id)!;
         const subject = r.subject ? fillFor(p, r.subject) : null;
@@ -873,13 +1043,14 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       });
       const unresolved = await unresolvedOf(r);
       const checks: OutboundReview['checks'] = [];
-      if (m.counts.canReceive === 0)
+      const nobody = reach.filter((c) => c.canReceive === 0);
+      if (nobody.length > 0)
         checks.push({
           code: 'NO_RECIPIENTS',
           severity: 'BLOCK',
-          message: 'Nobody you chose can receive it on this channel.',
+          message: `Nobody you chose can receive it ${nobody.map((c) => on(c.channel)).join(' or ')}.`,
         });
-      if (m.channel === 'EMAIL' && !m.subject?.trim())
+      if (list.includes('EMAIL') && !m.subject?.trim())
         checks.push({
           code: 'SUBJECT_REQUIRED',
           severity: 'BLOCK',
@@ -891,19 +1062,23 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           severity: 'BLOCK',
           message: 'Write a message or attach a file.',
         });
+      const problem = fanOutProblem(r, list);
+      if (problem)
+        checks.push({ code: problem.code, severity: 'BLOCK', message: `${problem.message}.` });
       if (unresolved.length > 0)
         checks.push({
           code: 'UNRESOLVED_FIELDS',
           severity: 'WARN',
           message: `Some fields cannot be filled for everyone: ${unresolved.map((u) => `[${u}]`).join(', ')}. They would go as written.`,
         });
-      if (m.counts.cannotReceive > 0)
+      const some = reach.filter((c) => c.cannotReceive.length > 0);
+      if (some.length > 0)
         checks.push({
           code: 'SOME_SKIPPED',
           severity: 'WARN',
-          message: `${m.counts.cannotReceive} of ${m.counts.total} cannot receive it on this channel and will be skipped.`,
+          message: `${some.map((c) => `${c.cannotReceive.length} of ${c.total} cannot receive it ${on(c.channel)}`).join('; ')} and will be skipped.`,
         });
-      if (m.files.length > 0 && m.channel !== 'PORTAL')
+      if (m.files.length > 0 && !list.includes('PORTAL'))
         checks.push({
           code: 'FILES_NEED_PORTAL',
           severity: 'BLOCK',
@@ -921,6 +1096,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
         recipients,
         unresolved,
         checks,
+        ...(named ? { channels: reach } : {}),
       };
     },
     create: async (body: SaveOutboundRequest) => {
@@ -956,90 +1132,39 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       r.updatedAt = stamp();
       return shape(next);
     },
-    send: async (outboundId: string, body: SendOutboundRequest) => {
+    send: async (outboundId: string, body: SendOutboundRequest): Promise<OutboundSendResult> => {
       await mockDelay();
-      const { version, confirmUnresolved } = parseInput(SendOutboundRequest, body);
+      const { version, confirmUnresolved, channels } = parseInput(SendOutboundRequest, body);
       const r = find(outboundId);
       if (r.status === 'CANCELED') throw fail(409, 'CANCELED', 'This message was canceled.');
-      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED') return shape(r);
+      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
+        return channels ? { ...(await shape(r)), others: [] } : await shape(r);
       editable(r, version);
-      await ready(r);
-      await confirmed(r, confirmUnresolved);
-      for (const p of await people(r.clientIds, r.leadIds)) {
-        const reason = mockExclusion(p, r.channel);
-        if (reason) {
-          r.results.set(p.id, { status: 'SKIPPED', reason, threadId: null });
-          continue;
-        }
-        let threadId: string | null = null;
-        if (p.kind === 'CLIENT') {
-          const t: ThreadRow = {
-            id: id('0199b6e1', next()),
-            clientId: p.id,
-            engagementId: null,
-            subject: r.subject?.trim() || 'A message from your firm',
-            related: r.related ? { type: r.related.type, id: r.related.id } : null,
-            repliesEnabled: true,
-            automated: false,
-            archivedAt: null,
-            createdAt: now(),
-          };
-          s().threads.push(t);
-          addMessage(
-            t,
-            staff(me),
-            textFor(r, p),
-            r.files.map((f) => ({
-              kind: 'FILE' as const,
-              id: f.id,
-              fileName: f.fileName,
-              contentType: f.contentType,
-              sizeBytes: f.sizeBytes,
-              status: f.status,
-            })),
-          );
-          threadId = t.id;
-        } else if (r.channel !== 'PORTAL') {
-          // A lead's email or text is kept in the lead's own thread (the Leads tab).
-          threadId = leadCopy(p, r.subject, fillFor(p, r.body).text, r.channel, staff(me));
-        }
-        r.results.set(p.id, { status: 'SENT', reason: null, threadId });
-        // MSG-F16: the client's own timeline, never the body or file names.
-        if (r.addToTimeline && p.kind === 'CLIENT') {
-          const title = { PORTAL: 'Portal message', EMAIL: 'Email', SMS: 'Text message' };
-          const how = { PORTAL: 'through the client portal', EMAIL: 'by email', SMS: 'by text' };
-          addTimelineEntry(p.id, {
-            id: id('0199b6e7', next()),
-            kind: r.channel === 'PORTAL' ? 'MESSAGE' : r.channel,
-            title: r.subject?.trim() || title[r.channel],
-            summary: `Sent ${how[r.channel]} by ${me.name}`,
-            occurredAt: now(),
-            href:
-              threadId && r.channel === 'PORTAL'
-                ? `/messages?thread=${threadId}`
-                : `/messages/new?id=${r.id}`,
-            createdBy: { userId: me.userId, name: me.name },
-          });
-        }
-      }
-      r.status = 'SENT';
-      r.completedAt = now();
-      r.updatedAt = stamp();
-      return shape(r);
+      // M19: one message per channel named, each sent on its own.
+      const rows = await takeAll(r, channels, confirmUnresolved);
+      for (const x of rows) await deliverRow(x);
+      const own = await shape(r);
+      return channels ? { ...own, others: await Promise.all(rows.slice(1).map(shape)) } : own;
     },
-    schedule: async (outboundId: string, body: ScheduleOutboundRequest) => {
+    schedule: async (
+      outboundId: string,
+      body: ScheduleOutboundRequest,
+    ): Promise<OutboundSendResult> => {
       await mockDelay();
       const b = parseInput(ScheduleOutboundRequest, body);
       if (new Date(b.scheduledFor).getTime() < Date.now() + 60_000)
         throw fail(400, 'SCHEDULE_IN_PAST', 'Choose a time at least a minute from now');
       const r = find(outboundId);
       editable(r, b.version);
-      await ready(r);
-      await confirmed(r, b.confirmUnresolved);
-      r.status = 'SCHEDULED';
-      r.scheduledFor = new Date(b.scheduledFor).toISOString();
-      r.updatedAt = stamp();
-      return shape(r);
+      // M19: one message per channel named, each scheduled for the same time.
+      const rows = await takeAll(r, b.channels, b.confirmUnresolved);
+      for (const x of rows) {
+        x.status = 'SCHEDULED';
+        x.scheduledFor = new Date(b.scheduledFor).toISOString();
+        x.updatedAt = stamp();
+      }
+      const own = await shape(r);
+      return b.channels ? { ...own, others: await Promise.all(rows.slice(1).map(shape)) } : own;
     },
     relatedOptions: async (query: OutboundRelatedOptionsQuery) => {
       await mockDelay();
@@ -1125,6 +1250,12 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
 
 const FILES_NEED_PORTAL =
   'Files go to clients through their portal. Choose Portal, or remove the files';
+/** M19: how each channel reaches a person, in a review or a refusal (the API's words). */
+const HOW = {
+  PORTAL: 'through the client portal',
+  EMAIL: 'by email',
+  SMS: 'by text',
+} as const;
 /** M22: Send and Schedule need a text or a file, as the API (400). */
 const bodyRequired = (message = 'Write a message or attach a file') =>
   fail(400, 'BODY_REQUIRED', message);

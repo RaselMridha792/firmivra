@@ -44,6 +44,8 @@ import {
   OutboundMessage,
   OutboundMessageList,
   OutboundReview,
+  OutboundReviewQuery,
+  OutboundSendResult,
   SaveOutboundRequest,
   OutboundAssigneeList,
   OutboundFile,
@@ -215,9 +217,15 @@ export function createMessagesClient(request: ApiRequest) {
       list: async (query: ListOutboundQuery = {}): Promise<OutboundMessageList> =>
         request(OutboundMessageList, `${OUTBOUND}${toQuery(parseInput(ListOutboundQuery, query))}`),
       get: async (id: string): Promise<OutboundMessage> => request(OutboundMessage, outbound(id)),
-      /** Review (MSG-F15): each person's message with the fields filled; nothing is sent. */
-      review: async (id: string): Promise<OutboundReview> =>
-        request(OutboundReview, `${outbound(id)}/review`),
+      /**
+       * Review (MSG-F15): each person's message with the fields filled; nothing is sent. M19:
+       * `channels` (`PORTAL,EMAIL`) adds each channel's reach and checks them all.
+       */
+      review: async (id: string, query: OutboundReviewQuery = {}): Promise<OutboundReview> =>
+        request(
+          OutboundReview,
+          `${outbound(id)}/review${toQuery(parseInput(OutboundReviewQuery, query))}`,
+        ),
       /** Save Draft: a new draft. */
       create: async (body: SaveOutboundRequest): Promise<OutboundMessage> =>
         request(OutboundMessage, OUTBOUND, {
@@ -252,13 +260,14 @@ export function createMessagesClient(request: ApiRequest) {
           method: 'PUT',
           body: parseInput(UpdateOutboundRequest, body),
         }),
-      send: async (id: string, body: SendOutboundRequest): Promise<OutboundMessage> =>
-        request(OutboundMessage, `${outbound(id)}/send`, {
+      /** M19: `channels` sends one message per channel; `others` are those made for the rest. */
+      send: async (id: string, body: SendOutboundRequest): Promise<OutboundSendResult> =>
+        request(OutboundSendResult, `${outbound(id)}/send`, {
           method: 'POST',
           body: parseInput(SendOutboundRequest, body),
         }),
-      schedule: async (id: string, body: ScheduleOutboundRequest): Promise<OutboundMessage> =>
-        request(OutboundMessage, `${outbound(id)}/schedule`, {
+      schedule: async (id: string, body: ScheduleOutboundRequest): Promise<OutboundSendResult> =>
+        request(OutboundSendResult, `${outbound(id)}/schedule`, {
           method: 'POST',
           body: parseInput(ScheduleOutboundRequest, body),
         }),

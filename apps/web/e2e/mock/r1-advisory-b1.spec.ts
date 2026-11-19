@@ -120,8 +120,11 @@ test('A-09: advisory reports keep the client and Advisory context, and their car
     'href',
     /^\/reports\/library\?category=ADVISORY&from=/,
   );
-  await page.getByTestId('report-goals').getByRole('link', { name: 'Open Goals' }).click();
-  await expect(page).toHaveURL(app('/business-advisory/goals'));
+  // A click while the dev server rebuilds (Fast Refresh) can be dropped: click until it opens.
+  await expect(async () => {
+    await page.getByTestId('report-goals').getByRole('link', { name: 'Open Goals' }).click();
+    await expect(page).toHaveURL(app('/business-advisory/goals'), { timeout: 10_000 });
+  }).toPass({ timeout: 90_000 });
 });
 
 test('A-X01: a business client’s EIN status is kept apart from the number', async ({ page }) => {
@@ -220,4 +223,183 @@ test('A-X12: notes show their audience, and the client’s own files have their 
     timeout: 60_000,
   });
   await expect(files).toContainText(/No files from the client yet|Uploaded By/);
+});
+
+test('A-NEW1: a business client’s entity type is chosen from the list, with Other and Specify', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // Acme Widgets LLC (fake): a Business.
+  await page.goto(app('/clients/0199b6a1-0000-7000-8000-000000000002'));
+  await page.getByRole('button', { name: 'Edit details' }).click({ timeout: 60_000 });
+  const entity = page.getByLabel('Entity type', { exact: true });
+  await expect(entity.locator('option')).toContainText([
+    'Not set',
+    'LLC',
+    'S Corporation',
+    'Other',
+  ]);
+  await expect(page.getByLabel('Specify entity type')).toHaveCount(0);
+  await entity.selectOption('Other');
+  await page.getByLabel('Specify entity type').fill('Holding company (fake)');
+  const fill = async (label: string, value: string) => {
+    const f = page.getByLabel(label, { exact: true });
+    if (!(await f.inputValue())) await f.fill(value);
+  };
+  await fill('Business phone *', '5550101234');
+  await fill('Street address *', '1 Sample Way');
+  await fill('City *', 'Atlanta');
+  await fill('State *', 'GA');
+  await fill('ZIP code *', '30301');
+  await fill('Full name *', 'Avery Sample');
+  await fill('Their email *', 'avery@example.test');
+  await fill('Their phone *', '5550109876');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  // Saved as the typed type: it opens as Other with its text.
+  await page.getByRole('button', { name: 'Edit details' }).click();
+  await expect(page.getByLabel('Entity type', { exact: true })).toHaveValue('Other');
+  await expect(page.getByLabel('Specify entity type')).toHaveValue('Holding company (fake)');
+});
+
+test('A-X13: Send Plan names who receives it and shows the text before anything is sent', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/business-advisory/plans'));
+  const list = page.getByTestId('ba-plans');
+  await list
+    .getByRole('button', { name: 'Actions for Fleet Expansion Plan' })
+    .click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
+  await page.getByTestId('confirm-action').click();
+  await expect(page.getByText('Fleet Expansion Plan finalized.')).toBeVisible();
+  await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
+  await page.getByRole('menuitem', { name: 'Send to Client' }).click();
+  const preview = page.getByTestId('send-plan-preview');
+  await expect(preview).toContainText('To:');
+  await expect(preview).toContainText('Client portal');
+  await preview.getByText('What the client receives').click();
+  await expect(preview).toContainText('Your business plan: Fleet Expansion Plan');
+  // A download reaches no one: the preview says so.
+  await page.getByLabel('Send by').selectOption('DOWNLOAD');
+  await expect(preview).toContainText('A download goes to no one');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+});
+
+test('A-X08: Archive & History keeps archived and completed plans, with their versions and Restore', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/business-advisory/plans'));
+  const list = page.getByTestId('ba-plans');
+  await list
+    .getByRole('button', { name: 'Actions for Fleet Expansion Plan' })
+    .click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Archive' }).click();
+  await page.getByTestId('confirm-action').click();
+  await expect(page.getByText('Fleet Expansion Plan archived.')).toBeVisible();
+  await expect(list.getByRole('row', { name: /Fleet Expansion Plan/ })).toHaveCount(0);
+
+  const views = page.getByRole('tablist', { name: 'Business plan views' });
+  await views.getByRole('tab', { name: 'Archive & History' }).click();
+  await expect(
+    list.getByRole('table', { name: 'Archived and completed business plans' }),
+  ).toBeVisible();
+  const row = list.getByRole('row', { name: /Fleet Expansion Plan/ });
+  await expect(row).toBeVisible();
+  await expect(list.getByRole('link', { name: 'Create Business Plan' })).toHaveCount(0);
+  // A completed plan is kept here too, with its delivered version.
+  await list.getByLabel('Kept plans').selectOption('COMPLETED');
+  await expect(list.getByRole('row')).not.toHaveCount(1);
+  await expect(list.getByRole('button', { name: 'v1' }).first()).toBeVisible();
+  await list.getByRole('button', { name: 'v1' }).first().click();
+  await expect(page.getByRole('dialog')).toContainText('Version 1');
+  await page.keyboard.press('Escape');
+
+  // Restore brings the archived plan back to the list.
+  await list.getByLabel('Kept plans').selectOption('ARCHIVED');
+  await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
+  await page.getByRole('menuitem', { name: 'Restore' }).click();
+  await page.getByTestId('confirm-action').click();
+  await expect(page.getByText('Fleet Expansion Plan restored.')).toBeVisible();
+  await views.getByRole('tab', { name: 'Plans' }).click();
+  await expect(list.getByRole('row', { name: /Fleet Expansion Plan/ })).toBeVisible();
+});
+
+test('A-X09: Correct opens a row’s period with its figures, needs a reason, and keeps the earlier row', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/business-advisory/financial-analysis'));
+  const section = page.getByTestId('ba-financials');
+  const table = section.getByRole('table', { name: 'Financial snapshots' });
+  await expect(table).toBeVisible({ timeout: 60_000 });
+  await expect(table.getByRole('button', { name: /^Correct/ }).first()).toBeVisible();
+  const rowsBefore = await table.getByRole('row').count();
+  await table
+    .getByRole('button', { name: /^Correct/ })
+    .first()
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Correct Financial Figures' });
+  await expect(dialog.getByLabel('Advisory client')).toBeDisabled();
+  await expect(dialog.getByLabel('Period start')).toBeDisabled();
+  await expect(dialog.getByLabel('Revenue ($)', { exact: true })).not.toHaveValue('');
+  const original = Number(
+    await dialog.getByLabel('Revenue ($)', { exact: true }).inputValue(),
+  ).toLocaleString('en-US');
+  const save = dialog.getByRole('button', { name: 'Save Correction' });
+  await expect(save).toBeDisabled();
+  await dialog.getByLabel('Revenue ($)', { exact: true }).fill('123456');
+  await dialog.getByLabel('Correction reason *').fill('Fake: a missed invoice');
+  await save.click();
+  await expect(
+    page.getByText(/Figures corrected for .+\. The earlier figures are kept\./),
+  ).toBeVisible();
+  // The corrected figures replace the row; Show corrections lists the earlier one too.
+  await expect(table.getByRole('row')).toHaveCount(rowsBefore);
+  await expect(table).toContainText('$123,456');
+  await expect(table).not.toContainText('$' + original);
+  await section.getByLabel('Show corrections').check();
+  await expect(table).toContainText('$' + original);
+  await expect(table).toContainText('$123,456');
+});
+
+test('A-X06: an advisory client’s linked profiles, and Add Business or Personal Profile links a new client', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/business-advisory/clients'));
+  await page.getByRole('button', { name: 'Add Advisory Client' }).click({ timeout: 60_000 });
+  const add = page.getByRole('dialog', { name: 'Add Advisory Client' });
+  await add
+    .getByLabel('Client', { exact: true })
+    .selectOption({ label: 'Acme Widgets LLC (fake)' });
+  await add.getByLabel('Primary service focus').selectOption({ index: 1 });
+  await add.getByRole('button', { name: 'Add Client' }).click();
+
+  const section = page.getByTestId('advisory-linked-profiles');
+  await expect(section.getByText('Linked Profiles')).toBeVisible({ timeout: 60_000 });
+  await section.getByRole('button', { name: 'Add Business or Personal Profile' }).click();
+  const role = page.getByRole('dialog', { name: 'Add Business or Personal Profile' });
+  await expect(role.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  await role.getByLabel('How they are related *').selectOption('OWNER');
+  await role.getByRole('button', { name: 'Continue' }).click();
+
+  const form = page.getByRole('dialog', { name: 'Add New Client' });
+  await form.getByLabel('Full name *').fill('Avery Owner (fake)');
+  await form.getByLabel('Email *').fill('avery.owner@example.test');
+  await form.getByLabel('Phone *').fill('4045550177');
+  await form.getByLabel('Street address *').fill('1 Sample Way');
+  await form.getByLabel('City *').fill('Atlanta');
+  await form.getByLabel('State *').selectOption('GA');
+  await form.getByLabel('ZIP code *').fill('30301');
+  await form.getByRole('button', { name: 'Add Client' }).click();
+
+  await expect(section.getByRole('status')).toContainText(
+    'Avery Owner (fake) was added and linked to Acme Widgets LLC (fake).',
+  );
+  const link = section.getByTestId('client-link-row').filter({ hasText: 'Avery Owner (fake)' });
+  await expect(link).toContainText('Owner');
+  await expect(link).toContainText('Personal');
 });

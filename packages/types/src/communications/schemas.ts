@@ -439,19 +439,76 @@ export const SelectAllAudienceResult = z.object({
 export type SelectAllAudienceResult = z.infer<typeof SelectAllAudienceResult>;
 
 /**
+ * The most people an audience names one by one, of each kind (clients, leads, and each kind left
+ * out by hand). Past it, choose a saved segment instead: a segment holds any number.
+ */
+export const AUDIENCE_PEOPLE_LIMIT = 5_000;
+
+/**
  * PUT .../communications/{id}/audience (Apply / Done): replaces the audience: segments, individuals
  * and people left out by hand. A person in two places counts once. The answer is the recalculated
- * summary. Only a draft or a scheduled campaign before its lock time.
+ * summary. Only a draft or a scheduled campaign before its lock time. An entry that stays keeps its
+ * id (Add all eligible's Undo names entries by id).
  */
 export const SetAudienceRequest = z.strictObject({
   segmentIds: z.array(CommunicationSegmentId).max(100).optional().default([]),
-  clientIds: z.array(z.uuid()).max(5_000).optional().default([]),
-  leadIds: z.array(z.uuid()).max(5_000).optional().default([]),
-  excludeClientIds: z.array(z.uuid()).max(5_000).optional().default([]),
-  excludeLeadIds: z.array(z.uuid()).max(5_000).optional().default([]),
+  clientIds: z.array(z.uuid()).max(AUDIENCE_PEOPLE_LIMIT).optional().default([]),
+  leadIds: z.array(z.uuid()).max(AUDIENCE_PEOPLE_LIMIT).optional().default([]),
+  excludeClientIds: z.array(z.uuid()).max(AUDIENCE_PEOPLE_LIMIT).optional().default([]),
+  excludeLeadIds: z.array(z.uuid()).max(AUDIENCE_PEOPLE_LIMIT).optional().default([]),
   etag: Etag,
 });
 export type SetAudienceRequest = z.input<typeof SetAudienceRequest>;
+
+/**
+ * C20: All Contacts' "Add all eligible". GET .../communications/{id}/audience/eligible: how many
+ * the action would add now: the clients All Contacts lists (with its `search`) who may get the
+ * draft's channel (its consent and address rules, as the list marks them) and are not in the
+ * audience yet (chosen, in a chosen segment, or left out by hand).
+ */
+export const EligibleContactsQuery = z.strictObject({ search: SearchText.optional() });
+export type EligibleContactsQuery = z.input<typeof EligibleContactsQuery>;
+export const EligibleContactsCount = z.object({
+  count: z.number().int(),
+  /** `AUDIENCE_PEOPLE_LIMIT`: clients named one by one, those there now included. */
+  limit: z.number().int(),
+  /** Adding them would pass the limit: the action answers 409 AUDIENCE_TOO_LARGE. */
+  overLimit: z.boolean(),
+});
+export type EligibleContactsCount = z.infer<typeof EligibleContactsCount>;
+
+/**
+ * POST .../communications/{id}/audience/add-eligible: adds them as clients chosen one by one, a
+ * snapshot of who they are now (a contact added later is not in it). A draft only (409
+ * NOT_EDITABLE); past the limit nothing is added (409 AUDIENCE_TOO_LARGE). Each one added comes
+ * with the entry made for them: Undo removes exactly those entries, never one chosen before.
+ */
+export const AddEligibleContactsRequest = z.strictObject({
+  search: SearchText.optional(),
+  etag: Etag,
+});
+export type AddEligibleContactsRequest = z.input<typeof AddEligibleContactsRequest>;
+export const AddEligibleContactsResult = z.object({
+  added: z.array(ClientRef.extend({ entryId: z.uuid() })),
+  summary: AudienceSummary,
+});
+export type AddEligibleContactsResult = z.infer<typeof AddEligibleContactsResult>;
+
+/**
+ * POST .../communications/{id}/audience/remove-entries (Undo of Add all eligible): removes these
+ * entries of the draft's audience. Each must be one of them (400 VALIDATION_FAILED otherwise, and
+ * nothing is removed): Undo sends those of its contacts still chosen. A draft only.
+ */
+export const RemoveAudienceEntriesRequest = z.strictObject({
+  entryIds: z.array(z.uuid()).min(1).max(AUDIENCE_PEOPLE_LIMIT),
+  etag: Etag,
+});
+export type RemoveAudienceEntriesRequest = z.input<typeof RemoveAudienceEntriesRequest>;
+export const RemoveAudienceEntriesResult = z.object({
+  removed: z.number().int(),
+  summary: AudienceSummary,
+});
+export type RemoveAudienceEntriesResult = z.infer<typeof RemoveAudienceEntriesResult>;
 
 // ---------- Review and send ----------
 
@@ -968,5 +1025,7 @@ export const CommunicationErrorCode = z.enum([
   'STILL_SENDING',
   /** 403: export needs the Export capability. */
   'EXPORT_NOT_ALLOWED',
+  /** 409: Add all eligible would name more people one by one than `AUDIENCE_PEOPLE_LIMIT`. */
+  'AUDIENCE_TOO_LARGE',
 ]);
 export type CommunicationErrorCode = z.infer<typeof CommunicationErrorCode>;

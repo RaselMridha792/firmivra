@@ -4,6 +4,7 @@ import type {
   MessageTemplateKind,
   PreviewTemplateRequest,
   RenderedTemplate,
+  TemplateBrandingView,
 } from '@firmivra/types';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { ENV } from '../config/config.module.js';
@@ -14,6 +15,8 @@ import { sanitize, stripTags } from './html.js';
 import { BUILT_IN_FIELDS, fill, smsLength } from './merge-fields.js';
 import { PLAIN_KINDS } from './templates.common.js';
 import { withClient } from '../appointments/appointment-party.js';
+import { logoUrl } from '../settings/logo-checks.js';
+import { firmFooter } from './firm-footer.js';
 
 /** What a render needs from a template: the master text, never a client's data. */
 export interface Renderable {
@@ -52,6 +55,60 @@ const money = (cents: number, currency: string) =>
 @Injectable()
 export class TemplateRenderService {
   constructor(@Inject(ENV) private readonly env: Env) {}
+
+  /**
+   * Y10: the branding a template's output carries (see TemplateBrandingView): emails the footer
+   * and disclaimer; Letters and Notices also the letterhead (when on) and the firm signature.
+   */
+  async branding(
+    tx: TxClient,
+    businessId: string,
+    kind: MessageTemplateKind,
+  ): Promise<TemplateBrandingView | null> {
+    const letter = kind === 'LETTER_NOTICE';
+    if (!letter && kind !== 'EMAIL' && kind !== 'CAMPAIGN') return null;
+    const { footer, disclaimer } = await firmFooter(tx, businessId);
+    if (!letter) return { letterhead: null, signature: null, footer, disclaimer };
+    const b = await tx.templateBranding.findUnique({
+      where: { businessId },
+      select: { signatureText: true, letterheadEnabled: true },
+    });
+    const signature = b?.signatureText?.trim() || null;
+    if (b && !b.letterheadEnabled) return { letterhead: null, signature, footer, disclaimer };
+    const firm = await tx.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { name: true, legalName: true, slug: true },
+    });
+    const s = await tx.businessSettings.findUnique({ where: { businessId } });
+    const place = [s?.city, [s?.state, s?.postalCode].filter(Boolean).join(' ')]
+      .filter(Boolean)
+      .join(', ');
+    const lines = [
+      s?.addressLine1,
+      s?.addressLine2,
+      place,
+      s?.contactPhone,
+      s?.contactEmail,
+      s?.website,
+    ]
+      .map((x) => x?.trim())
+      .filter((x): x is string => !!x);
+    return {
+      letterhead: {
+        name: firm.legalName?.trim() || firm.name,
+        logoUrl: logoUrl(
+          this.env.PORTAL_BASE_URL,
+          firm.slug,
+          s?.logoLightKey ?? s?.logoKey,
+          s?.logoLightKey ? 'light' : 'dark',
+        ),
+        lines,
+      },
+      signature,
+      footer,
+      disclaimer,
+    };
+  }
 
   private portal(slug: string, path = '') {
     return `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${slug}${path}`;
@@ -274,6 +331,8 @@ export class TemplateRenderService {
       unresolved,
       sample: isSample,
       sms: t.kind === 'SMS' ? smsLength(text) : null,
+      // Y10: the preview adds the firm's branding (see branding()).
+      branding: null,
     };
   }
 }
