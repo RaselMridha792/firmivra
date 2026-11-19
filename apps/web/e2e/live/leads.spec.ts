@@ -791,10 +791,25 @@ test.describe('Leads (Owner)', () => {
       await openList(page, '');
       const card = page.getByRole('button', { name: new RegExp(label) }).first();
       await expect(card).toContainText(/\d/);
-      const text = (await card.innerText()).replace(label, '');
-      const value = Number(/(\d[\d,]*)/.exec(text)?.[1]?.replace(/,/g, '') ?? NaN);
+      const cardValue = async () => {
+        const text = (await card.innerText()).replace(label, '');
+        return Number(/(\d[\d,]*)/.exec(text)?.[1]?.replace(/,/g, '') ?? NaN);
+      };
       await card.click();
-      await expect.poll(() => listTotal(page), { message: `${label}: list total` }).toBe(value);
+      // Both settle first: the filtered list loads after the address changes, and the cards
+      // refresh with it. Then the card and its list agree (the message names both numbers).
+      let value = NaN;
+      await expect
+        .poll(
+          async () => {
+            await page.waitForLoadState('networkidle').catch(() => {});
+            value = await cardValue();
+            const total = await listTotal(page);
+            return total === value ? 'equal' : `card ${value}, list ${total}`;
+          },
+          { message: `${label}: card and list`, timeout: 60_000, intervals: [1_000, 2_000, 5_000] },
+        )
+        .toBe('equal');
       seen.push(`${label} ${value}`);
       if (label === 'Not Qualified') {
         expect(value).toBeGreaterThan(0);

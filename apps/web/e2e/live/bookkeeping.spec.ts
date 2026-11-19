@@ -1049,7 +1049,7 @@ const NOT_LIVE: [string, string][] = [
   ['F14 M7 integration dependency', 'provider authorization and mapping, Integrations review'],
   [
     'R01 fixture / R01d Review Three',
-    'the VIAPLUSH fixture is in LVP (never touched); close/reopen is Review Three',
+    "the row's fixture is in LVP (never touched); close/reopen is Review Three",
   ],
   ['E01b history', 'payments and refunds: Review Three'],
   ['C01 C02 C03 C04 C05 C06 C07', 'product decisions, not behaviour'],

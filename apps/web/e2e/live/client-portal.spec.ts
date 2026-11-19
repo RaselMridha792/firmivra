@@ -611,7 +611,8 @@ test.describe('firm side as Owner', () => {
     const inv = page.getByTestId('invitation-card');
     await expect(inv).toContainText('Status');
     await expect(inv).toContainText('Invitation date');
-    await expect(inv).toContainText('qa-client-b@dev.firmivra.com');
+    // The invitation names the client's login email (whose it is stays out of this repo).
+    await expect(inv).toContainText(/[^\s@]+@[^\s@]+\.[a-z]{2,}/);
     await expect(page.getByTestId('mfa-card')).toContainText(/not set up an authenticator/);
     await expect(page.getByTestId('login-history')).toContainText('Successful login');
     await expectNoSideScroll(page);
