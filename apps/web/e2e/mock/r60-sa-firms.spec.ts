@@ -104,6 +104,7 @@ test('SA-FRM-Y05, Y08: plan, sort and tab live in the address, and Back from a f
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(admin('/firms'));
   await page.getByRole('tab', { name: /^All Firms \(/ }).click({ timeout: 60_000 });
+  await expect(page).toHaveURL(admin('/firms?status=ALL'));
   const first = page.locator('table tbody tr').first();
 
   await page.getByRole('button', { name: 'Business Name' }).click();

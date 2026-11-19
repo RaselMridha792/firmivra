@@ -4,8 +4,8 @@ import { FIRM_PLANS, FirmPlan, FirmSort, FirmStatusFilter } from '@firmivra/type
 import { Button, Card } from '@firmivra/ui';
 import { Building2, Clock3, Search, UsersRound, X } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useId, useState, type FormEvent } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { pageOf } from '../../../../../lib/list-query';
@@ -82,8 +82,8 @@ function StatusBadge({ status }: { status: string }) {
 
 export function FirmsList() {
   const params = useSearchParams();
-  const router = useRouter();
   const path = usePathname();
+  const planId = useId();
   // SA-FRM-F01, Y05: the address is the view (tab, search, plan, sort, page), so a link to the
   // list (the menu, the dashboard) sets it again, even from this page, and Back from a firm
   // reopens the list exactly as it was.
@@ -123,17 +123,19 @@ export function FirmsList() {
 
   /**
    * Changes the view in the address without a new history entry. Anything but a page change
-   * starts again at page 1.
+   * starts again at page 1. The browser's own replaceState (Next keeps useSearchParams in step):
+   * it changes the address at once, from the address as it is now, so two quick changes (a tab,
+   * then a sort) both stay; a router navigation committed later and lost the first.
    */
   function update(next: Record<string, string | undefined>) {
-    const q = new URLSearchParams(params.toString());
+    const q = new URLSearchParams(window.location.search);
     for (const [key, value] of Object.entries(next)) {
       if (value) q.set(key, value);
       else q.delete(key);
     }
     if (!('page' in next)) q.delete('page');
     const text = q.toString();
-    router.replace(text ? `${path}?${text}` : path, { scroll: false });
+    window.history.replaceState(null, '', text ? `${path}?${text}` : path);
   }
   const setPage = (next: number) => update({ page: next > 1 ? String(next) : undefined });
 
@@ -254,9 +256,12 @@ export function FirmsList() {
       </div>
 
       {/* SA-FRM-Y08: the plan the firm's application asked for. */}
-      <label className="flex flex-col gap-1 text-sm font-medium text-heading sm:w-64">
-        Plan
+      <div className="flex flex-col gap-1 sm:w-64">
+        <label htmlFor={planId} className="text-sm font-medium text-heading">
+          Plan
+        </label>
         <select
+          id={planId}
           className={selectClass}
           value={plan ?? ''}
           onChange={(event) => update({ plan: event.target.value || undefined })}
@@ -268,7 +273,7 @@ export function FirmsList() {
             </option>
           ))}
         </select>
-      </label>
+      </div>
 
       <PageState query={query}>
         {(data) => {
