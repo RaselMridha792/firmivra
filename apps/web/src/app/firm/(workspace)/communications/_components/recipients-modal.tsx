@@ -1,6 +1,11 @@
 'use client';
 
-import type { AudienceCandidate, AudienceSummary, CommunicationDetail } from '@firmivra/types';
+import {
+  AUDIENCE_PEOPLE_LIMIT,
+  type AudienceCandidate,
+  type AudienceSummary,
+  type CommunicationDetail,
+} from '@firmivra/types';
 import { Button, Modal } from '@firmivra/ui';
 import {
   Calendar,
@@ -64,7 +69,9 @@ const payload = (p: Pick) => ({
 /**
  * Choose Recipients & Segments: groups on the left, the segments or people in each, and what is
  * chosen and left out. The draft's audience is saved as the choice changes so the counts are the
- * server's; Cancel puts the audience back the way it was.
+ * server's; Cancel puts the audience back the way it was. C20: All Contacts' "Add all eligible"
+ * adds, on the server, every contact the list marks eligible who is not chosen yet (the count is
+ * the server's); Undo removes exactly those, by the entries the server made for them.
  */
 export function RecipientsModal({
   detail,
@@ -83,6 +90,10 @@ export function RecipientsModal({
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [summary, setSummary] = useState<AudienceSummary | null>(detail.audience);
+  /** C20: contacts Add all eligible added and still chosen, and the entry made for each. */
+  const [bulk, setBulk] = useState<Map<string, string>>(() => new Map());
+  const [working, setWorking] = useState(false);
+  const [notice, setNotice] = useState<string>();
   const [pick, setPick] = useState<Pick>(() => {
     const p = emptyPick();
     for (const c of detail.audience?.chips ?? []) {
@@ -110,6 +121,15 @@ export function RecipientsModal({
     }),
   );
 
+  const canAddAll = view === 'CONTACTS' && !individuals && detail.status === 'DRAFT';
+  const eligible = useApiQuery([...COMM_KEY, 'eligible', detail.id, term, canAddAll], () =>
+    canAddAll
+      ? api.communications.eligibleContacts(detail.id, term ? { search: term } : {})
+      : Promise.resolve(null),
+  );
+  const recount = () =>
+    void qc.invalidateQueries({ queryKey: [...COMM_KEY, 'eligible', detail.id] });
+
   /** Saves the choice to the draft, one at a time, and shows the server's counts. */
   const sync = (next: Pick) => {
     touched.current = true;
@@ -125,6 +145,62 @@ export function RecipientsModal({
       } catch (e) {
         setError(errorMessage(e, COMM_ERRORS));
       }
+      recount();
+    });
+  };
+
+  /**
+   * C20: one server step at a time, after any save still going; the picker waits (its controls
+   * are off) so no choice is made from a list the step is about to change.
+   */
+  const step = (work: () => Promise<void>) => {
+    touched.current = true;
+    setWorking(true);
+    setNotice(undefined);
+    chain.current = chain.current.then(async () => {
+      try {
+        await work();
+        etag.current = (await api.communications.get(detail.id)).etag;
+        setError(undefined);
+      } catch (e) {
+        setError(errorMessage(e, COMM_ERRORS));
+      }
+      recount();
+      setWorking(false);
+    });
+  };
+  const addAll = () =>
+    step(async () => {
+      const res = await api.communications.addEligibleContacts(detail.id, {
+        etag: etag.current,
+        ...(term ? { search: term } : {}),
+      });
+      setPick((p) => {
+        const next = { ...p, clients: new Map(p.clients) };
+        for (const a of res.added) next.clients.set(a.id, a.name);
+        return next;
+      });
+      setBulk((b) => new Map([...b, ...res.added.map((a) => [a.id, a.entryId] as const)]));
+      setSummary(res.summary);
+      setNotice(
+        res.added.length === 1 ? '1 contact added.' : `${res.added.length} contacts added.`,
+      );
+    });
+  const undoAll = () => {
+    const added = new Map(bulk);
+    step(async () => {
+      const res = await api.communications.removeAudienceEntries(detail.id, {
+        etag: etag.current,
+        entryIds: [...added.values()],
+      });
+      setPick((p) => {
+        const next = { ...p, clients: new Map(p.clients) };
+        for (const id of added.keys()) next.clients.delete(id);
+        return next;
+      });
+      setBulk(new Map());
+      setSummary(res.summary);
+      setNotice('Undone: those contacts were removed.');
     });
   };
   const change = (next: Pick) => {
@@ -155,10 +231,20 @@ export function RecipientsModal({
   });
   const mapOf = (p: Pick, c: AudienceCandidate['kind']) =>
     c === 'SEGMENT' ? p.segments : c === 'CLIENT' ? p.clients : p.leads;
+  /** A contact Add all eligible added and taken out by hand is no longer Undo's to remove. */
+  const dropFromBulk = (id: string) => {
+    if (!bulk.has(id)) return;
+    const b = new Map(bulk);
+    b.delete(id);
+    setBulk(b);
+  };
   const toggle = (c: AudienceCandidate, on: boolean) => {
     const next = copy();
     if (on) mapOf(next, c.kind).set(c.id, c.label);
-    else mapOf(next, c.kind).delete(c.id);
+    else {
+      mapOf(next, c.kind).delete(c.id);
+      dropFromBulk(c.id);
+    }
     change(next);
   };
   const isOn = (c: AudienceCandidate) => mapOf(pick, c.kind).has(c.id);
@@ -175,7 +261,9 @@ export function RecipientsModal({
   const items = list.data?.items ?? [];
   const chosen = [
     ...[...pick.segments].map(([id, label]) => ({ id, kind: 'SEGMENT' as const, label })),
-    ...[...pick.clients].map(([id, label]) => ({ id, kind: 'CLIENT' as const, label })),
+    ...[...pick.clients]
+      .filter(([id]) => !bulk.has(id))
+      .map(([id, label]) => ({ id, kind: 'CLIENT' as const, label })),
     ...[...pick.leads].map(([id, label]) => ({ id, kind: 'LEAD' as const, label })),
   ];
   const remove = (c: (typeof chosen)[number]) => {
@@ -183,7 +271,10 @@ export function RecipientsModal({
     mapOf(next, c.kind).delete(c.id);
     change(next);
   };
-  const clear = () => change(emptyPick());
+  const clear = () => {
+    setBulk(new Map());
+    change(emptyPick());
+  };
   const auto = summary?.autoExcluded;
   const autoTotal = auto
     ? auto.unsubscribed + auto.invalid + auto.missingChannel + auto.duplicate + auto.ineligible
@@ -198,7 +289,12 @@ export function RecipientsModal({
       onClose={() => void cancel()}
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-3">
-          <button type="button" className="text-sm font-medium text-link underline" onClick={clear}>
+          <button
+            type="button"
+            className="text-sm font-medium text-link underline disabled:text-muted"
+            disabled={working}
+            onClick={clear}
+          >
             Clear Selection
           </button>
           <div className="flex gap-2">
@@ -206,7 +302,7 @@ export function RecipientsModal({
               Cancel
             </Button>
             <Button
-              disabled={busy || none}
+              disabled={busy || working || none}
               onClick={async () => {
                 setBusy(true);
                 await chain.current;
@@ -220,7 +316,11 @@ export function RecipientsModal({
       }
     >
       <div className="max-w-full" data-testid="recipients-modal">
-        <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_17rem]">
+        <fieldset
+          disabled={working}
+          aria-busy={working}
+          className="m-0 grid min-w-0 gap-4 border-0 p-0 md:grid-cols-[minmax(0,1fr)_17rem]"
+        >
           <nav aria-label="Recipient groups" className="flex gap-1 overflow-x-auto md:col-span-2">
             {VIEWS.filter((v) => v.id !== 'LEADS' || detail.channel !== 'ANNOUNCEMENT').map((v) => (
               <button
@@ -270,6 +370,31 @@ export function RecipientsModal({
                     {label as string}
                   </button>
                 ))}
+              </div>
+            ) : null}
+            {canAddAll ? (
+              <div className="flex flex-col gap-1" data-testid="add-all-eligible">
+                <Button
+                  variant="outline"
+                  className="w-fit"
+                  disabled={!eligible.data || eligible.data.count === 0 || eligible.data.overLimit}
+                  onClick={addAll}
+                >
+                  <Plus aria-hidden weight="bold" className="size-4" />
+                  Add all eligible{eligible.data ? ` (${eligible.data.count})` : ''}
+                </Button>
+                <p className="text-xs text-muted">
+                  {eligible.data?.overLimit
+                    ? `That is more than ${AUDIENCE_PEOPLE_LIMIT.toLocaleString('en-US')} people one by one. Narrow the search, or choose a saved segment such as All Clients.`
+                    : term
+                      ? 'Everyone matching the search who can receive this and is not chosen yet.'
+                      : 'Everyone who can receive this and is not chosen yet.'}
+                </p>
+                {notice ? (
+                  <p role="status" className="text-xs text-success">
+                    {notice}
+                  </p>
+                ) : null}
               </div>
             ) : null}
             <ul className="max-h-80 overflow-auto" data-testid="candidates">
@@ -335,10 +460,28 @@ export function RecipientsModal({
               <h3 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
                 Selected Audience <CommsHelp area="audience" />
               </h3>
-              {chosen.length === 0 ? (
+              {chosen.length === 0 && bulk.size === 0 ? (
                 <p className="text-sm text-muted">Nobody chosen yet.</p>
               ) : null}
               <ul className="flex flex-col gap-1.5">
+                {bulk.size ? (
+                  <li
+                    className="flex items-center gap-2 rounded-lg bg-info-soft p-2 text-sm"
+                    data-testid="added-all"
+                  >
+                    <UsersThree aria-hidden weight="fill" className="size-5 shrink-0 text-action" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-heading">
+                      All eligible contacts ({bulk.size})
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 text-xs font-medium text-link"
+                      onClick={undoAll}
+                    >
+                      Undo
+                    </button>
+                  </li>
+                ) : null}
                 {chosen.map((c) => (
                   <li
                     key={`${c.kind}${c.id}`}
@@ -449,7 +592,7 @@ export function RecipientsModal({
               </p>
             </section>
           </aside>
-        </div>
+        </fieldset>
         {error ? (
           <p role="alert" className="mt-3 text-sm text-danger">
             {error}
