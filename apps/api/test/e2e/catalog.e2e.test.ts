@@ -1350,6 +1350,32 @@ describe('promotions', () => {
   });
 });
 
+describe('summary', () => {
+  it('counts the firm’s own services, categories, packages and promotions', async () => {
+    expect(
+      exact(CatalogSummary, await call('get', '/summary', people.ownerB, undefined, ids.firmB))
+        .total,
+    ).toBe(0);
+    const cat = await mkCategory({}, people.ownerB, ids.firmB);
+    await mkService(cat.id, {}, ids.firmB);
+    await mkService(cat.id, { activate: false }, ids.firmB);
+    const summary = exact(
+      CatalogSummary,
+      await call('get', '/summary', people.ownerB, undefined, ids.firmB),
+    );
+    expect(summary).toEqual({
+      total: 2,
+      active: 1,
+      inactive: 0,
+      draft: 1,
+      categories: 1,
+      activePromotions: 0,
+      packages: 0,
+    });
+  });
+});
+
+// After `summary`: it makes a firm B service, and the summary counts firm B from empty.
 describe('Check a Code (R9/R13)', () => {
   it('answers for a service or package today, with the one reason a code does not apply', async () => {
     const cat = await mkCategory();
@@ -1376,6 +1402,7 @@ describe('Check a Code (R9/R13)', () => {
     await mk({
       promoCode: `OLD-${RUN}`,
       activate: true,
+      stackable: true,
       startsOn: '2020-01-01',
       endsOn: '2020-01-31',
     });
@@ -1470,31 +1497,6 @@ describe('Check a Code (R9/R13)', () => {
       400,
       'VALIDATION_FAILED',
     );
-  });
-});
-
-describe('summary', () => {
-  it('counts the firm’s own services, categories, packages and promotions', async () => {
-    expect(
-      exact(CatalogSummary, await call('get', '/summary', people.ownerB, undefined, ids.firmB))
-        .total,
-    ).toBe(0);
-    const cat = await mkCategory({}, people.ownerB, ids.firmB);
-    await mkService(cat.id, {}, ids.firmB);
-    await mkService(cat.id, { activate: false }, ids.firmB);
-    const summary = exact(
-      CatalogSummary,
-      await call('get', '/summary', people.ownerB, undefined, ids.firmB),
-    );
-    expect(summary).toEqual({
-      total: 2,
-      active: 1,
-      inactive: 0,
-      draft: 1,
-      categories: 1,
-      activePromotions: 0,
-      packages: 0,
-    });
   });
 });
 
