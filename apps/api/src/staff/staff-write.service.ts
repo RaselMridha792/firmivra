@@ -14,6 +14,11 @@ import { DATABASE, OUTSIDE_CALL_LIMITS } from '../database/database.module.js';
 import { notFound, toDay } from '../workspaces/common.js';
 import type { CreateStaffBody, UpdateStaffBody } from './staff-input.js';
 import { writeMemberGrid } from './staff-permissions.service.js';
+import {
+  type DraftFileMove,
+  draftFilesToMove,
+  StaffDraftFilesService,
+} from './staff-draft-files.service.js';
 import { StaffReadService } from './staff-read.service.js';
 import { namesOf } from './staff-names.js';
 import { type NewAccountSecurity, newAccountSecurity } from './staff-security-defaults.service.js';
@@ -105,6 +110,7 @@ export class StaffWriteService {
     private readonly audit: AuditService,
     private readonly invites: InvitesService,
     private readonly read: StaffReadService,
+    private readonly draftFiles: StaffDraftFilesService,
   ) {}
 
   /**
@@ -120,7 +126,12 @@ export class StaffWriteService {
   ): Promise<CreateStaffResponse> {
     const { businessId } = actor;
     const a = body.account;
-    let made: { id: string; invitation: InvitationOutcome };
+    // SM17: the draft's files, read before the draft goes, move after the commit.
+    let made: {
+      id: string;
+      invitation: InvitationOutcome;
+      moving?: { by: string; files: DraftFileMove[] };
+    };
     try {
       made = await this.database.withScope(
         { kind: 'business', businessId, actorUserId: actor.userId },
@@ -219,6 +230,7 @@ export class StaffWriteService {
           if (body.permissions?.length)
             // Create Staff's step 2 is the Owner or Admin choosing the grid: no second confirm.
             grid = await writeMemberGrid(tx, { ...gridInput, membershipId: id });
+          const files = body.draftId ? await draftFilesToMove(tx, businessId, body.draftId) : [];
           if (body.draftId)
             await tx.staffDraft.deleteMany({
               where: { businessId, id: body.draftId, createdById: by },
@@ -241,11 +253,12 @@ export class StaffWriteService {
               permissionCells: grid.changedCells,
               escalated: grid.escalated,
               draftId: body.draftId ?? null,
+              draftFiles: files.length,
               invitation,
             },
             { businessId },
           );
-          return { id, invitation };
+          return { id, invitation, moving: { by, files } };
         },
         // The invite calls Cognito and the email sender inside this transaction's time.
         OUTSIDE_CALL_LIMITS,
@@ -253,6 +266,8 @@ export class StaffWriteService {
     } catch (e) {
       throw mapStaffDbError(e);
     }
+    if (made.moving?.files.length)
+      await this.draftFiles.moveToMember(actor, made.id, made.moving.by, made.moving.files);
     return {
       staff: await this.read.get(tenant, actor.userId, made.id),
       invitation: made.invitation,

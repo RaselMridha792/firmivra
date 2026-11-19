@@ -33,6 +33,8 @@ export const SCAN_PREFIXES = [
   'esign',
   'agreements',
   'staff',
+  // SM17: a staff draft's files, before the account exists (StaffDraftFilesService).
+  'staff-drafts',
   'support',
   // New Message's files (R60, MSG-F12): outbound_message_files, OutboundFilesService.
   'messages',

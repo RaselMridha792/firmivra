@@ -55,6 +55,7 @@ import {
 import {
   ConfirmStaffDocumentUploadRequest,
   CreateStaffDocumentUploadRequest,
+  CreateStaffDraftUploadRequest,
   CreateStaffRequest,
   CreateStaffResponse,
   LockStaffRequest,
@@ -74,6 +75,8 @@ import {
   StaffDocumentLink,
   StaffDocumentList,
   StaffDraft,
+  StaffDraftAttachment,
+  StaffDraftAttachmentId,
   StaffDraftId,
   StaffDraftList,
   StaffFormOptions,
@@ -304,6 +307,32 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
       ),
     deleteDraft: async (draftId: string): Promise<OkResponse> =>
       request(OkResponse, `${DRAFTS}/${parseInput(StaffDraftId, draftId)}`, { method: 'DELETE' }),
+    /** SM17: Save under Remove: where to PUT a file kept with the draft. */
+    createDraftUpload: async (
+      draftId: string,
+      body: CreateStaffDraftUploadRequest,
+    ): Promise<UploadTicket> =>
+      request(
+        UploadTicket,
+        `${DRAFTS}/${parseInput(StaffDraftId, draftId)}/attachments/uploads`,
+        post(parseInput(CreateStaffDraftUploadRequest, body)),
+      ),
+    confirmDraftUpload: async (
+      draftId: string,
+      body: ConfirmStaffDocumentUploadRequest,
+    ): Promise<StaffDraftAttachment> =>
+      request(
+        StaffDraftAttachment,
+        `${DRAFTS}/${parseInput(StaffDraftId, draftId)}/attachments/uploads/confirm`,
+        post(parseInput(ConfirmStaffDocumentUploadRequest, body)),
+      ),
+    /** SM17: Remove a saved file: its row and its stored file. */
+    deleteDraftAttachment: async (draftId: string, attachmentId: string): Promise<OkResponse> =>
+      request(
+        OkResponse,
+        `${DRAFTS}/${parseInput(StaffDraftId, draftId)}/attachments/${parseInput(StaffDraftAttachmentId, attachmentId)}`,
+        { method: 'DELETE' },
+      ),
 
     // Offices & Job Titles: the firm's saved job titles (Owner and Admin)
     jobTitles: async (includeArchived = false): Promise<StaffJobTitle[]> =>

@@ -93,6 +93,9 @@ describe('no path removes a record of the six retention categories (14b)', () =>
       'settings/brand-assets.service.ts': 'firm branding assets',
       'settings/logo.service.ts': 'the firm logo',
       'staff/staff-documents.service.ts': 'staff documents: an upload never confirmed',
+      // SM17: a file kept with a staff draft (Save under Remove), before any member has it; its
+      // clean files become the member's documents (copied) when the account is created.
+      'staff/staff-draft-files.service.ts': 'a staff draft’s own file (no member yet)',
       'storage/document-storage.ts': 'the storage adapter itself (remove)',
       'storage/uploads.service.ts': 'an upload refused at confirm (never a document)',
       'system-status/system-status.controller.ts': 'the status check’s own probe object',
