@@ -5,11 +5,14 @@ export function newTaskHref(context: {
   period?: string;
   /** I-P01: the invoice it is about ("INV-2026-0106"): the name and details say so. */
   invoice?: string;
+  /** Tax Returns Review Two F03 (R56): the exact tax return it is about. */
+  taxReturnId?: string;
 }): string {
   const params = new URLSearchParams({ clientId: context.clientId });
   if (context.engagementId) params.set('engagementId', context.engagementId);
   if (context.period) params.set('period', context.period);
   if (context.invoice) params.set('invoice', context.invoice);
+  if (context.taxReturnId) params.set('taxReturnId', context.taxReturnId);
   return `/tasks/new?${params.toString()}`;
 }
 
@@ -54,6 +57,8 @@ interface Related {
   } | null;
   taxPlan: { id: string; name: string } | null;
   deadline: { id: string; name: string } | null;
+  /** Tax Returns Review Two F03 (R56): the exact tax return. */
+  taxReturn?: { id: string; name: string } | null;
   relatedText: string | null;
 }
 
@@ -78,6 +83,14 @@ export function relatedLinks(
       key: 'engagement',
       label: t.engagement.title,
       href: workspacePath(t.engagement.workspace),
+      custom: false,
+    });
+  // F03 (R56): the exact tax return, opening that return.
+  if (t.taxReturn)
+    out.push({
+      key: 'taxReturn',
+      label: t.taxReturn.name,
+      href: `/tax-returns/${t.taxReturn.id}`,
       custom: false,
     });
   if (t.taxPlan)

@@ -471,6 +471,8 @@ export const rowInclude = {
   deadline: { select: { id: true, name: true } },
   // T-C10: Related To's tax plan.
   taxPlan: { select: { id: true, name: true } },
+  // F03 (R56): the exact tax return.
+  taxReturn: { select: { id: true, taxYear: true, formType: true } },
   dependsOn: { select: { id: true, title: true, status: true } },
   taskOccurrence: { select: { seriesId: true } },
   _count: { select: { assignees: true } },
@@ -557,6 +559,7 @@ export function toRow(t: RowShape, ctx: RowContext): TaskRow {
     service: t.service ? { id: t.service.id, name: t.service.name } : null,
     deadline: t.deadline ? { id: t.deadline.id, name: t.deadline.name } : null,
     taxPlan: t.taxPlan ? { id: t.taxPlan.id, name: t.taxPlan.name } : null,
+    taxReturn: returnLink(t.taxReturn),
     relatedText: t.relatedText,
     priority: t.priority,
     status: liveStatus(t.status),
@@ -680,6 +683,7 @@ export function toDraft(t: DetailShape, names: Map<string, string>): TaskDraft {
     engagement: t.engagement ? { id: t.engagement.id, title: t.engagement.title } : null,
     taxPlan: t.taxPlan ? { id: t.taxPlan.id, name: t.taxPlan.name } : null,
     deadline: t.deadline ? { id: t.deadline.id, name: t.deadline.name } : null,
+    taxReturn: returnLink(t.taxReturn),
     relatedText: t.relatedText,
     progress: t.progress,
     startOn: day(t.startOn),
@@ -698,3 +702,7 @@ export function toDraft(t: DetailShape, names: Map<string, string>): TaskDraft {
     version: t.updatedAt.toISOString(),
   };
 }
+
+/** F03 (R56): a task's tax return as it is named on the task: "Tax return 2025 (1040)". */
+const returnLink = (r: { id: string; taxYear: number; formType: string | null } | null) =>
+  r ? { id: r.id, name: `Tax return ${r.taxYear}${r.formType ? ` (${r.formType})` : ''}` } : null;

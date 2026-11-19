@@ -101,20 +101,20 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     why: "the MEMBER recipient variant's member: one case per route carries the CLIENT variant (a body has one variant, so a swap of the other's field would change nothing); documents-requests.e2e refuses another firm's member for both (NOT_A_MEMBER) (R55)",
   },
   ...(
-    [
-      'taxReturnId',
-      'bookkeepingEngagementId',
-      'invoiceId',
-      'taskId',
-      'intakeFormId',
-      'documentRequestId',
-    ] as const
+    ['bookkeepingEngagementId', 'invoiceId', 'taskId', 'intakeFormId', 'documentRequestId'] as const
   ).map((name) => ({
     field: `related.${name}`,
     routes:
       /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
     why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
   })),
+  {
+    // Tax Returns Review Two F06 (R56): a booking and its edit keep the return (their cases
+    // name it); a draft still refuses any related item 400.
+    field: 'related.taxReturnId',
+    routes: /^(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?$/,
+    why: 'a draft refuses any related item 400 and never reads it; the booking and its edit keep the return and their cases name it (R56)',
+  },
   {
     field: 'busyCalendarIds',
     routes: /^PUT \/api\/v1\/business\/availability\/:userId\/rules$/,
@@ -128,21 +128,6 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     field: field!,
     routes: /^PUT \/api\/v1\/business\/appointment-types\/:id\/config$/,
     why: `${what}: no table keeps it yet, so any value is refused 400 and never read (R58)`,
-  })),
-  ...(
-    [
-      'taxReturnId',
-      'bookkeepingEngagementId',
-      'invoiceId',
-      'taskId',
-      'intakeFormId',
-      'documentRequestId',
-    ] as const
-  ).map((name) => ({
-    field: `related.${name}`,
-    routes:
-      /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
-    why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
   })),
   {
     field: 'senderId',

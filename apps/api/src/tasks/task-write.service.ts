@@ -79,6 +79,7 @@ type Prerequisite = { id: string; status: StoredTaskStatus } | null;
 const CREATE_FIELDS = [
   'taxPlanId',
   'deadlineId',
+  'taxReturnId',
   'relatedText',
   'details',
   'dueOn',
@@ -110,6 +111,7 @@ const UPDATE_FIELDS = [
   'engagementId',
   'taxPlanId',
   'deadlineId',
+  'taxReturnId',
   'relatedText',
   'typeId',
   'priority',
@@ -287,9 +289,11 @@ export class TaskWriteService {
     // C15 (Tax Planning Review 2) and T-C10: Related To's other records are the client's.
     const taxPlanId = body.taxPlanId ?? null;
     const deadlineId = body.deadlineId ?? null;
+    // F03 (R56): the exact tax return, one of the client's.
+    const taxReturnId = body.taxReturnId ?? null;
     const relatedText = body.relatedText ?? null;
     if (body.engagementId && relatedText) throw recordOrNote();
-    await this.checkRelated(tx, businessId, clientId, { taxPlanId, deadlineId });
+    await this.checkRelated(tx, businessId, clientId, { taxPlanId, deadlineId, taxReturnId });
     await this.checkDeadlineTemplate(tx, businessId, null, deadlineId, tpl?.id ?? null);
     const created = await tx.task.create({
       data: {
@@ -299,6 +303,7 @@ export class TaskWriteService {
         engagementId: body.engagementId ?? null,
         taxPlanId,
         deadlineId,
+        taxReturnId,
         relatedText,
         title: body.title,
         details: body.details !== undefined ? body.details : (tpl?.description ?? null),
@@ -535,6 +540,7 @@ export class TaskWriteService {
     if (changes.engagementId !== undefined) data.engagementId = changes.engagementId;
     if (changes.taxPlanId !== undefined) data.taxPlanId = changes.taxPlanId;
     if (changes.deadlineId !== undefined) data.deadlineId = changes.deadlineId;
+    if (changes.taxReturnId !== undefined) data.taxReturnId = changes.taxReturnId;
     if (changes.relatedText !== undefined) data.relatedText = changes.relatedText;
     if (changes.startOn !== undefined)
       data.startOn = changes.startOn === null ? null : toDay(changes.startOn);
@@ -586,11 +592,12 @@ export class TaskWriteService {
           engagementId: changes.engagementId ?? null,
           taxPlanId: changes.taxPlanId ?? null,
           deadlineId: changes.deadlineId ?? null,
+          taxReturnId: changes.taxReturnId ?? null,
         }
       : changes;
     // With a new client every record sent is checked against it, even one the draft had.
     const stored = clientChanged
-      ? { ...current, engagementId: null, taxPlanId: null, deadlineId: null }
+      ? { ...current, engagementId: null, taxPlanId: null, deadlineId: null, taxReturnId: null }
       : current;
     await this.checkRelatedChange(tx, businessId, stored, clientId, related);
     if (changes.attachments?.length && !clientId) throw chooseClientFirst();
@@ -1247,9 +1254,9 @@ export class TaskWriteService {
     tx: TxClient,
     businessId: string,
     clientId: string | null,
-    ids: { taxPlanId?: string | null; deadlineId?: string | null },
+    ids: { taxPlanId?: string | null; deadlineId?: string | null; taxReturnId?: string | null },
   ): Promise<void> {
-    if (!ids.taxPlanId && !ids.deadlineId) return;
+    if (!ids.taxPlanId && !ids.deadlineId && !ids.taxReturnId) return;
     if (!clientId) throw chooseClientFirst();
     if (ids.taxPlanId) {
       const plan = await tx.taxPlan.findFirst({
@@ -1271,6 +1278,14 @@ export class TaskWriteService {
       });
       if (!deadline) throw notFound();
     }
+    // F03 (R56): one of the client's own returns, not archived.
+    if (ids.taxReturnId) {
+      const taxReturn = await tx.taxReturn.findFirst({
+        where: { businessId, id: ids.taxReturnId, clientId, archivedAt: null },
+        select: { id: true },
+      });
+      if (!taxReturn) throw notFound();
+    }
   }
 
   /**
@@ -1287,6 +1302,7 @@ export class TaskWriteService {
       engagementId?: string | null;
       taxPlanId?: string | null;
       deadlineId?: string | null;
+      taxReturnId?: string | null;
       relatedText?: string | null;
     },
   ): Promise<void> {
@@ -1298,6 +1314,7 @@ export class TaskWriteService {
     await this.checkRelated(tx, businessId, clientId, {
       taxPlanId: differs(changes.taxPlanId, current.taxPlanId) ? changes.taxPlanId : null,
       deadlineId: differs(changes.deadlineId, current.deadlineId) ? changes.deadlineId : null,
+      taxReturnId: differs(changes.taxReturnId, current.taxReturnId) ? changes.taxReturnId : null,
     });
     const engagementId =
       changes.engagementId !== undefined ? changes.engagementId : current.engagementId;
