@@ -463,7 +463,7 @@ describe('Convert Lead to Client (POST :id/convert-to-client)', () => {
             businessId: ids.firmA,
             channel: 'EMAIL',
             name,
-            status,
+            status: 'DRAFT',
             subject: 'Hello',
             body: 'Hello there',
             createdByUserId: people.ownerA.id,
@@ -479,17 +479,20 @@ describe('Convert Lead to Client (POST :id/convert-to-client)', () => {
           if (status === 'SENT') {
             await tx.communication.update({
               where: { businessId_id: { businessId: ids.firmA, id } },
-              data: { status: 'SENDING', startedAt: new Date() },
+              data: {
+                status: 'SENDING',
+                startedAt: new Date(),
+                selectedCount: 1,
+                autoExcludedCount: 0,
+                manualExcludedCount: 0,
+                finalCount: 1,
+              },
             });
             await tx.communication.update({
               where: { businessId_id: { businessId: ids.firmA, id } },
               data: {
                 status: 'SENT',
                 sentAt: new Date(),
-                selectedCount: 1,
-                autoExcludedCount: 0,
-                manualExcludedCount: 0,
-                finalCount: 1,
               },
             });
           }
