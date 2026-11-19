@@ -1235,6 +1235,85 @@ export const SaveAdvisorySettingsRequest = z
   .refine((o) => Object.keys(o).length > 0, 'Change at least one field');
 export type SaveAdvisorySettingsRequest = z.input<typeof SaveAdvisorySettingsRequest>;
 
+/**
+ * A-X02 (Business Advisory Review Two, B16): the industries a firm starts with, until it saves its
+ * own list. "Other" is not one of them: the forms always add it, with Specify.
+ */
+export const ADVISORY_INDUSTRY_DEFAULTS: readonly string[] = [
+  'Construction',
+  'Retail',
+  'Professional Services',
+  'Healthcare',
+  'Food & Beverage',
+  'Transportation',
+  'Beauty & Wellness',
+  'Automotive',
+  'Real Estate',
+  'Technology',
+  'Manufacturing',
+  'Hospitality',
+];
+
+/**
+ * GET .../industries (A-X02): the firm's industry choices for an advisory client and a plan, in
+ * its order, archived ones included (marked). The built-in list (ids null) until the firm saves
+ * its own. A client or plan keeps the text it was saved with: renaming or archiving one here never
+ * rewrites it.
+ */
+export const AdvisoryIndustry = z.object({
+  /** Null for a built-in one the firm has not saved yet. */
+  id: z.uuid().nullable(),
+  name: z.string(),
+  archived: z.boolean(),
+});
+export type AdvisoryIndustry = z.infer<typeof AdvisoryIndustry>;
+export const AdvisoryIndustryList = z.object({
+  items: z.array(AdvisoryIndustry).max(200),
+  /** False while the firm uses the built-in list. */
+  custom: z.boolean(),
+  /** Advisory Admin: may change the list. */
+  canManage: z.boolean(),
+});
+export type AdvisoryIndustryList = z.infer<typeof AdvisoryIndustryList>;
+/**
+ * PUT .../industries (Advisory Admin): the whole list in its order. An item with `id` is one of
+ * the firm's (404 otherwise), renamed, archived or restored; one without is added. A saved one
+ * left out is archived, never deleted. Live names once each, ignoring case (409
+ * DUPLICATE_INDUSTRY on a race); "Other" is always offered and is not saved.
+ */
+export const SaveAdvisoryIndustriesRequest = z.strictObject({
+  items: z
+    .array(
+      z.strictObject({
+        id: z.uuid().optional(),
+        name: text(80),
+        archived: z.boolean().optional().default(false),
+      }),
+    )
+    .min(1, 'Keep at least one industry')
+    .max(100)
+    .superRefine((items, ctx) => {
+      const seen = new Set<string>();
+      items.forEach((item, i) => {
+        const key = item.name.trim().toLowerCase();
+        if (key === 'other')
+          ctx.addIssue({
+            code: 'custom',
+            path: [i, 'name'],
+            message: 'Other is always offered, with Specify',
+          });
+        else if (!item.archived && seen.has(key))
+          ctx.addIssue({
+            code: 'custom',
+            path: [i, 'name'],
+            message: 'This industry is already in the list',
+          });
+        if (!item.archived) seen.add(key);
+      });
+    }),
+});
+export type SaveAdvisoryIndustriesRequest = z.input<typeof SaveAdvisoryIndustriesRequest>;
+
 // ---------- Reports ----------
 
 /**

@@ -59,6 +59,8 @@ import {
   FinalizeAdvisoryPlanRequest,
   ReorderAdvisoryMilestonesRequest,
   RequestAdvisoryPlanApprovalRequest,
+  SaveAdvisoryIndustriesRequest,
+  AdvisoryIndustryList,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
@@ -400,6 +402,15 @@ export function createAdvisoryClient(request: ApiRequest) {
       request(AdvisorySettingsView, `${BASE}/settings`, {
         method: 'PUT',
         body: parseInput(SaveAdvisorySettingsRequest, body),
+      }),
+    /** A-X02: the firm's industry choices (the built-in list until it saves its own). */
+    industries: async (): Promise<AdvisoryIndustryList> =>
+      request(AdvisoryIndustryList, `${BASE}/industries`),
+    /** A-X02 (Advisory Admin): saves the whole list in its order. */
+    saveIndustries: async (body: SaveAdvisoryIndustriesRequest): Promise<AdvisoryIndustryList> =>
+      request(AdvisoryIndustryList, `${BASE}/industries`, {
+        method: 'PUT',
+        body: parseInput(SaveAdvisoryIndustriesRequest, body),
       }),
   };
 }

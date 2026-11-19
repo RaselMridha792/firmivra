@@ -21,6 +21,7 @@ import {
   ReorderAdvisoryMilestonesRequest,
   RequestAdvisoryPlanApprovalRequest,
   SaveAdvisorySettingsRequest,
+  SaveAdvisoryIndustriesRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
   SetAdvisoryPlanStatusRequest,
@@ -95,3 +96,4 @@ export const SendResourceBody = clean(SendAdvisoryResourceRequest);
 /** B28: the preview takes what Send takes. */
 export const PreviewResourceBody = SendResourceBody;
 export const SettingsBody = clean(SaveAdvisorySettingsRequest);
+export const IndustriesBody = clean(SaveAdvisoryIndustriesRequest);

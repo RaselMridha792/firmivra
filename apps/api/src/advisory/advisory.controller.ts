@@ -31,6 +31,7 @@ import {
   type AdvisoryResourcePreview,
   type AdvisoryServiceOptionList,
   type AdvisorySettingsView,
+  type AdvisoryIndustryList,
   type AdvisoryVersionDetail,
   type AdvisoryVersionList,
   type AdvisoryWorkstream,
@@ -73,6 +74,7 @@ import {
   SendResourceBody,
   SetPlanStatusBody,
   SettingsBody,
+  IndustriesBody,
   UpdateActionItemBody,
   UpdateClientBody,
   UpdateGoalBody,
@@ -671,5 +673,26 @@ export class AdvisoryController {
   ): Promise<AdvisorySettingsView> {
     const w = who(auth, tenant);
     return this.overview.saveSettings(w.businessId, w.tenant, w.userId, body);
+  }
+
+  /** A-X02: the firm's industry choices. */
+  @Get('industries')
+  industries(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<AdvisoryIndustryList> {
+    const w = who(auth, tenant);
+    return this.overview.industries(w.businessId, w.tenant, w.userId);
+  }
+
+  /** A-X02 (Advisory Admin): saves the industry list. */
+  @Put('industries')
+  saveIndustries(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(IndustriesBody)) body: Out<typeof IndustriesBody>,
+  ): Promise<AdvisoryIndustryList> {
+    const w = who(auth, tenant);
+    return this.overview.saveIndustries(w.businessId, w.tenant, w.userId, body);
   }
 }
