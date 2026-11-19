@@ -196,7 +196,8 @@ test('The list keeps its filters in the address; Templates goes back to it; the 
   await page.getByLabel('Search invoices').fill('0098');
   await expect(page).toHaveURL(/[?&]q=0098/);
   await page.getByRole('link', { name: 'Invoice Templates' }).click();
-  await page.waitForURL(/\/templates/);
+  // I-N09 (#1581): the link opens the invoice templates in Settings > Payments.
+  await page.waitForURL(/\/settings\/payments\?from=[^#]*#invoice-templates$/);
   await page.getByTestId('back-to-origin').click();
   await page.waitForURL(/\/invoices\?.*q=0098/);
   await expect(page.getByLabel('Search invoices')).toHaveValue('0098');

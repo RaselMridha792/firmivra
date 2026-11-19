@@ -200,6 +200,8 @@ function built() {
       lines: lines(['Monthly bookkeeping, September', 1, 30_000]),
       issuedAt: noonOn(day(-20)),
       dueOn: day(20),
+      // Set before I-D01 withdrew it: stored, and shown nowhere.
+      requirePaymentBeforeDue: true,
     }),
     row(2, {
       number: 'INV-2026-0102',
@@ -810,22 +812,15 @@ export function createInvoicesMock(
     if (docs.some((d) => d && (d.direction === 'INTERNAL' || d.scanStatus !== 'CLEAN'))) {
       throw fail(409, 'ATTACHMENT_NOT_SHAREABLE', 'The file is internal or not checked yet');
     }
-    // IP-F04: the tip and payment-before-due options while Settings has them on.
+    // IP-F04: the tip while Settings has it on. As the API (I-D01): requirePaymentBeforeDue is
+    // accepted and ignored, so a stored one stays as it is.
     const fees = mockLivePreferences().taxesAndFees;
-    if (
-      (b.allowTip && !current?.allowTip && !fees.tippingEnabled) ||
-      (b.requirePaymentBeforeDue &&
-        !current?.requirePaymentBeforeDue &&
-        !fees.requirePaymentBeforeDue)
-    ) {
+    if (b.allowTip && !current?.allowTip && !fees.tippingEnabled) {
       throw fail(409, 'OPTION_NOT_ENABLED', 'Turn this option on in Settings > Payments first.');
     }
     return {
       ...(b.emailClient === undefined ? {} : { emailClient: b.emailClient }),
       ...(b.allowTip === undefined ? {} : { allowTip: b.allowTip }),
-      ...(b.requirePaymentBeforeDue === undefined
-        ? {}
-        : { requirePaymentBeforeDue: b.requirePaymentBeforeDue }),
       tax: rate ? { id: rate.id, name: rate.name, rateBps: rate.rateBps } : null,
       template: template ? { id: template.id, name: template.name } : null,
       assignedTo: member ? { userId: member.user.id, name: member.user.name } : null,
