@@ -28,6 +28,7 @@ import {
 import Link from 'next/link';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { useFirmZone } from '../../../../../lib/firm-zone';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { SettingsDialog } from './automation-dialogs';
@@ -36,11 +37,12 @@ import {
   AUTOMATION_ERRORS,
   RunStatusPill,
   card,
-  dayText,
+  DayText,
   outlined,
   quiet,
   seconds,
   stamp,
+  Stamp,
   subtle,
 } from './automations-shared';
 
@@ -82,6 +84,7 @@ export function LogsScreen({
   ruleId: string | undefined;
   runId?: string | undefined;
 }) {
+  const zone = useFirmZone();
   const [range, setRange] = useState('30');
   const [rule, setRule] = useState(ruleId ?? '');
   const [tab, setTab] = useState<NonNullable<AutomationRunsQuery['tab']>>('all');
@@ -142,7 +145,11 @@ export function LogsScreen({
     {
       id: 'when',
       label: 'Date/Time',
-      cell: (r) => <span className="block min-w-24">{stamp(r.createdAt)}</span>,
+      cell: (r) => (
+        <span className="block min-w-24">
+          <Stamp iso={r.createdAt} />
+        </span>
+      ),
     },
     {
       id: 'rule',
@@ -170,7 +177,7 @@ export function LogsScreen({
       cell: (r) => (
         <button
           type="button"
-          aria-label={`View ${r.rule.name} ${stamp(r.createdAt)}`}
+          aria-label={`View ${r.rule.name} ${stamp(r.createdAt, zone)}`}
           onClick={() => setPicked(r.id)}
           className="font-medium text-link hover:underline"
         >
@@ -438,7 +445,9 @@ function LogDetails({
               <p className="flex flex-wrap items-center gap-2 text-base font-bold text-heading">
                 {d.rule.name} <RunStatusPill status={d.status} />
               </p>
-              <p className="text-sm text-muted">{stamp(d.createdAt)}</p>
+              <p className="text-sm text-muted">
+                <Stamp iso={d.createdAt} />
+              </p>
             </div>
             {d.canRerun ? (
               <button type="button" className={outlined} onClick={onRerun} data-testid="rerun">
@@ -614,9 +623,13 @@ function RuleInformation({ id }: { id: string | undefined }) {
           <dt className="text-text">Created By:</dt>
           <dd className="text-heading">{r.owner?.name ?? '—'}</dd>
           <dt className="text-text">Date Created:</dt>
-          <dd className="text-heading">{dayText(r.createdAt)}</dd>
+          <dd className="text-heading">
+            <DayText iso={r.createdAt} />
+          </dd>
           <dt className="text-text">Last Modified:</dt>
-          <dd className="text-heading">{dayText(r.updatedAt)}</dd>
+          <dd className="text-heading">
+            <DayText iso={r.updatedAt} />
+          </dd>
         </dl>
       )}
     </section>
