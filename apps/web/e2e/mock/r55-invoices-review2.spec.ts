@@ -47,3 +47,63 @@ test('I-D01: an invoice set to ask for payment before the due date asks for noth
   await expect(page.getByTestId('pay-before-due')).toHaveCount(0);
   await expect(page.locator('main')).not.toContainText('before the due date');
 });
+
+test('R1-2: leaving Accepted Client Payments with unsaved changes asks to stay or leave', async ({
+  page,
+}) => {
+  // This tab's mock firm has Stripe connected, so the cards switch can change.
+  await page.addInitScript(() =>
+    sessionStorage.setItem('firmivra-mock:payments-stage', 'CONNECTED'),
+  );
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/settings/payments'));
+  const cards = page
+    .getByTestId('accepted-payments')
+    .getByRole('switch', { name: 'Credit / debit cards' });
+  await expect(cards).toBeEnabled({ timeout: 60_000 });
+  await expect(cards).toBeChecked();
+  await cards.click();
+  await expect(cards).not.toBeChecked();
+
+  const away = page.locator('main').getByRole('link', { name: 'Invoices & Payments' }).last();
+  const ask = page.getByRole('dialog', { name: 'Leave without saving?' });
+  await away.click();
+  await expect(ask).toContainText('You have changes that are not saved.');
+  await ask.getByRole('button', { name: 'Stay on this page' }).click();
+  await expect(ask).toHaveCount(0);
+  await expect(page).toHaveURL(/\/settings\/payments$/);
+  await expect(cards).not.toBeChecked();
+
+  await away.click();
+  await ask.getByRole('button', { name: 'Leave without saving' }).click();
+  await expect(page).toHaveURL(/\/invoices$/, { timeout: 60_000 });
+});
+
+test('R1-2: the billing sections ask too; after Cancel nothing is asked', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/settings/payments'));
+  const prefix = page.getByLabel('Invoice number prefix');
+  await prefix.fill('LVP-', { timeout: 60_000 });
+  const away = page.locator('main').getByRole('link', { name: 'Invoices & Payments' }).last();
+  const ask = page.getByRole('dialog', { name: 'Leave without saving?' });
+  await away.click();
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Stay on this page' }).click();
+  await expect(prefix).toHaveValue('LVP-');
+
+  // Closing or reloading the tab asks too (the browser's own question); this one stays.
+  const asked = new Promise<string>((resolve) => {
+    page.once('dialog', (dialog) => {
+      resolve(dialog.type());
+      void dialog.dismiss();
+    });
+  });
+  await page.close({ runBeforeUnload: true });
+  expect(await asked).toBe('beforeunload');
+
+  await page.getByTestId('billing-actions').getByRole('button', { name: 'Cancel' }).click();
+  await expect(prefix).toHaveValue('INV-');
+  await away.click();
+  await expect(page).toHaveURL(/\/invoices$/, { timeout: 60_000 });
+  await expect(ask).toHaveCount(0);
+});

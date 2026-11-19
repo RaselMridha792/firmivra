@@ -18,6 +18,7 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../../lib/unsaved';
 
 // Settings > Payments' billing sections (Octavia's Invoices & Payments review of Oct 27, IP-F13):
 // Invoice Defaults, Reminders & Automations and Taxes & Fees, on the firm's canonical settings.
@@ -360,6 +361,8 @@ function PreferencesForm({
     invalidate: KEY,
   });
   const dirty = JSON.stringify(form) !== JSON.stringify(start);
+  // Invoices Review 2 R1-2: unsaved changes ask before the page is left (PaymentsScreen's guard).
+  useUnsavedChanges(dirty);
   const check = UpdatePaymentPreferencesRequest.safeParse({ ...form, updatedAt });
   const problem = check.success
     ? null
