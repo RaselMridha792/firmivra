@@ -123,3 +123,59 @@ test('I-C02: Auto-apply payments says it is not active yet, and still saves', as
   await expect(page.getByRole('status').filter({ hasText: 'Changes saved.' })).toBeVisible();
   await expect(toggle).toBeChecked();
 });
+
+test('I-N04: the reminder and overdue fields show greyed while their switch is off, and keep what is saved', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/settings/payments'));
+  const reminders = page.getByRole('switch', { name: 'Payment reminders' });
+  const overdue = page.getByRole('switch', { name: 'Overdue notices' });
+  const days = page.getByTestId('reminder-days');
+  const day = days.getByLabel('Days before', { exact: true });
+  const repeat = page.getByLabel('Repeat every (days, 0 for once)');
+  const cap = page.getByLabel('Stop after (notices)');
+  const save = page.getByTestId('billing-actions').getByRole('button', { name: 'Save Changes' });
+  // Both off (the defaults): every field shows, greyed, with its value.
+  await expect(reminders).not.toBeChecked({ timeout: 60_000 });
+  await expect(overdue).not.toBeChecked();
+  await expect(days.getByRole('listitem')).toHaveText(['3 days before']);
+  await expect(day).toBeDisabled();
+  await expect(days.getByRole('button', { name: 'Add day' })).toBeDisabled();
+  await expect(days).toContainText('Turn on Payment reminders to change these days.');
+  await expect(repeat).toBeDisabled();
+  await expect(repeat).toHaveValue('7');
+  await expect(cap).toBeDisabled();
+  await expect(cap).toHaveValue('3');
+  await expect(page.getByTestId('overdue-schedule')).toContainText(
+    'Turn on Overdue notices to change these.',
+  );
+
+  // On, they change; off again, they show what is saved, and nothing is left to save.
+  await overdue.click();
+  await expect(cap).toBeEnabled();
+  await cap.fill('5');
+  await repeat.fill('14');
+  await expect(save).toBeEnabled();
+  await overdue.click();
+  await expect(cap).toBeDisabled();
+  await expect(cap).toHaveValue('3');
+  await expect(repeat).toHaveValue('7');
+  await expect(save).toBeDisabled();
+
+  // Saved on with two days, then off: the saved days stay, greyed, and save unchanged.
+  await reminders.click();
+  await day.fill('7');
+  await days.getByRole('button', { name: 'Add day' }).click();
+  await save.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Changes saved.' })).toBeVisible();
+  await days.getByRole('button', { name: 'Remove 3 days before' }).click();
+  await reminders.click();
+  await expect(days.getByRole('listitem')).toHaveText(['7 days before', '3 days before']);
+  await expect(day).toBeDisabled();
+  await expect(days.getByRole('button', { name: /^Remove/ })).toHaveCount(0);
+  await save.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Changes saved.' })).toBeVisible();
+  await expect(reminders).not.toBeChecked();
+  await expect(days.getByRole('listitem')).toHaveText(['7 days before', '3 days before']);
+});
