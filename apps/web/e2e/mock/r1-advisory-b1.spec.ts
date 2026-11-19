@@ -120,8 +120,11 @@ test('A-09: advisory reports keep the client and Advisory context, and their car
     'href',
     /^\/reports\/library\?category=ADVISORY&from=/,
   );
-  await page.getByTestId('report-goals').getByRole('link', { name: 'Open Goals' }).click();
-  await expect(page).toHaveURL(app('/business-advisory/goals'));
+  // A click while the dev server rebuilds (Fast Refresh) can be dropped: click until it opens.
+  await expect(async () => {
+    await page.getByTestId('report-goals').getByRole('link', { name: 'Open Goals' }).click();
+    await expect(page).toHaveURL(app('/business-advisory/goals'), { timeout: 10_000 });
+  }).toPass({ timeout: 90_000 });
 });
 
 test('A-X01: a business client’s EIN status is kept apart from the number', async ({ page }) => {

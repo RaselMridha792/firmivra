@@ -116,6 +116,44 @@ test('SM17: pay is never saved in a draft, and stays on the page through Back an
   await expect(page.getByLabel('Pay Rate / Salary')).toHaveValue('52.50');
 });
 
+test('SM17: Save under Remove keeps a file and its type with the draft, through Back and Next', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/team/new'));
+  await page.getByLabel('First Name *').fill('Ada', { timeout: 60_000 });
+  await page.getByLabel('Last Name *').fill('Files');
+  await page.getByLabel('Work Email *').fill('ada.files.sm17@example.test');
+  await page.getByRole('button', { name: /Department\(s\) \*/ }).click();
+  await page.getByRole('checkbox', { name: 'Tax' }).check();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Job Title *').fill('Tax Preparer');
+  await page.getByLabel('Role *').selectOption({ label: 'Tax Preparer' });
+  await page.getByRole('button', { name: 'Next: Role & Permissions' }).click();
+  await page.getByRole('button', { name: 'Next: Access & Security' }).click({ timeout: 30_000 });
+  await page.getByRole('button', { name: 'Next: Additional Details' }).click({ timeout: 30_000 });
+  await page
+    .getByRole('region', { name: 'Staff Documents' })
+    .locator('input[type=file]')
+    .setInputFiles({
+      name: 'Fake NDA.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.7\n%%EOF\n'),
+    });
+  await page.getByLabel('Document type of Fake NDA.pdf').selectOption({ label: 'NDA' });
+  await page.getByRole('button', { name: 'Save Fake NDA.pdf with this draft' }).click();
+  const kept = page.getByTestId('kept-file');
+  await expect(kept).toContainText('Fake NDA.pdf');
+  await expect(kept).toContainText('Saved with this draft');
+  // Kept with the draft, not this page: Back and Next bring it back with its type.
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: 'Next: Additional Details' }).click({ timeout: 30_000 });
+  await expect(kept).toContainText('NDA');
+  await expect(kept).toContainText('Fake NDA.pdf');
+  await kept.getByRole('button', { name: 'Remove' }).click();
+  await expect(kept).toHaveCount(0);
+});
+
 // SM40: keyboard, focus and narrow screens on Staff Management.
 const HANA = '0199c0a0-0a00-7000-8000-000000000006';
 

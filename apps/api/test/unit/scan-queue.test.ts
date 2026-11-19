@@ -5,6 +5,9 @@
 // backoff and the shutdown. No database: a fake Database records the scopes; the e2e file
 // (scan-queue.e2e.test.ts) runs the documents handler against the test database.
 import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import type { Database } from '@firmivra/db';
@@ -19,6 +22,7 @@ import {
   type RoutedScanResult,
   type ScanPrefix,
   type ScanResultHandler,
+  SCAN_PREFIXES,
   ScanResultRouter,
 } from '../../src/storage/scan-queue/scan-router.js';
 import {
@@ -243,7 +247,80 @@ const parsed = (key: string, status: Status = 'NO_THREATS_FOUND', reasons: strin
   return p.event;
 };
 
+/**
+ * Tenant key prefixes the API writes that no scan handler records, and why. Every other prefix
+ * the API writes must be a SCAN_PREFIX, so a new upload prefix can't fall through to IGNORED
+ * unseen (SM17: staff-drafts did).
+ */
+const NOT_ROUTED: Record<string, string> = {
+  automations: 'CSV exports the API writes itself',
+  reports: 'PDFs and exports the API writes itself',
+  branding: 'brand images: type and size checked at upload, shown only as images; no scan record',
+  logo: 'the firm logo: as branding',
+  offices: 'location photos: as branding',
+  'email-images': 'images placed in lead emails: as branding',
+  integrations: 'not an S3 key: a Secrets Manager name (firmivra/tenant/…)',
+  communications:
+    'message attachments kept in the message row, bytes checked at upload; no scan record',
+  templates: 'template attachments: as communications',
+  'template-imports': 'a Word file read once at import, then deleted; no scan record',
+};
+
+/** Every `tenant/${…}/<prefix>/` an API source file builds. */
+function writtenPrefixes(): Map<string, string> {
+  const root = fileURLToPath(new URL('../../src', import.meta.url));
+  const found = new Map<string, string>();
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.name.endsWith('.ts')) {
+        for (const m of readFileSync(path, 'utf8').matchAll(
+          /tenant\/\$\{[^}]+\}\/([a-z][a-z-]*)\//g,
+        ))
+          found.set(m[1]!, path);
+      }
+    }
+  };
+  walk(root);
+  return found;
+}
+
 describe('ScanResultRouter', () => {
+  it('routes every scan prefix, hyphenated ones included (SM17: staff-drafts)', async () => {
+    const router = new ScanResultRouter(fakeDatabase().db);
+    const id = randomUUID();
+    for (const prefix of SCAN_PREFIXES) {
+      expect(await router.route(parsed(`tenant/${firmA}/${prefix}/${id}`)), prefix).toEqual({
+        outcome: 'UNKNOWN',
+        target: { prefix, businessId: firmA, objectId: id },
+      });
+    }
+    expect(SCAN_PREFIXES).toContain('staff-drafts');
+    // A hyphen at either end, two together, or an unknown hyphenated name is still no prefix.
+    for (const name of ['-staff', 'staff-', 'staff--drafts', 'staff-other']) {
+      expect(await router.route(parsed(`tenant/${firmA}/${name}/${id}`)), name).toEqual({
+        outcome: 'IGNORED',
+      });
+    }
+  });
+
+  it('knows every tenant key prefix the API writes: a scan prefix, or not scanned for a reason', () => {
+    const written = writtenPrefixes();
+    expect(written.has('staff-drafts')).toBe(true);
+    const unknown = [...written.entries()]
+      .filter(([p]) => !(SCAN_PREFIXES as readonly string[]).includes(p) && !(p in NOT_ROUTED))
+      .map(([p, file]) => `${p} (${file})`);
+    expect(unknown, 'add it to SCAN_PREFIXES with a handler, or to NOT_ROUTED with why').toEqual(
+      [],
+    );
+    // No stale or contradicting entry.
+    for (const p of Object.keys(NOT_ROUTED)) {
+      expect((SCAN_PREFIXES as readonly string[]).includes(p), p).toBe(false);
+      expect(written.has(p), `${p} is written nowhere now`).toBe(true);
+    }
+  });
+
   it('takes one handler per prefix', () => {
     const router = new ScanResultRouter(fakeDatabase().db);
     router.register(fakeHandler('documents').handler);

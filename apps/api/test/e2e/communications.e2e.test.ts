@@ -11,6 +11,10 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
+  AUDIENCE_PEOPLE_LIMIT,
+  AddEligibleContactsResult,
+  EligibleContactsCount,
+  RemoveAudienceEntriesResult,
   CommunicationAttachment,
   MessageTemplateDetail,
   UploadPutTicket,
@@ -1955,6 +1959,50 @@ describe('test send, templates and files', () => {
     expect((await getDetail(d.id)).body).toBe(fresh.body);
   });
 
+  it('an email from a template goes out with the firm’s footer and disclaimer, once (Y10)', async () => {
+    const footer = `Fake footer ${run}`;
+    const disclaimer = `Fake disclaimer ${run}`;
+    const firm = async (method: 'put', path: string, body: object) =>
+      request(app.getHttpServer())
+        [method](`/api/v1/business${path}`)
+        .set('x-business-id', firms.a)
+        .set('x-forwarded-for', viewer())
+        .set('authorization', `Bearer ${await tokenFor(ownerA.email)}`)
+        .send(body);
+    const times = (s: string, part: string) => s.split(part).length - 1;
+    ok(await firm('put', '/template-branding', { footerText: footer, disclaimer }));
+    try {
+      // The template's own content already has the footer: only the disclaimer is added.
+      const src = await draft();
+      await edit(src.id, { subject: 'Branded', body: `<p>Hello</p><p>${footer}</p>` });
+      const t = MessageTemplateDetail.parse(
+        ok(
+          await call('post', `/${src.id}/save-as-template`, ownerA, {
+            name: mark('Branded'),
+            activate: true,
+          }),
+          201,
+        ),
+      );
+      const sendIt = async (d: { id: string }) => {
+        ok(await audienceOf(d.id, { clientIds: [people2.p2] }));
+        const fresh = await getDetail(d.id);
+        ok(
+          await call('post', `/${d.id}/send`, ownerA, { idempotencyKey: key(), etag: fresh.etag }),
+        );
+        return (await getDetail(d.id)).body;
+      };
+      const branded = await sendIt(await draft({ templateId: t.id, name: mark('Branded send') }));
+      expect([times(branded, footer), times(branded, disclaimer)]).toEqual([1, 1]);
+      // An email written from scratch, and a text, are sent as written.
+      const plain = await draft({ name: mark('Plain send') });
+      await edit(plain.id, { subject: 'Plain', body: '<p>Plain body</p>' });
+      expect(await sendIt(plain)).not.toContain(disclaimer);
+    } finally {
+      ok(await firm('put', '/template-branding', { footerText: null, disclaimer: null }));
+    }
+  });
+
   it('an archived template can no longer be used (TP-F13)', async () => {
     const d = await draft();
     await edit(d.id, { subject: 'Kept', body: '<p>Kept body</p>' });
@@ -2056,4 +2104,339 @@ describe('test send, templates and files', () => {
     );
     expectError(await start(d.id, pdf, {}, staffA), 404, 'NOT_FOUND');
   });
+});
+
+// ---------- C20: All Contacts' "Add all eligible" ----------
+// Last in the file: it adds many clients to firm A, and nothing after it counts them.
+
+describe('C20: Add all eligible in All Contacts', () => {
+  const tagName = `Reach${run}`;
+  const r = {} as Record<
+    'alpha' | 'bravo' | 'charlie' | 'delta' | 'echo' | 'foxtrot' | 'golf' | 'india' | 'gone',
+    string
+  >;
+  let list = '';
+  const countOf = async (id: string, search = tagName, who: Who = ownerA) =>
+    EligibleContactsCount.parse(
+      ok(await call('get', `/${id}/audience/eligible?search=${encodeURIComponent(search)}`, who)),
+    );
+  const addAll = async (id: string, search: string | undefined = tagName, who: Who = ownerA) =>
+    call('post', `/${id}/audience/add-eligible`, who, {
+      etag: (await getDetail(id, who)).etag,
+      ...(search === undefined ? {} : { search }),
+    });
+  const undo = async (id: string, entryIds: string[], who: Who = ownerA) =>
+    call('post', `/${id}/audience/remove-entries`, who, {
+      etag: (await getDetail(id, who)).etag,
+      entryIds,
+    });
+  const entriesOf = (id: string) =>
+    inFirm('a', (tx) =>
+      tx.communicationAudienceEntry.findMany({
+        where: { communicationId: id },
+        select: { id: true, kind: true, clientId: true, segmentId: true },
+      }),
+    );
+
+  beforeAll(async () => {
+    // The email channel (connected by 'campaigns' above; again here when this block runs alone).
+    await inFirm('a', async (tx) => {
+      const has = await tx.integrationConnection.count({
+        where: { businessId: firms.a, provider: 'gmail' },
+      });
+      if (!has)
+        await tx.integrationConnection.create({
+          data: {
+            businessId: firms.a,
+            provider: 'gmail',
+            status: 'CONNECTED',
+            accountLabel: 'Fake Firm Mail',
+          },
+        });
+    });
+    await inFirm('a', async (tx) => {
+      const mk = async (
+        k: keyof typeof r,
+        name: string,
+        over: { email?: string | null; archivedAt?: Date; assignedUserId?: string } = {},
+      ) => {
+        r[k] = (
+          await tx.client.create({
+            data: {
+              businessId: firms.a,
+              displayName: `${tagName} ${name} (fake)`,
+              email: over.email === undefined ? `${k}-${run}@reach.test` : over.email,
+              ...(over.archivedAt ? { archivedAt: over.archivedAt } : {}),
+              ...(over.assignedUserId ? { assignedUserId: over.assignedUserId } : {}),
+            },
+            select: { id: true },
+          })
+        ).id;
+      };
+      await mk('alpha', 'Alpha', { assignedUserId: staffA.id });
+      await mk('bravo', 'Bravo');
+      await mk('charlie', 'Charlie');
+      await mk('delta', 'Delta', { email: null });
+      await mk('echo', 'Echo', { email: `not-an-address-${run}` });
+      await mk('foxtrot', 'Foxtrot');
+      await mk('golf', 'Golf');
+      await mk('india', 'India');
+      await mk('gone', 'Archived', { archivedAt: new Date() });
+    });
+    // Charlie opted out of email: the list marks them, and they are never added.
+    ok(
+      await call('put', '/consent', ownerA, {
+        clientId: r.charlie,
+        channel: 'EMAIL',
+        status: 'OPTED_OUT',
+      }),
+    );
+    list = SegmentDetail.parse(
+      ok(
+        await call('post', '/segments', ownerA, {
+          name: mark('Reach list'),
+          type: 'STATIC',
+          clientIds: [r.golf],
+        }),
+        201,
+      ),
+    ).id;
+  });
+
+  it('adds every contact the list marks eligible for the channel, and skips who is in already', async () => {
+    const d = await draft({ name: mark('Reach') });
+    // Bravo chosen by hand, Foxtrot left out by hand, Golf in a chosen list.
+    ok(
+      await audienceOf(d.id, {
+        clientIds: [r.bravo],
+        excludeClientIds: [r.foxtrot],
+        segmentIds: [list],
+      }),
+    );
+    const before = AudienceSummary.parse(ok(await call('get', `/${d.id}/audience`, ownerA)));
+    // The same rules as the paged list: its eligible ones, less those in the audience.
+    const page = AudienceCandidatePage.parse(
+      ok(
+        await call(
+          'get',
+          `/audience/candidates?communicationId=${d.id}&search=${tagName}&pageSize=100`,
+          ownerA,
+        ),
+      ),
+    );
+    const listed = page.items.filter((i) => i.eligible).map((i) => i.id);
+    expect(listed.sort()).toEqual([r.alpha, r.bravo, r.foxtrot, r.golf, r.india].sort());
+    expect(page.items.map((i) => i.id)).not.toContain(r.gone);
+    expect(await countOf(d.id)).toEqual({
+      count: 2,
+      limit: AUDIENCE_PEOPLE_LIMIT,
+      overLimit: false,
+    });
+    const res = AddEligibleContactsResult.parse(ok(await addAll(d.id)));
+    expect(res.added.map((a) => a.id)).toEqual([r.alpha, r.india]);
+    expect(res.added.map((a) => a.name)).toEqual([
+      `${tagName} Alpha (fake)`,
+      `${tagName} India (fake)`,
+    ]);
+    expect(res.summary.finalCount).toBe(before.finalCount + 2);
+    const entries = await entriesOf(d.id);
+    expect(
+      entries
+        .filter((e) => e.kind === 'CLIENT')
+        .map((e) => e.clientId)
+        .sort(),
+    ).toEqual([r.alpha, r.bravo, r.india].sort());
+    expect(res.added.map((a) => a.entryId).sort()).toEqual(
+      entries
+        .filter((e) => e.clientId === r.alpha || e.clientId === r.india)
+        .map((e) => e.id)
+        .sort(),
+    );
+    // Nobody is left to add; asking again adds nothing.
+    expect((await countOf(d.id)).count).toBe(0);
+    expect(AddEligibleContactsResult.parse(ok(await addAll(d.id))).added).toEqual([]);
+    // Ids and counts only in the audit.
+    const rows = (await auditRows(d.id)).filter(
+      (x) => x.action === 'communication.audience_contacts_added',
+    );
+    expect(rows.map((x) => x.metadata)).toEqual([
+      { communicationId: d.id, added: 2 },
+      { communicationId: d.id, added: 0 },
+    ]);
+    expect(JSON.stringify(rows)).not.toMatch(/reach\.test|Alpha|India/);
+  });
+
+  it('keeps each channel’s rules: an announcement adds only clients with portal access', async () => {
+    const user = randomUUID();
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: user,
+          cognitoSub: user,
+          pool: 'CLIENT',
+          email: `india-${run}@portal.test`,
+          name: 'India',
+        },
+      }),
+    );
+    await inFirm('a', (tx) =>
+      tx.clientAccount.create({
+        data: {
+          businessId: firms.a,
+          userId: user,
+          clientId: r.india,
+          email: `india-${run}@portal.test`,
+          status: 'ACTIVE',
+        },
+      }),
+    );
+    const ann = await draft({ channel: 'ANNOUNCEMENT', name: mark('Reach news') });
+    expect((await countOf(ann.id)).count).toBe(1);
+    const res = AddEligibleContactsResult.parse(ok(await addAll(ann.id)));
+    expect(res.added.map((a) => a.id)).toEqual([r.india]);
+    // Staff reach only their own clients: Alpha.
+    const mine = await draft({ name: mark('Reach staff') }, staffA);
+    expect((await countOf(mine.id, tagName, staffA)).count).toBe(1);
+    const staffRes = AddEligibleContactsResult.parse(ok(await addAll(mine.id, tagName, staffA)));
+    expect(staffRes.added.map((a) => a.id)).toEqual([r.alpha]);
+  });
+
+  it('Undo removes exactly what it added, also after a later save, never what was chosen before', async () => {
+    const d = await draft({ name: mark('Reach undo') });
+    ok(await audienceOf(d.id, { clientIds: [r.bravo] }));
+    const res = AddEligibleContactsResult.parse(ok(await addAll(d.id)));
+    const added = res.added.map((a) => a.id);
+    expect([...added].sort()).toEqual([r.alpha, r.foxtrot, r.golf, r.india].sort());
+    // The picker saves again (a list chosen too): the added entries keep their ids.
+    ok(await audienceOf(d.id, { clientIds: [r.bravo, ...added], segmentIds: [list] }));
+    const kept = await entriesOf(d.id);
+    for (const a of res.added) expect(kept.map((e) => e.id)).toContain(a.entryId);
+    // The member took Foxtrot back out before Undo: Undo sends the rest.
+    ok(
+      await audienceOf(d.id, {
+        clientIds: [r.bravo, ...added.filter((x) => x !== r.foxtrot)],
+        segmentIds: [list],
+      }),
+    );
+    const rest = res.added.filter((a) => a.id !== r.foxtrot).map((a) => a.entryId);
+    const undone = RemoveAudienceEntriesResult.parse(ok(await undo(d.id, rest)));
+    expect(undone.removed).toBe(3);
+    const after = await entriesOf(d.id);
+    expect(after.map((e) => `${e.kind}:${e.clientId ?? e.segmentId}`).sort()).toEqual(
+      [`CLIENT:${r.bravo}`, `SEGMENT:${list}`].sort(),
+    );
+    expect(undone.summary.chips.map((c) => c.id).sort()).toEqual([r.bravo, list].sort());
+    // An entry that is not this draft's (gone already, or another draft's) removes nothing.
+    expectError(await undo(d.id, rest), 400, 'VALIDATION_FAILED');
+    const other = await draft({ name: mark('Reach other') });
+    ok(await audienceOf(other.id, { clientIds: [r.bravo] }));
+    const otherEntry = (await entriesOf(other.id))[0]!.id;
+    expectError(await undo(d.id, [otherEntry]), 400, 'VALIDATION_FAILED');
+    expect(await entriesOf(other.id)).toHaveLength(1);
+    const rows = (await auditRows(d.id)).filter(
+      (x) => x.action === 'communication.audience_entries_removed',
+    );
+    expect(rows.map((x) => x.metadata)).toEqual([{ communicationId: d.id, removed: 3 }]);
+  });
+
+  it('changes a draft only, of this firm, for those who may edit (409, 404, 403)', async () => {
+    const d = await draft({ name: mark('Reach state') });
+    const res = AddEligibleContactsResult.parse(ok(await addAll(d.id)));
+    const entryIds = res.added.map((a) => a.entryId);
+    expect(entryIds.length).toBeGreaterThan(0);
+    // Another firm's owner cannot see it, nor a staff member who did not make it.
+    expectError(
+      await call('get', `/${d.id}/audience/eligible`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', `/${d.id}/audience/add-eligible`, ownerB, { etag: d.etag }, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'post',
+        `/${d.id}/audience/remove-entries`,
+        ownerB,
+        { etag: d.etag, entryIds },
+        'b',
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', `/${d.id}/audience/add-eligible`, staffA, { etag: d.etag }),
+      404,
+      'NOT_FOUND',
+    );
+    // A reader may not change it; an old version is a conflict.
+    expect(
+      (await call('post', `/${d.id}/audience/add-eligible`, readerA, { etag: d.etag })).status,
+    ).toBe(403);
+    expectError(
+      await call('post', `/${d.id}/audience/add-eligible`, ownerA, { etag: 'old' }),
+      409,
+      'SAVE_CONFLICT',
+    );
+    // Scheduled, then gone out: the audience stays as it is.
+    await inFirm('a', (tx) =>
+      tx.communication.update({
+        where: { id: d.id },
+        data: {
+          status: 'SCHEDULED',
+          scheduledFor: new Date(Date.now() + 2 * 86_400_000),
+          timezone: 'America/New_York',
+        },
+      }),
+    );
+    expectError(await addAll(d.id), 409, 'NOT_EDITABLE');
+    expectError(await undo(d.id, entryIds), 409, 'NOT_EDITABLE');
+    await inFirm('a', (tx) =>
+      tx.communication.update({
+        where: { id: d.id },
+        data: { status: 'CANCELLED', cancelledAt: new Date() },
+      }),
+    );
+    expectError(await addAll(d.id), 409, 'NOT_EDITABLE');
+    expectError(await undo(d.id, entryIds), 409, 'NOT_EDITABLE');
+    expect((await entriesOf(d.id)).map((e) => e.id).sort()).toEqual([...entryIds].sort());
+  });
+
+  it(`refuses past ${AUDIENCE_PEOPLE_LIMIT} people named one by one, and adds nothing`, async () => {
+    // One more eligible client than the limit (fake names, one insert).
+    await inFirm('a', (tx) =>
+      tx.client.createMany({
+        data: Array.from({ length: AUDIENCE_PEOPLE_LIMIT + 1 }, (_, i) => ({
+          businessId: firms.a,
+          displayName: `Cap${run} ${i} (fake)`,
+          email: `cap-${i}-${run}@reach.test`,
+        })),
+      }),
+    );
+    const d = await draft({ name: mark('Reach cap') });
+    const all = `Cap${run}`;
+    expect(await countOf(d.id, all)).toMatchObject({
+      overLimit: true,
+      limit: AUDIENCE_PEOPLE_LIMIT,
+    });
+    const refused = await addAll(d.id, all);
+    expectError(refused, 409, 'AUDIENCE_TOO_LARGE');
+    expect((refused.body as { error: { message: string } }).error.message).toMatch(
+      /more than 5,000 people one by one\. Narrow the search, or choose a saved segment/,
+    );
+    expect(await entriesOf(d.id)).toEqual([]);
+    // A narrower search fits: "Cap… 10" is 10, 100-109 and 1000-1099.
+    const some = AddEligibleContactsResult.parse(ok(await addAll(d.id, `${all} 10`)));
+    expect(some.added).toHaveLength(111);
+    // The rest would pass the limit with those 111 already named.
+    expect(await countOf(d.id, all)).toEqual({
+      count: AUDIENCE_PEOPLE_LIMIT + 1 - 111,
+      limit: AUDIENCE_PEOPLE_LIMIT,
+      overLimit: true,
+    });
+    expectError(await addAll(d.id, all), 409, 'AUDIENCE_TOO_LARGE');
+    expect(await entriesOf(d.id)).toHaveLength(111);
+  }, 60_000);
 });

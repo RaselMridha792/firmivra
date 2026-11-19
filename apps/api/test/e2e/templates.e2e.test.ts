@@ -1846,6 +1846,50 @@ describe('merge fields and branding', () => {
       ).letterheadEnabled,
     ).toBe(true);
   });
+
+  it('a preview shows the branding as it goes out: a letter its letterhead and signature, an email the footer and disclaimer (Y10)', async () => {
+    const brand = { footer: `Footer ${run}`, disclaimer: `Disclaimer ${run}` };
+    ok(
+      await call('put', '/template-branding', people.ownerA, {
+        footerText: brand.footer,
+        disclaimer: brand.disclaimer,
+        signatureText: `Signed ${run}`,
+        letterheadEnabled: true,
+      }),
+    );
+    try {
+      const letter = await make({
+        kind: 'LETTER_NOTICE',
+        subject: 'Letter',
+        body: '<p>Dear client</p>',
+      });
+      const email = await make({});
+      const sms = await make({ kind: 'SMS', body: 'x' });
+      const brandingOf = async (id: string) =>
+        RenderedTemplate.parse(
+          ok(await call('post', `/templates/${id}/preview`, people.ownerA, {})),
+        ).branding;
+      expect(await brandingOf(letter.id)).toMatchObject({
+        letterhead: { name: expect.any(String) as string },
+        signature: `Signed ${run}`,
+        ...brand,
+      });
+      // An email: never the letterhead, never the firm signature (the sender's My Signature stays).
+      expect(await brandingOf(email.id)).toEqual({ letterhead: null, signature: null, ...brand });
+      expect(await brandingOf(sms.id)).toBeNull();
+      ok(await call('put', '/template-branding', people.ownerA, { letterheadEnabled: false }));
+      expect((await brandingOf(letter.id))?.letterhead).toBeNull();
+    } finally {
+      ok(
+        await call('put', '/template-branding', people.ownerA, {
+          footerText: null,
+          disclaimer: null,
+          signatureText: null,
+          letterheadEnabled: true,
+        }),
+      );
+    }
+  });
 });
 
 describe('images in the content (TP-F07)', () => {

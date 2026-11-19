@@ -563,37 +563,46 @@ describe('tenant isolation (R8 step 2)', () => {
       before = await fingerprint();
     });
 
-    it('a member of firm Q gets 404 naming firm P, on every firm route', async () => {
-      const failures: string[] = [];
-      for (const route of routes.filter(isFirmRoute).filter(ready)) {
-        const c = CASES[keyOf(route)];
-        const path = fill(route, firms.p.slug, c ? recordsOf(c, base) : {});
-        const res = await call(
-          route,
-          path,
-          as.firm(people.ownerQ, firms.p.id),
-          bodyOf(route, own.p, base),
-        );
-        if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
-      }
-      expect(failures).toEqual([]);
-    });
+    // One request per firm route, one after another: as many as the sweeps, so their time.
+    it(
+      'a member of firm Q gets 404 naming firm P, on every firm route',
+      async () => {
+        const failures: string[] = [];
+        for (const route of routes.filter(isFirmRoute).filter(ready)) {
+          const c = CASES[keyOf(route)];
+          const path = fill(route, firms.p.slug, c ? recordsOf(c, base) : {});
+          const res = await call(
+            route,
+            path,
+            as.firm(people.ownerQ, firms.p.id),
+            bodyOf(route, own.p, base),
+          );
+          if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
+        }
+        expect(failures).toEqual([]);
+      },
+      SWEEP_MS,
+    );
 
-    it("a member of firm Q gets 404 on firm P's records by id, in firm Q", async () => {
-      const failures: string[] = [];
-      for (const route of routes.filter(isFirmRoute).filter(ready)) {
-        const c = CASES[keyOf(route)];
-        if (!c || recordParams(route).length === 0) continue;
-        const res = await call(
-          route,
-          fill(route, firms.q.slug, recordsOf(c, base)),
-          as.firm(people.ownerQ, firms.q.id),
-          bodyOf(route, own.q, q),
-        );
-        if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
-      }
-      expect(failures).toEqual([]);
-    });
+    it(
+      "a member of firm Q gets 404 on firm P's records by id, in firm Q",
+      async () => {
+        const failures: string[] = [];
+        for (const route of routes.filter(isFirmRoute).filter(ready)) {
+          const c = CASES[keyOf(route)];
+          if (!c || recordParams(route).length === 0) continue;
+          const res = await call(
+            route,
+            fill(route, firms.q.slug, recordsOf(c, base)),
+            as.firm(people.ownerQ, firms.q.id),
+            bodyOf(route, own.q, q),
+          );
+          if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
+        }
+        expect(failures).toEqual([]);
+      },
+      SWEEP_MS,
+    );
 
     it(
       "a member of firm Q is refused firm P's records named in a body, in firm Q",

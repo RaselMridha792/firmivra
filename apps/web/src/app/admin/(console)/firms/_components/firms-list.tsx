@@ -1,13 +1,15 @@
 'use client';
 
-import { FIRM_PLANS, FirmStatusFilter } from '@firmivra/types';
+import { FIRM_PLANS, FirmPlan, FirmSort, FirmStatusFilter } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
 import { Building2, Clock3, Search, UsersRound, X } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useId, useState, type FormEvent } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
+import { pageOf } from '../../../../../lib/list-query';
+import { withOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
 import {
   cellClass,
@@ -18,6 +20,7 @@ import {
   ListPager,
   ListTable,
   SearchBox,
+  selectClass,
   StatCard,
 } from '../../_components/list-parts';
 
@@ -37,8 +40,21 @@ const tabs: {
 const statusOf = (value: string | null): FirmStatusFilter | undefined =>
   value === 'ALL' ? undefined : (FirmStatusFilter.safeParse(value).data ?? 'ACTIVE');
 
-const statusText = (status: string) =>
-  status === 'PENDING_SETUP' ? 'Pending Setup' : status === 'ACTIVE' ? 'Active' : 'Inactive';
+/** SA-FRM-Y06: each firm's own status; the Inactive tab holds Suspended and Closed. */
+const STATUS_TEXT: Record<string, string> = {
+  PENDING_SETUP: 'Pending Setup',
+  ACTIVE: 'Active',
+  SUSPENDED: 'Suspended',
+  CLOSED: 'Closed',
+};
+const statusText = (status: string) => STATUS_TEXT[status] ?? 'Inactive';
+
+/** The API refuses control characters and more than 100 characters (SearchText). */
+const cleanSearch = (value: string) =>
+  value
+    .replace(/[\p{Cc}\p{Cs}]/gu, ' ')
+    .trim()
+    .slice(0, 100);
 
 /** The approval moment on the viewer's own calendar, as on the firm's page. */
 const dateText = (value: string) =>
@@ -66,45 +82,83 @@ function StatusBadge({ status }: { status: string }) {
 
 export function FirmsList() {
   const params = useSearchParams();
-  const router = useRouter();
   const path = usePathname();
-  // The address is the tab: a link to the list (the menu, the dashboard) sets it again, even
-  // from this page; the page number starts over with each tab.
+  const planId = useId();
+  // SA-FRM-F01, Y05: the address is the view (tab, search, plan, sort, page), so a link to the
+  // list (the menu, the dashboard) sets it again, even from this page, and Back from a firm
+  // reopens the list exactly as it was.
   const status = statusOf(params.get('status'));
-  const [search, setSearch] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [paging, setPaging] = useState({ status, page: 1 });
-  const page = paging.status === status ? paging.page : 1;
-  const setPage = (next: number) => setPaging({ status, page: next });
-  const query = useApiQuery(['admin-firms', status, appliedSearch, page], async () => {
-    const [counts, result] = await Promise.all([
-      api.firmApplications.firmCounts(),
-      api.firmApplications.listFirms({
-        status,
-        search: appliedSearch || undefined,
-        page,
-        pageSize: 10,
-      }),
-    ]);
-    return { ...result, counts };
-  });
+  const appliedSearch = cleanSearch(params.get('search') ?? '');
+  const plan = FirmPlan.safeParse(params.get('plan')).data;
+  const sort = FirmSort.safeParse(params.get('sort')).data;
+  const order = params.get('order') === 'desc' ? 'desc' : 'asc';
+  const page = pageOf(params.get('page') ?? '1');
+  // The search box's text: what was typed, until the address's search changes (a link, Clear).
+  const [draft, setDraft] = useState({ for: appliedSearch, text: appliedSearch });
+  const search = draft.for === appliedSearch ? draft.text : appliedSearch;
+  const query = useApiQuery(
+    ['admin-firms', status, appliedSearch, plan, sort, order, page],
+    async () => {
+      const [counts, result] = await Promise.all([
+        api.firmApplications.firmCounts(),
+        api.firmApplications.listFirms({
+          status,
+          search: appliedSearch || undefined,
+          plan,
+          sort,
+          // Only with a sort: the default list's address stays as it was.
+          order: sort && order === 'desc' ? 'desc' : undefined,
+          page,
+          pageSize: 10,
+        }),
+      ]);
+      return { ...result, counts };
+    },
+  );
 
   const counts = query.data?.counts;
+  /** The list's place now, for a firm's Back. */
+  const current = params.toString();
+  const here = `/firms${current ? `?${current}` : ''}`;
+
+  /**
+   * Changes the view in the address without a new history entry. Anything but a page change
+   * starts again at page 1. The browser's own replaceState (Next keeps useSearchParams in step):
+   * it changes the address at once, from the address as it is now, so two quick changes (a tab,
+   * then a sort) both stay; a router navigation committed later and lost the first.
+   */
+  function update(next: Record<string, string | undefined>) {
+    const q = new URLSearchParams(window.location.search);
+    for (const [key, value] of Object.entries(next)) {
+      if (value) q.set(key, value);
+      else q.delete(key);
+    }
+    if (!('page' in next)) q.delete('page');
+    const text = q.toString();
+    window.history.replaceState(null, '', text ? `${path}?${text}` : path);
+  }
+  const setPage = (next: number) => update({ page: next > 1 ? String(next) : undefined });
 
   function searchFirms(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // The API refuses control characters and more than 100 characters (SearchText).
-    setAppliedSearch(search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
-    setPage(1);
+    update({ search: cleanSearch(search) || undefined });
   }
 
   function show(value: FirmStatusFilter | undefined) {
-    setPaging({ status: value, page: 1 });
-    // The tab stays in the address, so a reload or Back keeps it.
-    const q = new URLSearchParams(params.toString());
-    q.set('status', value ?? 'ALL');
-    router.replace(`${path}?${q.toString()}`);
+    update({ status: value ?? 'ALL' });
   }
+
+  /** SA-FRM-Y08: a column's sort: A to Z (or oldest first), then the other way round. */
+  const sortBy = (key: FirmSort) => ({
+    sorted:
+      sort === key
+        ? order === 'desc'
+          ? ('descending' as const)
+          : ('ascending' as const)
+        : undefined,
+    onSort: () =>
+      update({ sort: key, order: sort === key && order === 'asc' ? 'desc' : undefined }),
+  });
 
   return (
     <div className="flex w-full flex-col gap-5">
@@ -126,7 +180,7 @@ export function FirmsList() {
             className="sm:w-96 xl:w-80 2xl:w-96"
             placeholder="Search firms by name, owner, or email..."
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => setDraft({ for: appliedSearch, text: event.target.value })}
           />
           <Button type="submit" className="gap-2">
             <Search aria-hidden className="size-4" /> Search
@@ -136,9 +190,8 @@ export function FirmsList() {
               type="button"
               variant="secondary"
               onClick={() => {
-                setSearch('');
-                setAppliedSearch('');
-                setPage(1);
+                setDraft({ for: '', text: '' });
+                update({ search: undefined });
               }}
             >
               Clear
@@ -202,6 +255,26 @@ export function FirmsList() {
         })}
       </div>
 
+      {/* SA-FRM-Y08: the plan the firm's application asked for. */}
+      <div className="flex flex-col gap-1 sm:w-64">
+        <label htmlFor={planId} className="text-sm font-medium text-heading">
+          Plan
+        </label>
+        <select
+          id={planId}
+          className={selectClass}
+          value={plan ?? ''}
+          onChange={(event) => update({ plan: event.target.value || undefined })}
+        >
+          <option value="">All plans</option>
+          {Object.entries(FIRM_PLANS).map(([code, label]) => (
+            <option key={code} value={code}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <PageState query={query}>
         {(data) => {
           const first = data.total ? (page - 1) * data.pageSize + 1 : 0;
@@ -251,7 +324,7 @@ export function FirmsList() {
                           </dl>
                           <Link
                             aria-label={`Open firm ${firm.name}`}
-                            href={`/firms/${firm.id}`}
+                            href={withOrigin(`/firms/${firm.id}`, here)}
                             className="flex justify-center rounded-control bg-platform-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-platform-navy-raised"
                           >
                             Open Firm
@@ -263,13 +336,13 @@ export function FirmsList() {
                       <ListTable
                         head={[
                           { label: '#', center: true },
-                          { label: 'Business Name' },
+                          { label: 'Business Name', sort: sortBy('name') },
                           { label: 'Owner / Primary Contact' },
                           { label: 'Email' },
                           { label: 'Phone', className: 'hidden 2xl:table-cell' },
                           { label: 'Plan' },
                           { label: 'Status' },
-                          { label: 'Date Approved' },
+                          { label: 'Date Approved', sort: sortBy('approved') },
                           {
                             label: 'Actions',
                             center: true,
@@ -285,7 +358,10 @@ export function FirmsList() {
                               className={`${cellClass} min-w-40 break-words font-semibold text-heading`}
                             >
                               {/* Below 1360 px there is no Actions column: the name opens the firm. */}
-                              <Link href={`/firms/${firm.id}`} className="hover:text-link">
+                              <Link
+                                href={withOrigin(`/firms/${firm.id}`, here)}
+                                className="hover:text-link"
+                              >
                                 {firm.name}
                               </Link>
                             </th>
@@ -315,7 +391,7 @@ export function FirmsList() {
                             >
                               <Link
                                 aria-label={`Open firm ${firm.name}`}
-                                href={`/firms/${firm.id}`}
+                                href={withOrigin(`/firms/${firm.id}`, here)}
                                 className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-3 py-2 text-sm font-semibold text-white hover:bg-platform-navy-raised 2xl:px-4 2xl:py-2.5"
                               >
                                 Open Firm

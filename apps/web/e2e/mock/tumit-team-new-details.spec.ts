@@ -60,7 +60,11 @@ test('fills the details, queues a document and submits the account', async ({ pa
   await expect(page).toHaveURL(/\/team\/[0-9a-f-]{36}\/created$/, { timeout: 30_000 });
 });
 
-test('the draft keeps the details but never the pay', async ({ page }) => {
+// SM17 (Staff Management Review 2, decision 2a): pay is never saved in a draft (the API refuses
+// it: staff-write e2e), but what was typed stays on the page in this tab through Back and Next.
+test('the draft keeps the details; pay stays on the page in this tab, never in the draft', async ({
+  page,
+}) => {
   await toStep4(page, 'jasmine.r2@example.test');
   await page.getByLabel('Employee ID (Optional)').fill('EMP777');
   await page.getByLabel('Pay Rate / Salary').fill('40000');
@@ -68,5 +72,5 @@ test('the draft keeps the details but never the pay', async ({ page }) => {
   await expect(page).toHaveURL(/\/team\/new\/security\?draft=/);
   await page.getByRole('button', { name: 'Next: Additional Details' }).click();
   await expect(page.getByLabel('Employee ID (Optional)')).toHaveValue('EMP777');
-  await expect(page.getByLabel('Pay Rate / Salary')).toHaveValue('');
+  await expect(page.getByLabel('Pay Rate / Salary')).toHaveValue('40000');
 });
