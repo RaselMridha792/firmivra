@@ -79,6 +79,7 @@ import {
   createPaymentPreferencesClient,
   createProfileChangesClient,
   createSupportMessagesClient,
+  createFirmivraRequestsClient,
   createPublicAgreementsClient,
   createDownload,
   createRequest,
@@ -185,6 +186,7 @@ import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
 import { createProfileChangesMock } from '../mocks/profile-changes';
 import { createSupportMessagesMock } from '../mocks/support-messages';
+import { createFirmivraRequestsMock } from '../mocks/firmivra-requests';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
 import { createPortalAnnouncementSettingsMock } from '../mocks/portal-announcement-settings';
 import { createPortalContactMock } from '../mocks/portal-contact';
@@ -333,6 +335,11 @@ export const api = {
     dev && mocked('supportMessages')
       ? createSupportMessagesMock()
       : createSupportMessagesClient(request),
+  /** Settings > Requests from Firmivra (SA-FRM-F06): Firmivra's requests to the Owner. */
+  firmivraRequests:
+    dev && mocked('firmivraRequests')
+      ? createFirmivraRequestsMock({ role: MOCK_ROLE, empty: mockedEmpty('firmivraRequests') })
+      : createFirmivraRequestsClient(request),
   /** Settings > Payments' Invoice Defaults, Reminders & Automations, Taxes & Fees (IP-F13). */
   paymentPreferences:
     dev && mocked('paymentPreferences')
