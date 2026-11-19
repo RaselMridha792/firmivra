@@ -49,6 +49,8 @@ import {
   SetLinkedTemplateRequest,
   TemplateStructureOptions,
   TemplateStructureOptionsQuery,
+  TemplateTagList,
+  TemplateTagsQuery,
 } from './schemas.js';
 
 const TEMPLATES = '/business/templates';
@@ -238,6 +240,14 @@ export function createTemplatesClient(request: ApiRequest) {
         TemplateStructureOptions,
         `${TEMPLATES}/structure-options${toQuery(parseInput(TemplateStructureOptionsQuery, query))}`,
       ),
+    /** Y05: every tag on the templates the caller can see (not archived), sorted. */
+    tags: async (query: TemplateTagsQuery = {}): Promise<string[]> =>
+      (
+        await request(
+          TemplateTagList,
+          `${TEMPLATES}/tags${toQuery(parseInput(TemplateTagsQuery, query))}`,
+        )
+      ).items,
     installStarters: async (): Promise<InstallStartersResult> =>
       request(InstallStartersResult, `${TEMPLATES}/starters`, post()),
 

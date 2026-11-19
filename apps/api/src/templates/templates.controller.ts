@@ -23,6 +23,7 @@ import {
   type RenderedTemplate,
   type StarterTemplatesStatus,
   type TemplateStructureOptions,
+  type TemplateTagList,
   type TemplateAttachment,
   TemplateAttachmentId,
   type TemplatesSummary,
@@ -53,6 +54,7 @@ import {
   StartAttachmentBody,
   SetLinkedBody,
   StructureOptionsQ,
+  TagsQ,
   TemplatesQuery,
   TestSendBody,
   UpdateTemplateBody,
@@ -105,6 +107,18 @@ export class TemplatesController {
     @CurrentTenant() tenant: TenantContext,
   ): Promise<TemplatesSummary> {
     return this.reader.summary(tenant.businessId, actorOf(auth, tenant));
+  }
+
+  /** Y05: every tag on the templates the caller can see (the library's tag filter). */
+  @Get('tags')
+  tags(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(TagsQ)) query: z.output<typeof TagsQ>,
+  ): Promise<TemplateTagList> {
+    return this.reader
+      .tags(tenant.businessId, actorOf(auth, tenant), query.kind)
+      .then((items) => ({ items }));
   }
 
   @Get('starters')
