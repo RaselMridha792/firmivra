@@ -3,6 +3,7 @@ import { NotificationsModule } from '../notifications/notifications.controller.j
 import { ReportsModule } from '../reports/reports.module.js';
 import { IntakeBuilderService } from './intake-builder.service.js';
 import { IntakeLibraryService } from './intake-library.service.js';
+import { IntakeRecordsCheckService } from './intake-records-check.service.js';
 import { IntakeRecordService } from './intake-record.service.js';
 import { IntakeScheduleJobs } from './intake-schedule.jobs.js';
 import { IntakeSendService } from './intake-send.service.js';
@@ -27,6 +28,7 @@ import { IntakeWorkspaceService } from './intake-workspace.service.js';
     IntakeBuilderService,
     IntakeSendService,
     IntakeRecordService,
+    IntakeRecordsCheckService,
     // Intake Forms Review Two: the reminders, the staff's expiration alert and Expired.
     IntakeScheduleJobs,
   ],

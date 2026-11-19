@@ -75,6 +75,14 @@ export interface DeliveryOutcome {
   reason: string | null;
   /** Why, as a code History can keep (no address or mail-service text in the audit). */
   code?: DeliveryCode;
+  /** 19b: when the mail service accepted the email, and its short reference (no address). */
+  acceptedAt?: Date | null;
+  providerRef?: string | null;
+}
+
+/** The short form of a provider message id: the first 8 characters. */
+export function shortRef(id: string | null | undefined): string | null {
+  return id ? id.replace(/[<>]/g, '').slice(0, 8) : null;
 }
 
 /** Why a delivery did not (yet) reach the recipient, for History (19b). */
@@ -663,6 +671,8 @@ export class IntakeSendService {
         to: row.deliveryChannel === 'PORTAL' ? 'Client portal' : maskEmail(form.recipient.email),
         portalNotice: outcome.portalNotice,
         reason: outcome.reason,
+        acceptedAt: outcome.acceptedAt?.toISOString() ?? null,
+        providerRef: outcome.providerRef ?? null,
       },
     };
   }
@@ -744,9 +754,17 @@ export class IntakeSendService {
     const email = await db.notificationDelivery.findFirst({
       where: { businessId, channel: 'EMAIL', notificationId: { in: mine.map((n) => n.id) } },
       orderBy: { createdAt: 'desc' },
-      select: { status: true, lastError: true },
+      select: { status: true, lastError: true, sentAt: true, providerMessageId: true },
     });
-    if (email?.status === 'SENT') return { status: 'SENT', portalNotice: true, reason: null };
+    if (email?.status === 'SENT') {
+      return {
+        status: 'SENT',
+        portalNotice: true,
+        reason: null,
+        acceptedAt: email.sentAt,
+        providerRef: shortRef(email.providerMessageId),
+      };
+    }
     if (email?.status === 'QUEUED' || email?.status === 'FAILED') {
       return {
         status: 'RETRYING',
