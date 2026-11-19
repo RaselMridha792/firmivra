@@ -680,10 +680,19 @@ export function createDocumentLibraryMock(options: {
     list: async (query = {}) => {
       const q = parseInput(LibraryQuery, query);
       if (!q.clientId) return notInMock();
-      const base = await options.documents.list(q.clientId);
+      // As the API: the scope's documents of that client, live (neither archived nor in the
+      // Trash), archived (not in the Trash), or in the Trash (Bookkeeping Review 2).
+      const base = await baseList(q.clientId, { limit: 100 });
       const term = q.search?.toLowerCase();
+      const inScope = (d: LibraryDocument) =>
+        q.scope === 'trash'
+          ? d.trashedAt !== null
+          : q.scope === 'archived'
+            ? d.archivedAt !== null && d.trashedAt === null
+            : d.archivedAt === null && d.trashedAt === null;
       const rows = (await Promise.all(base.items.map((d) => libraryDoc(d.id)))).filter(
         (d) =>
+          inScope(d) &&
           (!term || d.fileName.toLowerCase().includes(term)) &&
           (!q.categoryId || d.category?.id === q.categoryId) &&
           (!q.reviewStatus || d.reviewStatus === q.reviewStatus) &&

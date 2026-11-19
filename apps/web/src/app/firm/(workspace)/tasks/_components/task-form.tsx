@@ -709,9 +709,10 @@ function Form({
           onAnother(saved.title);
         } else {
           guard.allow();
-          // Opened from a service workspace (SH1): the new task's page keeps Back to it.
+          // Bookkeeping Review 2 (N05 original): opened from a service workspace (SH1), Save
+          // returns there, as Cancel does; otherwise the new task's page opens.
           const from = safeOrigin(new URLSearchParams(window.location.search).get(ORIGIN_PARAM));
-          router.push(from ? withOrigin(`/tasks/${saved.id}`, from) : `/tasks/${saved.id}`);
+          router.push(from ?? `/tasks/${saved.id}`);
         }
       },
       onError: (e) =>

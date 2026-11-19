@@ -46,14 +46,14 @@ test('every chrome element of the design is present, with honest placeholders wh
   await expect(cards.first()).toContainText('—');
 
   // Folders: "All Documents" plus the firm's real categories (not the design's example names),
-  // then the inert Archived/Trash rows.
+  // then Archived and Trash, which wait for a client (Bookkeeping Review 2).
   const folders = page.getByTestId('folder-row');
   await expect(folders).toHaveCount(5); // All Documents + Tax Documents/Business Documents/Identification/Old Receipts
   await expect(folders.first()).toHaveText(/All Documents/);
   await expect(page.getByTestId('folders-panel')).toContainText('Tax Documents');
   await expect(page.getByTestId('folders-panel')).toContainText('Old Receipts');
   await expect(page.getByTestId('folder-archived')).toBeDisabled();
-  await expect(page.getByTestId('folder-trash')).toHaveText(/Trash0/);
+  await expect(page.getByTestId('folder-trash')).toHaveText(/Trash—/);
 
   await expect(page.getByTestId('quick-upload-card')).toContainText('Drag & drop files here');
   await expect(page.getByTestId('quick-upload-card')).toContainText(
