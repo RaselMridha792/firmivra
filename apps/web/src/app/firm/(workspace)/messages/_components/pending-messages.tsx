@@ -11,6 +11,12 @@ import { useApiQuery } from '../../../../../lib/query';
 import { localParts } from '../../calendar/_components/time';
 
 const KEY = ['messages'] as const;
+/** M19: each message goes on one channel; a New Message to several makes one each. */
+const CHANNEL: Record<OutboundMessage['channel'], string> = {
+  PORTAL: 'Portal message',
+  EMAIL: 'Email',
+  SMS: 'Text message',
+};
 
 /**
  * M24/M30 (Messaging Review 2): this client's drafts and scheduled messages, under the
@@ -78,6 +84,8 @@ export function PendingMessages({
               <span className="min-w-0 truncate">
                 <span className="font-medium text-heading">{m.subject || m.body.slice(0, 40)}</span>
                 <span className="text-muted">
+                  {' · '}
+                  {CHANNEL[m.channel]}
                   {' · '}
                   {at ? `Scheduled for ${at.date} ${at.time} (${m.timezone})` : 'Draft'}
                 </span>

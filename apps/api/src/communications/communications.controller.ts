@@ -11,6 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  type AddEligibleContactsResult,
   type AnnouncementLocationList,
   type AudienceCandidatePage,
   type AudienceSummary,
@@ -32,6 +33,8 @@ import {
   type CommunicationsOverview,
   type ConsentView,
   CommunicationSegmentId,
+  type EligibleContactsCount,
+  type RemoveAudienceEntriesResult,
   type SelectAllAudienceResult,
   type SegmentDetail,
   type SegmentFieldList,
@@ -71,6 +74,9 @@ import {
   SelectAllAudienceBody,
   SendBody,
   SetAudienceBody,
+  EligibleContactsQ,
+  AddEligibleBody,
+  RemoveEntriesBody,
   UpdateCommunicationBody,
   CreateSegmentBody,
   PreviewSegmentBody,
@@ -409,6 +415,45 @@ export class CommunicationsController {
   ): Promise<AudienceSummary> {
     const w = who(auth, tenant);
     return this.campaigns.setAudience(w.tenant, w.userId, id, body);
+  }
+
+  @Get(':id/audience/eligible')
+  eligibleContacts(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Query(new ZodValidationPipe(EligibleContactsQ)) q: Out<typeof EligibleContactsQ>,
+  ): Promise<EligibleContactsCount> {
+    const w = who(auth, tenant);
+    return this.campaigns.eligibleContacts(w.tenant, w.userId, id, q);
+  }
+
+  @Post(':id/audience/add-eligible')
+  @HttpCode(200)
+  // An edit of the draft's audience, as PUT .../audience is.
+  @Access('COMMUNICATIONS', 'EDIT')
+  addEligibleContacts(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(AddEligibleBody)) body: Out<typeof AddEligibleBody>,
+  ): Promise<AddEligibleContactsResult> {
+    const w = who(auth, tenant);
+    return this.campaigns.addEligibleContacts(w.tenant, w.userId, id, body);
+  }
+
+  @Post(':id/audience/remove-entries')
+  @HttpCode(200)
+  // An edit of the draft's audience, as PUT .../audience is.
+  @Access('COMMUNICATIONS', 'EDIT')
+  removeAudienceEntries(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(RemoveEntriesBody)) body: Out<typeof RemoveEntriesBody>,
+  ): Promise<RemoveAudienceEntriesResult> {
+    const w = who(auth, tenant);
+    return this.campaigns.removeAudienceEntries(w.tenant, w.userId, id, body);
   }
 
   @Get(':id/review')
