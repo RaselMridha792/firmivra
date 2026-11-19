@@ -754,6 +754,33 @@ export const SendAdvisoryPlanRequest = z.strictObject({
 export type SendAdvisoryPlanRequest = z.input<typeof SendAdvisoryPlanRequest>;
 
 /**
+ * POST .../plans/{id}/send-preview (A-X13, Business Advisory Review Two: the recipient and the
+ * channel shown before a send): what Send would deliver and to whom, and every check that would
+ * refuse it. Takes what Send takes; nothing is sent and nothing is audited. "Send plans" is
+ * needed, as for Send (403).
+ */
+export const AdvisoryPlanSendPreview = z.object({
+  channel: SendAdvisoryPlanRequest.shape.channel,
+  /** The version Send would deliver, or null while none is finalized. */
+  version: AdvisoryVersionNumber.nullable(),
+  /** Who it goes to: the client, and their portal login's email (null without an active login). */
+  to: z.object({ name: z.string(), email: z.string().nullable() }),
+  subject: z.string(),
+  body: z.string(),
+  /** False while any problem below refuses it: Send answers 409 with the first one's code. */
+  eligible: z.boolean(),
+  problems: z.array(
+    z.object({
+      code: z.enum(['PLAN_ARCHIVED', 'CLIENT_ARCHIVED', 'INVALID_STATUS', 'PLAN_NOT_READY']),
+      message: z.string(),
+    }),
+  ),
+  /** What never refuses it but is worth knowing (no portal login yet; a download reaches no one). */
+  notes: z.array(z.string()),
+});
+export type AdvisoryPlanSendPreview = z.infer<typeof AdvisoryPlanSendPreview>;
+
+/**
  * POST .../plans/{id}/request-approval (B10, Business Advisory review §16: staff review, then the
  * client's approval BEFORE finalization). Only a plan in staff review (IN_REVIEW), ready as
  * finalize requires (409 PLAN_NOT_READY), for a client with an active portal login (409
@@ -822,6 +849,9 @@ export type AdvisoryVersionDetail = z.infer<typeof AdvisoryVersionDetail>;
  * is a new row. Replacing figures that came from a source (bookkeeping, payroll, bank) is an
  * override: `override.reason` is required, the person and reason are kept, and the earlier row
  * stays (403 OVERRIDE_NOT_ALLOWED without the permission). Needs "View financial analysis".
+ * A-X09 (B27): `corrects` makes it a correction of one of the client's rows: the same period (400
+ * otherwise; another client's or firm's row is 404) and a reason, kept on the new row and audited
+ * with the figures before and after. The earlier row stays and shows with Show corrections.
  */
 export const CreateAdvisoryFinancialRequest = z
   .strictObject({
@@ -839,6 +869,7 @@ export const CreateAdvisoryFinancialRequest = z
     source: AdvisoryFinancialSource.optional().default('MANUAL'),
     asOf: CalendarDate,
     override: z.strictObject({ reason: text(500, 'many') }).optional(),
+    corrects: z.strictObject({ snapshotId: z.uuid(), reason: text(500, 'many') }).optional(),
   })
   .refine((o) => o.periodStart <= o.periodEnd, 'The period must start on or before it ends')
   .refine(
