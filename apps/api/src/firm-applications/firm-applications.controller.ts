@@ -3,6 +3,8 @@ import { Throttle } from '@nestjs/throttler';
 import type { z } from 'zod';
 import {
   type AdminDashboard,
+  type AdminGrowth,
+  AdminGrowthQuery,
   ApproveFirmApplicationRequest,
   AssignFirmReviewerRequest,
   DeclineFirmApplicationRequest,
@@ -46,6 +48,7 @@ import {
   ResponsePasses,
   ResponseUploadTokens,
 } from './apply-respond.service.js';
+import { DashboardGrowthService } from './dashboard-growth.js';
 import { EIN_HASH_KEY, loadEinHashKey } from './ein-hash.js';
 import { FirmApplicationsService } from './firm-applications.service.js';
 import { FirmKeyJob } from './firm-key-job.js';
@@ -244,7 +247,19 @@ export class AdminFirmsController {
 /** The Super Admin dashboard's counts (F04a). */
 @Controller('admin/dashboard')
 export class AdminDashboardController {
-  constructor(private readonly applications: FirmApplicationsService) {}
+  constructor(
+    private readonly applications: FirmApplicationsService,
+    private readonly growthService: DashboardGrowthService,
+  ) {}
+
+  /** SA-DSH-F06: Platform Growth for a range of US Eastern days (up to two years). */
+  @Get('growth')
+  @Roles('SUPER_ADMIN')
+  growth(
+    @Query(new ZodValidationPipe(AdminGrowthQuery)) query: z.output<typeof AdminGrowthQuery>,
+  ): Promise<AdminGrowth> {
+    return this.growthService.growth(query);
+  }
 
   @Get()
   @Roles('SUPER_ADMIN')
@@ -265,6 +280,7 @@ export class AdminDashboardController {
   providers: [
     AdminPrisma,
     FirmApplicationsService,
+    DashboardGrowthService,
     FirmApplicationSubmitService,
     { provide: EIN_HASH_KEY, useFactory: () => loadEinHashKey() },
     { provide: FIRM_KEYS, useFactory: () => createFirmKeys(loadFirmKeysConfig()) },

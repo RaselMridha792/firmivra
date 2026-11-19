@@ -801,6 +801,52 @@ export const AdminDashboard = z.object({
 });
 export type AdminDashboard = z.infer<typeof AdminDashboard>;
 
+// ---------- Platform Growth (SA-DSH-F06) ----------
+
+/** The longest range Platform Growth draws: two years and a day (Last Year plus this year). */
+export const GROWTH_MAX_DAYS = 731;
+
+const dayNumber = (day: string) => Date.parse(`${day}T00:00:00Z`) / 86_400_000;
+
+/**
+ * GET /admin/dashboard/growth: from and to are US Eastern calendar days (the platform's), both
+ * included. An end before the start, or more than GROWTH_MAX_DAYS, is 400 VALIDATION_FAILED.
+ */
+export const AdminGrowthQuery = z
+  .strictObject({ from: CalendarDate, to: CalendarDate })
+  .refine((q) => q.to >= q.from, { path: ['to'], message: 'The end date is before the start date' })
+  .refine((q) => dayNumber(q.to) - dayNumber(q.from) + 1 <= GROWTH_MAX_DAYS, {
+    path: ['to'],
+    message: 'Choose two years or less',
+  });
+export type AdminGrowthQuery = z.input<typeof AdminGrowthQuery>;
+
+/**
+ * One point of the chart: a day (31 days or fewer), a week from Monday (up to about six months),
+ * else a calendar month; the first and last are cut to the range.
+ */
+export const AdminGrowthPoint = z.object({
+  start: CalendarDate,
+  end: CalendarDate,
+  /** Applications submitted in the bucket. */
+  applications: z.number().int().min(0),
+  /** Firms whose owner finished setup in the bucket. */
+  activations: z.number().int().min(0),
+  /** Firms set up by the bucket's last day and not closed by then. */
+  activeFirms: z.number().int().min(0),
+  /** Firmivra's payments collected in the bucket, less refunds (cents). */
+  revenueCents: z.number().int(),
+});
+export type AdminGrowthPoint = z.infer<typeof AdminGrowthPoint>;
+
+export const AdminGrowth = z.object({
+  from: CalendarDate,
+  to: CalendarDate,
+  bucket: z.enum(['DAY', 'WEEK', 'MONTH']),
+  points: z.array(AdminGrowthPoint),
+});
+export type AdminGrowth = z.infer<typeof AdminGrowth>;
+
 /** One service's state on the dashboard's System Status card. */
 export const ServiceHealth = z.enum(['online', 'degraded', 'offline']);
 export type ServiceHealth = z.infer<typeof ServiceHealth>;

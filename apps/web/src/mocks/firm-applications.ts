@@ -1,4 +1,5 @@
 import {
+  AdminGrowthQuery,
   type AdminRef,
   ApiRequestError,
   CreateApplicationResponseUploadRequest,
@@ -26,6 +27,7 @@ import {
   SubmitFirmApplicationRequest,
   websiteHost,
 } from '@firmivra/types';
+import { bucketOf, easternToday, growthBuckets } from '../lib/growth-ranges';
 import { mockDelay, mockedEmpty } from '../lib/mock';
 import { adminSubscriptions } from './admin-subscriptions';
 import { adminSupport } from './admin-support';
@@ -991,6 +993,32 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         renewalsThisWeek: (await adminSubscriptions.subscriptions({ status: 'RENEWING_THIS_WEEK' }))
           .total,
         monthlyRevenueCents: null,
+      };
+    },
+
+    /**
+     * SA-DSH-F06, as the API: the same buckets; applications on their submitted day, firms
+     * Active from their creation (the mock keeps no setup time); no revenue (no payments).
+     */
+    growth: async (query) => {
+      await mockDelay();
+      const q = parseInput(AdminGrowthQuery, query);
+      const bucket = bucketOf(q.from, q.to);
+      const day = (iso: string) => easternToday(new Date(iso));
+      const within = (iso: string, b: { start: string; end: string }) =>
+        day(iso) >= b.start && day(iso) <= b.end;
+      return {
+        from: q.from,
+        to: q.to,
+        bucket,
+        points: growthBuckets(q.from, q.to, bucket).map((b) => ({
+          ...b,
+          applications: rows.filter((r) => within(r.submittedAt, b)).length,
+          activations: 0,
+          activeFirms: firms.filter((f) => f.firm.status === 'ACTIVE' && day(f.createdAt) <= b.end)
+            .length,
+          revenueCents: 0,
+        })),
       };
     },
 
