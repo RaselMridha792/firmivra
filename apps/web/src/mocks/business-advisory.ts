@@ -4,6 +4,9 @@ import {
   AddAdvisoryWorkstreamRequest,
   AdvisoryActionItemsQuery,
   AdvisoryActivityQuery,
+  ADVISORY_INDUSTRY_DEFAULTS,
+  SaveAdvisoryIndustriesRequest,
+  type AdvisoryIndustryList,
   AddAdvisoryActionNoteRequest,
   type AdvisoryActionNote,
   AdvisoryClientsQuery,
@@ -548,6 +551,14 @@ export function createAdvisoryMock({
   const actionNotes: (AdvisoryActionNote & { actionItemId: string })[] = [];
   const meetings: (AdvisoryMeetingRow & { advisoryClientId: string })[] = [];
   const activity: (AdvisoryActivity & { advisoryClientId: string })[] = [];
+  // A-X02: the firm's industries, as the API: the built-in list until the first save.
+  let industries: { id: string; name: string; archived: boolean }[] | null = null;
+  const industryList = (): AdvisoryIndustryList => ({
+    items:
+      industries ?? ADVISORY_INDUSTRY_DEFAULTS.map((name) => ({ id: null, name, archived: false })),
+    custom: industries !== null,
+    canManage: role !== 'STAFF',
+  });
   const settings = {
     healthFormula: copy(DEFAULT_FORMULA),
     staleFinancialsDays: 180,
@@ -2543,6 +2554,28 @@ export function createAdvisoryMock({
             .sort((x, y) => y.at.localeCompare(x.at))
             .map(({ actionItemId: _a, ...n }) => n),
         };
+      }),
+
+    // A-X02: the industry list, as the API (Advisory Admin saves; a saved one left out is archived).
+    industries: () => run(industryList),
+    saveIndustries: (body) =>
+      run(() => {
+        const req = parseInput(SaveAdvisoryIndustriesRequest, body);
+        if (role === 'STAFF') throw forbidden();
+        const known = new Map((industries ?? []).map((i) => [i.id, i]));
+        for (const i of req.items) if (i.id && !known.has(i.id)) throw notFound();
+        const kept = new Set(req.items.flatMap((i) => (i.id ? [i.id] : [])));
+        industries = [
+          ...req.items.map((i) => ({
+            id: i.id ?? id('a120'),
+            name: i.name.trim(),
+            archived: i.archived,
+          })),
+          ...(industries ?? [])
+            .filter((i) => !kept.has(i.id))
+            .map((i) => ({ ...i, archived: true })),
+        ];
+        return industryList();
       }),
 
     // ----- Meetings, resources, settings -----

@@ -22,6 +22,7 @@ import {
 } from './ba-shared';
 import { type WizardStep, WizardFrame, stepHref, useStepSave } from './plan-frame';
 import { AssessmentStep, ActionStep, ReviewStep, StrategyStep } from './plan-steps';
+import { industryNames, useIndustries } from './industries';
 import { SearchExistingClientDialog } from './search-existing-client';
 
 /** Free text in the API; the lists the form offers (a stored value outside them is kept). */
@@ -33,21 +34,6 @@ const ENTITY_TYPES = [
   'Partnership',
   'Professional Corporation',
   'Nonprofit',
-  'Other',
-];
-const INDUSTRIES = [
-  'Construction',
-  'Retail',
-  'Professional Services',
-  'Healthcare',
-  'Food & Beverage',
-  'Transportation',
-  'Beauty & Wellness',
-  'Automotive',
-  'Real Estate',
-  'Technology',
-  'Manufacturing',
-  'Hospitality',
   'Other',
 ];
 const options = (list: string[], current: string, empty = 'Select…') => [
@@ -182,7 +168,7 @@ interface ProfileForm {
   notes: string;
 }
 
-const formOf = (plan?: AdvisoryPlanDetail): ProfileForm => {
+const formOf = (plan: AdvisoryPlanDetail | undefined, industries: string[]): ProfileForm => {
   const p = plan?.profile ?? {};
   return {
     name: plan?.name ?? '',
@@ -191,8 +177,8 @@ const formOf = (plan?: AdvisoryPlanDetail): ProfileForm => {
     businessName: p.businessName ?? '',
     entityType: splitOther(ENTITY_TYPES, p.entityType).choice,
     entityOther: splitOther(ENTITY_TYPES, p.entityType).other,
-    industry: splitOther(INDUSTRIES, p.industry).choice,
-    industryOther: splitOther(INDUSTRIES, p.industry).other,
+    industry: splitOther(industries, p.industry).choice,
+    industryOther: splitOther(industries, p.industry).other,
     years: p.yearsInBusiness == null ? '' : String(p.yearsInBusiness),
     stage: p.businessStage ?? '',
     products: p.productsServices ?? '',
@@ -257,7 +243,23 @@ const REFERRAL_SOURCES = [
   'Other',
 ];
 
+/**
+ * A-X02 (Business Advisory Review Two, B16): the Business Profile step offers the firm's own
+ * industries (its live list, then Other), so it waits for them before the form starts.
+ */
 function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
+  const list = useIndustries();
+  if (list.isPending) return <p className={quiet}>Loading…</p>;
+  return <ProfileStepForm plan={plan} industries={[...industryNames(list.data), 'Other']} />;
+}
+
+function ProfileStepForm({
+  plan,
+  industries,
+}: {
+  plan?: AdvisoryPlanDetail;
+  industries: string[];
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const qc = useQueryClient();
@@ -265,8 +267,8 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
   const [clientId, setClientId] = useState(
     plan?.advisoryClientId ?? params.get('advisoryClientId') ?? '',
   );
-  const [form, setForm] = useState<ProfileForm>(() => formOf(plan));
-  const [initial] = useState(() => JSON.stringify(formOf(plan)));
+  const [form, setForm] = useState<ProfileForm>(() => formOf(plan, industries));
+  const [initial] = useState(() => JSON.stringify(formOf(plan, industries)));
   const [tried, setTried] = useState(false);
   const [year] = useState(() => new Date().getFullYear());
   const clients = useApiQuery([...BA_KEY, 'pick-clients'], () =>
@@ -290,8 +292,8 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
       businessName: d.businessName ?? '',
       entityType: splitOther(ENTITY_TYPES, d.businessProfile.entityType).choice,
       entityOther: splitOther(ENTITY_TYPES, d.businessProfile.entityType).other,
-      industry: splitOther(INDUSTRIES, d.industry).choice,
-      industryOther: splitOther(INDUSTRIES, d.industry).other,
+      industry: splitOther(industries, d.industry).choice,
+      industryOther: splitOther(industries, d.industry).other,
       years:
         d.businessProfile.yearsInBusiness == null ? '' : String(d.businessProfile.yearsInBusiness),
       stage: d.businessStage ?? '',
@@ -582,7 +584,7 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
               required
               value={form.industry}
               onChange={(e) => set('industry')(e.target.value)}
-              options={options(INDUSTRIES, form.industry)}
+              options={options(industries, form.industry)}
               {...errOf('industry')}
             />
             {form.industry === 'Other' ? (

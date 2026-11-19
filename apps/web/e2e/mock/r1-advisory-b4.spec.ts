@@ -39,3 +39,35 @@ test('A-X11: an action item’s Progress Notes show each note’s status, author
   );
   await expect(dialog.getByLabel(/^Progress note/)).toHaveValue('');
 });
+
+test('A-X02: Manage Industries changes the firm’s list, and Add Advisory Client offers it with Other and Specify', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/business-advisory/clients'));
+  await page.getByRole('button', { name: 'Manage Industries' }).click({ timeout: 60_000 });
+  const manage = page.getByTestId('manage-industries');
+  await expect(manage.getByLabel('Industry 1', { exact: true })).toHaveValue('Construction', {
+    timeout: 60_000,
+  });
+  // Add one, archive one, move the new one to the top.
+  await manage.getByLabel('Add an industry').fill('Landscaping');
+  await manage.getByRole('button', { name: 'Add', exact: true }).click();
+  await manage.getByRole('button', { name: 'Archive Automotive' }).click();
+  const last = await manage.getByRole('list', { name: 'Industries' }).getByRole('listitem').count();
+  for (let i = 0; i < last - 1; i += 1)
+    await manage.getByRole('button', { name: 'Move Landscaping up' }).click();
+  await expect(manage.getByLabel('Industry 1', { exact: true })).toHaveValue('Landscaping');
+  await page.getByRole('button', { name: 'Save Industries' }).click();
+  await expect(page.getByText('Industries saved.')).toBeVisible({ timeout: 60_000 });
+
+  // The new list in Add Advisory Client: Landscaping first, Automotive gone, Other with Specify.
+  await page.getByRole('button', { name: 'Add Advisory Client' }).click();
+  const add = page.getByTestId('add-advisory-client');
+  const industry = add.getByLabel('Industry', { exact: true });
+  await expect(industry.locator('option').nth(1)).toHaveText('Landscaping');
+  await expect(industry.locator('option', { hasText: 'Automotive' })).toHaveCount(0);
+  await industry.selectOption('Other');
+  await add.getByLabel('Specify industry').fill('Aquaculture');
+  await expect(add.getByLabel('Specify industry')).toHaveValue('Aquaculture');
+});

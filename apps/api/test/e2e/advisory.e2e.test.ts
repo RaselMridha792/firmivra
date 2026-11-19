@@ -16,6 +16,7 @@ import {
   AdvisoryActionItemPage,
   AdvisoryActionItemRow,
   AdvisoryActionNoteList,
+  AdvisoryIndustryList,
   AdvisoryActivityPage,
   AdvisoryClientDetail,
   AdvisoryClientPage,
@@ -2494,6 +2495,75 @@ describe('the overview, meetings, resources, settings and activity', () => {
       404,
       'NOT_FOUND',
     );
+  });
+
+  it('A-X02: the industries are the built-in list until the firm saves its own; Advisory Admin renames, archives and adds', async () => {
+    const built = AdvisoryIndustryList.parse(ok(await call('get', '/industries', staffA)));
+    expect(built).toMatchObject({ custom: false, canManage: false });
+    expect(built.items.map((i) => i.name)).toEqual(
+      expect.arrayContaining(['Construction', 'Retail']),
+    );
+    expect(built.items.every((i) => i.id === null && !i.archived)).toBe(true);
+    expectError(
+      await call('put', '/industries', staffA, { items: [{ name: 'Retail' }] }),
+      403,
+      'FORBIDDEN',
+    );
+    const clientBefore = (await advClient(shared.a1)).industry;
+    // The first save makes the list the firm's own, in its order.
+    const first = AdvisoryIndustryList.parse(
+      ok(
+        await call('put', '/industries', ownerA, {
+          items: [{ name: 'Landscaping' }, ...built.items.map((i) => ({ name: i.name }))],
+        }),
+      ),
+    );
+    expect(first.custom).toBe(true);
+    expect(first.canManage).toBe(true);
+    expect(first.items[0]).toMatchObject({ name: 'Landscaping', archived: false });
+    expect(first.items.every((i) => i.id !== null)).toBe(true);
+    const retail = first.items.find((i) => i.name === 'Retail');
+    // A rename, and one left out is archived (kept, no longer offered).
+    const second = AdvisoryIndustryList.parse(
+      ok(
+        await call('put', '/industries', adminA, {
+          items: first.items
+            .filter((i) => i.name !== 'Construction')
+            .map((i) => ({
+              id: i.id,
+              name: i.id === retail?.id ? 'Retail & E-commerce' : i.name,
+            })),
+        }),
+      ),
+    );
+    expect(second.items.find((i) => i.id === retail?.id)).toMatchObject({
+      name: 'Retail & E-commerce',
+      archived: false,
+    });
+    expect(second.items.find((i) => i.name === 'Construction')).toMatchObject({ archived: true });
+    expect(AdvisoryIndustryList.parse(ok(await call('get', '/industries', staffA))).items).toEqual(
+      second.items,
+    );
+    // Live names once each, Other is not saved, and another firm can't name these.
+    expectError(
+      await call('put', '/industries', ownerA, {
+        items: [{ name: 'Dental' }, { name: ' dental ' }],
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('put', '/industries', ownerA, { items: [{ name: 'Other' }] }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('put', '/industries', ownerB, { items: [{ id: retail?.id, name: 'X' }] }, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    // A client keeps the text it was saved with.
+    expect((await advClient(shared.a1)).industry).toBe(clientBefore);
   });
 
   it('configures the health formula for new calculations only, and the default advisor', async () => {
