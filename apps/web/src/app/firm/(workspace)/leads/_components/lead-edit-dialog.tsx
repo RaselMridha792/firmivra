@@ -131,7 +131,13 @@ function EditForm({
       businessName: lead.businessName ?? '',
       email: lead.email,
       phone: lead.phone ?? '',
-      otherContacts: lead.otherContacts.map((c) => ({ ...c, label: c.label ?? '' })),
+      // The form edits phones and emails; the other kinds (address, website, other) come with
+      // Leads R2 9's screens.
+      otherContacts: lead.otherContacts.flatMap((c) =>
+        c.kind === 'EMAIL' || c.kind === 'PHONE'
+          ? [{ ...c, kind: c.kind, label: c.label ?? '' }]
+          : [],
+      ),
       address: lead.address ?? '',
       dateOfBirth: lead.dateOfBirth,
       preferredContact: lead.preferredContact,
