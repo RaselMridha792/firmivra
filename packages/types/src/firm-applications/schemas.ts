@@ -756,7 +756,8 @@ export const ListFirmsQuery = z.strictObject({
   search: SearchText.optional(),
   plan: FirmPlan.optional(),
   sort: FirmSort.optional(),
-  order: z.enum(['asc', 'desc']).optional().default('asc'),
+  /** With `sort`: asc (the default) or desc. */
+  order: z.enum(['asc', 'desc']).optional(),
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });

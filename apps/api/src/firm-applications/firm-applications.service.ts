@@ -496,7 +496,7 @@ export class FirmApplicationsService {
       })
       // SA-FRM-Y08: the plan its application asked for.
       .filter((f) => !q.plan || f.plan === q.plan);
-    if (q.sort) items.sort(firmOrder(q.sort, q.order));
+    if (q.sort) items.sort(firmOrder(q.sort, q.order ?? 'asc'));
     return {
       items: items.slice((q.page - 1) * q.pageSize, q.page * q.pageSize),
       total: items.length,

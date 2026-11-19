@@ -106,7 +106,8 @@ export function FirmsList() {
           search: appliedSearch || undefined,
           plan,
           sort,
-          order,
+          // Only with a sort: the default list's address stays as it was.
+          order: sort && order === 'desc' ? 'desc' : undefined,
           page,
           pageSize: 10,
         }),
