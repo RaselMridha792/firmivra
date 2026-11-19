@@ -1033,6 +1033,8 @@ describe('packages', () => {
       savingsPercent: null,
       variablePrice: true,
       quoteRequired: true,
+      discountProblem: null,
+      priceFrom: 'TYPED',
     });
     expect(pkg.savingsCents).toBeNull();
 
