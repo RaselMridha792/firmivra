@@ -173,7 +173,8 @@ export const cases: CaseModule['cases'] = {
   // No file store in tests: the download's check of the stored file answers 503.
   [`GET ${BASE}/templates/:id/attachments/:attachmentId/download`]: {
     params: { id: 'tplWithAttachment', attachmentId: 'tplAttachment' },
-    expect: 503,
+    // The scan gap (Nov 19): found, then 409 SCAN_PENDING until the scan column lands.
+    expect: 409,
   },
   [`DELETE ${BASE}/templates/:id/attachments/:attachmentId`]: {
     params: { id: 'tplWithAttachmentDelete', attachmentId: 'tplAttachmentDelete' },

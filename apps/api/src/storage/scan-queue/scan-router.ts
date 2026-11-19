@@ -38,6 +38,9 @@ export const SCAN_PREFIXES = [
   'support',
   // New Message's files (R60, MSG-F12): outbound_message_files, OutboundFilesService.
   'messages',
+  // The scan gap (Nov 19): a communication's files, on its attachments JSON
+  // (CommunicationsScanHandler); nothing goes out until they are CLEAN.
+  'communications',
   // An applicant's response files (SA-APP-F04): tenant/{applicationId}/applications/, recorded
   // in platform scope by ApplyRespondService (an application has no firm yet).
   'applications',
