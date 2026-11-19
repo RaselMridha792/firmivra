@@ -1004,6 +1004,16 @@ export class TaskSeriesService {
       firmClock(tx, businessId),
     ]);
     const rule = ruleOf(row);
+    const madeRows = await tx.taskOccurrence.findMany({
+      where: {
+        businessId,
+        seriesId: id,
+        state: { in: ['GENERATED', 'SKIPPED'] },
+        scheduledOn: { gte: toDay(clock.today) },
+      },
+      select: { scheduledOn: true },
+    });
+    const made = new Set(madeRows.map((o) => day(o.scheduledOn)!));
     return {
       id: row.id,
       title: row.title,
@@ -1048,8 +1058,13 @@ export class TaskSeriesService {
         required: i.required ?? false,
       })),
       reminders: remindersOf(row.reminders),
+      // Bookkeeping Review 2 (N05 remaining): a date already made (today's, say) is no longer next.
       upcoming:
-        row.status === 'ACTIVE' ? schedule(rule, { limit: UPCOMING, from: clock.today }) : [],
+        row.status === 'ACTIVE'
+          ? schedule(rule, { limit: UPCOMING + made.size, from: clock.today })
+              .filter((o) => !made.has(o.scheduledOn))
+              .slice(0, UPCOMING)
+          : [],
       pausedAt: row.pausedAt?.toISOString() ?? null,
       endedAt: row.endedAt?.toISOString() ?? null,
       createdBy: memberRef(names, row.createdByUserId),
