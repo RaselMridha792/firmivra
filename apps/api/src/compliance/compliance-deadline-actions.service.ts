@@ -93,8 +93,7 @@ const plain = (v: unknown, key: string): Plain => {
 /**
  * Audit Log Review 2, R04a (the lead's DECISIONS.md, "Audit Log" 5): a status action's row holds
  * the status before and after and each value it set or cleared (the filed-on day, who completed
- * it and when, the assignee). The confirmation number is "set", "changed" or "cleared", never its
- * value. Reopen keeps the filed-on day and the confirmation number, and says so (`kept`).
+ * it and when, the assignee). The confirmation number is written old to new (R04). Reopen keeps the filed-on day and the confirmation number, and says so (`kept`).
  */
 export function statusChange(
   current: {
@@ -105,18 +104,17 @@ export function statusChange(
   data: Record<string, unknown>,
 ): Record<string, unknown> {
   const { status, confirmationNumber, ...rest } = data;
-  const { fields, changes } = auditChanges(current, rest, {
-    fields: Object.keys(rest),
-    quote: ['description'],
-  });
+  const { fields, changes } = auditChanges(current, rest, { fields: Object.keys(rest) });
+  // Audit Log Review 2, R04 (her words: the actual values changed or cleared): the filing's
+  // confirmation number is a reference the firm keeps as evidence, not a secret, so its old and
+  // new value are written, null when none.
   const number =
     confirmationNumber === undefined || (confirmationNumber ?? null) === current.confirmationNumber
       ? undefined
-      : current.confirmationNumber === null
-        ? 'set'
-        : confirmationNumber === null
-          ? 'cleared'
-          : 'changed';
+      : {
+          from: current.confirmationNumber,
+          to: typeof confirmationNumber === 'string' ? confirmationNumber : null,
+        };
   const all = number ? [...fields, 'confirmationNumber'].sort() : fields;
   const kept = [
     ...(rest['filedOn'] === undefined && current.filedOn ? ['filedOn'] : []),

@@ -1060,20 +1060,19 @@ describe('status actions', () => {
       'compliance.deadline.reopened',
     ]);
     // Audit Log Review 2, R04a: each row holds the status before and after and each value it set
-    // or cleared; the confirmation number is "set", never its value; Reopen keeps the filed-on
-    // day and the number, and says so.
+    // or cleared; the confirmation number is written old to new (R04: her actual values);
+    // Reopen keeps the filed-on day and the number, and says so.
     const [completed] = await auditMetadata(d.id, 'compliance.deadline.completed');
     expect(completed).toMatchObject({
       from: 'WAITING_ON_CLIENT',
       to: 'COMPLETED',
       changes: {
         filedOn: { from: null, to: `${plus(-1)}T00:00:00.000Z` },
-        confirmationNumber: 'set',
+        confirmationNumber: { from: null, to: 'FAKE-123' },
         completedByUserId: { from: null, to: people.staffA.id },
         completedAt: { from: null, to: expect.any(String) },
       },
     });
-    expect(JSON.stringify(completed)).not.toContain('FAKE-123');
     const [reopenedRow] = await auditMetadata(d.id, 'compliance.deadline.reopened');
     expect(reopenedRow).toMatchObject({
       from: 'COMPLETED',
