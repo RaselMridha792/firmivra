@@ -19,6 +19,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { CatalogFrame } from './catalog-frame';
+import { PackageChangeConfirm } from './package-change-confirm';
 import {
   CATALOG_ERRORS,
   CATALOG_KEY,
@@ -60,6 +61,11 @@ export function PackagesScreen() {
   const list = useApiQuery(PACKAGES, () => api.servicesPricing.packages({ status: 'all' }));
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [view, setView] = useState<PackageView>('ACTIVE');
+  // R12: Deactivate and Archive wait for the firm to confirm.
+  const [confirming, setConfirming] = useState<{
+    row: ServicePackageRow;
+    action: 'archive' | 'deactivate';
+  } | null>(null);
   const all = list.data ?? [];
   const count = (id: PackageView) =>
     id === 'ALL' ? all.length : all.filter((p) => p.status === id).length;
@@ -137,9 +143,7 @@ export function PackagesScreen() {
           <button
             type="button"
             className={small}
-            onClick={() =>
-              deactivate.mutate(p.id, { onSuccess: done(`${p.name} deactivated.`), onError: fail })
-            }
+            onClick={() => setConfirming({ row: p, action: 'deactivate' })}
           >
             <Power aria-hidden weight="fill" className="size-4" /> Deactivate
             <span className="sr-only"> {p.name}</span>
@@ -159,14 +163,7 @@ export function PackagesScreen() {
         <button
           type="button"
           className={`${small} text-danger`}
-          onClick={() =>
-            archive.mutate(p.id, {
-              onSuccess: done(
-                `${p.name} archived. It stays under Archived, where it can be restored.`,
-              ),
-              onError: fail,
-            })
-          }
+          onClick={() => setConfirming({ row: p, action: 'archive' })}
         >
           <Archive aria-hidden weight="fill" className="size-4" /> Archive
           <span className="sr-only"> {p.name}</span>
@@ -176,6 +173,30 @@ export function PackagesScreen() {
 
   return (
     <CatalogFrame tab="packages">
+      {confirming ? (
+        <PackageChangeConfirm
+          name={confirming.row.name}
+          action={confirming.action}
+          pending={archive.isPending || deactivate.isPending}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            const { row, action } = confirming;
+            setConfirming(null);
+            if (action === 'archive')
+              archive.mutate(row.id, {
+                onSuccess: done(
+                  `${row.name} archived. It stays under Archived, where it can be restored.`,
+                ),
+                onError: fail,
+              });
+            else
+              deactivate.mutate(row.id, {
+                onSuccess: done(`${row.name} deactivated.`),
+                onError: fail,
+              });
+          }}
+        />
+      ) : null}
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}

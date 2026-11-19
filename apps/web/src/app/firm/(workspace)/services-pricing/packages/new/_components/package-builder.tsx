@@ -22,6 +22,7 @@ import { api } from '../../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { BookingTypeSelect } from '../../../_components/booking-type-select';
+import { PackageReadiness } from '../../../_components/package-readiness';
 import { CATALOG_ERRORS, money } from '../../../_components/catalog-shared';
 import {
   FixFields,
@@ -567,6 +568,22 @@ export function PackageBuilder() {
               onChange={(typeId) => put('appointmentTypeId', typeId || null)}
             />
           </Panel>
+          {/* R8, R11: what it still needs to be activated and seen, and where to set it up. */}
+          <PackageReadiness
+            input={{
+              name: value.name ?? '',
+              categoryId: value.categoryId ?? '',
+              description: value.shortDescription ?? '',
+              // The picker offers active services only.
+              services: (value.services ?? []).map((s) => ({ included: s.included ?? true })),
+              priced: (totals?.packagePriceCents ?? value.packagePriceCents ?? null) !== null,
+              discountError,
+              status: null,
+              visibleToClients: !!value.visibleToClients,
+              displayOnWebsite: !!value.displayOnWebsite,
+              bookingTypeId: value.appointmentTypeId ?? '',
+            }}
+          />
           {save.error && errorCode(save.error) !== 'INVALID_DISCOUNT' ? (
             <p role="alert" className="text-sm text-danger">
               {errorMessage(save.error, CATALOG_ERRORS)}

@@ -5,6 +5,7 @@ import {
   type CatalogService,
   type CatalogServiceRow,
   CatalogServicesQuery,
+  CheckPromotionCodeRequest,
   CreateCatalogServiceRequest,
   CreateServicePackageRequest,
   MergeCategoryRequest,
@@ -13,6 +14,7 @@ import {
   parseInput,
   type PricingType,
   type Promotion,
+  type PromotionCheckResult,
   ReorderCategoriesRequest,
   SavePromotionRequest,
   SaveServiceCategoryRequest,
@@ -1225,6 +1227,93 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
       p.endsOn = new Date().toISOString().slice(0, 10);
       p.updatedAt = new Date().toISOString();
       return copy(p);
+    },
+    // R9/R13, as the API (promotion-eligibility.ts): the first reason in order, else the amount.
+    checkPromotionCode: async (body) => {
+      await mockDelay();
+      const input = parseInput(CheckPromotionCodeRequest, body);
+      const sv =
+        input.itemType === 'SERVICE' ? s.services.find((x) => x.id === input.itemId) : null;
+      const pk =
+        input.itemType === 'PACKAGE' ? s.packages.find((x) => x.id === input.itemId) : null;
+      if (!sv && !pk) throw fail(404, 'NOT_FOUND', 'Not found');
+      const item = sv
+        ? {
+            kind: 'SERVICE',
+            id: sv.id,
+            categoryId: sv.category?.id ?? null,
+            priceCents: sv.price.type === 'CUSTOM_QUOTE' ? null : sv.price.amountCents,
+          }
+        : {
+            kind: 'PACKAGE',
+            id: pk!.id,
+            categoryId: pk!.category?.id ?? null,
+            priceCents: pk!.pricing.packagePriceCents,
+          };
+      const none = { discountCents: null, conflict: null, scope: [] as string[] };
+      const p = s.promotions.find((x) => x.promoCode === input.code);
+      if (!p)
+        return { result: 'UNKNOWN_CODE', promotion: null, priceCents: item.priceCents, ...none };
+      const today = new Date().toISOString().slice(0, 10);
+      const covers = (x: Promotion): PromotionCheckResult | null =>
+        x.appliesTo === 'ALL'
+          ? null
+          : x.appliesTo === 'CATEGORIES'
+            ? item.categoryId && x.targetIds.includes(item.categoryId)
+              ? null
+              : 'WRONG_CATEGORY'
+            : x.appliesTo === 'SERVICES'
+              ? item.kind === 'SERVICE' && x.targetIds.includes(item.id)
+                ? null
+                : 'WRONG_SERVICE'
+              : item.kind === 'PACKAGE' && x.targetIds.includes(item.id)
+                ? null
+                : 'WRONG_PACKAGE';
+      const live = (x: Promotion) =>
+        x.status === 'ACTIVE' &&
+        (!x.startsOn || x.startsOn <= today) &&
+        (!x.endsOn || x.endsOn >= today);
+      const clash = s.promotions.find(
+        (x) =>
+          x.id !== p.id &&
+          !x.promoCode &&
+          live(x) &&
+          covers(x) === null &&
+          !(x.stackable && p.stackable),
+      );
+      const result: PromotionCheckResult =
+        p.status === 'DRAFT' || p.status === 'INACTIVE'
+          ? 'NOT_ACTIVE'
+          : p.status === 'SCHEDULED' || (p.startsOn !== null && p.startsOn > today)
+            ? 'NOT_STARTED'
+            : p.status === 'EXPIRED' || (p.endsOn !== null && p.endsOn < today)
+              ? 'EXPIRED'
+              : (covers(p) ?? (clash ? 'DOES_NOT_STACK' : 'APPLIES'));
+      const price = item.priceCents;
+      const off =
+        result !== 'APPLIES' || price === null
+          ? null
+          : p.discountType === 'PERCENTAGE'
+            ? Math.round((price * p.value) / 10_000)
+            : Math.min(p.value, price);
+      const names = [...s.categories, ...s.services, ...s.packages]
+        .filter((x) => p.targetIds.includes(x.id))
+        .map((x) => x.name)
+        .sort((a, b) => a.localeCompare(b));
+      return {
+        result,
+        promotion: {
+          id: p.id,
+          name: p.name,
+          startsOn: p.startsOn,
+          endsOn: p.endsOn,
+          eligibility: p.eligibility,
+        },
+        priceCents: price,
+        discountCents: off,
+        conflict: result === 'DOES_NOT_STACK' && clash ? { id: clash.id, name: clash.name } : null,
+        scope: result.startsWith('WRONG_') ? names : [],
+      };
     },
   };
 }
