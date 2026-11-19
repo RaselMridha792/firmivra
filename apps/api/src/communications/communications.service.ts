@@ -38,6 +38,7 @@ import {
   type Person,
 } from './communications-audience.service.js';
 import { mergeValues } from './merge-values.js';
+import { attachmentChecks, scanOf, storedAttachments } from './communication-attachments.js';
 import type {
   AudienceCandidatesQ,
   CancelBody,
@@ -511,21 +512,14 @@ export class CommunicationsService {
     const audience = editable
       ? (await this.audience.compute(ctx, c)).summary
       : await this.frozenAudience(ctx, c);
-    const attachments = (
-      (c.attachments ?? []) as {
-        id?: string;
-        fileName: string;
-        contentType: string;
-        sizeBytes: number;
-      }[]
-    )
-      .filter((a) => typeof a.id === 'string')
-      .map((a) => ({
-        id: a.id as string,
-        fileName: a.fileName,
-        contentType: a.contentType,
-        sizeBytes: a.sizeBytes,
-      }));
+    const attachments = storedAttachments(c.attachments).map((a) => ({
+      id: a.id,
+      fileName: a.fileName,
+      contentType: a.contentType,
+      sizeBytes: a.sizeBytes,
+      // The scan gap: what the virus check said (none yet reads PENDING).
+      scanStatus: scanOf(a),
+    }));
     return {
       ...(row as CommunicationRow),
       previewText: c.previewText,
@@ -1542,6 +1536,8 @@ export class CommunicationsService {
     if (c.channel !== 'SMS' && !c.subject?.trim())
       block('MISSING_SUBJECT', c.channel === 'EMAIL' ? 'Add a subject' : 'Add a title');
     if (!c.body.trim()) block('EMPTY_BODY', 'Write a message');
+    // The scan gap: nothing goes out until every file is CLEAN.
+    checks.push(...attachmentChecks(storedAttachments(c.attachments)));
     const custom = await ctx.tx.customMergeField.findMany({
       where: { businessId: ctx.businessId },
       select: { key: true, label: true, fallback: true },
@@ -1735,6 +1731,11 @@ export class CommunicationsService {
     const audience = await this.audience.compute(ctx, c);
     const { checks } = await this.checks(ctx, c, audience);
     const blocking = checks.filter((k) => k.severity === 'BLOCK');
+    // The scan gap: a file not yet checked, or blocked, names itself (the other checks with it).
+    const scan = blocking.find(
+      (k) => k.code === 'ATTACHMENT_BLOCKED' || k.code === 'ATTACHMENT_SCAN_PENDING',
+    );
+    if (scan) throw refuse(scan.code, scan.message, blocking);
     if (blocking.length) throw refuse('NOT_READY', 'This cannot go out yet', blocking);
     if (expected !== undefined && expected !== audience.summary.finalCount)
       throw refuse('AUDIENCE_CHANGED', 'The number of recipients changed', {

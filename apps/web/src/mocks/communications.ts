@@ -1415,6 +1415,8 @@ export function createCommunicationsMock({
           fileName: p.fileName,
           contentType: p.contentType,
           sizeBytes: p.sizeBytes,
+          // As the API locally: the mock's scanner answers at once.
+          scanStatus: 'CLEAN' as const,
         };
         r.d.attachments.push(a);
         return a;

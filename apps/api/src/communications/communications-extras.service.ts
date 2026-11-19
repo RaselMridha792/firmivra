@@ -30,6 +30,8 @@ import {
   PUT_URL_SECONDS,
 } from '../storage/document-storage.js';
 import { readBudget } from '../storage/read-budget.js';
+import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../storage/config.js';
+import { scanOf, type StoredAttachment, storedAttachments } from './communication-attachments.js';
 import { checkFile } from '../storage/file-checks.js';
 import { TemplateReadService } from '../templates/template-read.service.js';
 import { TemplatesService } from '../templates/templates.service.js';
@@ -77,14 +79,6 @@ export class CommunicationUploadTokens extends Sealer<Claim> {
   }
 }
 
-interface StoredAttachment {
-  id: string;
-  fileName: string;
-  contentType: string;
-  sizeBytes: number;
-  s3Key: string;
-}
-
 const expired = () =>
   new GoneException({ code: 'UPLOAD_EXPIRED', message: 'This upload has expired' });
 const refused = (code: string) =>
@@ -108,6 +102,7 @@ export class CommunicationExtrasService {
     private readonly templates: TemplatesService,
     private readonly templateReader: TemplateReadService,
     @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
+    @Inject(DOCUMENTS_CONFIG) private readonly config: DocumentsConfig,
     private readonly tokens: CommunicationUploadTokens,
     private readonly audit: AuditService,
   ) {}
@@ -265,7 +260,7 @@ export class CommunicationExtrasService {
   }
 
   private stored(json: unknown): StoredAttachment[] {
-    return ((json ?? []) as StoredAttachment[]).filter((a) => typeof a.id === 'string');
+    return storedAttachments(json);
   }
 
   async ticket(
@@ -349,6 +344,9 @@ export class CommunicationExtrasService {
         contentType: claim.contentType,
         sizeBytes: claim.sizeBytes,
         s3Key: claim.key,
+        // The scan gap: GuardDuty's verdict comes later (CommunicationsScanHandler); locally the
+        // file is clean at once, as the scanner would record it.
+        scanStatus: this.config.scanMode === 'local' ? 'CLEAN' : 'PENDING',
       };
       await this.write(ctx.tx, businessId, c.id, [...list, entry]);
       await this.audit.logIn(
@@ -362,6 +360,7 @@ export class CommunicationExtrasService {
         fileName: entry.fileName,
         contentType: entry.contentType,
         sizeBytes: entry.sizeBytes,
+        scanStatus: scanOf(entry),
       };
     });
   }

@@ -892,6 +892,14 @@ function ComposerForm({
                       className="flex items-center justify-between gap-2 border-t border-divider py-1.5 text-sm first:border-t-0"
                     >
                       <span className="min-w-0 truncate text-heading">{a.fileName}</span>
+                      {/* The scan gap: nothing goes out until every file is checked clean. */}
+                      {a.scanStatus === 'INFECTED' || a.scanStatus === 'FAILED' ? (
+                        <span className="shrink-0 text-xs font-semibold text-danger">
+                          Blocked by the virus check: remove it
+                        </span>
+                      ) : a.scanStatus && a.scanStatus !== 'CLEAN' ? (
+                        <span className="shrink-0 text-xs text-muted">Checking for viruses…</span>
+                      ) : null}
                       <button
                         type="button"
                         aria-label={`Remove ${a.fileName}`}
