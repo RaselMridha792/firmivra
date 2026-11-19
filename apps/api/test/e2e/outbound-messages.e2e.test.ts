@@ -13,7 +13,11 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
-import { OutboundCheck as CheckShape, OutboundMessage as MessageShape } from '@firmivra/types';
+import {
+  OutboundCheck as CheckShape,
+  OutboundMessage as MessageShape,
+  OutboundReview,
+} from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -854,6 +858,431 @@ describe('M22 (Messaging Review 2): New Message sends files with no text, by por
     ok(
       await call('post', `/outbound-messages/${withText.id}/cancel`, people.ownerA, {
         version: withText.updatedAt,
+      }),
+    );
+  });
+});
+
+describe('M19 (Messaging Review 2): one New Message to several channels, one message each', () => {
+  const Sent = z.strictObject({ ...MessageShape.shape, others: z.array(Outbound) });
+  const Review = OutboundReview;
+  const later = () => new Date(Date.now() + 3 * 86_400_000).toISOString();
+  const TEXT_LEAD_PHONE = '+15555550142';
+  let textLead = '';
+  let smsWas = false;
+  const inA = async <T>(work: Parameters<typeof runInScope<T>>[2]): Promise<T> => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      return await runInScope(owner, { kind: 'business', businessId: ids.firmA }, work);
+    } finally {
+      await owner.$disconnect();
+    }
+  };
+  /** A clean file on the message, as the upload and the scanner leave it. */
+  const fileOn = (outboundMessageId: string, fileName: string) =>
+    inA(async (tx) => {
+      const f = await tx.outboundMessageFile.create({
+        data: {
+          businessId: ids.firmA,
+          outboundMessageId,
+          fileName,
+          contentType: 'application/pdf',
+          sizeBytes: 64,
+          sha256: 'b'.repeat(64),
+          s3Key: `tenant/${ids.firmA}/messages/${randomUUID()}`,
+          uploadedByUserId: people.ownerA.id,
+        },
+        select: { id: true },
+      });
+      await tx.outboundMessageFile.update({
+        where: { id: f.id },
+        data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+      });
+      return f.id;
+    });
+  const send = (id: string, body: object, who = people.ownerA) =>
+    call('post', `/outbound-messages/${id}/send`, who, body);
+  const reviewOf = async (id: string, channels?: string) =>
+    Review.parse(
+      ok(
+        await call(
+          'get',
+          `/outbound-messages/${id}/review${channels ? `?channels=${channels}` : ''}`,
+        ),
+      ).body,
+    );
+  const statusOf = (m: { recipients: { id: string; status: string | null }[] }) =>
+    Object.fromEntries(m.recipients.map((r) => [r.id, r.status]));
+  /** Messages with this exact text: the draft and its copies. */
+  const withBody = (body: string) =>
+    inA((tx) =>
+      tx.outboundMessage.findMany({
+        where: { businessId: ids.firmA, body },
+        select: { id: true, channel: true, status: true },
+      }),
+    );
+
+  beforeAll(async () => {
+    // Texts on (Messages Settings), and a lead with a mobile who agreed to texts.
+    await inA(async (tx) => {
+      const s = await tx.messageSettings.findUnique({ where: { businessId: ids.firmA } });
+      smsWas = s?.smsEnabled ?? false;
+      await tx.messageSettings.upsert({
+        where: { businessId: ids.firmA },
+        create: { businessId: ids.firmA, smsEnabled: true },
+        update: { smsEnabled: true },
+      });
+      const service = await tx.service.create({
+        data: { businessId: ids.firmA, kind: 'OTHER', name: `Texts ${run}` },
+      });
+      textLead = (
+        await tx.lead.create({
+          data: {
+            businessId: ids.firmA,
+            serviceId: service.id,
+            firstName: 'Fake',
+            lastName: 'Texter',
+            email: `texter-${run}@example.test`,
+            phone: TEXT_LEAD_PHONE,
+            taxYear: 2025,
+            status: 'SUBMITTED',
+            submittedAt: new Date(),
+          },
+        })
+      ).id;
+      await tx.communicationConsent.create({
+        data: {
+          businessId: ids.firmA,
+          leadId: textLead,
+          channel: 'SMS',
+          status: 'OPTED_IN',
+          source: 'fake',
+        },
+      });
+    });
+  });
+  afterAll(async () => {
+    await inA((tx) =>
+      tx.messageSettings.update({
+        where: { businessId: ids.firmA },
+        data: { smsEnabled: smsWas },
+      }),
+    );
+  });
+
+  it('two channels make two messages, each sent to who its own channel reaches', async () => {
+    const body = `Two ways ${run}`;
+    const d = await draft({
+      channel: 'PORTAL',
+      subject: 'Two ways',
+      body,
+      clientIds: [ids.one, ids.two, ids.three],
+    });
+    // The review: each channel's count and who cannot receive it there, and why.
+    const review = await reviewOf(d.id, 'PORTAL,EMAIL');
+    expect(review.channels).toEqual([
+      {
+        channel: 'PORTAL',
+        total: 3,
+        canReceive: 2,
+        cannotReceive: [
+          { kind: 'CLIENT', id: ids.two, name: 'Fake Two', reason: 'NO_PORTAL_ACCESS' },
+        ],
+      },
+      {
+        channel: 'EMAIL',
+        total: 3,
+        canReceive: 1,
+        cannotReceive: [
+          { kind: 'CLIENT', id: ids.two, name: 'Fake Two', reason: 'NO_PORTAL_ACCESS' },
+          { kind: 'CLIENT', id: ids.three, name: 'Fake Three', reason: 'NO_CONSENT' },
+        ],
+      },
+    ]);
+    expect(review.checks.map((c) => c.code)).toEqual(['SOME_SKIPPED', 'READY']);
+    expect(review.checks[0]?.message).toBe(
+      '1 of 3 cannot receive it through the client portal; 2 of 3 cannot receive it by email and will be skipped.',
+    );
+    outbox.length = 0;
+    const sent = Sent.parse(
+      ok(await send(d.id, { version: d.updatedAt, channels: ['PORTAL', 'EMAIL'] })).body,
+    );
+    expect(sent).toMatchObject({ id: d.id, channel: 'PORTAL', status: 'SENT' });
+    expect(statusOf(sent)).toEqual({
+      [ids.one]: 'SENT',
+      [ids.two]: 'SKIPPED',
+      [ids.three]: 'SENT',
+    });
+    expect(sent.others).toHaveLength(1);
+    const email = sent.others[0]!;
+    expect(email).toMatchObject({ channel: 'EMAIL', status: 'SENT', subject: 'Two ways' });
+    expect(email.id).not.toBe(d.id);
+    expect(statusOf(email)).toEqual({
+      [ids.one]: 'SENT',
+      [ids.two]: 'SKIPPED',
+      [ids.three]: 'SKIPPED',
+    });
+    // The email is the client's notice with the portal link, never the text.
+    expect(outbox.filter((m) => m.template === 'message.received').map((m) => m.to)).toContain(
+      ONE_EMAIL,
+    );
+    expect(JSON.stringify(outbox)).not.toContain(body);
+    // Each is a message of its own; the copy is audited with ids only.
+    expect((await withBody(body)).map((m) => m.channel).sort()).toEqual(['EMAIL', 'PORTAL']);
+    const audit = await inA((tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, entityId: email.id },
+        select: { action: true, metadata: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    expect(audit[0]).toEqual({ action: 'outbound_message.copied', metadata: { fromId: d.id } });
+    expect(audit.map((a) => a.action)).toContain('outbound_message.sent');
+    expect(JSON.stringify(audit)).not.toContain(run);
+  });
+
+  it('three channels make three: a text goes to the lead who agreed, with the words only', async () => {
+    const body = `Three ways ${run}`;
+    const d = await draft({
+      channel: 'PORTAL',
+      subject: 'Three ways',
+      body,
+      clientIds: [ids.one],
+      leadIds: [textLead],
+    });
+    const review = await reviewOf(d.id, 'PORTAL,EMAIL,SMS');
+    expect(review.channels?.map((c) => [c.channel, c.canReceive, c.total])).toEqual([
+      ['PORTAL', 1, 2],
+      ['EMAIL', 2, 2],
+      ['SMS', 1, 2],
+    ]);
+    outbox.length = 0;
+    const sent = Sent.parse(
+      ok(await send(d.id, { version: d.updatedAt, channels: ['PORTAL', 'EMAIL', 'SMS'] })).body,
+    );
+    expect([sent.channel, ...sent.others.map((o) => o.channel)]).toEqual([
+      'PORTAL',
+      'EMAIL',
+      'SMS',
+    ]);
+    const [email, text] = sent.others;
+    expect(statusOf(sent)).toEqual({ [ids.one]: 'SENT', [textLead]: 'SKIPPED' });
+    expect(statusOf(email!)).toEqual({ [ids.one]: 'SENT', [textLead]: 'SENT' });
+    expect(statusOf(text!)).toEqual({ [ids.one]: 'SKIPPED', [textLead]: 'SENT' });
+    expect(text!.recipients.find((r) => r.id === ids.one)?.reason).toBe('PROVIDER_UNAVAILABLE');
+    expect(text!.subject).toBeNull();
+    const sms = outbox.filter((m) => m.template === 'lead.message-sms');
+    expect(sms).toEqual([expect.objectContaining({ to: TEXT_LEAD_PHONE, data: { body } })]);
+    expect(outbox.filter((m) => m.template === 'lead.message-email').map((m) => m.to)).toEqual([
+      `texter-${run}@example.test`,
+    ]);
+    expect((await withBody(body)).map((m) => m.status)).toEqual(['SENT', 'SENT', 'SENT']);
+  });
+
+  it('refuses what one channel cannot take, and then makes nothing', async () => {
+    // Email needs a subject.
+    const noSubject = `No subject ${run}`;
+    const a = await draft({ channel: 'PORTAL', body: noSubject, clientIds: [ids.one] });
+    expect(
+      (await reviewOf(a.id, 'PORTAL,EMAIL')).checks.find((c) => c.severity === 'BLOCK')?.code,
+    ).toBe('SUBJECT_REQUIRED');
+    const refused = await send(a.id, { version: a.updatedAt, channels: ['PORTAL', 'EMAIL'] });
+    expect([refused.status, codeOf(refused)]).toEqual([400, 'SUBJECT_REQUIRED']);
+    expect(await withBody(noSubject)).toEqual([{ id: a.id, channel: 'PORTAL', status: 'DRAFT' }]);
+    // A text is at most 1,600 characters.
+    const long = `${'x'.repeat(1600)} ${run}`;
+    const b = await draft({ channel: 'PORTAL', body: long, clientIds: [ids.one] });
+    expect((await reviewOf(b.id, 'PORTAL,SMS')).checks.map((c) => c.code)).toContain(
+      'SMS_TOO_LONG',
+    );
+    const tooLong = await send(b.id, { version: b.updatedAt, channels: ['PORTAL', 'SMS'] });
+    expect([tooLong.status, codeOf(tooLong)]).toEqual([400, 'SMS_TOO_LONG']);
+    // A channel nobody can receive on stops them all, and says which.
+    const c = await draft({ channel: 'PORTAL', body: `Nobody ${run}`, clientIds: [ids.one] });
+    const nobody = await send(c.id, { version: c.updatedAt, channels: ['PORTAL', 'SMS'] });
+    expect([nobody.status, codeOf(nobody)]).toEqual([409, 'NO_RECIPIENTS']);
+    expect(JSON.stringify(nobody.body)).toContain('by text');
+    expect(await withBody(`Nobody ${run}`)).toHaveLength(1);
+    // The channels must include the one it is saved on; each once.
+    const notOwn = await send(c.id, { version: c.updatedAt, channels: ['EMAIL'] });
+    expect([notOwn.status, codeOf(notOwn)]).toEqual([400, 'VALIDATION_FAILED']);
+    const twice = await send(c.id, { version: c.updatedAt, channels: ['PORTAL', 'PORTAL'] });
+    expect(twice.status).toBe(400);
+    for (const m of [a, b, c])
+      ok(
+        await call('post', `/outbound-messages/${m.id}/cancel`, people.ownerA, {
+          version: m.updatedAt,
+        }),
+      );
+  });
+
+  it('files go only with the Portal message; files alone only when Portal is the only channel', async () => {
+    // A Portal draft with a file, also by email: the file stays with the Portal message.
+    const withText = `With a file ${run}`;
+    const a = await draft({
+      channel: 'PORTAL',
+      subject: 'Your form',
+      body: withText,
+      clientIds: [ids.one],
+    });
+    await fileOn(a.id, 'Fake 1098.pdf');
+    const version = Outbound.parse(ok(await call('get', `/outbound-messages/${a.id}`)).body);
+    const sent = Sent.parse(
+      ok(await send(a.id, { version: version.updatedAt, channels: ['PORTAL', 'EMAIL'] })).body,
+    );
+    expect(sent.files.map((f) => f.fileName)).toEqual(['Fake 1098.pdf']);
+    expect(sent.others[0]?.files).toEqual([]);
+    const threadId = sent.recipients[0]?.threadId ?? '';
+    const thread = ok(await call('get', `/message-threads/${threadId}`)).body as {
+      messages: { attachments: { fileName: string }[] }[];
+    };
+    expect(thread.messages[0]?.attachments.map((x) => x.fileName)).toEqual(['Fake 1098.pdf']);
+
+    // An Email draft with a file, also by Portal: the file moves to the Portal message.
+    const b = await draft({
+      channel: 'EMAIL',
+      subject: 'Your other form',
+      body: `Email first ${run}`,
+      clientIds: [ids.one],
+    });
+    await fileOn(b.id, 'Fake 1099.pdf');
+    const alone = await send(b.id, {
+      version: Outbound.parse(ok(await call('get', `/outbound-messages/${b.id}`)).body).updatedAt,
+    });
+    expect([alone.status, codeOf(alone)]).toEqual([409, 'FILES_NEED_PORTAL']);
+    const both = Sent.parse(
+      ok(
+        await send(b.id, {
+          version: Outbound.parse(ok(await call('get', `/outbound-messages/${b.id}`)).body)
+            .updatedAt,
+          channels: ['EMAIL', 'PORTAL'],
+        }),
+      ).body,
+    );
+    expect(both.files).toEqual([]);
+    expect(both.others[0]).toMatchObject({ channel: 'PORTAL', status: 'SENT' });
+    expect(both.others[0]?.files.map((f) => f.fileName)).toEqual(['Fake 1099.pdf']);
+
+    // Files alone: Portal only. With Email or Text chosen it needs the words.
+    const c = await draft({ channel: 'PORTAL', subject: `Alone ${run}`, clientIds: [ids.one] });
+    await fileOn(c.id, 'Fake K-1.pdf');
+    const cv = Outbound.parse(ok(await call('get', `/outbound-messages/${c.id}`)).body).updatedAt;
+    const review = await reviewOf(c.id, 'PORTAL,EMAIL');
+    expect(review.checks.find((x) => x.code === 'TEXT_REQUIRED')).toMatchObject({
+      severity: 'BLOCK',
+    });
+    for (const channels of [
+      ['PORTAL', 'EMAIL'],
+      ['PORTAL', 'SMS'],
+    ]) {
+      const refused = await send(c.id, { version: cv, channels });
+      expect([refused.status, codeOf(refused)]).toEqual([400, 'TEXT_REQUIRED']);
+      expect(JSON.stringify(refused.body)).toContain(
+        'Only a portal message can go with files alone',
+      );
+    }
+    const portalOnly = Sent.parse(ok(await send(c.id, { version: cv, channels: ['PORTAL'] })).body);
+    expect(portalOnly).toMatchObject({ status: 'SENT', others: [] });
+  });
+
+  it('one channel is as before: no channels named, the same answer', async () => {
+    const d = await draft({ channel: 'PORTAL', body: `One way ${run}`, clientIds: [ids.one] });
+    const review = ok(await call('get', `/outbound-messages/${d.id}/review`)).body as object;
+    expect(review).not.toHaveProperty('channels');
+    const sent = Outbound.parse(ok(await send(d.id, { version: d.updatedAt })).body);
+    expect(sent).toMatchObject({ status: 'SENT', channel: 'PORTAL' });
+    expect(await withBody(`One way ${run}`)).toHaveLength(1);
+  });
+
+  it('scheduling fans out too; each one is canceled or sent on its own', async () => {
+    const body = `Planned ${run}`;
+    const d = await draft({
+      channel: 'PORTAL',
+      subject: 'Planned',
+      body,
+      clientIds: [ids.one],
+    });
+    const at = later();
+    const planned = Sent.parse(
+      ok(
+        await call('post', `/outbound-messages/${d.id}/schedule`, people.ownerA, {
+          version: d.updatedAt,
+          scheduledFor: at,
+          channels: ['PORTAL', 'EMAIL'],
+        }),
+      ).body,
+    );
+    expect(planned).toMatchObject({ status: 'SCHEDULED', scheduledFor: at, channel: 'PORTAL' });
+    const email = planned.others[0]!;
+    expect(email).toMatchObject({ status: 'SCHEDULED', scheduledFor: at, channel: 'EMAIL' });
+    // The pending list shows each on its own, with its channel.
+    const pending = ok(await call('get', '/outbound-messages?status=SCHEDULED')).body as {
+      items: { id: string; channel: string }[];
+    };
+    expect(pending.items.filter((m) => [d.id, email.id].includes(m.id))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: d.id, channel: 'PORTAL' }),
+        expect.objectContaining({ id: email.id, channel: 'EMAIL' }),
+      ]),
+    );
+    // A scheduled message stays on its channel: no copies from it.
+    const fixed = await call('post', `/outbound-messages/${d.id}/schedule`, people.ownerA, {
+      version: planned.updatedAt,
+      scheduledFor: at,
+      channels: ['PORTAL', 'SMS'],
+    });
+    expect([fixed.status, codeOf(fixed)]).toEqual([409, 'CHANNELS_FIXED']);
+    // Cancel one; the job sends the other when its time comes.
+    ok(
+      await call('post', `/outbound-messages/${email.id}/cancel`, people.ownerA, {
+        version: email.updatedAt,
+      }),
+    );
+    await job.run({ now: new Date(Date.now() + 4 * 86_400_000), businessIds: [ids.firmA] });
+    expect(
+      (await withBody(body))
+        .map((m) => [m.channel, m.status])
+        .sort((x, y) => x[0]!.localeCompare(y[0]!)),
+    ).toEqual([
+      ['EMAIL', 'CANCELED'],
+      ['PORTAL', 'SENT'],
+    ]);
+  });
+
+  it("another firm's draft is 404, and a staff member's reach applies", async () => {
+    const d = await draft({
+      channel: 'PORTAL',
+      subject: 'Mine',
+      body: `Firm A ${run}`,
+      clientIds: [ids.one],
+    });
+    const b = await call(
+      'post',
+      `/outbound-messages/${d.id}/send`,
+      people.ownerB,
+      { version: d.updatedAt, channels: ['PORTAL', 'EMAIL'] },
+      ids.firmB,
+    );
+    expect(b.status).toBe(404);
+    const review = await call(
+      'get',
+      `/outbound-messages/${d.id}/review?channels=PORTAL,EMAIL`,
+      people.ownerB,
+      undefined,
+      ids.firmB,
+    );
+    expect(review.status).toBe(404);
+    // Staff see only their own drafts.
+    const staff = await call('post', `/outbound-messages/${d.id}/schedule`, people.staffA, {
+      version: d.updatedAt,
+      scheduledFor: later(),
+      channels: ['PORTAL', 'EMAIL'],
+    });
+    expect(staff.status).toBe(404);
+    expect(await withBody(`Firm A ${run}`)).toHaveLength(1);
+    ok(
+      await call('post', `/outbound-messages/${d.id}/cancel`, people.ownerA, {
+        version: d.updatedAt,
       }),
     );
   });

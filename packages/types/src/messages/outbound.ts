@@ -245,22 +245,52 @@ export const UpdateOutboundRequest = saveRules(z.strictObject({ ...SaveShape, ve
 export type UpdateOutboundRequest = z.input<typeof UpdateOutboundRequest>;
 
 /**
+ * M19 (Messaging Review 2): one New Message to several channels, as a fan-out. A draft keeps one
+ * channel (each person's row is on it). Send and Schedule may name `channels`: every channel it
+ * goes on, the draft's own included (400 otherwise). In one transaction the draft goes on its own
+ * channel and a copy is made for each other one (the same people, text and options), so each is a
+ * message of its own: that channel's rules decide who receives it, and it has its own status,
+ * Cancel and results. Email needs a subject (400 SUBJECT_REQUIRED); a text goes without one and
+ * is at most 1,600 characters (400 SMS_TOO_LONG); files go only with the Portal message, and a
+ * message of files alone (M22) only when Portal is the only channel (400 TEXT_REQUIRED). One that
+ * nobody can receive on its channel stops them all (409 NO_RECIPIENTS). Left out: the draft's
+ * own channel only, exactly as before.
+ */
+export const OutboundChannels = z
+  .array(OutboundChannel)
+  .min(1, 'Choose a channel')
+  .max(3)
+  .refine((cs) => new Set(cs).size === cs.length, 'Choose each channel once');
+export type OutboundChannels = z.infer<typeof OutboundChannels>;
+
+/**
  * POST .../{id}/send: now. Sending a message already sent answers it as it is (idempotent). A
  * merge field that cannot be filled for someone who receives it is 409 UNRESOLVED_FIELDS unless
- * `confirmUnresolved` (the Review step's "send them as they are").
+ * `confirmUnresolved` (the Review step's "send them as they are"). M19: `channels`, above.
  */
 export const SendOutboundRequest = z.strictObject({
   version: DateTime,
   confirmUnresolved: z.boolean().optional(),
+  channels: OutboundChannels.optional(),
 });
 export type SendOutboundRequest = z.input<typeof SendOutboundRequest>;
-/** POST .../{id}/schedule: at a future time (at least a minute ahead). */
+/** POST .../{id}/schedule: at a future time (at least a minute ahead). M19: `channels`, above. */
 export const ScheduleOutboundRequest = z.strictObject({
   version: DateTime,
   scheduledFor: DateTime,
   confirmUnresolved: z.boolean().optional(),
+  channels: OutboundChannels.optional(),
 });
 export type ScheduleOutboundRequest = z.input<typeof ScheduleOutboundRequest>;
+/**
+ * What Send and Schedule answer: the draft's message, and with `channels` named, `others`: the
+ * message made for each other channel, in the order named. Without `channels` it is the message
+ * alone, as before.
+ */
+export const OutboundSendResult = OutboundMessage.extend({
+  others: z.array(OutboundMessage).optional(),
+});
+export type OutboundSendResult = z.infer<typeof OutboundSendResult>;
 /** POST .../{id}/cancel: a draft or a scheduled message, before it is sent. */
 export const CancelOutboundRequest = z.strictObject({ version: DateTime });
 export type CancelOutboundRequest = z.input<typeof CancelOutboundRequest>;
@@ -277,6 +307,26 @@ export const ListOutboundQuery = z.strictObject({
 export type ListOutboundQuery = z.input<typeof ListOutboundQuery>;
 export const OutboundMessageList = z.object({ items: z.array(OutboundMessage) });
 export type OutboundMessageList = z.infer<typeof OutboundMessageList>;
+
+/** M19: `channels` of a review, as `PORTAL,EMAIL`: each channel once. */
+const CHANNEL_LIST = /^(PORTAL|EMAIL|SMS)(,(PORTAL|EMAIL|SMS)){0,2}$/;
+/**
+ * GET .../{id}/review?channels=PORTAL,EMAIL (M19): the review for those channels, the draft's own
+ * included (400 otherwise). Left out: its own channel, as before.
+ */
+export const OutboundReviewQuery = z.strictObject({
+  channels: z
+    .string()
+    .regex(CHANNEL_LIST, 'List channels as PORTAL,EMAIL,SMS')
+    .refine((s) => new Set(s.split(',')).size === s.split(',').length, 'Choose each channel once')
+    .optional(),
+});
+export type OutboundReviewQuery = z.input<typeof OutboundReviewQuery>;
+/** M19: a review's `channels` as a list (undefined when not named). */
+export const reviewChannels = (q: {
+  channels?: string | undefined;
+}): OutboundChannels | undefined =>
+  q.channels ? (q.channels.split(',') as OutboundChannels) : undefined;
 
 /**
  * GET .../{id}/review (MSG-F15): what each person would get, merge fields filled from their own
@@ -313,6 +363,10 @@ export const OutboundReview = z.object({
         'SOME_SKIPPED',
         /** M22: neither a text nor a file. */
         'BODY_REQUIRED',
+        /** M19: files alone with Email or Text chosen: those carry the words. */
+        'TEXT_REQUIRED',
+        /** M19: Text chosen and the message is over 1,600 characters. */
+        'SMS_TOO_LONG',
         'FILES_NOT_READY',
         'FILES_NEED_PORTAL',
         'READY',
@@ -321,6 +375,22 @@ export const OutboundReview = z.object({
       message: z.string(),
     }),
   ),
+  /**
+   * M19: with `channels` asked for, each in that order: how many it goes to, how many can receive
+   * it on that channel, and who cannot and why. The checks then cover them all. Otherwise absent.
+   */
+  channels: z
+    .array(
+      z.object({
+        channel: OutboundChannel,
+        total: z.number().int(),
+        canReceive: z.number().int(),
+        cannotReceive: z.array(
+          OutboundRecipient.pick({ kind: true, id: true, name: true, reason: true }),
+        ),
+      }),
+    )
+    .optional(),
 });
 export type OutboundReview = z.infer<typeof OutboundReview>;
 

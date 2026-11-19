@@ -18,6 +18,9 @@ import {
   type OutboundMessage,
   type OutboundMessageList,
   type OutboundReview,
+  OutboundReviewQuery,
+  type OutboundSendResult,
+  reviewChannels,
   SaveOutboundRequest,
   ScheduleOutboundRequest,
   SendOutboundRequest,
@@ -102,8 +105,9 @@ export class OutboundMessagesController {
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
+    @Query(new ZodValidationPipe(OutboundReviewQuery)) q: z.output<typeof OutboundReviewQuery>,
   ): Promise<OutboundReview> {
-    return this.outbound.review(tenant.businessId, actorOf(auth, tenant), id);
+    return this.outbound.review(tenant.businessId, actorOf(auth, tenant), id, reviewChannels(q));
   }
 
   @Put(':id')
@@ -124,13 +128,14 @@ export class OutboundMessagesController {
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
     @Body(new ZodValidationPipe(SendOutboundRequest)) body: z.output<typeof SendOutboundRequest>,
-  ): Promise<OutboundMessage> {
+  ): Promise<OutboundSendResult> {
     return this.outbound.send(
       tenant.businessId,
       actorOf(auth, tenant),
       id,
       body.version,
       body.confirmUnresolved === true,
+      body.channels,
     );
   }
 
@@ -142,7 +147,7 @@ export class OutboundMessagesController {
     @Param('id', idPipe) id: string,
     @Body(new ZodValidationPipe(ScheduleOutboundRequest))
     body: z.output<typeof ScheduleOutboundRequest>,
-  ): Promise<OutboundMessage> {
+  ): Promise<OutboundSendResult> {
     return this.outbound.schedule(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
