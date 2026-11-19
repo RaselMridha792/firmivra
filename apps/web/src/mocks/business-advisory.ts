@@ -4,6 +4,8 @@ import {
   AddAdvisoryWorkstreamRequest,
   AdvisoryActionItemsQuery,
   AdvisoryActivityQuery,
+  AdvisoryHistoryQuery,
+  type AdvisoryHistoryArea,
   AdvisoryClientsQuery,
   AdvisoryFinancialsQuery,
   AdvisoryGoalsQuery,
@@ -500,6 +502,28 @@ interface GoalState extends Omit<AdvisoryGoalRow, 'client' | 'milestoneCount' | 
   version: number;
 }
 type ActionState = Omit<AdvisoryActionItemRow, 'client' | 'overdue'>;
+
+/**
+ * A-NEW2: a history entry's area from its action, in the API's form (`advisory_plan.sent`) or the
+ * mock's older one (`advisory.plan_sent`).
+ */
+const HISTORY_AREAS: [string, AdvisoryHistoryArea][] = [
+  ['client', 'CLIENT'],
+  ['workstream', 'SERVICE'],
+  ['engagement', 'SERVICE'],
+  ['plan', 'PLAN'],
+  ['goal', 'GOAL'],
+  ['milestone', 'GOAL'],
+  ['financial', 'FINANCIAL'],
+  ['recommendation', 'RECOMMENDATION'],
+  ['action_item', 'ACTION'],
+  ['resource', 'RESOURCE'],
+  ['settings', 'SETTINGS'],
+];
+const historyAreaOf = (action: string): AdvisoryHistoryArea | null => {
+  const rest = action.replace(/^advisory[._]/, '');
+  return HISTORY_AREAS.find(([key]) => rest.startsWith(key))?.[1] ?? null;
+};
 
 export function createAdvisoryMock({
   role = 'OWNER',
@@ -1811,6 +1835,33 @@ export function createAdvisoryMock({
           .filter((a) => a.advisoryClientId === advisoryClientId)
           .sort((a, b) => b.at.localeCompare(a.at))
           .map(({ advisoryClientId: _a, ...a }) => a);
+        return page(rows, query.page, query.pageSize);
+      }),
+    // A-NEW2: the module's View History across the clients the signed-in person reaches.
+    history: (q = {}) =>
+      run(() => {
+        const query = parseInput(AdvisoryHistoryQuery, q);
+        if (query.advisoryClientId) findClient(query.advisoryClientId);
+        const ids = visibleIds();
+        const rows = activity
+          .filter(
+            (a) =>
+              ids.has(a.advisoryClientId) &&
+              (!query.advisoryClientId || a.advisoryClientId === query.advisoryClientId) &&
+              (!query.area || historyAreaOf(a.action) === query.area) &&
+              (!query.from || a.at >= query.from) &&
+              (!query.to || a.at <= query.to),
+          )
+          .sort((a, b) => b.at.localeCompare(a.at))
+          .map(({ advisoryClientId, ...a }) => {
+            const c = clients.find((x) => x.id === advisoryClientId);
+            return {
+              ...a,
+              area: historyAreaOf(a.action),
+              advisoryClient: c ? { id: c.id, name: c.client.name } : null,
+              planId: null,
+            };
+          });
         return page(rows, query.page, query.pageSize);
       }),
 

@@ -16,6 +16,7 @@ import {
   AdvisoryActionItemPage,
   AdvisoryActionItemRow,
   AdvisoryActivityPage,
+  AdvisoryHistoryPage,
   AdvisoryClientDetail,
   AdvisoryClientPage,
   AdvisoryClientRow,
@@ -2560,6 +2561,62 @@ describe('the overview, meetings, resources, settings and activity', () => {
       404,
       'NOT_FOUND',
     );
+  });
+
+  it('A-NEW2: the module history lists changes across clients, each naming its record; Staff see their clients only', async () => {
+    const history = async (query: string, who: Who = ownerA, firm: 'a' | 'b' = 'a') =>
+      AdvisoryHistoryPage.parse(ok(await call('get', `/history?${query}`, who, undefined, firm)));
+    // Every client's changes, with the client's name; plans name the plan.
+    const a1Plans = await history(`advisoryClientId=${shared.a1}&area=PLAN&pageSize=100`);
+    const created = a1Plans.items.find((i) => i.action === 'advisory_plan.created');
+    expect(created).toMatchObject({
+      area: 'PLAN',
+      message: 'Business plan created',
+      advisoryClient: { id: shared.a1, name: 'Jamie Sample (fake)' },
+    });
+    expect(created?.planId).toEqual(expect.any(String));
+    expect(
+      a1Plans.items.every((i) => i.area === 'PLAN' && i.advisoryClient?.id === shared.a1),
+    ).toBe(true);
+    expect((await history(`advisoryClientId=${shared.a2}`)).total).toBeGreaterThan(0);
+    const goals = await history('area=GOAL&pageSize=100');
+    expect(goals.items.length).toBeGreaterThan(0);
+    expect(goals.items.every((i) => /^advisory_(goal|milestone)\./.test(i.action))).toBe(true);
+    // Changes only, newest first, and never a figure or a note.
+    const all = await history('pageSize=100');
+    expect(
+      all.items.every((i) => i.action.startsWith('advisory_') && !/viewed$/.test(i.action)),
+    ).toBe(true);
+    expect(Date.parse(all.items[0]?.at ?? '')).toBeGreaterThanOrEqual(
+      Date.parse(all.items[all.items.length - 1]?.at ?? ''),
+    );
+    expect(JSON.stringify(all)).not.toMatch(/Revenue goal|Grow sales|Jamie Cafe/);
+    // A time range.
+    const tomorrow = encodeURIComponent(new Date(Date.now() + DAY).toISOString());
+    expect((await history(`from=${tomorrow}`)).total).toBe(0);
+    expect((await history(`to=${tomorrow}&advisoryClientId=${shared.a1}`)).total).toBeGreaterThan(
+      0,
+    );
+    // Staff reach only the clients assigned to them (c1, so a1), and one they don't is a 404.
+    const mine = await history('pageSize=100', staffA);
+    expect(mine.items.length).toBeGreaterThan(0);
+    expect(mine.items.every((i) => i.advisoryClient?.id === shared.a1)).toBe(true);
+    expectError(
+      await call('get', `/history?advisoryClientId=${shared.a2}`, staffA),
+      404,
+      'NOT_FOUND',
+    );
+    // Another firm sees none of it, and can't name its clients.
+    const theirs = await history('pageSize=100', ownerB, 'b');
+    expect(
+      theirs.items.some((i) => [shared.a1, shared.a2].includes(i.advisoryClient?.id ?? '')),
+    ).toBe(false);
+    expectError(
+      await call('get', `/history?advisoryClientId=${shared.a1}`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(await call('get', '/history?area=NOPE', ownerA), 400, 'VALIDATION_FAILED');
   });
 
   it('configures the health formula for new calculations only, and the default advisor', async () => {

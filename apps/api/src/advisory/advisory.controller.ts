@@ -5,6 +5,7 @@ import {
   type AdvisoryActionItemPage,
   type AdvisoryActionItemRow,
   type AdvisoryActivityPage,
+  type AdvisoryHistoryPage,
   type AdvisoryClientDetail,
   AdvisoryClientId,
   type AdvisoryClientPage,
@@ -49,6 +50,7 @@ import {
   ActionItemsQuery,
   ActivityQuery,
   AddWorkstreamBody,
+  HistoryQuery,
   ClientsQuery,
   CreateActionItemBody,
   CreateClientBody,
@@ -251,6 +253,17 @@ export class AdvisoryController {
   ): Promise<AdvisoryActivityPage> {
     const w = who(auth, tenant);
     return this.clients.activity(w.businessId, w.tenant, w.userId, id, q);
+  }
+
+  /** A-NEW2: the module's View History across the advisory clients the caller reaches. */
+  @Get('history')
+  history(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(HistoryQuery)) q: Out<typeof HistoryQuery>,
+  ): Promise<AdvisoryHistoryPage> {
+    const w = who(auth, tenant);
+    return this.clients.history(w.businessId, w.tenant, w.userId, q);
   }
 
   @Post('clients/:id/financials')

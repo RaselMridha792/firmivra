@@ -2,6 +2,7 @@ import {
   AddAdvisoryWorkstreamRequest,
   AdvisoryActionItemsQuery,
   AdvisoryActivityQuery,
+  AdvisoryHistoryQuery,
   AdvisoryClientsQuery,
   AdvisoryFinancialsQuery,
   AdvisoryGoalsQuery,
@@ -60,6 +61,7 @@ export const UpdateClientBody = clean(UpdateAdvisoryClientRequest);
 export const AddWorkstreamBody = clean(AddAdvisoryWorkstreamRequest);
 export const UpdateWorkstreamBody = clean(UpdateAdvisoryWorkstreamRequest);
 export const ActivityQuery = clean(AdvisoryActivityQuery);
+export const HistoryQuery = clean(AdvisoryHistoryQuery);
 
 export const PlansQuery = clean(AdvisoryPlansQuery);
 export const CreatePlanBody = clean(CreateAdvisoryPlanRequest);

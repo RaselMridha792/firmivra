@@ -407,6 +407,66 @@ export const AdvisoryActivityQuery = z.strictObject({
 });
 export type AdvisoryActivityQuery = z.input<typeof AdvisoryActivityQuery>;
 
+/** A-NEW2: what an advisory change was about, for the module's View History filter. */
+export const AdvisoryHistoryArea = z.enum([
+  'CLIENT',
+  'SERVICE',
+  'PLAN',
+  'GOAL',
+  'FINANCIAL',
+  'RECOMMENDATION',
+  'ACTION',
+  'RESOURCE',
+  'SETTINGS',
+]);
+export type AdvisoryHistoryArea = z.infer<typeof AdvisoryHistoryArea>;
+export const ADVISORY_HISTORY_AREA_LABELS: Record<AdvisoryHistoryArea, string> = {
+  CLIENT: 'Advisory clients',
+  SERVICE: 'Services',
+  PLAN: 'Business plans',
+  GOAL: 'Goals & milestones',
+  FINANCIAL: 'Financial analysis',
+  RECOMMENDATION: 'Recommendations',
+  ACTION: 'Action items',
+  RESOURCE: 'Resources',
+  SETTINGS: 'Advisory settings',
+};
+
+/**
+ * GET /business/advisory/history (A-NEW2, Business Advisory Review Two): the module's View
+ * History, newest first: every advisory change (never a view) across the advisory clients the
+ * caller reaches (Staff: the clients assigned to them). Firm-wide changes (Advisory Admin
+ * settings) show to Owners and Admins only. Each entry names its area, its client and, for a
+ * plan, the plan, so the screen opens that record. Like the client's Activity Log: what happened,
+ * never a figure or a note.
+ */
+export const AdvisoryHistoryEntry = AdvisoryActivity.extend({
+  area: AdvisoryHistoryArea.nullable(),
+  /** The advisory client it is about; null for a firm-wide change. */
+  advisoryClient: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  /** The plan it is about, when it is a plan's change. */
+  planId: z.uuid().nullable(),
+});
+export type AdvisoryHistoryEntry = z.infer<typeof AdvisoryHistoryEntry>;
+export const AdvisoryHistoryPage = z.object({
+  items: z.array(AdvisoryHistoryEntry).max(100),
+  ...Page,
+});
+export type AdvisoryHistoryPage = z.infer<typeof AdvisoryHistoryPage>;
+/**
+ * Filters: one advisory client (404 when the caller doesn't reach it), one area, and the time
+ * range (instants; the screen sends the start of the first day and the end of the last).
+ */
+export const AdvisoryHistoryQuery = z.strictObject({
+  advisoryClientId: AdvisoryClientId.optional(),
+  area: AdvisoryHistoryArea.optional(),
+  from: DateTime.optional(),
+  to: DateTime.optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+});
+export type AdvisoryHistoryQuery = z.input<typeof AdvisoryHistoryQuery>;
+
 // ---------- Business plans ----------
 
 /** The firm's goal and strategy areas (Stage 3). */
