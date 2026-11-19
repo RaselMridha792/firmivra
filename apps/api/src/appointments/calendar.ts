@@ -137,6 +137,42 @@ export interface SlotQuery {
   minutes: number;
   /** Not before this instant (now): a start at or before it is not offered. */
   notBefore: number;
+  /** Not after this instant: a later start is not offered. None means no limit. */
+  notAfter?: number;
+}
+
+/** A type's client booking rules (Appointments Review 2 row 2): Minimum Notice, Booking Window. */
+export interface BookingRules {
+  minNoticeMinutes: number;
+  maxAdvanceDays: number | null;
+  /** Hours, for windows shorter than a day; when set it wins over `maxAdvanceDays`. */
+  maxWindowHours: number | null;
+}
+
+export const BOOKING_RULES_SELECT = {
+  minNoticeMinutes: true,
+  maxAdvanceDays: true,
+  maxWindowHours: true,
+} as const;
+
+/**
+ * When a client may book a start (portal Book and Reschedule): after now plus the type's Minimum
+ * Notice, and no later than now plus its Booking Window (its hours when set, else its days; none
+ * is no limit). Without a type, any start after now. The firm's own staff are not limited.
+ */
+export function bookingSpan(
+  rules: BookingRules | null,
+  now: number,
+): Pick<SlotQuery, 'notBefore' | 'notAfter'> {
+  if (!rules) return { notBefore: now };
+  const notBefore = now + rules.minNoticeMinutes * MINUTE;
+  const window =
+    rules.maxWindowHours !== null
+      ? rules.maxWindowHours * HOUR
+      : rules.maxAdvanceDays !== null
+        ? rules.maxAdvanceDays * DAY
+        : null;
+  return window === null ? { notBefore } : { notBefore, notAfter: now + window };
 }
 
 /**
@@ -155,7 +191,9 @@ export function gridStarts(query: SlotQuery, hours: readonly WorkingRange[]): In
         start + length <= rangeEnd;
         start += GRID_MINUTES * MINUTE
       ) {
-        if (start > query.notBefore) out.push({ start, end: start + length });
+        if (start > query.notBefore && (query.notAfter === undefined || start <= query.notAfter)) {
+          out.push({ start, end: start + length });
+        }
       }
     }
   }

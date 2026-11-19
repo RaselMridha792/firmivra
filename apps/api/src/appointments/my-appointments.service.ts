@@ -18,6 +18,9 @@ import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
 import { endsInCalendar } from './appointments.service.js';
 import {
+  BOOKING_RULES_SELECT,
+  type BookingRules,
+  bookingSpan,
   changeableUntil,
   DEFAULT_CUTOFF_HOURS,
   freeStarts,
@@ -288,7 +291,12 @@ export class MyAppointmentsService {
         : null;
       const type = await tx.appointmentType.findFirst({
         where: { businessId, id: q.typeId },
-        select: { durationMinutes: true, clientBookable: true, archivedAt: true },
+        select: {
+          durationMinutes: true,
+          clientBookable: true,
+          archivedAt: true,
+          ...BOOKING_RULES_SELECT,
+        },
       });
       const ownType =
         moving !== null &&
@@ -306,7 +314,8 @@ export class MyAppointmentsService {
         members.map((m) => m.userId),
       );
       const busy = await busyTimes(tx, businessId, dateSpan(timeZone, q.from, q.to));
-      const query = { timeZone, from: q.from, to: q.to, minutes, notBefore: Date.now() };
+      // Review 2 row 2: only starts inside the type's Minimum Notice and Booking Window.
+      const query = { timeZone, from: q.from, to: q.to, minutes, ...bookingSpan(type, Date.now()) };
       // A1: a new time for a group appointment suits each attendee too.
       const people = moving ? peopleOf(moving) : me ? [me.clientId] : [];
       const mineBusy = people.flatMap((c) => clientBusy(busy, c, moving?.id));
@@ -331,7 +340,13 @@ export class MyAppointmentsService {
       // Only types the client can book (as `types()`); anything else is 404.
       const type = await tx.appointmentType.findFirst({
         where: { businessId, id: body.typeId, clientBookable: true, archivedAt: null },
-        select: { id: true, durationMinutes: true, locationKind: true, meetingMethods: true },
+        select: {
+          id: true,
+          durationMinutes: true,
+          locationKind: true,
+          meetingMethods: true,
+          ...BOOKING_RULES_SELECT,
+        },
       });
       if (!type) throw errors.notFound();
       // S12: booked from a package's page. A package that is not this firm's (or none at all)
@@ -368,7 +383,7 @@ export class MyAppointmentsService {
       const start = Date.parse(body.startsAt);
       const slot = { start, end: start + type.durationMinutes * MINUTE };
       endsInCalendar(slot.end);
-      const staff = await this.choose(tx, businessId, me, slot, retry);
+      const staff = await this.choose(tx, businessId, me, slot, retry, undefined, type);
       // A VIDEO meeting gets the chosen staff member's link (R14).
       const locationDetails =
         locationKind === 'VIDEO' ? await linkOf(this.links, tx, businessId, staff.userId) : null;
@@ -413,7 +428,14 @@ export class MyAppointmentsService {
       if (!me || start === current.startsAt.getTime()) return { before: current, after: null };
       const slot = { start, end: start + lengthOf(current) };
       endsInCalendar(slot.end);
-      const staff = await this.choose(tx, businessId, me, slot, retry, current);
+      // The type's Minimum Notice and Booking Window apply to the new time too.
+      const rules = current.typeId
+        ? await tx.appointmentType.findFirst({
+            where: { businessId, id: current.typeId },
+            select: BOOKING_RULES_SELECT,
+          })
+        : null;
+      const staff = await this.choose(tx, businessId, me, slot, retry, current, rules);
       const locationDetails = await detailsAfterStaffChange(
         this.links,
         tx,
@@ -502,7 +524,8 @@ export class MyAppointmentsService {
 
   /**
    * Who takes `slot` (R12 Decisions):
-   * - not a start on the 15-minute grid of anyone's working hours that day, or past: 409
+   * - not a start on the 15-minute grid of anyone's working hours that day, past, or outside
+   *   the type's Minimum Notice and Booking Window (`rules`, Review 2 row 2): 409
    *   SLOT_UNAVAILABLE;
    * - on the grid, but no one is free then: 409 SLOT_UNAVAILABLE (SLOT_TAKEN when this is a
    *   second try: the time was free a moment ago and someone took it);
@@ -518,6 +541,7 @@ export class MyAppointmentsService {
     slot: Interval,
     retry: boolean,
     moving?: AppointmentRow,
+    rules: BookingRules | null = null,
   ): Promise<MemberRef> {
     const timeZone = await firmTimeZone(tx, businessId);
     const date = zonedDate(timeZone, slot.start);
@@ -532,7 +556,7 @@ export class MyAppointmentsService {
       from: date,
       to: date,
       minutes: (slot.end - slot.start) / MINUTE,
-      notBefore: Date.now(),
+      ...bookingSpan(rules, Date.now()),
     };
     const onGrid = members.filter((m) =>
       gridStarts(query, hours.get(m.userId) ?? []).some((s) => s.start === slot.start),

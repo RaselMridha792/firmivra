@@ -1083,3 +1083,70 @@ describe('confirmation (Review 2, row 8)', () => {
     expectError(await confirm(theirs.id), 409, 'APPOINTMENT_CLOSED');
   });
 });
+
+describe('booking rules (Review 2 row 2): Minimum Notice and Booking Window, on the portal', () => {
+  // Days of margin keep these independent of the time of day the test runs: day 1 and day 2 are
+  // always less than 72 hours away and more than 12 hours away; day 28 is always within 30 days
+  // and more than 72 hours away; day 31 is always more than 30 days away.
+  let notice: AppointmentType;
+  let days: AppointmentType;
+  let hours: AppointmentType;
+  const starts = async (typeId: string, n: number) =>
+    exact(
+      MySlotList,
+      await portal('get', `/slots?typeId=${typeId}&from=${day(n)}&to=${day(n)}`, people.clientB),
+    ).slots.map((s) => s.startsAt);
+  const refused = async (res: Response) => expectError(res, 409, 'SLOT_UNAVAILABLE');
+
+  beforeAll(async () => {
+    const make = async (name: string, config: object) => {
+      const made = exact(
+        AppointmentType,
+        await firm('post', '/appointment-types', {
+          name: `${name} ${run}`,
+          durationMinutes: 30,
+          clientBookable: true,
+        }),
+        201,
+      );
+      const res = await firm('put', `/appointment-types/${made.id}/config`, config);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      return made;
+    };
+    notice = await make('Notice 72h', { minNoticeHours: 72 });
+    days = await make('Window 30d', { maxWindowDays: 30 });
+    hours = await make('Window 12h', { maxWindowHours: 12 });
+  });
+
+  it('free starts begin after the notice and end with the window', async () => {
+    const all = await starts(consult.id, 28);
+    expect(all).toHaveLength(11);
+    expect(await starts(notice.id, 2)).toEqual([]);
+    expect(await starts(notice.id, 28)).toEqual(all);
+    expect(await starts(days.id, 28)).toEqual(all);
+    expect(await starts(days.id, 31)).toEqual([]);
+    expect(await starts(consult.id, 31)).toHaveLength(11);
+    expect(await starts(hours.id, 2)).toEqual([]);
+    expect(await starts(hours.id, 28)).toEqual([]);
+  });
+
+  it('Book and Reschedule refuse a start outside them (409 SLOT_UNAVAILABLE)', async () => {
+    const book = (typeId: string, startsAt: string) =>
+      portal('post', '', people.clientB, { typeId, startsAt });
+    await refused(await book(notice.id, at(1, '11:30')));
+    await refused(await book(days.id, at(31, '10:00')));
+    await refused(await book(hours.id, at(28, '10:00')));
+    // The same starts are free for a type without rules.
+    exact(MyAppointment, await book(consult.id, at(31, '10:00')), 201);
+    const mine = exact(MyAppointment, await book(notice.id, at(28, '10:00')), 201);
+    // A new time of the type's appointment keeps to its rules too.
+    await refused(
+      await portal('post', `/${mine.id}/reschedule`, people.clientB, { startsAt: at(1, '11:30') }),
+    );
+    const moved = exact(
+      MyAppointment,
+      await portal('post', `/${mine.id}/reschedule`, people.clientB, { startsAt: at(28, '11:00') }),
+    );
+    expect(moved.startsAt).toBe(at(28, '11:00'));
+  });
+});
