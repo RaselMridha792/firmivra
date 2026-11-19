@@ -7,9 +7,10 @@ import type { Area } from './hosts';
  * console lines. Enforcing it later is the header name below, after a clean sweep.
  *
  * The proxy sends it on every page with a fresh nonce. Next.js stamps that nonce on its own
- * scripts where a page is rendered per request. Our one inline script, the V8 early calls in the
- * firm workspace layout, is allowed by its hash, so it is allowed whether or not its page is
- * prerendered (csp.test.ts keeps the hash in step with the script).
+ * scripts on a page rendered per request, and every page is (the root layout reads the request).
+ * Our one inline script, the V8 early calls in the firm workspace layout, carries the nonce too
+ * (components/nonce.tsx) and is still allowed by its hash (csp.test.ts keeps the hash in step with
+ * the script) until the enforcing policy has shown the nonce alone is enough.
  *
  * Only what the sites load: our own host (pages, /api/v1 and next/font's self-hosted fonts), the
  * S3 hosts the API signs document links for, and blob: and data: for previews, downloads and the

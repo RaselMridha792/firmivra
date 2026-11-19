@@ -53,6 +53,7 @@ import {
 } from '../../../components/app-shell/firm-controls';
 import type { NavItem } from '../../../components/app-shell/types';
 import { FirmContext } from '../../../components/firm-context';
+import { useNonce } from '../../../components/nonce';
 import { OriginBar } from '../../../components/origin-bar';
 import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
@@ -162,13 +163,19 @@ const FIRM_ERRORS: Record<string, string> = {
 
 /** Every firm workspace page with the sidebar: the sign-in check, the firm, then the shell. */
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
+  // The request's CSP nonce (root layout); the script's hash in lib/csp.ts allows it as well.
+  const nonce = useNonce();
   return (
     <>
       {/* V8: runs from the server's HTML only (a script React adds later never runs); the mock
           API answers in the browser, so with mocks there is nothing to send early. */}
       {mocked('me') ? null : (
-        // eslint-disable-next-line @eslint-react/dom-no-dangerously-set-innerhtml -- fixed text from constants (lib/early.ts), never from input
-        <script dangerouslySetInnerHTML={{ __html: PAGE_CALLS }} />
+        <script
+          nonce={nonce}
+          suppressHydrationWarning
+          // eslint-disable-next-line @eslint-react/dom-no-dangerously-set-innerhtml -- fixed text from constants (lib/early.ts), never from input
+          dangerouslySetInnerHTML={{ __html: PAGE_CALLS }}
+        />
       )}
       <SignedIn site="firm" signInPath="/sign-in" signedOutHome="/welcome">
         <FirmArea>{children}</FirmArea>
