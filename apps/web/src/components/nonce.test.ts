@@ -8,18 +8,15 @@ function Probe() {
   return createElement('script', { nonce: useNonce(), suppressHydrationWarning: true });
 }
 
+const render = (nonce: string | undefined) =>
+  renderToString(createElement(NonceProvider, { nonce }, createElement(Probe)));
+
 describe('NonceProvider', () => {
   it("gives a client component the request's nonce for its inline script", () => {
-    const html = renderToString(
-      createElement(NonceProvider, { nonce: 'synthetic-nonce' }, createElement(Probe)),
-    );
-    expect(html).toContain('nonce="synthetic-nonce"');
+    expect(render('synthetic-nonce')).toContain('nonce="synthetic-nonce"');
   });
 
   it('leaves the nonce off where the request has none', () => {
-    const html = renderToString(
-      createElement(NonceProvider, { nonce: undefined }, createElement(Probe)),
-    );
-    expect(html).not.toContain('nonce=');
+    expect(render(undefined)).not.toContain('nonce=');
   });
 });

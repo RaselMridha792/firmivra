@@ -13,7 +13,7 @@ export function NonceProvider({
   children,
 }: {
   nonce: string | undefined;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   return createElement(NonceContext, { value: nonce }, children);
 }
