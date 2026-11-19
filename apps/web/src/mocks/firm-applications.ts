@@ -775,6 +775,19 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         suggestedSlug: null,
         firm: null,
         ownerInvite: null,
+        // The record's review fields (SA-APP-F05 to F09), as a new application has them; the
+        // mock's view() fills in what it derives. Without them the parse threw on every submit.
+        assignedReviewer: null,
+        lastActivity: { at, event: 'SUBMITTED' },
+        requestState: { state: 'NONE', at: null },
+        requests: [],
+        can: {
+          requestInfo: false,
+          approve: false,
+          decline: false,
+          assign: false,
+          resendOwnerInvite: false,
+        },
         history: [{ type: 'SUBMITTED', at, by: null, message: null }],
       });
       einKeys.set(row.id, ein ?? null);
