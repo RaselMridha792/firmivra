@@ -68,7 +68,8 @@ const db = {
     findFirst: vi.fn().mockResolvedValue(null),
     findMany: vi.fn().mockResolvedValue([{ ...summary, createdAt: row.reviewedAt }]),
   },
-  membership: { findMany: vi.fn().mockResolvedValue([]) },
+  // SA-FRM-F06: the firm page counts the active owners (none here).
+  membership: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
   user: { findMany: vi.fn().mockResolvedValue([]) },
   platformOwnerInvite: { findMany: vi.fn().mockResolvedValue([]) },
   // SA-APP-F03 to F09: no requests, responses, files or activity rows for this application.

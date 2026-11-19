@@ -8,6 +8,8 @@ import {
 import { OkResponse } from '../schemas.js';
 import { MessageTemplateDetail, RenderedTemplate } from '../templates/schemas.js';
 import {
+  AddEligibleContactsRequest,
+  AddEligibleContactsResult,
   AnnouncementLocationList,
   AudienceCandidatePage,
   AudienceCandidatesQuery,
@@ -33,10 +35,14 @@ import {
   ConsentView,
   CreateCommunicationRequest,
   CreateSegmentRequest,
+  EligibleContactsCount,
+  EligibleContactsQuery,
   ExportCommunicationRequest,
   FollowUpRequest,
   PreviewCommunicationRequest,
   PreviewSegmentRequest,
+  RemoveAudienceEntriesRequest,
+  RemoveAudienceEntriesResult,
   RescheduleCommunicationRequest,
   SaveAsTemplateRequest,
   ScheduleCommunicationRequest,
@@ -198,6 +204,35 @@ export function createCommunicationsClient(request: ApiRequest) {
       }),
     audience: async (id: string): Promise<AudienceSummary> =>
       request(AudienceSummary, `${item(id)}/audience`),
+    /** C20: how many All Contacts' "Add all eligible" would add now (with the view's search). */
+    eligibleContacts: async (
+      id: string,
+      query: EligibleContactsQuery = {},
+    ): Promise<EligibleContactsCount> =>
+      request(
+        EligibleContactsCount,
+        `${item(id)}/audience/eligible${toQuery(parseInput(EligibleContactsQuery, query))}`,
+      ),
+    /** C20: adds them; 409 NOT_EDITABLE (not a draft) or AUDIENCE_TOO_LARGE (nothing added). */
+    addEligibleContacts: async (
+      id: string,
+      body: AddEligibleContactsRequest,
+    ): Promise<AddEligibleContactsResult> =>
+      request(
+        AddEligibleContactsResult,
+        `${item(id)}/audience/add-eligible`,
+        post(parseInput(AddEligibleContactsRequest, body)),
+      ),
+    /** C20's Undo: removes exactly the entries Add all eligible made. */
+    removeAudienceEntries: async (
+      id: string,
+      body: RemoveAudienceEntriesRequest,
+    ): Promise<RemoveAudienceEntriesResult> =>
+      request(
+        RemoveAudienceEntriesResult,
+        `${item(id)}/audience/remove-entries`,
+        post(parseInput(RemoveAudienceEntriesRequest, body)),
+      ),
 
     // ----- Review and send -----
     review: async (id: string): Promise<CommunicationReview> =>

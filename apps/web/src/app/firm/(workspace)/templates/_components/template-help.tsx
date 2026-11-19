@@ -28,7 +28,7 @@ const HELP = {
   },
   filters: {
     topic: 'Search and filters',
-    text: 'Search looks in names, descriptions and subject lines, and matches a whole tag. Status, Owner, Tag and Sort narrow and order the list; Non-archived shows active templates and drafts. The list is kept as you left it when you come back from a template.',
+    text: 'Search looks in names, descriptions, subject lines and tags, where part of a tag is enough. Status, Owner, Tag and Sort narrow and order the list; Non-archived shows active templates and drafts. The list is kept as you left it when you come back from a template.',
   },
   categories: {
     topic: 'Categories',
@@ -97,7 +97,7 @@ const HELP = {
   },
   tags: {
     topic: 'Tags',
-    text: 'Short labels that help you find a template: type one and press Enter, or Save keeps a tag you have typed. Search and the Tag filter match a whole tag. Up to 20 tags, each up to 40 characters.',
+    text: 'Short labels that help you find a template: type one and press Enter, or Save keeps a tag you have typed. Search matches part of a tag; the Tag filter shows the templates with that exact tag. Up to 20 tags, each up to 40 characters.',
   },
   leadSequences: {
     topic: 'Lead follow-up sequences',

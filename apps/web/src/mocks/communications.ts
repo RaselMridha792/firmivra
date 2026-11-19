@@ -1,5 +1,7 @@
 import {
+  AddEligibleContactsRequest,
   ApiRequestError,
+  AUDIENCE_PEOPLE_LIMIT,
   type AudienceCandidate,
   AudienceCandidatesQuery,
   type AudienceSummary,
@@ -19,12 +21,14 @@ import {
   ConsentQuery,
   CreateCommunicationRequest,
   CreateSegmentRequest,
+  EligibleContactsQuery,
   ExportCommunicationRequest,
   FollowUpRequest,
   type MemberRef,
   parseInput,
   PreviewCommunicationRequest,
   PreviewSegmentRequest,
+  RemoveAudienceEntriesRequest,
   RescheduleCommunicationRequest,
   SaveAsTemplateRequest,
   ScheduleCommunicationRequest,
@@ -52,7 +56,8 @@ import { mockMe } from './appointments';
  * campaigns only, dated around today. It checks input with the contract's schemas and answers its
  * codes: CHANNEL_UNAVAILABLE, SAVE_CONFLICT, NOT_EDITABLE, LOCKED, NOT_READY, AUDIENCE_CHANGED,
  * CONTENT_WOULD_BE_LOST, TEMPLATE_NOT_ALLOWED, TEST_SEND_REFUSED, INVALID_CRITERIA, DUPLICATE_NAME,
- * SEGMENT_IN_USE, SCHEDULE_IN_PAST, NO_ELIGIBLE_RECIPIENTS, STILL_SENDING. Nothing is ever sent:
+ * SEGMENT_IN_USE, SCHEDULE_IN_PAST, NO_ELIGIBLE_RECIPIENTS, STILL_SENDING, AUDIENCE_TOO_LARGE
+ * (`audienceLimit` lowers the limit, for a unit test of that refusal). Nothing is ever sent:
  * a "sent" campaign gets its recipients and results made up from the audience. `empty: true`
  * (NEXT_PUBLIC_API_MOCK_EMPTY=communications) starts with no campaigns or segments.
  */
@@ -60,6 +65,8 @@ type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 interface Options {
   role?: MockRole;
   empty?: boolean;
+  /** C20: people named one by one (the API's `AUDIENCE_PEOPLE_LIMIT`). */
+  audienceLimit?: number;
 }
 const DAY = 86_400_000;
 const uuid = (block: string, n: number) =>
@@ -295,6 +302,7 @@ interface Seg {
 export function createCommunicationsMock({
   role = 'OWNER',
   empty = false,
+  audienceLimit = AUDIENCE_PEOPLE_LIMIT,
 }: Options = {}): CommunicationsClient {
   let next = 5000;
   const pending = new Map<
@@ -758,6 +766,45 @@ export function createCommunicationsMock({
       source: 'SYSTEM',
     });
     r.d.deliveredCount = r.recipients.filter((x) => x.status !== 'BOUNCED').length;
+  };
+
+  /**
+   * C20: each client chosen one by one has an entry, kept while they stay chosen (as the API keeps
+   * the row on a save), so Undo can name what Add all eligible made. Key: draft id and client id.
+   */
+  const entryOf = new Map<string, string>();
+  const syncEntries = (r: Rec) => {
+    const want = new Set(r.audience.clientIds.map((c) => `${r.d.id}:${c}`));
+    for (const k of [...entryOf.keys()])
+      if (k.startsWith(`${r.d.id}:`) && !want.has(k)) entryOf.delete(k);
+    for (const k of want) if (!entryOf.has(k)) entryOf.set(k, id('c510'));
+  };
+  /** C20: All Contacts' eligible clients (its search) not in the audience yet, as the API. */
+  const toAdd = (r: Rec, search: string | undefined) => {
+    const inIt = new Set([...r.audience.clientIds, ...r.audience.excludeClientIds]);
+    for (const sid of r.audience.segmentIds)
+      for (const m of segs.find((s) => s.d.id === sid)?.members ?? []) inIt.add(m.id);
+    const term = search?.toLowerCase();
+    return contacts
+      .filter(
+        (c) =>
+          c.kind === 'CLIENT' &&
+          (!term || `${c.name} ${c.email}`.toLowerCase().includes(term)) &&
+          !reasonOf(c, r.d.channel) &&
+          !inIt.has(c.id),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  };
+  /** C20: Add all eligible and its Undo change a draft only. */
+  const draftOnly = (r: Rec) => {
+    if (r.d.status === 'DRAFT') return;
+    throw fail(
+      409,
+      'NOT_EDITABLE',
+      r.d.status === 'SCHEDULED'
+        ? 'This communication is scheduled. Only a draft’s recipients can be added all at once.'
+        : 'This communication has gone out and cannot be changed',
+    );
   };
 
   const find = (communicationId: string) => {
@@ -1416,8 +1463,9 @@ export function createCommunicationsMock({
               ineligibleReason: null,
             }));
         } else {
+          // As the API: All Contacts (and Individuals) lists clients; Leads lists leads.
           items = contacts
-            .filter((c) => (query.view === 'LEADS' ? c.kind === 'LEAD' : true))
+            .filter((c) => (query.view === 'LEADS' ? c.kind === 'LEAD' : c.kind === 'CLIENT'))
             .filter((c) => !term || `${c.name} ${c.email}`.toLowerCase().includes(term))
             .map((c) => ({
               kind: c.kind,
@@ -1474,10 +1522,66 @@ export function createCommunicationsMock({
           excludeClientIds: input.excludeClientIds,
           excludeLeadIds: input.excludeLeadIds,
         };
+        syncEntries(r);
         touch(r);
         return summaryOf(r);
       }),
     audience: (communicationId) => run(() => summaryOf(find(communicationId))),
+    eligibleContacts: (communicationId, q = {}) =>
+      run(() => {
+        const query = parseInput(EligibleContactsQuery, q);
+        const r = find(communicationId);
+        const count = toAdd(r, query.search).length;
+        return {
+          count,
+          limit: audienceLimit,
+          overLimit: r.audience.clientIds.length + count > audienceLimit,
+        };
+      }),
+    addEligibleContacts: (communicationId, body) =>
+      run(() => {
+        const input = parseInput(AddEligibleContactsRequest, body);
+        const r = find(communicationId);
+        conflict(r, input.etag);
+        draftOnly(r);
+        const people = toAdd(r, input.search);
+        if (r.audience.clientIds.length + people.length > audienceLimit)
+          throw fail(
+            409,
+            'AUDIENCE_TOO_LARGE',
+            `That would name more than ${audienceLimit.toLocaleString('en-US')} people one by one. Narrow the search, or choose a saved segment instead.`,
+          );
+        r.audience.clientIds = [...r.audience.clientIds, ...people.map((c) => c.id)];
+        syncEntries(r);
+        touch(r);
+        return {
+          added: people.map((c) => ({
+            id: c.id,
+            name: c.name,
+            entryId: entryOf.get(`${r.d.id}:${c.id}`) as string,
+          })),
+          summary: summaryOf(r),
+        };
+      }),
+    removeAudienceEntries: (communicationId, body) =>
+      run(() => {
+        const input = parseInput(RemoveAudienceEntriesRequest, body);
+        const r = find(communicationId);
+        conflict(r, input.etag);
+        draftOnly(r);
+        const clientOf = new Map(
+          [...entryOf]
+            .filter(([k]) => k.startsWith(`${r.d.id}:`))
+            .map(([k, entry]) => [entry, k.slice(r.d.id.length + 1)]),
+        );
+        const missing = input.entryIds.findIndex((e) => !clientOf.has(e));
+        if (missing >= 0) throw fail(400, 'VALIDATION_FAILED', 'This entry is not in the audience');
+        const gone = new Set(input.entryIds.map((e) => clientOf.get(e)));
+        r.audience.clientIds = r.audience.clientIds.filter((c) => !gone.has(c));
+        syncEntries(r);
+        touch(r);
+        return { removed: gone.size, summary: summaryOf(r) };
+      }),
     review: (communicationId) => run(() => reviewOf(find(communicationId))),
     send: (communicationId, body) =>
       run(() => {
