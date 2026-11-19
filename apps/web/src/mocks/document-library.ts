@@ -723,6 +723,10 @@ export function createDocumentLibraryMock(options: {
           : input.folderId
             ? folders.find((f) => f.id === input.folderId)
             : null;
+      // As the API: an unknown folder is 404, and a firm folder holds internal documents only.
+      if (input.folderId && !folder) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (folder?.scope === 'FIRM' && (await libraryDoc(id)).direction !== 'INTERNAL')
+        throw fail(409, 'FOLDER_SCOPE', 'A firm folder holds internal documents only');
       const categories = await options.documents.categories();
       const category =
         input.categoryId === undefined

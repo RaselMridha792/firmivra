@@ -47,8 +47,12 @@ interface Options {
 
 const uuid = (block: string, n: number) =>
   `0199c0e0-${block}-7000-8000-${String(n).padStart(12, '0')}`;
-const fail = (status: number, code: string, message: string) =>
-  new ApiRequestError(status, code, message);
+const fail = (
+  status: number,
+  code: string,
+  message: string,
+  details?: { path: string; message: string }[],
+) => new ApiRequestError(status, code, message, undefined, undefined, details);
 const copy = <T>(value: T): T => structuredClone(value);
 const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
 
@@ -390,6 +394,7 @@ function pricing(
     discountType: PackagePricing['discountType'];
     discountValue: number | null;
   },
+  mode: 'check' | 'read' = 'check',
 ): PackagePricing {
   const included = input.services
     .filter((x) => x.included)
@@ -403,16 +408,37 @@ function pricing(
   const total = included.some((sv) => !sv || sv.totalPriceCents === null)
     ? null
     : included.reduce((sum, sv) => sum + (sv?.totalPriceCents ?? 0), 0);
-  let price = input.packagePriceCents;
-  if (price === null && input.discountType !== 'NONE' && input.discountValue !== null) {
-    if (total !== null)
-      price =
-        input.discountType === 'PERCENTAGE'
-          ? Math.round(total * (1 - input.discountValue / 10_000))
-          : total - input.discountValue;
-  }
-  if (price !== null && price < 0)
-    throw fail(400, 'INVALID_DISCOUNT', 'The discount is more than the services cost');
+  // R1-R3, as the API (`discountProblem`): never negative, at most 100%, at most the total. A
+  // save refuses one (and stores nothing); a read reports it with the worked-out price unknown.
+  const value = input.discountType === 'NONE' ? null : input.discountValue;
+  const problem: PackagePricing['discountProblem'] =
+    value === null
+      ? null
+      : value < 0
+        ? 'NEGATIVE'
+        : input.discountType === 'PERCENTAGE' && value > 10_000
+          ? 'OVER_100'
+          : input.discountType === 'FIXED' && total !== null && value > total
+            ? 'MORE_THAN_TOTAL'
+            : null;
+  if (problem && mode === 'check')
+    throw fail(400, 'INVALID_DISCOUNT', 'The discount cannot work', [
+      { path: 'discountValue', message: 'The discount cannot work' },
+    ]);
+  const worked =
+    value !== null && total !== null && !problem
+      ? input.discountType === 'PERCENTAGE'
+        ? total - Math.round((total * value) / 10_000)
+        : total - value
+      : null;
+  // Q1: a typed price wins; the discount works out the price only when none is typed.
+  const price = input.packagePriceCents ?? worked;
+  const priceFrom: PackagePricing['priceFrom'] =
+    price === null
+      ? null
+      : input.packagePriceCents === null || input.packagePriceCents === worked
+        ? 'DISCOUNT'
+        : 'TYPED';
   const known = price !== null && total !== null && !variablePrice && included.length > 0;
   const savings = known ? Math.max(0, (total ?? 0) - (price ?? 0)) : null;
   return {
@@ -424,6 +450,8 @@ function pricing(
     savingsPercent: savings !== null && total ? Math.round((savings / total) * 10_000) / 100 : null,
     variablePrice,
     quoteRequired,
+    discountProblem: problem,
+    priceFrom,
   };
 }
 
@@ -639,6 +667,19 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
   const usedBy = (id: string) =>
     s.packages.filter((p) => p.services.some((x) => x.serviceId === id));
   const savePackage = (p: ServicePackage, input: Partial<UpdateServicePackageRequest>) => {
+    // R1, as the API: a discount that cannot work is refused before anything changes.
+    const items: { serviceId: string; included?: boolean | undefined }[] =
+      input.services ?? p.services;
+    pricing(s, {
+      services: items.map((x) => ({ serviceId: x.serviceId, included: x.included ?? true })),
+      packagePriceCents:
+        input.packagePriceCents !== undefined
+          ? input.packagePriceCents
+          : p.pricing.packagePriceCents,
+      discountType: input.discountType ?? p.pricing.discountType,
+      discountValue:
+        input.discountValue !== undefined ? input.discountValue : p.pricing.discountValue,
+    });
     // S12, as the API: one of the firm's appointment types, not archived (a saved one stays).
     if (input.appointmentTypeId !== undefined && input.appointmentTypeId !== p.bookingType?.id) {
       const t = input.appointmentTypeId ? mockAppointmentType(input.appointmentTypeId) : null;
@@ -1025,6 +1066,8 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
           savingsPercent: null,
           variablePrice: false,
           quoteRequired: false,
+          discountProblem: null,
+          priceFrom: null,
         },
         addOns: [],
         visibleToClients: false,
@@ -1062,7 +1105,7 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
     },
     packagePricing: async (body) => {
       await mockDelay();
-      return pricing(s, parseInput(PackagePricingRequest, body));
+      return pricing(s, parseInput(PackagePricingRequest, body), 'read');
     },
     activatePackage: async (id) => {
       await mockDelay();
@@ -1121,7 +1164,12 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
       manage();
       const input = parseInput(SavePromotionRequest, body);
       if (input.promoCode && s.promotions.some((p) => p.promoCode === input.promoCode))
-        throw fail(409, 'PROMOTION_CONFLICT', 'This code is already used');
+        throw fail(409, 'PROMO_CODE_TAKEN', 'Another promotion already uses this code', [
+          {
+            path: 'promoCode',
+            message: 'Another promotion already uses this code. Choose another.',
+          },
+        ]);
       const today = new Date().toISOString().slice(0, 10);
       const p: Promotion = {
         id: uuid('0b00', s.next++),

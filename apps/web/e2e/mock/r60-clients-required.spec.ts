@@ -50,7 +50,8 @@ test('Edit Details asks for what a Business is missing, field by field', async (
   await page.goto(app(`/clients/${acme}`));
   await page.getByRole('button', { name: 'Edit details' }).click({ timeout: 60_000 });
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Entity type').fill('LLC');
+  // Business Advisory A-NEW1: the entity type is chosen from the list.
+  await dialog.getByLabel('Entity type', { exact: true }).selectOption('LLC');
   await dialog.getByRole('button', { name: 'Save changes' }).click();
   for (const message of [
     'Enter a phone number',

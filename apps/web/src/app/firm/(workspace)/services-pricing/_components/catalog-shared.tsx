@@ -1,4 +1,4 @@
-import type { CatalogStatus, PricingType } from '@firmivra/types';
+import type { BillingFrequency, CatalogStatus, PricingType } from '@firmivra/types';
 import {
   BookOpen,
   Briefcase,
@@ -82,6 +82,22 @@ export const PRICING_LABEL: Record<PricingType, string> = {
   RECURRING: 'Recurring',
 };
 
+/**
+ * Services & Pricing Review Two R4: one wording for a recurring price everywhere (list, editors,
+ * previews): "$100.00 / month".
+ */
+export const PER_CADENCE: Record<BillingFrequency, string> = {
+  ONE_TIME: 'one time',
+  WEEKLY: 'week',
+  BIWEEKLY: '2 weeks',
+  MONTHLY: 'month',
+  QUARTERLY: 'quarter',
+  SEMIANNUAL: '6 months',
+  ANNUAL: 'year',
+};
+export const recurringPrice = (amount: string, frequency: BillingFrequency | null | undefined) =>
+  `${amount} / ${PER_CADENCE[frequency ?? 'MONTHLY']}`;
+
 export const tone = (value: string | null | undefined) =>
   (['info', 'purple', 'success', 'warning', 'danger', 'neutral'] as const).find(
     (t) => t === value,
@@ -100,8 +116,11 @@ export const CATALOG_ERRORS: Record<string, string> = {
   CATEGORY_INACTIVE: 'That category is inactive. Choose another.',
   PACKAGE_HAS_INACTIVE_SERVICE:
     'The package holds an inactive service. Replace or remove it first.',
-  INVALID_DISCOUNT: 'The discount makes the package price negative.',
-  PROMOTION_CONFLICT: 'This overlaps another promotion that does not stack, or the code is taken.',
+  INVALID_DISCOUNT:
+    'This discount cannot be saved. Use a percentage up to 100%, or an amount no more than the included services cost.',
+  PROMOTION_CONFLICT:
+    'This runs at the same time as another promotion on the same services, and one of them does not stack. Change the dates or what it applies to, or allow stacking.',
+  PROMO_CODE_TAKEN: 'Another promotion already uses this code. Choose another code.',
   SAVE_CONFLICT: 'Someone saved this after you opened it. Reload and try again.',
 };
 

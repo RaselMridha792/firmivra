@@ -665,6 +665,11 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 error={errors['discountCents']}
                 onChange={(e) => setDiscount(e.target.value)}
               />
+              {/* Services & Pricing Review Two R3 (decided Nov 19): one invoice-level discount. */}
+              <p className="col-span-2 text-xs text-muted" data-testid="invoice-discount-help">
+                To take an item&apos;s whole cost off, enter that amount as the discount. The total
+                can reach $0, but never go below.
+              </p>
             </div>
             <div className="mt-3 max-w-md">
               {taxRates.isError ? null : (taxRates.data?.items.length ?? 0) === 0 && !keptRate ? (

@@ -237,8 +237,11 @@ export class CatalogPromotionsService {
         (mine.appliesTo === o.appliesTo &&
           mine.targets.some((t) => o.targets.some((u) => key(u) === key(t))));
       if (covers && !(mine.allowStacking && o.allowStacking)) {
+        // Y3: which promotion, and which rule: the one that does not stack, and the remedy.
         throw errors.promotionConflict(
-          'Another promotion that does not stack runs at the same time. Change the dates or let both stack.',
+          mine.allowStacking
+            ? `“${o.name}” does not stack and runs at the same time on the same services. Change the dates or what this applies to, or allow stacking on “${o.name}”.`
+            : `This promotion does not stack, and “${o.name}” runs at the same time on the same services. Change the dates or what it applies to, or allow stacking on both.`,
         );
       }
     }
@@ -248,7 +251,8 @@ export class CatalogPromotionsService {
     try {
       return await inFirm(this.database, businessId, fn);
     } catch (e) {
-      if (isUniqueViolation(e)) throw errors.promotionConflict('This promo code is already used');
+      // The promo code is the promotions' one unique column (promotions_one_code).
+      if (isUniqueViolation(e)) throw errors.promoCodeTaken();
       throw e;
     }
   }

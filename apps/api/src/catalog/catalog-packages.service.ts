@@ -93,12 +93,19 @@ export function packagePublicState(p: {
   return p.visibleToClients && p.displayOnPortal ? 'LIVE' : 'HIDDEN';
 }
 
-const pricingOf = (p: PackageShape): PackagePricing =>
-  packagePricing({
-    included: p.items.filter((i) => i.included).map((i) => pricedService(i.service)),
-    packagePriceCents: p.packagePriceCents,
-    ...discountOf(p),
-  });
+/**
+ * A stored package's pricing. `read` (every list, page and public read) reports a discount that
+ * no longer works instead of throwing (R1); `check` (saves and activation) refuses it.
+ */
+const pricingOf = (p: PackageShape, mode: 'check' | 'read' = 'read'): PackagePricing =>
+  packagePricing(
+    {
+      included: p.items.filter((i) => i.included).map((i) => pricedService(i.service)),
+      packagePriceCents: p.packagePriceCents,
+      ...discountOf(p),
+    },
+    mode,
+  );
 
 const toRow = (p: PackageShape): ServicePackageRow => {
   const pricing = pricingOf(p);
@@ -270,7 +277,11 @@ export class CatalogPackagesService {
     };
   }
 
-  /** The Package Pricing panel for the form's unsaved values. Saves nothing. */
+  /**
+   * The Package Pricing panel for the form's unsaved values. Saves nothing. A discount that cannot
+   * work is reported (`discountProblem`), not refused, so the form keeps its totals and shows the
+   * error beside the discount (R2); the save refuses it.
+   */
   async pricing(businessId: string, body: PackagePricingRequest): Promise<PackagePricing> {
     const ids = [...new Set(body.services.map((s) => s.serviceId))];
     const found = await this.tenantPrisma.db.service.findMany({
@@ -286,14 +297,17 @@ export class CatalogPackagesService {
     if (found.length !== ids.length)
       throw errors.invalid('services', 'Choose services of this firm');
     const byId = new Map(found.map((s) => [s.id, s]));
-    return packagePricing({
-      included: body.services
-        .filter((s) => s.included)
-        .map((s) => pricedService(byId.get(s.serviceId)!)),
-      packagePriceCents: body.packagePriceCents,
-      discountType: body.discountType,
-      discountValue: body.discountValue,
-    });
+    return packagePricing(
+      {
+        included: body.services
+          .filter((s) => s.included)
+          .map((s) => pricedService(byId.get(s.serviceId)!)),
+        packagePriceCents: body.packagePriceCents,
+        discountType: body.discountType,
+        discountValue: body.discountValue,
+      },
+      'read',
+    );
   }
 
   async create(businessId: string, userId: string, body: CreateBody): Promise<ServicePackage> {
@@ -325,6 +339,8 @@ export class CatalogPackagesService {
       });
       await this.saveItems(tx, businessId, created.id, body.services ?? [], true);
       await this.saveAddOns(tx, businessId, created.id, body.addOns ?? []);
+      // R1: a draft too: a discount that cannot work is refused and nothing is stored.
+      await this.checkDiscount(tx, businessId, created.id);
       if (body.activate) await this.activateIn(tx, businessId, created.id);
       return created.id;
     });
@@ -377,14 +393,17 @@ export class CatalogPackagesService {
         services: cur.items.map((i) => `${i.serviceId}:${i.included}`).sort(),
         appointmentTypeId: cur.appointmentTypeId,
       };
+      // R2: a percentage over 100% is refused before anything is written (the type may be the
+      // stored one); the rest of the rule is checked once the services are saved, below.
+      const stored = discountOf(cur);
+      const nextType = changes.discountType ?? stored.discountType;
+      const nextValue =
+        changes.discountValue !== undefined ? changes.discountValue : stored.discountValue;
+      if (nextType === 'PERCENTAGE' && (nextValue ?? 0) > 10_000)
+        throw errors.invalidDiscount('Use at most 100%');
       const discount =
         changes.discountType !== undefined || changes.discountValue !== undefined
-          ? discountColumns(
-              changes.discountType ?? discountOf(cur).discountType,
-              changes.discountValue !== undefined
-                ? changes.discountValue
-                : discountOf(cur).discountValue,
-            )
+          ? discountColumns(nextType, nextValue)
           : {};
       if (changes.services !== undefined) {
         await this.saveItems(tx, businessId, id, changes.services, false);
@@ -422,6 +441,9 @@ export class CatalogPackagesService {
         where: { businessId, id },
         include: packageInclude,
       });
+      // R1: any package, a draft too: a discount that cannot work is refused here, inside the
+      // transaction, so nothing of the save is stored and the last good record stays.
+      pricingOf(after, 'check');
       // A live package keeps everything it needs to be sold.
       if (after.status === 'ACTIVE' && !after.archivedAt) {
         this.checkSellable(after);
@@ -591,9 +613,18 @@ export class CatalogPackagesService {
       data: {
         status: 'ACTIVE',
         archivedAt: null,
-        packagePriceCents: pricingOf(p).packagePriceCents,
+        packagePriceCents: pricingOf(p, 'check').packagePriceCents,
       },
     });
+  }
+
+  /** R1: refuses (INVALID_DISCOUNT) a package whose discount cannot work, inside the save. */
+  private async checkDiscount(tx: TxClient, businessId: string, id: string): Promise<void> {
+    const p = await tx.servicePackage.findFirstOrThrow({
+      where: { businessId, id },
+      include: packageInclude,
+    });
+    pricingOf(p, 'check');
   }
 
   /**
@@ -635,7 +666,7 @@ export class CatalogPackagesService {
       throw errors.packageHasInactiveService();
     }
     // Throws INVALID_DISCOUNT for a discount that cannot work; derives a price from a discount.
-    const pricing = pricingOf(p);
+    const pricing = pricingOf(p, 'check');
     if (pricing.packagePriceCents === null) {
       throw errors.activationIncomplete('Enter the package price');
     }

@@ -5,6 +5,7 @@ import { promotionStatus } from '../../src/catalog/catalog-promotions.service.js
 import {
   discountColumns,
   discountOf,
+  discountProblem,
   diff,
   packagePricing,
   priceOf,
@@ -34,6 +35,8 @@ describe('packagePricing', () => {
       savingsPercent: 16.67,
       variablePrice: false,
       quoteRequired: false,
+      discountProblem: null,
+      priceFrom: 'TYPED',
     });
   });
 
@@ -69,7 +72,55 @@ describe('packagePricing', () => {
       discountType: 'PERCENTAGE',
       discountValue: 500,
     });
-    expect(p.packagePriceCents).toBe(9_000);
+    expect([p.packagePriceCents, p.priceFrom]).toEqual([9_000, 'TYPED']);
+  });
+
+  it('Q1: a price the discount works out (or one stored from it that still matches) is the discount’s', () => {
+    const base = {
+      included: [fixed(10_000)],
+      discountType: 'PERCENTAGE' as const,
+      discountValue: 2_000,
+    };
+    expect(packagePricing({ ...base, packagePriceCents: null }).priceFrom).toBe('DISCOUNT');
+    expect(packagePricing({ ...base, packagePriceCents: 8_000 }).priceFrom).toBe('DISCOUNT');
+    expect(packagePricing({ ...base, packagePriceCents: 7_000 }).priceFrom).toBe('TYPED');
+    expect(packagePricing({ ...base, packagePriceCents: null, included: [] }).priceFrom).toBe(
+      'DISCOUNT',
+    );
+    expect(
+      packagePricing({ included: [fixed(1_000)], packagePriceCents: null, ...none }).priceFrom,
+    ).toBeNull();
+  });
+
+  it('R1-R3: 100% and the whole total make a $0 package; a read reports a discount that cannot work', () => {
+    const at = (discountType: 'PERCENTAGE' | 'FIXED', discountValue: number) =>
+      packagePricing(
+        { included: [fixed(10_000)], packagePriceCents: null, discountType, discountValue },
+        'read',
+      );
+    expect(at('PERCENTAGE', 10_000)).toMatchObject({ packagePriceCents: 0, discountProblem: null });
+    expect(at('FIXED', 10_000)).toMatchObject({ packagePriceCents: 0, discountProblem: null });
+    expect(at('FIXED', 10_001)).toMatchObject({
+      packagePriceCents: null,
+      savingsCents: null,
+      discountProblem: 'MORE_THAN_TOTAL',
+    });
+    expect(at('PERCENTAGE', 10_001).discountProblem).toBe('OVER_100');
+    expect(at('FIXED', -1).discountProblem).toBe('NEGATIVE');
+    // A typed price stays the price; only the discount is flagged.
+    expect(
+      packagePricing(
+        {
+          included: [fixed(10_000)],
+          packagePriceCents: 9_000,
+          discountType: 'FIXED',
+          discountValue: 20_000,
+        },
+        'read',
+      ),
+    ).toMatchObject({ packagePriceCents: 9_000, discountProblem: 'MORE_THAN_TOTAL' });
+    expect(discountProblem('NONE', 99, 1)).toBeNull();
+    expect(discountProblem('FIXED', 50_000, null)).toBeNull();
   });
 
   it('refuses a discount that makes the price negative or is above 100%', () => {
@@ -82,6 +133,7 @@ describe('packagePricing', () => {
       });
     expect(attempt('FIXED', 10_001)).toThrow(/more than the services cost/);
     expect(attempt('PERCENTAGE', 10_001)).toThrow();
+    expect(attempt('FIXED', -1)).toThrow(/cannot be negative/);
     expect(attempt('FIXED', 10_000)).not.toThrow();
   });
 

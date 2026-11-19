@@ -1995,6 +1995,47 @@ export function createAdvisoryMock({
         log(p.advisoryClientId, 'advisory.plan_sent', `Plan sent (${req.channel.toLowerCase()})`);
         return planDetail(p);
       }),
+    // A-X13, as the API: what Send would deliver and to whom, and what would refuse it.
+    previewSendPlan: (planId, body) =>
+      run(() => {
+        const req = parseInput(SendAdvisoryPlanRequest, body);
+        const p = findPlan(planId);
+        if (!canSend) throw forbidden();
+        const c = clients.find((x) => x.id === p.advisoryClientId)!;
+        const v = req.version
+          ? p.versions.find((x) => x.versionNo === req.version)
+          : p.versions.at(-1);
+        const problems: {
+          code: 'PLAN_ARCHIVED' | 'INVALID_STATUS' | 'PLAN_NOT_READY';
+          message: string;
+        }[] = [];
+        if (p.status === 'ARCHIVED')
+          problems.push({ code: 'PLAN_ARCHIVED', message: 'Restore the plan before sending it' });
+        if (p.status === 'AWAITING_CLIENT_APPROVAL')
+          problems.push({
+            code: 'INVALID_STATUS',
+            message: "The plan is waiting for the client's approval in their portal",
+          });
+        if (!v) problems.push({ code: 'PLAN_NOT_READY', message: 'Finalize the plan first' });
+        const noLogin = NO_PORTAL_LOGIN.includes(c.client.name);
+        return {
+          channel: req.channel,
+          version: v?.versionNo ?? null,
+          to: { name: c.client.name, email: noLogin ? null : (c.client.email ?? null) },
+          subject: `Your business plan: ${p.name}`.slice(0, 200),
+          body: v ? `Your business plan, ${p.name}, is ready.` : '',
+          eligible: problems.length === 0,
+          problems,
+          notes:
+            req.channel === 'DOWNLOAD'
+              ? ['A download goes to no one: you share the file yourself.']
+              : noLogin
+                ? [
+                    'The client has no active portal login yet: the message waits in their portal until they sign in, and no email goes out.',
+                  ]
+                : [],
+        };
+      }),
     // B10, as the API: a plan in staff review goes to the client's portal for approval.
     requestPlanApproval: (planId, body) =>
       run(() => {
@@ -2136,7 +2177,16 @@ export function createAdvisoryMock({
             f.periodStart === req.periodStart &&
             f.periodEnd === req.periodEnd,
         );
-        if (earlier && earlier.source !== 'MANUAL' && !req.override)
+        // A-X09, as the API: a correction of one of the client's rows, for its period.
+        if (req.corrects) {
+          const corrected = financials.find(
+            (f) => f.id === req.corrects!.snapshotId && f.advisoryClientId === c.id,
+          );
+          if (!corrected) throw fail(404, 'NOT_FOUND', 'Not found');
+          if (corrected.periodStart !== req.periodStart || corrected.periodEnd !== req.periodEnd)
+            throw fail(400, 'VALIDATION_FAILED', 'A correction keeps the period it corrects');
+        }
+        if (earlier && earlier.source !== 'MANUAL' && !req.override && !req.corrects)
           throw fail(
             403,
             'OVERRIDE_NOT_ALLOWED',
@@ -2161,7 +2211,7 @@ export function createAdvisoryMock({
           source: req.source,
           asOf: req.asOf,
           overridden: !!req.override,
-          overrideReason: req.override?.reason ?? null,
+          overrideReason: req.override?.reason ?? req.corrects?.reason ?? null,
           overriddenBy: req.override ? signedIn : null,
           stale: isStale(req.asOf),
           createdAt: nowIso(),
