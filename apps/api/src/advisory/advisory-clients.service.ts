@@ -2,6 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import type {
   AdvisoryActivityPage,
+  AdvisoryDeliverable,
+  AdvisoryDeliverables,
   AdvisoryHistoryArea,
   AdvisoryHistoryPage,
   AdvisoryClientDetail,
@@ -919,6 +921,110 @@ export class AdvisoryClientsService {
         total,
         page: q.page,
         pageSize: q.pageSize,
+      };
+    });
+  }
+
+  // ---------- Services & Deliverables ----------
+
+  /**
+   * A-X14 (Business Advisory Review Two, B35): the client's Services & Deliverables. In Progress:
+   * the services under way (accepted, in progress, waiting on the client, on hold); Completed: the
+   * ones done. Each with its dates, who carries it out (the staff member assigned to the client's
+   * newest engagement on it, else the advisor), the files on that engagement (archived ones left
+   * out) and the engagement to open. Plans Delivered: the plan versions delivered to the client,
+   * read from the versions themselves (nothing is copied). The caller's reach, as every tab.
+   */
+  deliverables(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+  ): Promise<AdvisoryDeliverables> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      const { tx } = ctx;
+      const c = await this.read.loadClient(ctx, id);
+      const shown = c.workstreams.filter((w) => isEngaged(w.status) || w.status === 'COMPLETED');
+      const [engagements, versions] = await Promise.all([
+        shown.length
+          ? tx.engagement.findMany({
+              where: {
+                businessId,
+                clientId: c.clientId,
+                serviceId: { in: shown.map((w) => w.serviceId) },
+              },
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+              select: { id: true, serviceId: true, assignedUserId: true },
+            })
+          : Promise.resolve([]),
+        tx.advisoryPlanVersion.findMany({
+          where: { businessId, deliveredAt: { not: null }, plan: { advisoryClientId: c.id } },
+          orderBy: [{ deliveredAt: 'desc' }, { versionNo: 'desc' }],
+          take: 100,
+          select: {
+            planId: true,
+            versionNo: true,
+            deliveredAt: true,
+            deliveredChannel: true,
+            deliveredByUserId: true,
+            plan: { select: { name: true } },
+          },
+        }),
+      ]);
+      const newest = new Map<string, { id: string; assignedUserId: string | null }>();
+      for (const e of engagements) if (!newest.has(e.serviceId)) newest.set(e.serviceId, e);
+      const engagementIds = [...newest.values()].map((e) => e.id);
+      const files = engagementIds.length
+        ? await tx.document.groupBy({
+            by: ['engagementId'],
+            where: {
+              businessId,
+              clientId: c.clientId,
+              engagementId: { in: engagementIds },
+              archivedAt: null,
+            },
+            _count: { _all: true },
+          })
+        : [];
+      const fileCount = new Map(files.map((f) => [f.engagementId, f._count._all]));
+      const names = await memberNames(tx, businessId, [
+        c.advisorUserId,
+        ...[...newest.values()].map((e) => e.assignedUserId),
+        ...versions.map((v) => v.deliveredByUserId),
+      ]);
+      const row = (w: (typeof shown)[number]): AdvisoryDeliverable => {
+        const e = newest.get(w.serviceId);
+        return {
+          workstreamId: w.id,
+          serviceId: w.serviceId,
+          serviceName: w.service.name,
+          role: w.role,
+          status: w.status,
+          packageName: w.packageName,
+          startedOn: day(w.startedOn),
+          completedOn: day(w.completedOn),
+          staff: memberRef(names, e?.assignedUserId ?? c.advisorUserId),
+          engagementId: e?.id ?? null,
+          fileCount: e ? (fileCount.get(e.id) ?? 0) : 0,
+        };
+      };
+      return {
+        inProgress: shown.filter((w) => w.status !== 'COMPLETED').map(row),
+        completed: shown.filter((w) => w.status === 'COMPLETED').map(row),
+        plansDelivered: versions.flatMap((v) =>
+          v.deliveredAt
+            ? [
+                {
+                  planId: v.planId,
+                  planName: v.plan.name,
+                  versionNo: v.versionNo,
+                  deliveredAt: v.deliveredAt.toISOString(),
+                  channel: v.deliveredChannel,
+                  by: memberRef(names, v.deliveredByUserId),
+                },
+              ]
+            : [],
+        ),
       };
     });
   }

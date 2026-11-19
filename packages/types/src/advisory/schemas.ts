@@ -82,8 +82,17 @@ export const AdvisoryServiceOption = z.object({
   packages: z.array(z.string()),
   /** A regulated or specialist need tracked as referral or project steps, not as advice. */
   referralOnly: z.boolean(),
+  /**
+   * A-X14 (Business Advisory Review Two, B35): the primary focus category the service belongs to,
+   * the firm's own Services & Pricing category (Business Formation, Business Planning, Branding &
+   * Website, Funding Readiness, Growth Strategy, Operations, Staffing, Financial Analysis, ...).
+   * Null: no category, shown as General Advisory.
+   */
+  category: z.object({ id: z.uuid(), name: z.string() }).nullable(),
 });
 export type AdvisoryServiceOption = z.infer<typeof AdvisoryServiceOption>;
+/** A-X14: where a service with no Services & Pricing category is listed. */
+export const ADVISORY_GENERAL_FOCUS = 'General Advisory';
 export const AdvisoryServiceOptionList = z.object({ items: z.array(AdvisoryServiceOption) });
 export type AdvisoryServiceOptionList = z.infer<typeof AdvisoryServiceOptionList>;
 
@@ -123,6 +132,47 @@ export const AdvisoryWorkstreamEngagement = z.object({
   created: z.boolean(),
 });
 export type AdvisoryWorkstreamEngagement = z.infer<typeof AdvisoryWorkstreamEngagement>;
+
+/**
+ * GET /business/advisory/clients/{id}/deliverables (A-X14, Business Advisory Review Two B35): the
+ * client's Services & Deliverables tab. Their advisory services In Progress (accepted, under
+ * way, waiting on the client or on hold) and Completed, each with its dates, who carries it out
+ * (the staff member assigned to the client's engagement on it, else the advisor), the files on
+ * that engagement and the engagement to open; and Plans Delivered, the plan versions delivered to
+ * the client, read from the versions themselves (nothing is copied).
+ */
+export const AdvisoryDeliverable = z.object({
+  workstreamId: AdvisoryWorkstreamId,
+  serviceId: z.uuid(),
+  serviceName: z.string(),
+  role: AdvisoryServiceRole,
+  status: AdvisoryServiceStatus,
+  packageName: z.string().nullable(),
+  startedOn: CalendarDate.nullable(),
+  completedOn: CalendarDate.nullable(),
+  staff: MemberRef.nullable(),
+  /** The client's newest engagement on the service, to open; null before one starts. */
+  engagementId: z.uuid().nullable(),
+  /** Files on that engagement, archived ones left out. */
+  fileCount: z.number().int(),
+});
+export type AdvisoryDeliverable = z.infer<typeof AdvisoryDeliverable>;
+export const AdvisoryDeliveredPlan = z.object({
+  planId: AdvisoryPlanId,
+  planName: z.string(),
+  versionNo: z.number().int(),
+  deliveredAt: DateTime,
+  /** "portal", "email" or "download". */
+  channel: z.string().nullable(),
+  by: MemberRef.nullable(),
+});
+export type AdvisoryDeliveredPlan = z.infer<typeof AdvisoryDeliveredPlan>;
+export const AdvisoryDeliverables = z.object({
+  inProgress: z.array(AdvisoryDeliverable),
+  completed: z.array(AdvisoryDeliverable),
+  plansDelivered: z.array(AdvisoryDeliveredPlan),
+});
+export type AdvisoryDeliverables = z.infer<typeof AdvisoryDeliverables>;
 
 // ---------- Overview ----------
 

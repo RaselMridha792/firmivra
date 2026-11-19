@@ -6,6 +6,7 @@ import {
   type AdvisoryActionItemRow,
   type AdvisoryActivityPage,
   type AdvisoryHistoryPage,
+  type AdvisoryDeliverables,
   type AdvisoryClientDetail,
   AdvisoryClientId,
   type AdvisoryClientPage,
@@ -253,6 +254,17 @@ export class AdvisoryController {
   ): Promise<AdvisoryActivityPage> {
     const w = who(auth, tenant);
     return this.clients.activity(w.businessId, w.tenant, w.userId, id, q);
+  }
+
+  /** A-X14: the client's Services & Deliverables tab. */
+  @Get('clients/:id/deliverables')
+  deliverables(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientPipe) id: string,
+  ): Promise<AdvisoryDeliverables> {
+    const w = who(auth, tenant);
+    return this.clients.deliverables(w.businessId, w.tenant, w.userId, id);
   }
 
   /** A-NEW2: the module's View History across the advisory clients the caller reaches. */

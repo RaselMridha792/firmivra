@@ -81,7 +81,13 @@ export class AdvisoryOverviewService {
     const services = await tx.service.findMany({
       where: { businessId, kind: 'BUSINESS_DEVELOPMENT', archivedAt: null, status: 'ACTIVE' },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-      select: { id: true, name: true, description: true },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        // A-X14: its primary focus category, the firm's own (Services & Pricing).
+        category: { select: { id: true, name: true, archivedAt: true } },
+      },
     });
     const items = await tx.servicePackageItem.findMany({
       where: {
@@ -102,6 +108,8 @@ export class AdvisoryOverviewService {
       packages: [...new Set(byService.get(s.id) ?? [])].sort(),
       // Nothing in the catalog marks a regulated need yet (see the notes).
       referralOnly: false,
+      category:
+        s.category && !s.category.archivedAt ? { id: s.category.id, name: s.category.name } : null,
     }));
   }
 

@@ -17,6 +17,7 @@ import {
   AdvisoryActionItemRow,
   AdvisoryActivityPage,
   AdvisoryHistoryPage,
+  AdvisoryDeliverables,
   AdvisoryClientDetail,
   AdvisoryClientPage,
   AdvisoryClientRow,
@@ -2617,6 +2618,67 @@ describe('the overview, meetings, resources, settings and activity', () => {
     expectError(await call('get', `/clients/${shared.a2}/activity`, staffA), 404, 'NOT_FOUND');
     expectError(
       await call('get', `/clients/${shared.a1}/activity`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('A-X14: Services & Deliverables: services in progress and completed with their engagement and files, and the plans delivered', async () => {
+    // The primary focus categories are the firm's own Services & Pricing categories.
+    const category = await inFirm('a', async (tx) => {
+      const cat = await tx.serviceCategory.create({
+        data: { businessId: firms.a, name: `Branding & Website ${run}` },
+        select: { id: true, name: true },
+      });
+      await tx.service.update({ where: { id: services.s3 }, data: { categoryId: cat.id } });
+      return cat;
+    });
+    const options = AdvisoryServiceOptionList.parse(
+      ok(await call('get', '/services', ownerA)),
+    ).items;
+    expect(options.find((o) => o.serviceId === services.s3)?.category).toEqual(category);
+    expect(options.find((o) => o.serviceId === services.s2)?.category).toBeNull();
+
+    const engaged = ['ACCEPTED', 'IN_PROGRESS', 'AWAITING_CLIENT', 'ON_HOLD'];
+    for (const id of [shared.a1, shared.a2]) {
+      const d = AdvisoryDeliverables.parse(
+        ok(await call('get', `/clients/${id}/deliverables`, ownerA)),
+      );
+      const detail = await advClient(id);
+      const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort();
+      // The client's own services, grouped: under way, and done; nothing else.
+      expect(d.inProgress.map((x) => x.workstreamId).sort()).toEqual(
+        ids(detail.workstreams.filter((w) => engaged.includes(w.status))),
+      );
+      expect(d.completed.map((x) => x.workstreamId).sort()).toEqual(
+        ids(detail.workstreams.filter((w) => w.status === 'COMPLETED')),
+      );
+      for (const x of [...d.inProgress, ...d.completed]) {
+        const w = detail.workstreams.find((y) => y.id === x.workstreamId);
+        expect(x).toMatchObject({
+          serviceId: w?.serviceId,
+          serviceName: w?.serviceName,
+          role: w?.role,
+          startedOn: w?.startedOn,
+        });
+        expect(x.fileCount).toBeGreaterThanOrEqual(0);
+        if (!x.engagementId) expect(x.fileCount).toBe(0);
+      }
+      // Delivered versions, newest first, read from the plans' versions.
+      const at = d.plansDelivered.map((p) => p.deliveredAt);
+      expect([...at].sort().reverse()).toEqual(at);
+      expect(d.plansDelivered.every((p) => p.versionNo >= 1)).toBe(true);
+    }
+    // c1's Business Development engagement (the setup's) is the primary service's.
+    const a1 = AdvisoryDeliverables.parse(
+      ok(await call('get', `/clients/${shared.a1}/deliverables`, staffA)),
+    );
+    const primary = [...a1.inProgress, ...a1.completed].find((x) => x.serviceId === services.s1);
+    if (primary) expect(primary.engagementId).toEqual(expect.any(String));
+    // Staff reach their clients only; another firm can't name one.
+    expectError(await call('get', `/clients/${shared.a2}/deliverables`, staffA), 404, 'NOT_FOUND');
+    expectError(
+      await call('get', `/clients/${shared.a1}/deliverables`, ownerB, undefined, 'b'),
       404,
       'NOT_FOUND',
     );

@@ -42,6 +42,8 @@ import {
 const TABS = [
   ['', 'Overview'],
   ['/plan', 'Business Plan'],
+  // A-X14 (Business Advisory Review Two, B35).
+  ['/services', 'Services & Deliverables'],
   ['/financials', 'Financials'],
   ['/goals', 'Goals & Milestones'],
   ['/recommendations', 'Recommendations'],
@@ -303,7 +305,7 @@ export function ClientShell({
   );
 }
 
-const WORKSTREAM_STATUS: Record<string, string> = {
+export const WORKSTREAM_STATUS: Record<string, string> = {
   INTERESTED: 'Interested',
   PROPOSED: 'Proposed',
   ACCEPTED: 'Accepted',

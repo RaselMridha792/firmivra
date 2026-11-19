@@ -152,3 +152,57 @@ test('A-X07: a client whose texts are stopped gets no text reminder, and the for
   await expect(reminders.getByTestId('sms-stopped')).toHaveCount(0);
   await expect(sms).toBeEnabled();
 });
+
+test('A-X14: Add Advisory Client picks a primary focus category first, from the firm’s Services & Pricing categories', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/business-advisory/clients'));
+  await page.getByRole('button', { name: 'Add Advisory Client' }).click({ timeout: 60_000 });
+  const dialog = page.getByTestId('add-advisory-client');
+  const focus = dialog.getByLabel(/^Primary focus$/);
+  const service = dialog.getByLabel(/^Primary service focus/);
+  await expect(focus.locator('option')).toContainText([
+    'All focus areas',
+    'Business Planning',
+    'Growth Strategy',
+    'Financial Analysis',
+    'Operations',
+    'Funding Readiness',
+    'Business Formation',
+    'General Advisory',
+  ]);
+  // A focus narrows the services to its own.
+  await focus.selectOption({ label: 'Business Formation' });
+  await expect(service.locator('option')).toHaveText(['Choose a service…', 'Business Formation']);
+  await focus.selectOption({ label: 'General Advisory' });
+  await expect(service.locator('option')).toHaveText([
+    'Choose a service…',
+    'Legal & Insurance Referral (referral)',
+  ]);
+  // Every service stays an Additional Service.
+  await service.selectOption({ label: 'Legal & Insurance Referral (referral)' });
+  await expect(dialog.getByRole('checkbox', { name: 'Business Planning' })).toBeVisible();
+});
+
+test('A-X14: a client’s Services & Deliverables tab lists services in progress and completed, and the plans delivered', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app(`/business-advisory/clients/${MARCUS}`));
+  await page.getByRole('tab', { name: 'Services & Deliverables' }).click({ timeout: 60_000 });
+  await expect(page).toHaveURL(new RegExp(`/business-advisory/clients/${MARCUS}/services$`), {
+    timeout: 60_000,
+  });
+  const inProgress = page.getByTestId('deliverables-in-progress');
+  // The client's primary service is under way, and a second one is accepted.
+  await expect(inProgress.getByText('Primary focus')).toBeVisible({ timeout: 60_000 });
+  await expect(inProgress.getByRole('cell', { name: 'In Progress' })).toBeVisible();
+  await expect(inProgress.getByRole('cell', { name: 'Accepted' })).toBeVisible();
+  await expect(inProgress.getByRole('cell', { name: 'Proposed' })).toHaveCount(0);
+  await expect(page.getByTestId('deliverables-completed')).toContainText('No completed services');
+  // The plan sent to the client, from its version.
+  const plans = page.getByTestId('deliverables-plans');
+  await expect(plans).toContainText('Version 1');
+  await expect(plans).toContainText('Client portal');
+});

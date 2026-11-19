@@ -35,6 +35,7 @@ import {
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { advisoryEngagements, type FileChoice } from './advisory-engagements';
@@ -140,7 +141,9 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
   const open = engagements.open;
   const advisory = engagements.ids;
   const { act, ask, toast, say } = useAct();
-  const [serviceId, setServiceId] = useState('');
+  // A-X14: Services & Deliverables opens a service's files here (`?serviceId=`, its engagement).
+  const params = useSearchParams();
+  const [serviceId, setServiceId] = useState(params.get('serviceId') ?? '');
   const [search, setSearch] = useState('');
   const [cursors, setCursors] = useState<string[]>([]);
   const [dialog, setDialog] = useState<'upload' | 'request'>();

@@ -359,6 +359,8 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'advisoryClient', workstreamId: 'advisoryWorkstreamStarted' },
   },
   [`GET ${BASE}/clients/:id/activity`]: { params: { id: 'advisoryClient' } },
+  // A-X14: the client's Services & Deliverables.
+  [`GET ${BASE}/clients/:id/deliverables`]: { params: { id: 'advisoryClient' } },
   [`POST ${BASE}/clients/:id/financials`]: {
     params: { id: 'advisoryClient' },
     // A-X09: the row a correction corrects is the client's own.

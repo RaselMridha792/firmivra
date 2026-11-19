@@ -41,7 +41,7 @@ This file maps every row of Octavia's Business Advisory Review Two to the PR tha
 | A-X11 Tasks, progress notes, Cancel Meeting | Partial: Edit Action Item and Cancel Meeting done; progress notes **GAP** (schema in #1652, then batch D) | batch B | e2e `advisory` "A-X11: Edit Action Item…"; mock `r1-advisory-b2` "A-X11" (both) |
 | A-X12 Note audience, client files and history | Built, her retest | #1586, #1629 (B32) | mock "A-X12"; mock `r55-note-share` |
 | A-X13 Recipient and channel before a send | Done | this PR | e2e `advisory` (send-preview); mock "A-X13"; isolation (`send-preview`) |
-| A-X14 Focus categories, Services & Deliverables | **GAP**: next batch | | |
+| A-X14 Focus categories, Services & Deliverables | Done: the focus categories are the firm's own Services & Pricing categories (Octavia's nine are set up there), General Advisory for a service with none | batch C | e2e `advisory` "A-X14: Services & Deliverables…"; mock `r1-advisory-b2` "A-X14" (both); isolation (`deliverables`) |
 | A-G1 Service configuration | Her retest | | After A-12 |
 | A-G2 Privacy and permissions | Her retest | | `apps/api/test/isolation/cases/advisory.ts` |
 | A-G3 Approval and versions | Her retest | #1635 | After A-08 |
