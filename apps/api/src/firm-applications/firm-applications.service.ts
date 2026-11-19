@@ -534,7 +534,7 @@ export class FirmApplicationsService {
     if (!item) throw notFound();
     const [application, firm, owners] = await Promise.all([
       this.admin.db.firmApplication.findUnique({ where: { businessId: id }, select: { id: true } }),
-      this.admin.db.business.findUniqueOrThrow({
+      this.admin.db.business.findUnique({
         where: { id },
         select: { activatedAt: true, closedAt: true },
       }),
@@ -543,12 +543,14 @@ export class FirmApplicationsService {
         where: { businessId: id, role: 'OWNER', status: 'ACTIVE' },
       }),
     ]);
+    // Read just above (firmItems): the firm's setup and closure times, or none.
+    const times = { activatedAt: firm?.activatedAt ?? null, closedAt: firm?.closedAt ?? null };
     return {
       ...item,
       application: application ? await this.record(application.id) : null,
-      activatedAt: firm.activatedAt?.toISOString() ?? null,
-      closedAt: firm.closedAt?.toISOString() ?? null,
-      accountHistory: await this.accountHistory(id, firm),
+      activatedAt: times.activatedAt?.toISOString() ?? null,
+      closedAt: times.closedAt?.toISOString() ?? null,
+      accountHistory: await this.accountHistory(id, times),
       can: { ...firmAccountCan(item.status), requestInfo: item.status === 'ACTIVE' && owners > 0 },
     };
   }
