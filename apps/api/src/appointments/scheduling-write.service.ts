@@ -226,9 +226,10 @@ export class SchedulingWriteService {
       await this.notices.send('appointment.booked', businessId, created.firstId);
     }
     // A9: the type's required intake form goes to the client (the first of a series only; the
-    // others would find it open), and the record then shows it.
+    // others would find it open), and the record then shows it. Review 2 (B8): so it shows the
+    // confirmation in its notices, as a fresh read does.
     const form = await this.intakes.sendForAppointment(businessId, created.firstId, actor.userId);
-    if (form && 'intakeId' in form) {
+    if (body.sendConfirmation || (form && 'intakeId' in form)) {
       return this.inFirm(businessId, (tx) => this.recordIn(tx, businessId, actor, created.firstId));
     }
     return created.record;

@@ -822,7 +822,8 @@ describe('schedule', () => {
       clientInstructions: 'Join from the link',
       seriesId: null,
       recurrence: null,
-      notices: [],
+      // Review 2 (B8): the confirmation it sent, as a fresh read below shows it.
+      notices: [{ kind: 'CONFIRMATION', channel: 'EMAIL', status: 'SENT' }],
     });
     expect(record.reminders).toEqual([
       { channel: 'EMAIL', amount: 1, unit: 'DAYS' },
