@@ -25,7 +25,11 @@ test('every firm menu line is lit on its own page, and only it', async ({ page }
   const hrefs = await menuOf(page)
     .getByRole('link')
     .evaluateAll((links) =>
-      links.map((a) => a.getAttribute('href') ?? '').filter((h) => h.startsWith('/')),
+      links
+        .map((a) => a.getAttribute('href') ?? '')
+        // Menu lines only: a badge link inside a line (Settings' "1 security alert to review",
+        // /settings/security?alerts=open) carries a query and opens a view, not a line of its own.
+        .filter((h) => h.startsWith('/') && !h.includes('?')),
     );
   expect(hrefs).toEqual(expect.arrayContaining(['/', '/clients', '/payroll', '/team']));
   for (const href of hrefs) {
