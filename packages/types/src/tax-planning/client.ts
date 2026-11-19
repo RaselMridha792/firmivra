@@ -43,6 +43,7 @@ import {
   TaxPlanDetail,
   TaxPlanEventList,
   UpdatePlanningResourceRequest,
+  CreatePlanningResourceRequest,
   PlanningResource,
   UpdateTaxOpportunityRequest,
   TaxPlanId,
@@ -317,6 +318,13 @@ export function createTaxPlanningClient(request: ApiRequest) {
         method: 'PUT',
         body: parseInput(UpdatePlanningResourceRequest, body),
       }),
+    /** Tax Planning resources (audit, Nov 20): the firm's own (Add Resource, Create Checklist). */
+    createResource: async (body: CreatePlanningResourceRequest): Promise<PlanningResource> =>
+      request(
+        PlanningResource,
+        `${BASE}/resources`,
+        post(parseInput(CreatePlanningResourceRequest, body)),
+      ),
     resources: async (query: PlanningResourcesQuery = {}): Promise<PlanningResourceList['items']> =>
       (
         await request(

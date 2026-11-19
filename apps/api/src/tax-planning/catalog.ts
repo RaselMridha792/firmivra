@@ -60,6 +60,10 @@ interface ResourceDef extends PlanningResource {
   summary: string;
 }
 
+/** The firm's own resource's key (`firm-<id>`), or null for a built-in key. */
+export const ownResourceId = (key: string): string | null =>
+  /^firm-[0-9a-f-]{36}$/.test(key) ? key.slice('firm-'.length) : null;
+
 /** The approved catalog of guides and checklists (no table yet: see the notes). */
 export const RESOURCES: readonly ResourceDef[] = [
   {
@@ -119,4 +123,8 @@ export const RESOURCES: readonly ResourceDef[] = [
 ];
 export const resourceOf = (key: string) => RESOURCES.find((r) => r.key === key);
 /** C17 (Review 2): View shows a resource's summary, the words a client is sent with it. */
-export const toResource = (r: ResourceDef): PlanningResource => ({ ...r });
+export const toResource = (r: ResourceDef): PlanningResource => ({
+  ...r,
+  body: r.body ?? null,
+  own: r.own ?? false,
+});

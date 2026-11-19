@@ -169,6 +169,13 @@ export const PlanningResource = z.object({
    * at `clientFacing`).
    */
   staffOnly: z.boolean().optional(),
+  /**
+   * Tax Planning resources (audit, Nov 20): what it contains, one item per line for a checklist;
+   * Download and Print use it with the title and summary, and Send adds it after the summary.
+   */
+  body: z.string().nullable().optional(),
+  /** The firm's own resource (Add Resource, Create Checklist); its key is `firm-<id>`. */
+  own: z.boolean().optional(),
 });
 export type PlanningResource = z.infer<typeof PlanningResource>;
 
@@ -182,9 +189,19 @@ export const UpdatePlanningResourceRequest = z.strictObject({
   category: text(100),
   kind: z.enum(['PDF', 'CHECKLIST', 'GUIDE', 'VIDEO', 'ARTICLE']),
   summary: clearable(text(1_000, 'many')),
+  /** What it contains (8,000 characters, so it always fits in the message Send makes). */
+  body: clearable(text(8_000, 'many')),
   clientFacing: z.boolean(),
 });
 export type UpdatePlanningResourceRequest = z.input<typeof UpdatePlanningResourceRequest>;
+
+/**
+ * Tax Planning resources (audit, Nov 20): POST .../resources: the firm's own resource (Add
+ * Resource; Create Checklist is the same with kind CHECKLIST), with the fields Edit takes. Owner,
+ * Admin and those who manage strategies (403 otherwise).
+ */
+export const CreatePlanningResourceRequest = UpdatePlanningResourceRequest;
+export type CreatePlanningResourceRequest = z.input<typeof CreatePlanningResourceRequest>;
 
 /** GET /business/tax-planning/overview: Frame 1. Counts open the matching filtered lists. */
 export const TaxPlanningOverview = z.object({

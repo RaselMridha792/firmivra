@@ -1913,6 +1913,75 @@ describe("a plan's work and the firm's resources (Review 2 C12, C15, C17)", () =
       'VALIDATION_FAILED',
     );
   });
+
+  it('adds the firm’s own resource and checklist: listed, edited, sent with what they contain', async () => {
+    const checklist = {
+      title: mark('Our document checklist'),
+      category: 'Checklists',
+      kind: 'CHECKLIST',
+      summary: 'What to bring (fake).',
+      body: 'Last year’s return\nW-2 forms\nCharity receipts',
+      clientFacing: true,
+    };
+    // Owner and Admin (and who manage strategies); Staff is refused, and a bad body too.
+    expectError(await call('post', '/resources', staffA, checklist), 403, 'FORBIDDEN');
+    expectError(
+      await call('post', '/resources', ownerA, { ...checklist, body: 'x'.repeat(8_001) }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const own = PlanningResource.parse(
+      ok(await call('post', '/resources', ownerA, checklist), 201),
+    );
+    expect(own).toMatchObject({
+      title: checklist.title,
+      kind: 'CHECKLIST',
+      body: checklist.body,
+      own: true,
+      edited: false,
+    });
+    expect(own.key).toMatch(/^firm-[0-9a-f-]{36}$/);
+    const listed = PlanningResourceList.parse(ok(await call('get', '/resources', ownerA))).items;
+    expect(listed.find((r) => r.key === own.key)).toMatchObject({
+      own: true,
+      body: checklist.body,
+    });
+    // Edited in place; firm B never sees it, nor changes it.
+    const edited = PlanningResource.parse(
+      ok(
+        await call('put', `/resources/${own.key}`, ownerA, {
+          ...checklist,
+          body: `${checklist.body}\n1099 forms`,
+        }),
+      ),
+    );
+    expect(edited.body).toContain('1099 forms');
+    const bList = PlanningResourceList.parse(
+      ok(await call('get', '/resources', ownerB, undefined, 'b')),
+    ).items;
+    expect(bList.some((r) => r.key === own.key)).toBe(false);
+    expectError(
+      await call('put', `/resources/${own.key}`, ownerB, checklist, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    // Sent, the client gets the summary and then the checklist's lines.
+    ok(
+      await call('post', `/resources/${own.key}/send`, ownerA, {
+        clientId: clients.c1,
+        channel: 'PORTAL_MESSAGE',
+      }),
+    );
+    const thread = await inFirm('a', (tx) =>
+      tx.messageThread.findFirstOrThrow({
+        where: { clientId: clients.c1, subject: checklist.title },
+        include: { messages: true },
+      }),
+    );
+    expect(thread.messages[0]?.body).toContain('What to bring (fake).');
+    expect(thread.messages[0]?.body).toContain('Charity receipts');
+    expect(thread.messages[0]?.body).toContain('1099 forms');
+  });
 });
 
 describe('screening', () => {
