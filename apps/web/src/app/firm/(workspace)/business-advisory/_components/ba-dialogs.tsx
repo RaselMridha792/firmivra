@@ -28,7 +28,7 @@ export function useMembers() {
 
 /** A-X14: a service with no Services & Pricing category is under General Advisory. */
 const GENERAL = 'general';
-const focusOf = (s: AdvisoryServiceOption) => s.category?.id ?? GENERAL;
+export const focusOf = (s: AdvisoryServiceOption) => s.category?.id ?? GENERAL;
 
 /**
  * A-X14 (Business Advisory Review Two, B35): the primary focus categories offered, the firm's own
