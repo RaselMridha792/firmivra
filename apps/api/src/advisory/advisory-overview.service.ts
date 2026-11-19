@@ -573,7 +573,7 @@ export class AdvisoryOverviewService {
    * A-X02: saves the whole list in its order (Advisory Admin). An item with an id is one of the
    * firm's (404 otherwise): renamed, archived or restored; one without is added; a saved one left
    * out is archived, never deleted. Archiving goes first, so a live name can move to another row.
-   * Audited as a settings change, with counts only.
+   * Audited (`advisory_industries.updated`) with counts only.
    */
   saveIndustries(
     businessId: string,
@@ -639,9 +639,9 @@ export class AdvisoryOverviewService {
       }
       await this.audit.logIn(
         tx,
-        'advisory_settings.updated',
+        'advisory_industries.updated',
         { type: 'advisory_settings' },
-        { industries: counts },
+        counts,
       );
       return this.industryList(ctx);
     });

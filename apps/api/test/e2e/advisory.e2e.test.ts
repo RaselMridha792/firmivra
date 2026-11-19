@@ -2562,8 +2562,13 @@ describe('the overview, meetings, resources, settings and activity', () => {
       404,
       'NOT_FOUND',
     );
-    // A client keeps the text it was saved with.
+    // A client keeps the text it was saved with; each save is audited (counts only).
     expect((await advClient(shared.a1)).industry).toBe(clientBefore);
+    expect(
+      await inFirm('a', (tx) =>
+        tx.auditLog.count({ where: { action: 'advisory_industries.updated' } }),
+      ),
+    ).toBe(2);
   });
 
   it('configures the health formula for new calculations only, and the default advisor', async () => {

@@ -76,6 +76,7 @@ const ACTIVITY: Record<string, string> = {
   'advisory_action_item.created': 'Action item added',
   'advisory_action_item.updated': 'Action item changed',
   'advisory_action_item.note_added': 'Progress note added',
+  'advisory_industries.updated': 'Industries changed',
   'advisory_resource.sent': 'Resource sent',
 };
 
