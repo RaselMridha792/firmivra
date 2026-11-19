@@ -53,22 +53,28 @@ async function tokenFor(email: string): Promise<string> {
   return token;
 }
 const asAdmin = async () => `Bearer ${await tokenFor(fx.users.admin.email)}`;
-const get = async (path: string) =>
-  request(app.getHttpServer())
-    .get(`/api/v1${path}`)
-    .set('authorization', await asAdmin());
-const act = async (id: string, action: string, body: object, email = fx.users.admin.email) =>
-  request(app.getHttpServer())
+// Each helper fetches its token before it builds its request, so no request is ever built while
+// another is still opening or closing the server (the app also listens on a port of its own).
+const get = async (path: string) => {
+  const authorization = await asAdmin();
+  return request(app.getHttpServer()).get(`/api/v1${path}`).set('authorization', authorization);
+};
+const act = async (id: string, action: string, body: object, email = fx.users.admin.email) => {
+  const token = await tokenFor(email);
+  return request(app.getHttpServer())
     .post(`/api/v1/admin/firms/${id}/${action}`)
-    .set('authorization', `Bearer ${await tokenFor(email)}`)
+    .set('authorization', `Bearer ${token}`)
     .send(body);
+};
 const codeOf = (res: request.Response) => (res.body as { error?: { code?: string } }).error?.code;
 /** The firm's owner on one of the firm's own routes. */
-const ownerCall = async () =>
-  request(app.getHttpServer())
+const ownerCall = async () => {
+  const token = await tokenFor(people.owner.email);
+  return request(app.getHttpServer())
     .get('/api/v1/business/audit-log')
-    .set('authorization', `Bearer ${await tokenFor(people.owner.email)}`)
+    .set('authorization', `Bearer ${token}`)
     .set('x-business-id', firms.active.id);
+};
 
 /** An approved application of `plan`, for `businessId`, as the app writes one. */
 const form = (plan: string, email: string, legalName: string) => ({
@@ -195,7 +201,7 @@ beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
-  await nest.init();
+  await nest.listen(0, '127.0.0.1');
   app = nest;
 });
 
@@ -308,7 +314,9 @@ describe('SA-FRM-F02 to F04, Y07, Y10: the firm account actions', () => {
 
 describe('SA-FRM-Y08: the firms list’s plan filter and sorting', () => {
   const names = (r: ListFirmsResponse) =>
-    r.items.filter((f) => [firms.alpha.id, firms.bravo.id, firms.charlie.id].includes(f.id));
+    r.items.filter((f) =>
+      ([firms.alpha.id, firms.bravo.id, firms.charlie.id] as string[]).includes(f.id),
+    );
 
   it('filters by the plan the application asked for', async () => {
     const starter = ListFirmsResponse.parse(
