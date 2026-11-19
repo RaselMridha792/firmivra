@@ -28,6 +28,7 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { activationGap, CATALOG_ERRORS, recurringPrice } from '../../_components/catalog-shared';
+import { ServiceReadiness } from '../../_components/service-readiness';
 import { lineCents, serviceTotalCents } from '../../_components/service-total';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { CatalogHeader, ClientPreview, IconPicker, money, Panel, TextList } from './service-parts';
@@ -521,6 +522,7 @@ export function ServiceEditor({
             )}
             fullDescription={value.fullDescription}
           />
+          <ServiceReadiness value={value} status={initial?.status ?? null} />
           <ServiceAddOns items={value.addOns ?? []} onChange={(next) => put('addOns', next)} />
           <Panel title="Internal Settings" marker={<Gear weight="fill" className="size-4" />}>
             <Textarea

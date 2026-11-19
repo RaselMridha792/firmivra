@@ -19,6 +19,7 @@ import {
   OkResponse,
   PackagePricing,
   Promotion,
+  PromotionCodeCheck,
   PromotionList,
   ServiceCategory,
   ServiceCategoryList,
@@ -1371,6 +1372,131 @@ describe('summary', () => {
       activePromotions: 0,
       packages: 0,
     });
+  });
+});
+
+// After `summary`: it makes a firm B service, and the summary counts firm B from empty.
+describe('Check a Code (R9/R13)', () => {
+  it('answers for a service or package today, with the one reason a code does not apply', async () => {
+    const cat = await mkCategory();
+    const other = await mkCategory();
+    const svc = await mkService(cat.id, { basePriceCents: 20_000 });
+    const pkg = await mkPackage(cat.id, [svc.id], { packagePriceCents: 15_000 });
+    const RUN = run.toUpperCase();
+    const mk = async (o: object) =>
+      exact(
+        Promotion,
+        await call('post', '/promotions', people.ownerA, {
+          name: name('promo'),
+          discountType: 'PERCENTAGE',
+          value: 1_000,
+          appliesTo: 'SERVICES',
+          targetIds: [svc.id],
+          ...o,
+        }),
+        201,
+      );
+    // Live ones on the same service both stack (the activation check allows no other overlap).
+    const ok = await mk({ promoCode: `OK-${RUN}`, activate: true, stackable: true });
+    await mk({ promoCode: `DRAFT-${RUN}` });
+    await mk({
+      promoCode: `OLD-${RUN}`,
+      activate: true,
+      stackable: true,
+      startsOn: '2020-01-01',
+      endsOn: '2020-01-31',
+    });
+    await mk({
+      promoCode: `SOON-${RUN}`,
+      activate: true,
+      stackable: true,
+      startsOn: '2099-01-01',
+      endsOn: '2099-01-31',
+    });
+    await mk({
+      promoCode: `CAT-${RUN}`,
+      appliesTo: 'CATEGORIES',
+      targetIds: [other.id],
+      activate: true,
+    });
+    await mk({
+      promoCode: `PKG-${RUN}`,
+      appliesTo: 'PACKAGES',
+      targetIds: [pkg.id],
+      activate: true,
+    });
+
+    const check = async (
+      code: string,
+      itemType: 'SERVICE' | 'PACKAGE' = 'SERVICE',
+      itemId = svc.id,
+    ) =>
+      exact(
+        PromotionCodeCheck,
+        await call('post', '/promotions/check', people.staffA, { code, itemType, itemId }),
+      );
+    // Codes are matched in capitals, whatever is typed.
+    expect(await check(`ok-${RUN}`.toLowerCase())).toEqual({
+      result: 'APPLIES',
+      promotion: {
+        id: ok.id,
+        name: ok.name,
+        startsOn: null,
+        endsOn: null,
+        eligibility: 'ALL_CLIENTS',
+      },
+      priceCents: 20_000,
+      discountCents: 2_000,
+      conflict: null,
+      scope: [],
+    });
+    expect(await check(`NOPE-${RUN}`)).toMatchObject({
+      result: 'UNKNOWN_CODE',
+      promotion: null,
+      priceCents: 20_000,
+    });
+    expect((await check(`DRAFT-${RUN}`)).result).toBe('NOT_ACTIVE');
+    expect((await check(`OLD-${RUN}`)).result).toBe('EXPIRED');
+    expect((await check(`SOON-${RUN}`)).result).toBe('NOT_STARTED');
+    expect(await check(`CAT-${RUN}`)).toMatchObject({
+      result: 'WRONG_CATEGORY',
+      scope: [other.name],
+    });
+    expect(await check(`PKG-${RUN}`)).toMatchObject({
+      result: 'WRONG_PACKAGE',
+      discountCents: null,
+      scope: [pkg.name],
+    });
+    expect(await check(`PKG-${RUN}`, 'PACKAGE', pkg.id)).toMatchObject({
+      result: 'APPLIES',
+      priceCents: 15_000,
+      discountCents: 1_500,
+    });
+
+    // Nothing is ordered, counted or logged by a check.
+    const listed = exact(PromotionList, await call('get', '/promotions', people.staffA)).items;
+    expect(listed.find((p) => p.id === ok.id)?.usageCount).toBe(0);
+    expect(await auditActions(ok.id)).toEqual(['catalog.promotion.created']);
+
+    // Another firm's service, or none, is not found; the item is required.
+    const catB = await mkCategory({}, people.ownerB, ids.firmB);
+    const svcB = await mkService(catB.id, {}, ids.firmB);
+    for (const itemId of [svcB.id, randomUUID()]) {
+      expectError(
+        await call('post', '/promotions/check', people.staffA, {
+          code: `OK-${RUN}`,
+          itemType: 'SERVICE',
+          itemId,
+        }),
+        404,
+        'NOT_FOUND',
+      );
+    }
+    expectError(
+      await call('post', '/promotions/check', people.staffA, { code: `OK-${RUN}` }),
+      400,
+      'VALIDATION_FAILED',
+    );
   });
 });
 

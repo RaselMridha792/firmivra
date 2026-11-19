@@ -68,6 +68,8 @@ test('S4: an archived package is listed under Archived and restored to Inactive'
     .locator('tr', { hasText: name })
     .getByRole('button', { name: `Archive ${name}` })
     .click();
+  // Services & Pricing Review Two R12: Archive asks first.
+  await page.getByTestId('package-change-confirm').click();
   await expect(page.getByText(/stays under Archived/)).toBeVisible();
 
   await views.getByRole('button', { name: /^Archived/ }).click();

@@ -18,6 +18,7 @@ import {
   CatalogPackagesQuery,
   CatalogServicesQuery,
   type CatalogSummary,
+  CheckPromotionCodeRequest,
   CreateCatalogServiceRequest,
   CreateServicePackageRequest,
   MergeCategoryRequest,
@@ -25,6 +26,7 @@ import {
   type PackagePricing,
   PackagePricingRequest,
   type Promotion,
+  type PromotionCodeCheck,
   PromotionId,
   type PromotionList,
   type PublicLink,
@@ -362,6 +364,19 @@ export class CatalogPromotionsController {
   @Get()
   async list(@CurrentTenant() tenant: TenantContext): Promise<PromotionList> {
     return { items: await this.promotions.list(tenant.businessId) };
+  }
+
+  /**
+   * R9/R13, "Check a Code": a check, not a change (nothing is ordered, charged or counted), so
+   * every staff member may use it.
+   */
+  @Post('check')
+  @HttpCode(200)
+  check(
+    @CurrentTenant() tenant: TenantContext,
+    @Body(pipe(CheckPromotionCodeRequest)) body: z.output<typeof CheckPromotionCodeRequest>,
+  ): Promise<PromotionCodeCheck> {
+    return this.promotions.checkCode(tenant.businessId, body);
   }
 
   @Post()
