@@ -74,6 +74,8 @@ export interface TaskPrefill {
   period?: string;
   /** I-P01: "INV-2026-0106": a task opened from an invoice is named and described by it. */
   invoice?: string;
+  /** Tax Returns Review Two F03 (R56): the exact tax return Create Task was opened from. */
+  taxReturnId?: string;
 }
 
 export function TaskFormScreen({
@@ -226,6 +228,14 @@ function Form({
   }));
   const [related, setRelated] = useState(saved.choice);
   const [note, setNote] = useState(saved.note);
+  // F03 (R56): the exact tax return, kept apart from Related To (a return and its service both).
+  const [taxReturnId, setTaxReturnId] = useState<string | null>(
+    seed?.taxReturn?.id ?? prefill?.taxReturnId ?? null,
+  );
+  const taxReturnName =
+    seed?.taxReturn?.name ?? (prefill?.period ? `Tax return, ${prefill.period}` : 'Tax return');
+  /** Edit sends the return only when it changed. */
+  const returnChange = () => (taxReturnId !== (seed?.taxReturn?.id ?? null) ? { taxReturnId } : {});
   // The note's box shows until its Save keeps it.
   const [noteOpen, setNoteOpen] = useState(!saved.note);
   const chosen = splitRelated(related);
@@ -505,6 +515,7 @@ function Form({
     engagementId: chosen.kind === 'engagement' ? chosen.id : null,
     taxPlanId: chosen.kind === 'taxPlan' ? chosen.id : null,
     deadlineId: chosen.kind === 'deadline' ? chosen.id : null,
+    taxReturnId,
     relatedText: noteText || null,
   });
   /** Related To of a new task or draft: only what is chosen. */
@@ -512,6 +523,7 @@ function Form({
     ...(chosen.kind === 'engagement' ? { engagementId: chosen.id } : {}),
     ...(chosen.kind === 'taxPlan' ? { taxPlanId: chosen.id } : {}),
     ...(chosen.kind === 'deadline' ? { deadlineId: chosen.id } : {}),
+    ...(taxReturnId ? { taxReturnId } : {}),
     ...(noteText ? { relatedText: noteText } : {}),
   });
   /**
@@ -572,6 +584,7 @@ function Form({
         dueOn: dueOn || null,
         assignedUserId: assignee || null,
         ...relatedChange(),
+        ...returnChange(),
         ...common(),
         checklist: checklistBody,
       };
@@ -641,7 +654,7 @@ function Form({
    * the task); Edit Task saves it to the task at once and takes the task's new version.
    */
   const saveNoteNow = useApiMutation(
-    () => api.taskWork.update(task!.id, { version, ...relatedChange() }),
+    () => api.taskWork.update(task!.id, { version, ...relatedChange(), ...returnChange() }),
     options,
   );
   function saveNote() {
@@ -897,11 +910,14 @@ function Form({
                     setClientNames((n) => ({ ...n, [c.id]: c.displayName }));
                     setClientId(c.id);
                     setRelated('');
+                    // F03: a return is its client's; another client drops it.
+                    if (c.id !== clientId) setTaxReturnId(null);
                     setClientSearch('');
                   }}
                   onClear={() => {
                     setClientId('');
                     setRelated('');
+                    setTaxReturnId(null);
                     setClientSearch('');
                   }}
                 />
@@ -997,6 +1013,22 @@ function Form({
                   </p>
                   {err('related')}
                 </div>
+              ) : null}
+              {/* Tax Returns Review Two F03 (R56): the exact return this task is about. */}
+              {taxReturnId ? (
+                <p
+                  className="flex flex-wrap items-center gap-2 text-sm text-text"
+                  data-testid="task-tax-return"
+                >
+                  <span>{taxReturnName}</span>
+                  <button
+                    type="button"
+                    className="font-medium text-link underline"
+                    onClick={() => setTaxReturnId(null)}
+                  >
+                    Remove
+                  </button>
+                </p>
               ) : null}
             </div>
           </Section>
