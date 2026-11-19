@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   HttpException,
@@ -31,6 +32,7 @@ import { day, formMetaOf, iso } from './workspace.common.js';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { checkDue, chosenExpiry, expiryAfterDays } from './intake-expiry.js';
 import { requestedEngagement } from '../engagements/requested-engagement.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 /** N8-23: the title of the pending request an intake send makes (no service yet). */
 export const REQUESTED_TITLE = 'Requested (from an intake send)';
@@ -91,6 +93,41 @@ const WRITE_FAILED =
 export const LEAD_EMAIL_FAILED =
   'The email with the secure link could not be sent. Use Resend to send a new link.';
 
+/**
+ * Who sends a form: the firm, the member (null for A9's send on a client's own booking), and
+ * whether the member reaches only their own clients (Staff). `via: 'appointment'` is A9's send on
+ * booking: it never takes over a member's draft, and its audit row says so.
+ */
+interface Sender {
+  businessId: string;
+  userId: string | null;
+  staffOnly: boolean;
+  via?: 'appointment';
+}
+
+/** A9: the words of a form sent on booking (kept on the intake; the portal shows the form). */
+const APPOINTMENT_FORM_SUBJECT = 'Intake form for your appointment';
+const APPOINTMENT_FORM_MESSAGE = 'Please fill in this form before your appointment.';
+
+/** A9: why booking sent no form: a send rule's code (409 or 404), else SEND_FAILED. */
+export type AppointmentFormSkip =
+  | 'LEAD_APPOINTMENT'
+  | 'NOT_SCHEDULED'
+  | 'ALREADY_SENT'
+  | 'PORTAL_UNAVAILABLE'
+  | 'FORM_ALREADY_OPEN'
+  | 'FORM_NOT_PUBLISHED'
+  | 'APPOINTMENT_MISMATCH'
+  | 'NOT_FOUND'
+  | 'SEND_FAILED';
+const SEND_SKIPS: readonly AppointmentFormSkip[] = [
+  'PORTAL_UNAVAILABLE',
+  'FORM_ALREADY_OPEN',
+  'FORM_NOT_PUBLISHED',
+  'APPOINTMENT_MISMATCH',
+  'NOT_FOUND',
+];
+
 interface Recipient {
   engagementId: string | null;
   leadId: string | null;
@@ -122,11 +159,19 @@ export class IntakeSendService {
   ) {}
 
   private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
-    return this.database.withScope({ kind: 'business', businessId: tenant.businessId }, fn);
+    return this.inBusiness(tenant.businessId, fn);
+  }
+
+  private inBusiness<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
+    return this.database.withScope({ kind: 'business', businessId }, fn);
   }
 
   private isStaff(tenant: TenantContext) {
     return legacyFirmRole(tenant.role as Parameters<typeof legacyFirmRole>[0]) === 'STAFF';
+  }
+
+  private senderOf(tenant: TenantContext, userId: string): Sender {
+    return { businessId: tenant.businessId, userId, staffOnly: this.isStaff(tenant) };
   }
 
   /**
@@ -183,14 +228,13 @@ export class IntakeSendService {
   /** The client (and its engagement for the form's service) or lead, as the member reaches it. */
   private async recipient(
     tx: TxClient,
-    tenant: TenantContext,
-    userId: string,
+    by: Sender,
     to: { kind: 'CLIENT' | 'LEAD'; id: string },
     serviceId: string,
     engagementId: string | undefined,
   ): Promise<Recipient> {
-    const businessId = tenant.businessId;
-    const staffOnly = this.isStaff(tenant) ? { assignedUserId: userId } : {};
+    const businessId = by.businessId;
+    const staffOnly = by.staffOnly && by.userId ? { assignedUserId: by.userId } : {};
     if (to.kind === 'LEAD') {
       const lead = await tx.lead.findFirst({
         where: { businessId, id: to.id, archivedAt: null, ...staffOnly },
@@ -228,7 +272,7 @@ export class IntakeSendService {
       found ??
       (await requestedEngagement(tx, this.audit, {
         businessId,
-        userId,
+        userId: by.userId,
         clientId: client.id,
         serviceId,
         title: REQUESTED_TITLE,
@@ -285,7 +329,97 @@ export class IntakeSendService {
   }
 
   /** POST /business/intakes/send. Retry-safe by the idempotency key. */
-  async send(tenant: TenantContext, userId: string, body: Send): Promise<SendIntakeFormResult> {
+  send(tenant: TenantContext, userId: string, body: Send): Promise<SendIntakeFormResult> {
+    return this.sendAs(this.senderOf(tenant, userId), body);
+  }
+
+  /**
+   * A9: on booking for a client (the firm's Schedule Appointment and calendar, and the client's own
+   * booking in the portal), the appointment type's required intake form goes to the client through
+   * this same send, in the portal and linked to the appointment (as Send Intake Form with the
+   * appointment chosen), so the appointment shows it sent and then completed. Once per
+   * appointment: only a new booking calls this, and an appointment that already has a form gets no
+   * other (a reschedule or a retry never sends it again). Nothing goes for a lead's own
+   * appointment (a lead has no portal: staff send a lead's form by Email), an appointment no
+   * longer scheduled, or whatever the send itself refuses (no active portal login, the form
+   * already open for the client, a form no longer published). The booking stands either way: a
+   * form not sent is audited on the appointment with its reason code only. Null when the type asks
+   * for no form.
+   */
+  async sendForAppointment(
+    businessId: string,
+    appointmentId: string,
+    /** The member who booked it; null when the client booked it in the portal. */
+    bookedByUserId: string | null,
+  ): Promise<{ intakeId: string } | { skipped: AppointmentFormSkip } | null> {
+    let plan: { skipped: AppointmentFormSkip } | { formId: string; clientId: string } | null;
+    try {
+      plan = await this.inBusiness(businessId, async (tx) => {
+        const a = await tx.appointment.findFirst({
+          where: { businessId, id: appointmentId },
+          select: {
+            clientId: true,
+            status: true,
+            type: { select: { requiredIntakeTemplateId: true } },
+            _count: { select: { intakes: true } },
+          },
+        });
+        const formId = a?.type?.requiredIntakeTemplateId;
+        if (!a || !formId) return null;
+        if (!a.clientId) return { skipped: 'LEAD_APPOINTMENT' as const };
+        if (a.status !== 'SCHEDULED') return { skipped: 'NOT_SCHEDULED' as const };
+        if (a._count.intakes > 0) return { skipped: 'ALREADY_SENT' as const };
+        return { formId, clientId: a.clientId };
+      });
+      if (plan && 'formId' in plan) {
+        const sent = await this.sendAs(
+          { businessId, userId: bookedByUserId, staffOnly: false, via: 'appointment' },
+          {
+            idempotencyKey: randomUUID(),
+            recipient: { kind: 'CLIENT', id: plan.clientId },
+            formId: plan.formId,
+            appointmentId,
+            channel: 'PORTAL',
+            subject: APPOINTMENT_FORM_SUBJECT,
+            message: APPOINTMENT_FORM_MESSAGE,
+            allowSaveAndContinue: true,
+            sendMeCopy: false,
+          },
+        );
+        return { intakeId: sent.form.id };
+      }
+    } catch (error) {
+      const code =
+        error instanceof HttpException
+          ? (error.getResponse() as { code?: unknown } | string)
+          : undefined;
+      const named = typeof code === 'object' && typeof code.code === 'string' ? code.code : '';
+      plan = {
+        skipped: SEND_SKIPS.includes(named as AppointmentFormSkip)
+          ? (named as AppointmentFormSkip)
+          : 'SEND_FAILED',
+      };
+      if (plan.skipped === 'SEND_FAILED') {
+        this.logger.warn(
+          `A9: the form for appointment ${appointmentId} was not sent (${errorName(error)})`,
+        );
+      }
+    }
+    if (!plan || !('skipped' in plan)) return null;
+    try {
+      await this.audit.log(
+        'appointment.intake_not_sent',
+        { type: 'appointment', id: appointmentId },
+        { reason: plan.skipped },
+        { businessId },
+      );
+    } catch {
+      // The booking stands; the audit service logged the lost row.
+    }
+    return plan;
+  }
+
+  private async sendAs(by: Sender, body: Send): Promise<SendIntakeFormResult> {
     if (body.channel === 'SMS') {
       throw new BadRequestException({
         code: 'SMS_UNAVAILABLE',
@@ -297,8 +431,9 @@ export class IntakeSendService {
     }
     if (body.recipient.kind === 'NEW_CONTACT') throw leadLinkUnavailable();
     const recipientRef = body.recipient;
-    const businessId = tenant.businessId;
-    const sent = await this.inFirm(tenant, async (tx) => {
+    const businessId = by.businessId;
+    const userId = by.userId;
+    const sent = await this.inBusiness(businessId, async (tx) => {
       // One send per key at a time; a retry finds the first one's audit row.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`intake-send:${businessId}:${body.idempotencyKey}`}, 0))`;
       const first = await tx.auditLog.findFirst({
@@ -315,14 +450,7 @@ export class IntakeSendService {
         return { replay: true as const, id: first.entityId };
       }
       const form = await this.liveForm(tx, businessId, body.formId);
-      const to = await this.recipient(
-        tx,
-        tenant,
-        userId,
-        recipientRef,
-        form.serviceId,
-        body.engagementId,
-      );
+      const to = await this.recipient(tx, by, recipientRef, form.serviceId, body.engagementId);
       if (body.appointmentId) await this.appointmentOf(tx, businessId, to, body.appointmentId);
       if (body.channel === 'PORTAL') {
         const login = await tx.clientAccount.findFirst({
@@ -403,18 +531,22 @@ export class IntakeSendService {
         allowSaveResume: body.allowSaveAndContinue,
         ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
       };
-      // The member's own draft of this form for this engagement (or lead) is the one that is sent.
-      const draft = await tx.intake.findFirst({
-        where: {
-          businessId,
-          ...whose,
-          status: 'DRAFT',
-          formId: form.live.id,
-          createdByUserId: userId,
-        },
-        orderBy: { updatedAt: 'desc' },
-        select: { id: true },
-      });
+      // The member's own draft of this form for this engagement (or lead) is the one that is sent
+      // (A9's send on booking takes over no one's draft).
+      const draft =
+        userId && !by.via
+          ? await tx.intake.findFirst({
+              where: {
+                businessId,
+                ...whose,
+                status: 'DRAFT',
+                formId: form.live.id,
+                createdByUserId: userId,
+              },
+              orderBy: { updatedAt: 'desc' },
+              select: { id: true },
+            })
+          : null;
       const intake = draft
         ? await tx.intake.update({
             where: { id: draft.id },
@@ -450,6 +582,7 @@ export class IntakeSendService {
           ...whose,
           fromDraft: draft !== null,
           ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
+          ...(by.via ? { via: by.via } : {}),
         },
       );
       // Review Two 10c: a reminder the order rules skip is in History from the start, as the
@@ -475,7 +608,7 @@ export class IntakeSendService {
       return { replay: false as const, id: intake.id, token: link?.token ?? null };
     });
 
-    const sentRow = await this.inFirm(tenant, (tx) =>
+    const sentRow = await this.inBusiness(businessId, (tx) =>
       tx.intake.findFirstOrThrow({
         where: { businessId, id: sent.id },
         select: { deliveryChannel: true, leadId: true },
@@ -518,7 +651,7 @@ export class IntakeSendService {
         await this.audit.log('intake.delivery_failed', { type: 'intake', id: sent.id });
       }
     }
-    const row = await this.inFirm(tenant, (tx) =>
+    const row = await this.inBusiness(businessId, (tx) =>
       tx.intake.findFirstOrThrow({ where: { businessId, id: sent.id }, include: rowInclude }),
     );
     const form = toRow(row);
@@ -715,7 +848,7 @@ export class IntakeSendService {
       throw invalid('A draft for a new contact cannot be saved yet: choose a client or lead');
     }
     const businessId = tenant.businessId;
-    const { id, replaced } = await this.inFirm(tenant, async (tx) => {
+    const { id, replaced, changes } = await this.inFirm(tenant, async (tx) => {
       const before = draftId
         ? await tx.intake.findFirst({
             where: { businessId, id: draftId, status: 'DRAFT', createdByUserId: userId },
@@ -733,8 +866,7 @@ export class IntakeSendService {
       const form = await this.liveForm(tx, businessId, formId);
       const to = await this.recipient(
         tx,
-        tenant,
-        userId,
+        this.senderOf(tenant, userId),
         recipient,
         form.serviceId,
         body.engagementId ?? (body.recipient ? undefined : (before?.engagementId ?? undefined)),
@@ -769,6 +901,8 @@ export class IntakeSendService {
           ? { allowSaveResume: body.allowSaveAndContinue }
           : {}),
       };
+      // Audit Log Review 2, R03: each changed field's old and new value (the message as "changed").
+      const changes = auditChanges(before ?? {}, data, { fields: Object.keys(data) });
       const same =
         before &&
         before.formId === form.live.id &&
@@ -776,7 +910,7 @@ export class IntakeSendService {
         before.leadId === to.leadId;
       if (same) {
         await tx.intake.update({ where: { id: before.id }, data });
-        return { id: before.id, replaced: null };
+        return { id: before.id, replaced: null, changes };
       }
       const created = await tx.intake.create({
         data: {
@@ -802,13 +936,13 @@ export class IntakeSendService {
       if (before) {
         await tx.intake.update({ where: { id: before.id }, data: { status: 'ARCHIVED' } });
       }
-      return { id: created.id, replaced: before?.id ?? null };
+      return { id: created.id, replaced: before?.id ?? null, changes };
     });
     await this.audit.log(
       replaced || !draftId ? 'intake.draft_saved' : 'intake.draft_updated',
       { type: 'intake', id },
       {
-        fields: Object.keys(body).sort(),
+        ...changes,
         ...(replaced ? { replacedDraftId: replaced } : {}),
       },
     );

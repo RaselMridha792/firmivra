@@ -137,6 +137,35 @@ const TEXT: Record<NotificationEvent, Writer> = {
     const line = [text(p, 'title') ?? 'A service', status].filter(Boolean).join(': ');
     return { title: 'Service updated', body: side === 'staff' ? forClient(p, line) : line };
   },
+  // BK-CP2: the service's name only, never the report's figures or file.
+  'report.published': (p) => ({
+    title: 'New report',
+    body: `A new report is ready${text(p, 'title') ? ` for ${text(p, 'title')}` : ''}. Open the service to see it.`,
+  }),
+  // BK-CP3: the service's name only, never the terms' figures.
+  'bookkeeping-terms.sent': (p) => ({
+    title: 'Terms to review',
+    body: `New terms${text(p, 'title') ? ` for ${text(p, 'title')}` : ''} are waiting for your answer. Open My Services to read them.`,
+  }),
+  'bookkeeping-terms.client-accepted': (p) => ({
+    title: 'Terms accepted',
+    body: forClient(
+      p,
+      `${text(p, 'title') ?? 'Bookkeeping'}: the terms were accepted in the portal.`,
+    ),
+  }),
+  'bookkeeping-terms.client-declined': (p) => ({
+    title: 'Terms declined',
+    body: forClient(
+      p,
+      `${text(p, 'title') ?? 'Bookkeeping'}: the terms were declined in the portal and are back to draft.`,
+    ),
+  }),
+  // CP-3d: the announcement's title only (filled for the client), never its text.
+  'announcement.published': (p) => ({
+    title: 'New announcement',
+    body: text(p, 'title') ?? 'Your firm posted an announcement.',
+  }),
   'tax-return.status-changed': (p) => {
     const year = p['taxYear'];
     const form = text(p, 'formType');
@@ -205,6 +234,15 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'Password changed',
     body: "Your password was changed. If this wasn't you, contact your firm right away.",
   }),
+  // SM33: two-factor sign-in reset by an Owner, or set up by the member.
+  'account.mfa-reset': () => ({
+    title: 'Two-factor sign-in reset',
+    body: "Your two-factor sign-in was reset. Set it up again when you next sign in. If you didn't expect this, contact your firm right away.",
+  }),
+  'account.mfa-enrolled': () => ({
+    title: 'Two-factor sign-in set up',
+    body: "Two-factor sign-in was set up on your account. If this wasn't you, contact your firm right away.",
+  }),
   'staff.joined': (p) => ({
     title: 'New team member',
     body: `${text(p, 'name') ?? 'A new member'} joined the team.`,
@@ -220,6 +258,23 @@ const TEXT: Record<NotificationEvent, Writer> = {
     const title = text(p, 'title') ?? 'A task';
     return { title: 'Task reminder', body: at ? `${title}, due ${at}` : withDue(p, 'A task') };
   },
+  // P4-8: the plan's name and its client, never what the client wrote (the plan shows it).
+  'tax-plan.client-request': (p) => ({
+    title: 'Client request on a tax plan',
+    body: forClient(
+      p,
+      `${text(p, 'title') ?? 'A tax plan'}: a question or request from the portal.`,
+    ),
+  }),
+  'tax-plan.client-approved': (p) => ({
+    title: 'Tax plan approved',
+    body: forClient(p, `${text(p, 'title') ?? 'A tax plan'} was approved in the portal.`),
+  }),
+  // B10: the business plan's name and its client.
+  'advisory-plan.client-approved': (p) => ({
+    title: 'Business plan approved',
+    body: forClient(p, `${text(p, 'title') ?? 'A business plan'} was approved in the portal.`),
+  }),
   // Tasks T-D15: the series' title; the series page says which occurrence and why.
   'task.series-failed': (p) => ({
     title: 'Recurring task not created',

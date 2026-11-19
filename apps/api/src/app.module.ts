@@ -5,6 +5,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AuditModule } from './audit/audit.service.js';
+import { DeniedAccessModule } from './audit/denied-access.js';
 import { AuthGuard } from './auth/auth.guard.js';
 import { AuthModule } from './auth/auth.module.js';
 import { RolesGuard } from './auth/roles.guard.js';
@@ -135,6 +136,8 @@ export class AppModule {
         DatabaseModule,
         AuthModule,
         AuditModule,
+        // Audit Log Review 2, M02b: refused security-sensitive requests are audited.
+        DeniedAccessModule,
         NotifyModule,
         NotificationsModule,
         StaffPhoneModule,

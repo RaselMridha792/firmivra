@@ -81,6 +81,8 @@ const series = (extra: Record<string, unknown> = {}): RecordDef => ({
 
 export const records: CaseModule['records'] = {
   task: task(),
+  /** Client Portal Review One T16: a task the firm shows client X in the portal. */
+  taskClientVisible: task(() => ({ clientVisible: true })),
   taskProgress: task(),
   taskComplete: task(),
   taskReopen: task(),
@@ -231,6 +233,8 @@ const draftChange = {
 };
 
 export const cases: CaseModule['cases'] = {
+  // T16: client X's visible task in the portal (client Y and firm Q's clients get 404).
+  'GET /api/v1/portal/:firmSlug/me/tasks/:id': { params: { id: 'taskClientVisible' } },
   [`POST ${BASE}/tasks`]: {
     params: {},
     bodyIds: NEW_TASK_IDS,
@@ -261,6 +265,8 @@ export const cases: CaseModule['cases'] = {
     },
   },
   [`GET ${BASE}/tasks/:id`]: { params: { id: 'task' } },
+  // Dashboard Review Two §9: the task's reminder history.
+  [`GET ${BASE}/tasks/:id/notices`]: { params: { id: 'task' } },
   [`POST ${BASE}/tasks/:id/complete`]: { params: { id: 'taskComplete' } },
   [`POST ${BASE}/tasks/:id/reopen`]: { params: { id: 'taskReopen' } },
   [`POST ${BASE}/tasks/:id/cancel`]: { params: { id: 'taskCancel' } },

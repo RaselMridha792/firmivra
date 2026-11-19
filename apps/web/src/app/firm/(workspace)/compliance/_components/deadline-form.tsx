@@ -494,7 +494,7 @@ function DeadlineForm({
           setRound(round + 1);
           setMessage({ text: `${d.name} saved. Add the next one.`, tone: 'success' });
         } else if (after === 'recurring') {
-          router.push(`/compliance/recurring/new?from=${d.id}`);
+          router.push(`/compliance/recurring/new?deadline=${d.id}`);
         } else {
           router.push(`/compliance/${d.id}`);
         }

@@ -29,6 +29,7 @@ import {
   manageTabs,
   providerDisc,
   relativeTime,
+  syncBlockedReason,
 } from './manage-integration-shared';
 
 /**
@@ -96,6 +97,15 @@ export function ManageHeader({
 }) {
   const router = useRouter();
   const go = (suffix: ManageTab) => () => router.push(`/integrations/${integrationId}${suffix}`);
+  const blocked = syncBlockedReason(detail?.status);
+  // I-UA04: the last sync that worked (from the runs, else the connection's), and the last attempt
+  // only when it came after it (a failure since).
+  const lastSuccess = detail?.health.lastSuccessAt ?? detail?.lastSyncAt ?? null;
+  const lastAttempt = detail?.health.lastAttemptAt ?? null;
+  const laterAttempt =
+    lastAttempt && (!lastSuccess || Date.parse(lastAttempt) > Date.parse(lastSuccess))
+      ? lastAttempt
+      : null;
   return (
     <Card className="p-5!" data-testid="integration-header">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
@@ -131,19 +141,44 @@ export function ManageHeader({
                 detail?.provider.description ??
                 'Retry when the integration service is available.'}
             </p>
+            {/* I-UA04: what the problem stops, and what to do next. */}
+            {detail?.statusImpact || detail?.statusNextStep ? (
+              <dl data-testid="status-advice" className="mt-2 max-w-3xl text-sm">
+                {detail.statusImpact ? (
+                  <div className="flex gap-1">
+                    <dt className="font-semibold text-heading">What it affects:</dt>
+                    <dd className="text-text">{detail.statusImpact}</dd>
+                  </div>
+                ) : null}
+                {detail.statusNextStep ? (
+                  <div className="flex gap-1">
+                    <dt className="font-semibold text-heading">What to do:</dt>
+                    <dd className="text-text">{detail.statusNextStep}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap items-start gap-3 xl:justify-end">
           <div className="grid min-w-56 grid-cols-1 divide-y divide-divider rounded-control border border-border px-4 text-sm">
-            <div className="flex items-center gap-3 py-2.5">
-              <SyncMark done={!!detail?.lastSyncAt} />
+            {/* I-UA04: the last sync that worked, and the last attempt when it is a later one. */}
+            <div className="flex items-center gap-3 py-2.5" data-testid="last-success">
+              <SyncMark done={!!lastSuccess} />
               <span>
-                <strong className="block font-semibold text-heading">Last Sync</strong>
-                <span className="text-base text-action">
-                  {relativeTime(detail?.lastSyncAt ?? null)}
-                </span>
+                <strong className="block font-semibold text-heading">Last Successful Sync</strong>
+                <span className="text-base text-action">{relativeTime(lastSuccess)}</span>
               </span>
             </div>
+            {laterAttempt ? (
+              <div className="flex items-center gap-3 py-2.5" data-testid="last-attempt">
+                <SyncMark done={false} />
+                <span>
+                  <strong className="block font-semibold text-heading">Last Attempt</strong>
+                  <span className="text-base text-danger">{relativeTime(laterAttempt)}</span>
+                </span>
+              </div>
+            ) : null}
             <div className="flex items-center gap-3 py-2.5">
               <SyncMark done={!!detail?.nextSyncAt && !detail.paused} />
               <span>
@@ -156,12 +191,22 @@ export function ManageHeader({
             </div>
           </div>
           <div className="flex flex-col gap-2">
+            {blocked ? (
+              <p id="sync-blocked" className="text-sm text-muted" data-testid="sync-blocked">
+                {blocked}
+              </p>
+            ) : null}
+            <HelpTip topic="Sync Now">
+              Starts a sync of the enabled objects now, in this connection&apos;s environment. It
+              cannot run while the connection is disconnected or needs attention.
+            </HelpTip>
             {/* The design's Sync Now and menu share one framed box. */}
             <div className="flex items-stretch rounded-control border border-border">
               <div className="p-2">
                 <Button
                   className="min-w-44"
-                  disabled={!detail?.canManage || detail.syncing || busy}
+                  disabled={!detail?.canManage || detail.syncing || busy || !!blocked}
+                  aria-describedby={blocked ? 'sync-blocked' : undefined}
                   onClick={onSync}
                 >
                   <ArrowsClockwise aria-hidden weight="bold" className="size-5" />

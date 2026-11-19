@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { z as zod, type z } from 'zod';
 import {
   ConfirmUploadRequest,
@@ -57,13 +66,23 @@ export class MyDocumentsController {
   ) {}
 
   @Get('documents')
-  list(
+  async list(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Query(new ZodValidationPipe(ListMyDocumentsQuery))
     query: z.output<typeof ListMyDocumentsQuery>,
   ): Promise<MyDocumentList> {
+    if (query.portalTabId) await this.documentTab(tenant, query.portalTabId);
     return this.documents.list(callerOf(auth, tenant), query);
+  }
+
+  /** CP-5d: a custom document tab the signed-in client sees (404 otherwise). */
+  private async documentTab(tenant: TenantContext, tabId: string): Promise<void> {
+    if (tenant.kind !== 'client')
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+    const tab = await this.tabs.customTabOf(tenant.businessId, tenant.clientAccountId, tabId);
+    if (tab.module !== 'DOCUMENTS')
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
   }
 
   // Before documents/:id, which would take "upload-targets" as an id.
@@ -101,9 +120,11 @@ export class MyDocumentsController {
     @Body(new ZodValidationPipe(CreateMyUploadRequest))
     body: z.output<typeof CreateMyUploadRequest>,
   ): Promise<UploadTicket> {
-    // With Upload Documents off, only a file the firm asked for (a document request) goes up.
-    // The firm's switch and this client's own (Client Portal module, Portal Content).
-    if (!body.requestId && tenant.kind === 'client') {
+    // CP-5d: through a custom document tab the client sees, the tab decides; otherwise, with
+    // Upload Documents off only a file the firm asked for (a document request) goes up: the
+    // firm's switch and this client's own (Client Portal module, Portal Content).
+    if (body.portalTabId) await this.documentTab(tenant, body.portalTabId);
+    else if (!body.requestId && tenant.kind === 'client') {
       await this.tabs.assertClientOn(tenant.businessId, tenant.clientAccountId, 'DOCUMENTS');
     }
     return this.documents.createUpload(callerOf(auth, tenant), body);

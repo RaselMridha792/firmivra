@@ -65,6 +65,11 @@ const UploadClaim = z
     intakeId: z.uuid().optional(),
     intakeSlot: IntakeKey.optional(),
     /**
+     * CP-5d: a client's upload through a custom document tab they see (checked before the
+     * ticket). The document keeps the tab; a rename never moves it.
+     */
+    portalTabId: z.uuid().optional(),
+    /**
      * The firm-wide library's upload (R55, Frame 1): folder, description, tags, reviewer, the
      * document's own expiry, the client's notice and the version it replaces, all checked by the
      * library before the ticket. The document gets them on insert.

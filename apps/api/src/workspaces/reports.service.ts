@@ -1,5 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
+import { isLiveDocument } from '../storage/document-records.js';
 import {
   type MyReport,
   type MyReportList,
@@ -9,11 +10,15 @@ import {
   type ReportList,
   type ReportStatus,
   REPORT_KINDS,
+  ReportScheduleItem,
+  type WorkspaceKind,
 } from '@firmivra/types';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { effectivePortalDefaults, shownInPortal } from '../bookkeeping/portal-defaults.js';
 import {
   conflict,
   isForeignKeyViolation,
@@ -128,6 +133,7 @@ function toReport(row: Row, names: Map<string, string>): Report {
 interface Locked {
   engagementId: string;
   clientId: string;
+  kind: WorkspaceKind;
   status: ReportStatus;
   documentId: string | null;
   firstPublishedAt: Date | null;
@@ -142,13 +148,16 @@ const UPDATE_FIELDS = ['title', 'periodLabel', 'data', 'documentId'] as const;
  * never-published draft (q8). The attached file is one of the engagement's documents and never an
  * INTERNAL one, checked on attach and again on publish. The client reads published reports in
  * My Services. Audited with ids, kinds, counts and field names only, never a title, text or
- * amount.
+ * amount. BK-CP2: a Bookkeeping report's first publish tells the client (`tellClient`).
  */
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger('ReportsService');
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -307,8 +316,67 @@ export class ReportsService {
           firstTime: was.firstPublishedAt === null,
         },
       );
+      // BK-CP2: only the first publish of a Bookkeeping report; a re-publish tells no one again.
+      if (was.firstPublishedAt === null && was.kind === 'BOOKKEEPING') {
+        await this.tellClient(businessId, report.id, was);
+      }
     }
     return report;
+  }
+
+  /**
+   * BK-CP2 (Client Portal Review One): a Bookkeeping report published for the first time reaches
+   * the client through the Notifier: always a portal notice (the client's primary login), and
+   * the email copy when the client's Report Delivery allows email (EMAIL or PORTAL_AND_EMAIL in
+   * the client's own report schedule, else the firm's; none set: the portal only), as the
+   * client's notification preferences allow. It names the service, never the report's title,
+   * figures or file. Once per report (its event key). Audited with ids and channels only. A
+   * failure never undoes the publish.
+   */
+  private async tellClient(businessId: string, reportId: string, was: Locked): Promise<void> {
+    try {
+      const email = await this.inFirm(businessId, async (tx) => {
+        const profile = await tx.bookkeepingProfile.findFirst({
+          where: { businessId, engagementId: was.engagementId },
+          select: { reportSchedule: true, portalDefaults: true },
+        });
+        // BK-CP4: reports kept out of the portal are never announced there.
+        if (profile && !effectivePortalDefaults(profile.portalDefaults).reports) return null;
+        const own = profile?.reportSchedule;
+        const schedule =
+          own !== null && own !== undefined
+            ? own
+            : (
+                await tx.bookkeepingSettings.findUnique({
+                  where: { businessId },
+                  select: { reportSchedule: true },
+                })
+              )?.reportSchedule;
+        const items = z.array(ReportScheduleItem).safeParse(schedule ?? []);
+        return items.success && items.data.some((i) => i.delivery !== 'PORTAL');
+      });
+      if (email === null) return;
+      const result = await this.notifier.notify({
+        businessId,
+        event: 'report.published',
+        recordId: was.engagementId,
+        eventKey: `report.published:${reportId}`,
+        channels: { inApp: true, email, sms: false },
+      });
+      await this.audit.log(
+        'report.client_notified',
+        { type: 'report', id: reportId },
+        {
+          engagementId: was.engagementId,
+          clientId: was.clientId,
+          channels: email ? ['EMAIL', 'PORTAL'] : ['PORTAL'],
+          written: result.written,
+          ...(result.failed ? { failed: true } : {}),
+        },
+      );
+    } catch (error) {
+      this.logger.warn(`report.published for report ${reportId} not sent (${errorName(error)})`);
+    }
   }
 
   /** Hides it from the client again; works on a closed engagement too. */
@@ -384,6 +452,10 @@ export class ReportsService {
       if (!workspaceKindOf(engagement.service.kind)) {
         return { rows: [], clientId: account.clientId, serviceId: engagement.id };
       }
+      // BK-CP4: a Bookkeeping service whose Portal Defaults leave reports out shows none.
+      if (!(await shownInPortal(tx, businessId, engagement.id, 'reports'))) {
+        return { rows: [], clientId: account.clientId, serviceId: engagement.id };
+      }
       const rows = await tx.engagementReport.findMany({
         where: {
           AND: [
@@ -401,7 +473,9 @@ export class ReportsService {
           data: true,
           documentId: true,
           publishedAt: true,
-          document: { select: { direction: true } },
+          document: {
+            select: { direction: true, trashedAt: true, archivedAt: true, supersededAt: true },
+          },
         },
       });
       return { rows, clientId: account.clientId, serviceId: engagement.id };
@@ -421,7 +495,11 @@ export class ReportsService {
         periodLabel: row.periodLabel,
         data: readReportData(row.data),
         // Never reachable (attach and publish refuse one), but a firm-only file never shows.
-        documentId: row.document?.direction === 'INTERNAL' ? null : row.documentId,
+        // CP-PT-03: nor one the firm trashed, archived or replaced.
+        documentId:
+          !row.document || row.document.direction === 'INTERNAL' || !isLiveDocument(row.document)
+            ? null
+            : row.documentId,
         publishedAt: row.publishedAt?.toISOString() ?? null,
       })),
       nextCursor:
@@ -462,7 +540,12 @@ export class ReportsService {
       select: { status: true, documentId: true, firstPublishedAt: true },
     });
     if (!row) throw notFound();
-    return { ...row, engagementId: workspace.id, clientId: workspace.clientId };
+    return {
+      ...row,
+      engagementId: workspace.id,
+      clientId: workspace.clientId,
+      kind: workspace.kind,
+    };
   }
 
   /** The engagement's client, locked FOR SHARE (404 for an engagement this firm doesn't have). */

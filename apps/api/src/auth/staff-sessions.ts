@@ -1,14 +1,17 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
-import type { Database } from '@firmivra/db';
+import type { Database, TxClient } from '@firmivra/db';
 import { deviceOf } from '../admin-audit/classify.js';
 import { AuditService } from '../audit/audit.service.js';
 import { canonicalIp } from '../common/network.js';
+import { firmTimeZone } from '../appointments/calendar-data.js';
 import { DATABASE } from '../database/database.module.js';
 
 /** Login History's row: the first request of a staff session in this firm (SM4). */
 export const FIRM_SESSION_STARTED = 'auth.firm_session_started';
+/** SM12: a new sign-in went over the member's limit and their oldest sessions here ended. */
+export const SESSION_LIMIT_SIGNED_OUT = 'staff.session_limit_signed_out';
 
 /** lastActiveAt moves at most once a minute. */
 const TOUCH_MS = 60_000;
@@ -29,6 +32,29 @@ export const BACKGROUND_HEADER = 'x-firmivra-background';
 export const sessionKey = (businessId: string, session: string) =>
   createHash('sha256').update(`${businessId}:${session}`).digest('hex');
 
+/**
+ * SM12: a session that can still be used: not signed out, active in the last 15 minutes and
+ * under 8 hours old (SEC-4). The session limit counts these.
+ */
+export const usableSessions = (now: number) => ({
+  revokedAt: null,
+  lastActiveAt: { gt: new Date(now - IDLE_MS) },
+  createdAt: { gt: new Date(now - MAX_SESSION_MS) },
+});
+
+const RULES = { autoLogoutMinutes: true, disableOn: true } as const;
+
+/** `at`'s day (YYYY-MM-DD) in `timeZone`. */
+const dayIn = (timeZone: string, at: number) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(at))
+    .slice(0, 10);
+/** "November 20, 2026". */
+const longDay = (day: string) =>
+  new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(
+    new Date(`${day}T00:00:00Z`),
+  );
+
 /** "Chrome on macOS", up to 100 characters. */
 export function deviceLabel(userAgent: string | undefined): string {
   const { browser, os } = deviceOf(userAgent ?? null);
@@ -46,11 +72,20 @@ const expired = () =>
     code: 'SESSION_EXPIRED',
     message: 'This session reached its 8-hour limit. Sign in again.',
   });
-const idle = () =>
+const idle = (minutes = IDLE_MS / 60_000) =>
   new UnauthorizedException({
     code: 'SESSION_IDLE',
-    message: 'You were signed out after 15 minutes without activity. Sign in again.',
+    message: `You were signed out after ${minutes} minutes without activity. Sign in again.`,
   });
+/** SM33: the member's access here ended on their "Disable account on" date. */
+const accessEnded = (day: string) =>
+  new UnauthorizedException({
+    code: 'SESSION_REVOKED',
+    message: `Your access to this firm ended on ${day}. Ask the firm's Owner or Admin.`,
+  });
+
+/** The member's own sign-in rules that the session check applies (SM33). */
+type Rules = { autoLogoutMinutes: number | null; disableOn: Date | null } | null;
 
 /**
  * SM4: staff sessions per firm (staff_sessions, firm-scoped with RLS). The tenant guard calls
@@ -81,23 +116,54 @@ export class StaffSessions {
     // SEC-4: 8 hours after sign-in the session ends, whatever the activity (closed).
     if (authTime !== undefined && now - authTime * 1000 > MAX_SESSION_MS) throw expired();
     const tokenHash = sessionKey(businessId, session);
-    const row = await this.db.forBusiness(businessId).staffSession.findFirst({
+    const db = this.db.forBusiness(businessId);
+    const row = await db.staffSession.findFirst({
       where: { tokenHash },
-      select: { id: true, membershipId: true, revokedAt: true, lastActiveAt: true },
+      select: {
+        id: true,
+        membershipId: true,
+        revokedAt: true,
+        lastActiveAt: true,
+        member: { select: { staffSecurity: { select: RULES } } },
+      },
     });
     // Another membership's row under this key cannot be this person's session: closed.
     if (row && (row.revokedAt || row.membershipId !== membershipId)) throw revoked();
-    // SEC-4: 15 minutes without activity end the session here; the row is revoked so it stays
-    // ended (the browser warns 2 minutes before).
-    if (row && now - row.lastActiveAt.getTime() > IDLE_MS) {
-      await this.db
-        .forBusiness(businessId)
-        .staffSession.updateMany({
-          where: { id: row.id, revokedAt: null },
-          data: { revokedAt: new Date(now) },
-        })
-        .catch(() => undefined);
-      throw idle();
+    const end = () =>
+      row
+        ? db.staffSession
+            .updateMany({
+              where: { id: row.id, revokedAt: null },
+              data: { revokedAt: new Date(now) },
+            })
+            .catch(() => undefined)
+        : Promise.resolve();
+    // SM33: the member's own rules: their "Disable account on" date, and a shorter automatic
+    // logout than SEC-4's (read with the session; on its first request, on their own).
+    const rules: Rules = row
+      ? row.member.staffSecurity
+      : await db.staffSecuritySettings.findUnique({
+          where: { businessId_membershipId: { businessId, membershipId } },
+          select: RULES,
+        });
+    if (rules?.disableOn) {
+      const day = rules.disableOn.toISOString().slice(0, 10);
+      // The firm's own day: a date ends access at the firm's midnight.
+      const zone = await this.db.withScope({ kind: 'business', businessId }, (tx) =>
+        firmTimeZone(tx, businessId),
+      );
+      if (dayIn(zone, now) >= day) {
+        await end();
+        throw accessEnded(longDay(day));
+      }
+    }
+    // SEC-4: 15 minutes without activity end the session here (or the member's own shorter
+    // automatic logout, SM33); the row is revoked so it stays ended (the browser warns 2 minutes
+    // before SEC-4's).
+    const idleMs = Math.min(IDLE_MS, (rules?.autoLogoutMinutes ?? Infinity) * 60_000);
+    if (row && now - row.lastActiveAt.getTime() > idleMs) {
+      await end();
+      throw idle(Math.round(idleMs / 60_000));
     }
     const background = req.headers?.[BACKGROUND_HEADER] === '1';
     try {
@@ -164,8 +230,8 @@ export class StaffSessions {
         },
         select: { id: true },
       });
-      // The directory's Last Login. Only an existing row: a new one would take the defaults
-      // (require a password change) that Create Staff sets on purpose.
+      // Kept on an existing row only: a new one would take the defaults (require a password
+      // change) that Create Staff sets on purpose. Last Login reads this session's start (SM12).
       await tx.staffSecuritySettings.updateMany({
         where: { businessId, membershipId },
         data: { lastLoginAt: new Date() },
@@ -177,6 +243,47 @@ export class StaffSessions {
         { membershipId, device },
         { businessId },
       );
+      await this.keepToLimit(tx, businessId, membershipId, id);
     });
+  }
+
+  /**
+   * SM12 (Staff Management Review 2, decision 8a): a sign-in over the member's limit (Max
+   * Concurrent Sessions, or one with "Sign out other sessions on new sign-in") ends their oldest
+   * sessions here that could still be used, audited as "Signed out: session limit". The limit is
+   * the one saved on their security settings; a member with none saved has no limit yet.
+   */
+  private async keepToLimit(
+    tx: TxClient,
+    businessId: string,
+    membershipId: string,
+    newId: string,
+  ): Promise<void> {
+    const saved = await tx.staffSecuritySettings.findUnique({
+      where: { businessId_membershipId: { businessId, membershipId } },
+      select: { maxConcurrentSessions: true, signOutOtherSessions: true },
+    });
+    if (!saved) return;
+    const limit = saved.signOutOtherSessions ? 1 : Math.max(1, saved.maxConcurrentSessions);
+    const now = Date.now();
+    const others = await tx.staffSession.findMany({
+      where: { businessId, membershipId, id: { not: newId }, ...usableSessions(now) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    // The new session is one of the limit: the newest others keep the rest.
+    const ending = others.slice(limit - 1).map((s) => s.id);
+    if (!ending.length) return;
+    const { count } = await tx.staffSession.updateMany({
+      where: { businessId, id: { in: ending }, revokedAt: null },
+      data: { revokedAt: new Date(now) },
+    });
+    await this.audit.logIn(
+      tx,
+      SESSION_LIMIT_SIGNED_OUT,
+      { type: 'membership', id: membershipId },
+      { sessionsRevoked: count, limit },
+      { businessId },
+    );
   }
 }

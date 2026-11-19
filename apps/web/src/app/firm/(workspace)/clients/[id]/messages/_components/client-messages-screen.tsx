@@ -2,13 +2,15 @@
 
 import type { MessageThread } from '@firmivra/types';
 import { Button, Card, Input, Table, type Column } from '@firmivra/ui';
-import { Eye, Mail, MessageSquareText, PanelRightClose, PanelRightOpen } from 'lucide-react';
-import { useParams } from 'next/navigation';
+import { Eye, Mail } from 'lucide-react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { PendingMessages } from '../../../../messages/_components/pending-messages';
+import { ClientTabHeader } from '../../_components/client-tab-header';
+import { LeadThreadsCard } from './lead-threads-card';
 import { NotesCard } from './notes-card';
 import { NewThreadDialog, ThreadDialog } from './thread-dialogs';
 import { when } from './parts';
@@ -16,7 +18,9 @@ import { when } from './parts';
 /** F10: one client's messages and internal notes, styled after Messages and notes.png. */
 export function ClientMessagesScreen() {
   const { id } = useParams<{ id: string }>();
-  const [unread, setUnread] = useState(false);
+  // Clients Review 2 N8-12: Overview's Unread messages opens this tab with ?unread=1.
+  const opened = useSearchParams().get('unread') === '1';
+  const [unread, setUnread] = useState(opened);
   const [typed, setTyped] = useState('');
   const [search, setSearch] = useState('');
   const [cursors, setCursors] = useState<string[]>([]);
@@ -85,91 +89,77 @@ export function ClientMessagesScreen() {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      <Card
-        className={`flex min-w-0 flex-col gap-4 ${notesOpen ? 'lg:col-span-2' : 'lg:col-span-3'}`}
-      >
-        <div className="flex flex-wrap items-start gap-4">
-          <MessageSquareText
-            aria-hidden
-            className="hidden size-16 shrink-0 rounded-full bg-folder-surface p-4 text-heading sm:block"
-          />
-          <div className="min-w-0 flex-1 basis-64">
-            <h2 className="font-display text-2xl font-bold text-heading md:text-3xl">
-              Messages and Notes
-            </h2>
-            <p className="text-muted">
-              Message this client and keep your team&apos;s notes about them in one place.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              aria-expanded={notesOpen}
-              aria-controls="client-internal-notes"
-              onClick={() => setNotesOpen((open) => !open)}
-            >
-              {notesOpen ? (
-                <PanelRightClose aria-hidden className="size-5" />
-              ) : (
-                <PanelRightOpen aria-hidden className="size-5" />
-              )}
-              {notesOpen ? 'Hide Internal Notes' : 'Show Internal Notes'}
+    <div className="flex flex-col gap-4">
+      {/* P4-7: the profile's one heading row; Hide / Show Internal Notes is in its menu. */}
+      <ClientTabHeader
+        title="Messages and Notes"
+        description="Message this client and keep your team's notes about them in one place."
+        primary={<Button onClick={() => setComposing(true)}>New Message</Button>}
+        secondary={[
+          {
+            label: notesOpen ? 'Hide Internal Notes' : 'Show Internal Notes',
+            onSelect: () => setNotesOpen((open) => !open),
+          },
+        ]}
+      />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card
+          className={`flex min-w-0 flex-col gap-4 ${notesOpen ? 'lg:col-span-2' : 'lg:col-span-3'}`}
+        >
+          <div className="flex flex-wrap items-end gap-3">
+            <Button variant={unread ? 'secondary' : 'primary'} onClick={() => show(false)}>
+              All Messages
             </Button>
-            <Button onClick={() => setComposing(true)}>New Message</Button>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <Button variant={unread ? 'secondary' : 'primary'} onClick={() => show(false)}>
-            All Messages
-          </Button>
-          <Button variant={unread ? 'primary' : 'secondary'} onClick={() => show(true)}>
-            Unread
-          </Button>
-          <form
-            role="search"
-            className="ml-auto w-full sm:w-72"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSearch(typed.trim());
-              setCursors([]);
-            }}
-          >
-            <Input
-              label="Search messages"
-              type="search"
-              placeholder="Search messages…"
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-            />
-          </form>
-        </div>
-        <PageState query={threads}>
-          {(page) => (
-            <Table
-              caption="Messages"
-              rows={page.items}
-              columns={columns}
-              rowKey={(t) => t.id}
-              emptyTitle="No messages"
-              emptyText="Nothing to show here yet."
-              server={{
-                page: cursors.length + 1,
-                hasPrevious: cursors.length > 0,
-                hasNext: page.nextCursor !== null,
-                onPrevious: () => setCursors(cursors.slice(0, -1)),
-                onNext: () => page.nextCursor && setCursors([...cursors, page.nextCursor]),
-                onSort: () => undefined,
+            <Button variant={unread ? 'primary' : 'secondary'} onClick={() => show(true)}>
+              Unread
+            </Button>
+            <form
+              role="search"
+              className="ml-auto w-full sm:w-72"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setSearch(typed.trim());
+                setCursors([]);
               }}
-            />
-          )}
-        </PageState>
-        {/* M24/M30: this client's drafts and scheduled messages, with Edit and Cancel. */}
-        <PendingMessages clientId={id} />
-      </Card>
-      {/* Hidden, not removed: a note being typed is still there when the notes come back. */}
-      <div id="client-internal-notes" className={notesOpen ? 'min-w-0' : 'hidden'}>
-        <NotesCard clientId={id} />
+            >
+              <Input
+                label="Search messages"
+                type="search"
+                placeholder="Search messages…"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+              />
+            </form>
+          </div>
+          <PageState query={threads}>
+            {(page) => (
+              <Table
+                caption="Messages"
+                rows={page.items}
+                columns={columns}
+                rowKey={(t) => t.id}
+                emptyTitle="No messages"
+                emptyText="Nothing to show here yet."
+                server={{
+                  page: cursors.length + 1,
+                  hasPrevious: cursors.length > 0,
+                  hasNext: page.nextCursor !== null,
+                  onPrevious: () => setCursors(cursors.slice(0, -1)),
+                  onNext: () => page.nextCursor && setCursors([...cursors, page.nextCursor]),
+                  onSort: () => undefined,
+                }}
+              />
+            )}
+          </PageState>
+          {/* M24/M30: this client's drafts and scheduled messages, with Edit and Cancel. */}
+          <PendingMessages clientId={id} />
+          {/* P4-1: the conversations from when this client was a lead (they stay on the lead). */}
+          <LeadThreadsCard clientId={id} />
+        </Card>
+        {/* Hidden, not removed: a note being typed is still there when the notes come back. */}
+        <div id="client-internal-notes" className={notesOpen ? 'min-w-0' : 'hidden'}>
+          <NotesCard clientId={id} />
+        </div>
       </div>
       {open ? <ThreadDialog threadId={open} onClose={() => setOpen(null)} /> : null}
       {composing ? <NewThreadDialog clientId={id} onClose={() => setComposing(false)} /> : null}

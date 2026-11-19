@@ -1,4 +1,4 @@
-import { type ApiRequest, parseInput, toQuery } from '../client.js';
+import { type ApiDownload, type ApiFile, type ApiRequest, parseInput, toQuery } from '../client.js';
 import { UploadPutTicket } from '../documents/schemas.js';
 import {
   BrandAssetKind,
@@ -73,9 +73,11 @@ export function createBrandingClient(request: ApiRequest) {
 }
 export type BrandingClient = ReturnType<typeof createBrandingClient>;
 
-/** `api.users`: Settings > Users & Roles' table and Invite User. Owner and Admin only. */
-/** `baseUrl` ('/api/v1' in the browser) prefixes the export download link. */
-export function createUsersClient(request: ApiRequest, baseUrl = '') {
+/**
+ * `api.users`: Settings > Users & Roles' table and Invite User. Owner and Admin only. `download`
+ * fetches the export with the session (lib/api.ts passes createDownload).
+ */
+export function createUsersClient(request: ApiRequest, download: ApiDownload) {
   /** The query as URL values: a selection's ids go as one comma-separated value. */
   const values = (query: UsersQuery) => {
     const { ids, ...rest } = parseInput(UsersQuery, query);
@@ -85,10 +87,13 @@ export function createUsersClient(request: ApiRequest, baseUrl = '') {
     list: async (query: UsersQuery = {}): Promise<FirmUserList> =>
       request(FirmUserList, `/business/users${toQuery(values(query))}`),
     summary: async (): Promise<UsersSummary> => request(UsersSummary, '/business/users/summary'),
-    /** Export: a CSV download link with the same filters (audited by the API). */
-    exportUrl: (query: UsersQuery = {}): string => {
+    /**
+     * Export: the CSV with the same filters (or the chosen `ids`), audited by the API. A refusal
+     * (an ended session, 403, 500) is an ApiRequestError, never a file.
+     */
+    export: async (query: UsersQuery = {}): Promise<ApiFile> => {
       const { page: _page, pageSize: _size, ...filters } = values(query);
-      return `${baseUrl}/business/users/export${toQuery(filters)}`;
+      return download(`/business/users/export${toQuery(filters)}`, 'users.csv');
     },
     invite: async (body: InviteUserRequest): Promise<InviteUserResponse> =>
       request(

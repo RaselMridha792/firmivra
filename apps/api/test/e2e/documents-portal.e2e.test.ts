@@ -14,6 +14,7 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { z } from 'zod';
 import {
+  ClientPortalDocumentsSummary,
   FirmDocument,
   FirmDocumentRequest,
   FirmDocumentRequestList,
@@ -24,6 +25,8 @@ import {
   MyDocumentRequestList,
   type NotificationEvent,
   PORTAL_BLOCKED_TEXT,
+  PortalCustomTab,
+  PortalCustomTabList,
   UploadTargets,
   UploadPutTicket,
   UploadTicket,
@@ -709,6 +712,64 @@ describe('portal lists, views and downloads', () => {
     // Staff sessions never reach the portal routes (401), clients never the firm's (403).
     expect((await call('get', '/me/documents', people.ownerA)).status).toBe(401);
     expect((await call('get', `/clients/${ids.c1}/documents`, people.primary)).status).toBe(403);
+  });
+
+  it("CP-PT-03: a file the firm trashed or archived leaves the client's portal and its counts, and comes back when restored", async () => {
+    const shared = await firmFile({ shareWithClient: true, fileName: 'Trash_Me.pdf' });
+    const firmShared = async () =>
+      ClientPortalDocumentsSummary.parse(
+        (await call('get', `/client-portal/clients/${ids.c1}/documents/summary`, people.ownerA))
+          .body,
+      ).firmShared;
+    const listed = async () =>
+      (await myList(people.primary, '?source=FIRM')).items.map((d) => d.id).includes(shared.id);
+    const seen = async () => {
+      const view = await call('get', `/me/documents/${shared.id}`, people.primary);
+      const download = await call('get', `/me/documents/${shared.id}/download`, people.primary);
+      return [await listed(), view.status, download.status];
+    };
+    const move = async (action: 'trash' | 'untrash' | 'archive' | 'restore') =>
+      expect((await call('post', `/documents/${shared.id}/${action}`, people.ownerA)).status).toBe(
+        200,
+      );
+    expect(await seen()).toEqual([true, 200, 200]);
+    const counted = await firmShared();
+
+    await move('trash');
+    expect(await seen()).toEqual([false, 404, 404]);
+    expect(await firmShared()).toBe(counted - 1);
+    await move('untrash');
+    expect(await seen()).toEqual([true, 200, 200]);
+    expect(await firmShared()).toBe(counted);
+
+    await move('archive');
+    expect(await seen()).toEqual([false, 404, 404]);
+    expect(await firmShared()).toBe(counted - 1);
+    await move('restore');
+    expect(await seen()).toEqual([true, 200, 200]);
+
+    // A new version supersedes it: the client sees the current one only, the count stays.
+    const bytes = pdf(randomUUID());
+    const start = await call('post', '/documents/uploads', people.ownerA, {
+      clientId: ids.c1,
+      serviceId: ids.e1,
+      ...facts(bytes, 'Trash_Me_v2.pdf'),
+      shareWithClient: true,
+      replacesId: shared.id,
+    });
+    expect([200, 201], JSON.stringify(start.body)).toContain(start.status);
+    const ticket = UploadTicket.parse(start.body);
+    storage.uploads.send(ticket, bytes);
+    const v2 = exact(
+      FirmDocument,
+      await call('post', '/documents/uploads/confirm', people.ownerA, {
+        uploadToken: ticket.uploadToken,
+      }),
+    );
+    expect(await seen()).toEqual([false, 404, 404]);
+    const current = await call('get', `/me/documents/${v2.id}`, people.primary);
+    expect(current.status, JSON.stringify(current.body)).toBe(200);
+    expect(await firmShared()).toBe(counted);
   });
 
   it('downloads a CLEAN file with the login in the audit, and refuses a pending or changed one', async () => {
@@ -1619,6 +1680,73 @@ describe('a portal upload to a Bookkeeping service (Bookkeeping Review 2, A01)',
           where: { id: books },
           data: { status: 'COMPLETED', completedAt: new Date() },
         }),
+      );
+    }
+  });
+});
+
+describe('CP-5d: a custom document tab (Client Portal Review One)', () => {
+  it('keeps the tab on a file uploaded through it, lists only its files, and keeps them once archived', async () => {
+    const businessId = firms.a.id;
+    // Custom tabs show only in a business portal (guide 9.3).
+    await asOwner(businessId, (tx) =>
+      tx.client.update({ where: { id: ids.c1 }, data: { accountType: 'BUSINESS' } }),
+    );
+    try {
+      const made = await call('post', '/settings/portal-tabs/custom', people.ownerA, {
+        label: 'Fake receipts',
+        module: 'DOCUMENTS',
+      });
+      expect(made.status, JSON.stringify(made.body)).toBe(201);
+      const tab = PortalCustomTab.parse(made.body);
+      const through = await mine(people.primary, {
+        portalTabId: tab.id,
+        fileName: 'Fake receipt.pdf',
+      });
+      const plain = await mine(people.primary, { fileName: 'Fake statement.pdf' });
+      const tabOf = async (id: string) =>
+        (
+          await asOwner(businessId, (tx) =>
+            tx.document.findUniqueOrThrow({ where: { id }, select: { portalTabId: true } }),
+          )
+        ).portalTabId;
+      expect([await tabOf(through.id), await tabOf(plain.id)]).toEqual([tab.id, null]);
+      const tabList = (who: Person) => call('get', `/me/documents?portalTabId=${tab.id}`, who);
+      expect(exact(MyDocumentList, await tabList(people.primary)).items.map((d) => d.id)).toEqual([
+        through.id,
+      ]);
+      // The tab is the client's: the household's other logins see it too.
+      expect(exact(MyDocumentList, await tabList(people.spouse)).items.map((d) => d.id)).toEqual([
+        through.id,
+      ]);
+      // My Uploads keeps every file the client sent, through a tab or not.
+      const all = exact(MyDocumentList, await call('get', '/me/documents', people.primary));
+      expect(all.items.map((d) => d.id)).toEqual(expect.arrayContaining([through.id, plain.id]));
+      // A client of the firm with a Personal portal never sees it, by list or by upload.
+      expectError(await tabList(people.other), 404, 'NOT_FOUND');
+      expectError(
+        (await upload(people.other, { serviceId: ids.e2, portalTabId: tab.id })).res,
+        404,
+        'NOT_FOUND',
+      );
+      // Archived: gone by id; the file stays with its client and keeps the tab.
+      exact(
+        PortalCustomTabList,
+        await call('post', `/settings/portal-tabs/custom/${tab.id}/archive`, people.ownerA, {}),
+      );
+      expectError(await tabList(people.primary), 404, 'NOT_FOUND');
+      expectError(
+        (await upload(people.primary, { serviceId: ids.e1, portalTabId: tab.id })).res,
+        404,
+        'NOT_FOUND',
+      );
+      expect(await tabOf(through.id)).toBe(tab.id);
+      const after = exact(MyDocumentList, await call('get', '/me/documents', people.primary));
+      expect(after.items.map((d) => d.id)).toContain(through.id);
+    } finally {
+      // A Personal portal again, as the other tests expect.
+      await asOwner(businessId, (tx) =>
+        tx.client.update({ where: { id: ids.c1 }, data: { accountType: 'INDIVIDUAL' } }),
       );
     }
   });

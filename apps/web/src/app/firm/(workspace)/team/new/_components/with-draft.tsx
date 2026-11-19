@@ -125,7 +125,12 @@ export function StepActions({
           <span role="status" className="text-sm text-success" data-testid="draft-saved">
             Draft saved
           </span>
-        ) : null}
+        ) : (
+          // SM16 (Staff Management Review 2): the autosave, said where it happens.
+          <span className="text-xs text-muted" data-testid="autosave-note">
+            Progress saved as a draft. Back and Next save this step too.
+          </span>
+        )}
         <div className="ml-auto flex flex-wrap gap-3">
           <Button variant="secondary" disabled={pending} onClick={onSave}>
             Save as Draft

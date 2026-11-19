@@ -59,6 +59,7 @@ import {
   syncStatusOf,
   toDay,
 } from './payroll.shared.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type ClientsQuery = z.output<typeof PayrollClientsQuery>;
 type ListQuery = z.output<typeof PayrollListQuery>;
@@ -136,6 +137,8 @@ export class PayrollClientsService {
           nextPayrollOn: true,
           client: { select: { displayName: true } },
           connection: { select: { status: true } },
+          // F01: each provider's newest sync, for the providers panel.
+          lastSyncedAt: true,
         },
       });
       const runs = await tx.payrollRun.findMany({
@@ -221,11 +224,20 @@ export class PayrollClientsService {
       const key = r.payrollClient.providerKey;
       byKey.set(key, (byKey.get(key) ?? 0) + (r.grossCents ?? 0));
     }
-    const providerGroups = new Map<string | null, { count: number; connected: boolean }>();
+    const providerGroups = new Map<
+      string | null,
+      { count: number; connected: boolean; lastSyncedAt: Date | null }
+    >();
     for (const c of active) {
-      const g = providerGroups.get(c.providerKey) ?? { count: 0, connected: false };
+      const g = providerGroups.get(c.providerKey) ?? {
+        count: 0,
+        connected: false,
+        lastSyncedAt: null,
+      };
       g.count += 1;
       g.connected ||= c.connection?.status === 'CONNECTED';
+      if (c.lastSyncedAt && (!g.lastSyncedAt || c.lastSyncedAt > g.lastSyncedAt))
+        g.lastSyncedAt = c.lastSyncedAt;
       providerGroups.set(c.providerKey, g);
     }
 
@@ -275,6 +287,7 @@ export class PayrollClientsService {
           label: providerLabel(key),
           clientCount: g.count,
           connected: g.connected,
+          lastSyncedAt: g.connected && g.lastSyncedAt ? g.lastSyncedAt.toISOString() : null,
         }))
         .sort((a, b) => b.clientCount - a.clientCount || a.label.localeCompare(b.label)),
       upcomingRuns: active
@@ -846,10 +859,8 @@ export class PayrollClientsService {
         tx,
         'payroll.client.updated',
         { type: 'payroll_client', id },
-        {
-          clientId: pc.clientId,
-          fields: Object.keys(body).sort(),
-        },
+        // Audit Log Review 2, R03: each changed field's old and new value.
+        { clientId: pc.clientId, ...auditChanges(pc, data, { fields: Object.keys(data) }) },
       );
     });
     return this.get(businessId, actor, id, false);
@@ -1043,6 +1054,10 @@ export class PayrollClientsService {
       // text form clears the link.
       let plan = body.plan ?? null;
       let catalogServiceId: string | null = null;
+      // F01: no plan never clears a saved one by accident (a form that had not loaded it yet);
+      // Remove Plan says so.
+      if (!body.plan && !body.catalogServiceId && engagement.package && body.remove !== true)
+        throw errors.planRemoveExplicit();
       if (body.catalogServiceId) {
         const service = await tx.service.findFirst({
           where: {

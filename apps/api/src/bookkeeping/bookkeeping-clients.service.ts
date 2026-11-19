@@ -20,7 +20,6 @@ import type {
   CategorizationRule,
   DocumentChecklistItem,
   LogBookkeepingActivityRequest,
-  PortalDefaults,
   ReportScheduleItem,
   SaveBookkeepingSettingsRequest,
   UpdateBookkeepingClientRequest,
@@ -50,6 +49,7 @@ import {
   reportSelect,
   skipTake,
   toAccount,
+  statusChangeText,
   toActivity,
   toClientRef,
   toConnection,
@@ -73,6 +73,7 @@ import {
   totalsOf,
 } from './bookkeeping.shared.js';
 import { BookkeepingStatusService, readSettings } from './bookkeeping-status.service.js';
+import { effectivePortalDefaults } from './portal-defaults.js';
 
 type ClientsQuery = z.output<typeof BookkeepingClientsQuery>;
 /** What the list's rows depend on: its tab and filters, not its order or page. */
@@ -874,7 +875,8 @@ export class BookkeepingClientsService {
       pausedAt: iso(p.pausedAt),
       pauseReason: p.pauseReason,
       archived: p.archivedAt !== null,
-      portalDefaults: p.portalDefaults as PortalDefaults,
+      // BK-CP4: as the portal applies them (a default never saved is shown).
+      portalDefaults: effectivePortalDefaults(p.portalDefaults),
       alerts: p.alerts as BookkeepingAlerts,
       reportSchedule: p.reportSchedule as ReportScheduleItem[] | null,
       documentChecklist: p.documentChecklist as DocumentChecklistItem[] | null,
@@ -1066,7 +1068,7 @@ export class BookkeepingClientsService {
           p.engagementId,
           actor.userId,
           'STATUS_CHANGE',
-          `Status changed from ${p.status} to ${body.status}`,
+          statusChangeText(p.status, body.status),
           { from: p.status, to: body.status, source: 'MANUAL' },
         );
       }

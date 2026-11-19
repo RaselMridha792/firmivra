@@ -3,3 +3,4 @@ export * from './access.js';
 export * from './management.js';
 export * from './visibility.js';
 export * from './client.js';
+export * from './announcement-settings.js';

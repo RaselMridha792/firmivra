@@ -32,6 +32,9 @@ import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { providerDisc } from '../../_components/manage-integration-shared';
 import { SetupOption } from './setup-option';
+import { nextStepLine, notYetLabel } from '../../../_components/readiness';
+import { type SetupFacts, SetupReview } from '../../_components/setup-review';
+import { formatDirection, formatFrequency } from '../../_components/manage-integration-shared';
 import {
   defaultSettings,
   directionLabels,
@@ -108,6 +111,8 @@ function SetupForm({
   const [localError, setLocalError] = useState('');
   const [leaving, setLeaving] = useState(false);
   const provider = detail?.provider;
+  /** I-R2-07: set up inside Firmivra (Website Forms, API & Webhooks): no outside account. */
+  const builtIn = provider?.authMethod === 'NONE';
   const settings = provider ? { ...defaultSettings(provider), ...draft.settings } : {};
   const environment = draft.environment ?? provider?.environments[0] ?? 'LIVE';
   const selected = settings.entities ?? [];
@@ -148,7 +153,40 @@ function SetupForm({
     provider?.permissions.filter(
       (permission) => permission.entity === null || selected.includes(permission.entity),
     ) ?? [];
+  // I-UA06: Connect first shows what will happen; Confirm connects once.
+  const [reviewing, setReviewing] = useState(false);
+  const reviewFacts: SetupFacts | null = provider
+    ? {
+        environment,
+        destination: provider.name,
+        objects: provider.entities.filter((e) => selected.includes(e.key)).map((e) => e.label),
+        direction: settings.direction ? formatDirection(settings.direction) : 'Not chosen',
+        schedule:
+          settings.syncMode === 'AUTO'
+            ? formatFrequency(settings.syncEveryMinutes ?? null)
+            : 'Manual (Sync Now)',
+        firstRun:
+          provider.provider === 'custom_api'
+            ? 'Connecting saves your choices. Nothing is sent until the endpoint and events are set and one of those events happens.'
+            : `${builtIn ? 'Connecting saves your choices' : `After you ${provider.authMethod === 'API_KEY' ? 'enter the key' : 'authorize'}, Firmivra saves your choices`}${
+                (draft.testAfterConnect ?? true) ? ' and runs a connection test (no data)' : ''
+              }. The first sync runs ${settings.syncMode === 'AUTO' ? 'at its scheduled time' : 'when you choose Sync Now'}.`,
+      }
+    : null;
+  const review = () => {
+    setLocalError('');
+    if (!directionValid) {
+      setLocalError('Choose supported sync settings before connecting.');
+      return;
+    }
+    if (provider?.credentialFields.some((field) => !credentials[field.key]?.trim())) {
+      setLocalError('Enter the required provider-issued credentials.');
+      return;
+    }
+    setReviewing(true);
+  };
   const start = async () => {
+    setReviewing(false);
     setLocalError('');
     const body = ConnectIntegrationRequest.safeParse({
       environment,
@@ -188,6 +226,17 @@ function SetupForm({
   };
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {reviewFacts ? (
+        <SetupReview
+          open={reviewing}
+          title={`Review before connecting ${provider?.name ?? ''}`.trim()}
+          facts={reviewFacts}
+          confirmLabel={builtIn ? 'Confirm and create' : 'Confirm and connect'}
+          busy={busy}
+          onBack={() => setReviewing(false)}
+          onConfirm={() => void start()}
+        />
+      ) : null}
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm text-muted">
         <Link href="/integrations" className="text-link">
           Integrations
@@ -244,7 +293,9 @@ function SetupForm({
       ) : null}
       {provider?.comingSoon ? (
         <Callout icon={ShieldCheck} title="Connection unavailable" surface="warning">
-          This provider is not available to connect yet.
+          {provider.readiness
+            ? `${notYetLabel(provider)}. ${nextStepLine(provider)}`
+            : 'This provider is not available to connect yet.'}
         </Callout>
       ) : null}
       {params.get('result') === 'failed' ? (
@@ -293,7 +344,11 @@ function SetupForm({
                   </span>
                   <span>
                     <span className="block font-semibold text-heading">{item.label}</span>
-                    <span className="text-sm text-muted">{item.description}</span>
+                    <span className="text-sm text-muted">
+                      {item.id === 'connect' && builtIn
+                        ? 'Create the connection here'
+                        : item.description}
+                    </span>
                   </span>
                 </Link>
               </li>
@@ -304,10 +359,15 @@ function SetupForm({
           <Card data-testid="setup-connect">
             <SectionTitle
               number={1}
-              title={`Connect Your ${provider?.name ?? 'Integration'} Account`}
+              title={
+                builtIn
+                  ? `Set Up ${provider?.name ?? 'the Integration'}`
+                  : `Connect Your ${provider?.name ?? 'Integration'} Account`
+              }
               subtitle={connectCopy(provider)}
             />
             {provider ? <ProviderFacts provider={provider} /> : null}
+            {provider?.provider === 'custom_api' ? <ApiAndWebhooksNote /> : null}
             <div className="grid gap-4 xl:grid-cols-5">
               <div className="flex min-w-0 flex-col gap-4 xl:col-span-3">
                 {provider?.authMethod === 'API_KEY'
@@ -325,7 +385,7 @@ function SetupForm({
                       />
                     ))
                   : null}
-                <Button disabled={blocked} onClick={() => void start()}>
+                <Button disabled={blocked} onClick={review}>
                   <LockKey weight="fill" className="size-5" />
                   {busy
                     ? 'Connecting…'
@@ -341,13 +401,24 @@ function SetupForm({
                     weight="fill"
                     className="mt-0.5 size-6 shrink-0 text-heading"
                   />
-                  <div>
-                    <h3 className="font-semibold text-heading">Secure Authorization</h3>
-                    <p className="text-sm text-text">
-                      Authorization is handled securely by your provider. Your provider password is
-                      never collected here.
-                    </p>
-                  </div>
+                  {/* I-R2-07: a built-in setup has no outside account to authorize. */}
+                  {builtIn ? (
+                    <div>
+                      <h3 className="font-semibold text-heading">Built into Firmivra</h3>
+                      <p className="text-sm text-text">
+                        There is no outside account to sign in to, and no password or key is asked
+                        for here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <h3 className="font-semibold text-heading">Secure Authorization</h3>
+                      <p className="text-sm text-text">
+                        Authorization is handled securely by your provider. Your provider password
+                        is never collected here.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="rounded-control bg-folder-surface p-4 xl:col-span-2">
@@ -507,6 +578,10 @@ function SetupForm({
                 number={3}
                 title="Permissions"
                 subtitle="Review the permissions requested for your enabled features."
+                help={{
+                  topic: 'Permissions step',
+                  text: 'Only the permissions the ticked objects need are asked for. The provider shows the same list when you approve; turning an object off drops its permissions.',
+                }}
               />
               <div className="rounded-control bg-folder-surface p-4">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-heading">
@@ -536,10 +611,14 @@ function SetupForm({
               <SectionTitle
                 number={4}
                 title="Complete Setup"
-                subtitle="After authorization, the server saves your preferences and starts the initial sync."
+                subtitle={completeCopy(provider)}
+                help={{
+                  topic: 'Complete setup',
+                  text: 'Confirming saves your choices and, when ticked, runs a connection test that syncs no data. Change any choice later under Sync Settings.',
+                }}
               />
               <Checkbox
-                label="Run a test sync after connection"
+                label="Run a connection test after connecting"
                 disabled={!editable}
                 checked={draft.testAfterConnect ?? true}
                 onChange={(e) =>
@@ -547,7 +626,7 @@ function SetupForm({
                 }
               />
               <p className="mb-4 text-xs text-muted">
-                Verify the connection and sync a small sample when enabled.
+                Checks that the connection answers. No data is synced by the test.
               </p>
               {connection ? (
                 <div className="mb-4 flex flex-col gap-3">
@@ -572,7 +651,11 @@ function SetupForm({
                   </Link>
                 </div>
               ) : (
-                <p className="mb-4 text-sm text-muted">Authorize your account to complete setup.</p>
+                <p className="mb-4 text-sm text-muted">
+                  {builtIn
+                    ? 'Create the connection to complete setup.'
+                    : 'Authorize your account to complete setup.'}
+                </p>
               )}
               {localError || connect.isError || test.isError ? (
                 <p role="alert" className="mb-4 text-sm text-danger">
@@ -595,7 +678,7 @@ function SetupForm({
                 >
                   Cancel
                 </Link>
-                <Button disabled={blocked || !directionValid} onClick={() => void start()}>
+                <Button disabled={blocked || !directionValid} onClick={review}>
                   {busy ? 'Connecting…' : 'Connect & Continue'}
                   <ArrowRight weight="fill" className="size-4" />
                 </Button>
@@ -611,10 +694,13 @@ function SectionTitle({
   number,
   title,
   subtitle,
+  help,
 }: {
   number: number;
   title: string;
   subtitle: string;
+  /** I-UA01: a Help icon that says what the step needs and does. */
+  help?: { topic: string; text: string };
 }) {
   return (
     <div className="mb-4 flex gap-3">
@@ -622,7 +708,10 @@ function SectionTitle({
         {number}
       </span>
       <div>
-        <h2 className="text-lg font-bold text-heading">{title}</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-bold text-heading">{title}</h2>
+          {help ? <HelpTip topic={help.topic}>{help.text}</HelpTip> : null}
+        </div>
         <p className="text-sm text-text">{subtitle}</p>
       </div>
     </div>
@@ -641,6 +730,7 @@ function connectCopy(
         environments: string[];
         directions: string[];
         frequencies: number[];
+        entities: { directions: string[] }[];
       }
     | undefined,
 ): string {
@@ -661,6 +751,53 @@ function connectCopy(
   }
 }
 
+/**
+ * I-R2-07: what completing setup really does. Connecting saves the choices and, when asked, runs a
+ * connection test (no data); the first sync is the schedule's or Sync Now's.
+ */
+function completeCopy(p: { provider: string; authMethod: string } | undefined): string {
+  if (p?.provider === 'custom_api')
+    return 'Connecting saves your choices. Nothing is sent until you set the endpoint and events on the API & Webhooks setup and one of those events happens.';
+  const saved =
+    p?.authMethod === 'NONE'
+      ? 'Connecting saves your choices'
+      : 'After you authorize, Firmivra saves your choices';
+  return `${saved} and can run a connection test. The first sync runs at its scheduled time, or when you choose Sync Now.`;
+}
+
+const API_FACTS: readonly (readonly [string, string])[] = [
+  ['Endpoint', 'Your own HTTPS address that receives the events.'],
+  ['Events', 'The Firmivra events you choose, sent out to that address.'],
+  [
+    'Signing secret',
+    'Firmivra signs each event so your system can check it came from Firmivra. It is shown once, when it is made.',
+  ],
+  [
+    'First send',
+    'Nothing is sent until the endpoint and events are set and one of those events happens.',
+  ],
+];
+
+/** I-R2-07: what API & Webhooks needs, before anything is created. */
+function ApiAndWebhooksNote() {
+  return (
+    <div data-testid="api-webhooks-note" className="mb-4 rounded-control bg-subtle p-4 text-sm">
+      <h3 className="mb-2 font-semibold text-heading">How API &amp; Webhooks works</h3>
+      <dl className="grid gap-2">
+        {API_FACTS.map(([term, text]) => (
+          <div key={term}>
+            <dt className="font-medium text-heading">{term}</dt>
+            <dd className="text-text">{text}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-2 text-muted">
+        Create the connection here, then set these on its API &amp; Webhooks setup.
+      </p>
+    </div>
+  );
+}
+
 const SIGN_IN: Record<string, string> = {
   OAUTH2: "The provider's sign-in page",
   API_KEY: 'An API key from the provider',
@@ -677,13 +814,15 @@ const every = (minutes: number) =>
 
 /** IN-Y12: the registry's facts, read-only, before anything is connected. */
 function ProviderFacts({ provider }: { provider: ProviderDefinition }) {
+  const served = provider.directions.filter((d) =>
+    provider.entities.some((e) => e.directions.includes(d)),
+  );
   const facts: [string, string][] = [
     ['Sign-in', SIGN_IN[provider.authMethod] ?? provider.authMethod],
     [
       'Sync direction',
-      provider.directions.length
-        ? provider.directions.map((d) => DIRECTION[d] ?? d).join(', ')
-        : 'No sync',
+      // I-R2-07: only the ways some object really syncs.
+      served.length ? served.map((d) => DIRECTION[d] ?? d).join(', ') : 'No sync',
     ],
     [
       'How often',

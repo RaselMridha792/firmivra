@@ -59,8 +59,12 @@ export type NamedRef = z.infer<typeof NamedRef>;
 export const StaffMfaState = z.enum(['ENABLED', 'DISABLED', 'PENDING']);
 export type StaffMfaState = z.infer<typeof StaffMfaState>;
 
-/** An open invite: shown as "Invited Sep 25, 2026"; expired ones offer Resend. */
-export const StaffInvite = z.object({ sentAt: DateTime, expiresAt: DateTime });
+/**
+ * An open invite: shown as "Invited Sep 25, 2026"; expired ones offer Resend. SM21 (Staff
+ * Management Review 2): `sentAt` is when its email actually went out, null while it never did
+ * (Send Welcome Email off, or a failed send): "Invitation not sent".
+ */
+export const StaffInvite = z.object({ sentAt: DateTime.nullable(), expiresAt: DateTime });
 export type StaffInvite = z.infer<typeof StaffInvite>;
 
 // ---------- Directory (Staff Management page) ----------
@@ -445,11 +449,30 @@ export const StaffDraftData = z.strictObject({
 });
 export type StaffDraftData = z.input<typeof StaffDraftData>;
 
+/**
+ * SM17 (Staff Management Review 2, decision 2a): a file saved with a draft (Save under Remove in
+ * Create Staff's Staff Documents), kept with its type until the account is created, when the
+ * scan-clean ones become the new member's documents. Its creator's alone, as the draft.
+ */
+export const StaffDraftAttachment = z.object({
+  id: z.uuid(),
+  type: StaffDocumentType,
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int(),
+  /** Only a CLEAN file moves to the member. */
+  scanStatus: ScanStatus,
+  createdAt: DateTime,
+});
+export type StaffDraftAttachment = z.infer<typeof StaffDraftAttachment>;
+
 export const StaffDraft = z.object({
   id: z.uuid(),
   /** 1 Account Information, 2 Role & Permissions, 3 Access & Security, 4 Additional Details. */
   step: z.number().int().min(1).max(4),
   data: z.record(z.string(), z.unknown()),
+  /** SM17: the files saved with it (on GET of one draft; the list leaves them out). */
+  attachments: z.array(StaffDraftAttachment).optional(),
   createdBy: z.string().nullable(),
   createdAt: DateTime,
   updatedAt: DateTime,
@@ -507,6 +530,8 @@ export const StaffSessionItem = z.object({
   lastActiveAt: DateTime,
   /** Seen in the last 5 minutes: "Active now". */
   activeNow: z.boolean(),
+  /** SM12: the viewer's own session, on their own record: "This session". */
+  current: z.boolean().optional(),
 });
 export type StaffSessionItem = z.infer<typeof StaffSessionItem>;
 
@@ -701,6 +726,17 @@ export const ConfirmStaffDocumentUploadRequest = z.strictObject({
   uploadToken: z.string().min(1).max(8192),
 });
 export type ConfirmStaffDocumentUploadRequest = z.input<typeof ConfirmStaffDocumentUploadRequest>;
+
+/**
+ * SM17: Save under Remove, step 1: where to PUT the file for the draft (UploadTicket). Then confirm
+ * with the token (ConfirmStaffDocumentUploadRequest). At most STAFF_DRAFT_FILE_LIMIT files.
+ */
+export const CreateStaffDraftUploadRequest = CreateStaffDocumentUploadRequest.omit({
+  replacesId: true,
+});
+export type CreateStaffDraftUploadRequest = z.input<typeof CreateStaffDraftUploadRequest>;
+export const STAFF_DRAFT_FILE_LIMIT = 20;
+export const StaffDraftAttachmentId = z.uuid();
 
 /** Reclassify. */
 export const UpdateStaffDocumentRequest = z.strictObject({ type: StaffDocumentType });

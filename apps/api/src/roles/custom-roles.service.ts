@@ -21,6 +21,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { assertGrantable } from '../staff/staff-permissions.service.js';
 import { notFound } from '../workspaces/common.js';
 import { PermissionGrantsService } from './permission-grants.service.js';
 import type { CreateCustomRoleBody, UpdateCustomRoleBody } from './roles-input.js';
@@ -251,6 +252,14 @@ export class CustomRolesService {
         const grants: readonly PermissionGrant[] = body.grants ?? [];
         for (const g of grants) grid.set(key(g.module, g.capability), g.granted);
         assertViewFirst(grid);
+        // SM02: beyond the role it starts from, only what the actor has themselves.
+        await assertGrantable(
+          tx,
+          { businessId, userId },
+          grants
+            .filter((g) => g.granted && !base.get(key(g.module, g.capability)))
+            .map((g) => key(g.module, g.capability)),
+        );
         const escalated = grants.some((g) => g.granted && !base.get(key(g.module, g.capability)));
         if (escalated && !body.acknowledgeEscalation)
           throw conflict(
@@ -343,6 +352,14 @@ export class CustomRolesService {
               'ADMIN_LOCKOUT',
               'You would lose Roles & Permissions; only the Owner can take it away',
             );
+          // SM02: a cell newly given must be one the actor has themselves.
+          await assertGrantable(
+            tx,
+            { businessId, userId },
+            body.grants
+              .filter((g) => g.granted && !current.get(key(g.module, g.capability)))
+              .map((g) => key(g.module, g.capability)),
+          );
           escalated = body.grants.some((g) => {
             const k = key(g.module, g.capability);
             return g.granted && !current.get(k) && !base.get(k);

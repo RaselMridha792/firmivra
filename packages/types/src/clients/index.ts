@@ -3,6 +3,7 @@ export * from './timeline.js';
 export * from './services.js';
 export * from './office.js';
 export * from './links.js';
+export * from './zip-state.js';
 export {
   createClientsClient,
   createMyProfileClient,

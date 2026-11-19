@@ -5,7 +5,7 @@ import type {
   IntegrationSyncRun,
   IntegrationSyncRunStatus,
 } from '@firmivra/types';
-import { Badge, Button, Card, Drawer, Pagination, Select } from '@firmivra/ui';
+import { Badge, Button, Card, Drawer, HelpTip, Pagination, Select } from '@firmivra/ui';
 import { useSearchParams } from 'next/navigation';
 import {
   ArrowsClockwise,
@@ -14,10 +14,16 @@ import {
   WarningCircle,
   type Icon,
 } from '@phosphor-icons/react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
-import { EmptyLine, formatDate, shortTime } from '../../_components/manage-integration-shared';
+import {
+  EmptyLine,
+  formatDate,
+  ranAt,
+  shortTime,
+} from '../../_components/manage-integration-shared';
 import { integrationError, ManageShell, Notice } from '../../_components/manage-shell';
 
 /**
@@ -106,9 +112,11 @@ function History({
   const [started, setStarted] = useState<Started>('');
   const [page, setPage] = useState(1);
   const [runId, setRunId] = useState<string | null>(null);
-  const query = useApiQuery(
-    ['integrations', 'history', integrationId, status, entity, started, page],
-    () =>
+  // I-R2-05: the page shown stays while another filter loads, so the Object choices (every object
+  // the runs have, `entities`) never lose the one chosen.
+  const query = useQuery({
+    queryKey: ['integrations', 'history', integrationId, status, entity, started, page],
+    queryFn: () =>
       api.integrations.history(integrationId, {
         ...(status ? { status } : {}),
         ...(entity ? { entity } : {}),
@@ -116,8 +124,10 @@ function History({
         page,
         pageSize: PAGE_SIZE,
       }),
-  );
+    placeholderData: keepPreviousData,
+  });
   const data = query.data;
+  const seen = data?.entities ?? [];
   const pageCount = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const filtered = !!(status || entity || started);
   const reset = (apply: () => void) => {
@@ -130,6 +140,10 @@ function History({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-heading">Sync History</h2>
+          <HelpTip topic="Sync history">
+            Every sync, newest first: what ran, when it ran, how many records moved and any errors.
+            Open a failed run to see what to do.
+          </HelpTip>
           <p className="text-sm text-muted">Every sync, test and webhook run, newest first.</p>
         </div>
         <div className="grid w-full gap-2 sm:grid-cols-3 lg:w-auto">
@@ -152,7 +166,10 @@ function History({
             onChange={(event) => reset(() => setEntity(event.target.value))}
             options={[
               { value: '', label: 'All objects' },
-              ...(detail?.provider.entities ?? []).map((e) => ({ value: e.key, label: e.label })),
+              // I-R2-05: the provider's objects and any object its past runs have.
+              ...[...(detail?.provider.entities ?? []), ...seen]
+                .filter((e, i, all) => all.findIndex((x) => x.key === e.key) === i)
+                .map((e) => ({ value: e.key, label: e.label })),
               { value: 'test', label: 'Connection tests' },
               { value: 'webhook', label: 'Webhooks' },
             ]}
@@ -232,8 +249,9 @@ function History({
                 // A failed run is the pink row of the Overview's Recent Sync Activity.
                 <tr key={run.id} className={run.status === 'FAILED' ? 'bg-danger-soft' : undefined}>
                   <td className="px-3 py-2 whitespace-nowrap text-heading">
-                    <time dateTime={run.createdAt} title={formatDate(run.createdAt)}>
-                      {shortTime(run.createdAt)}
+                    {/* I-R2-04: when it ran (its start), as the drawer and the Overview say. */}
+                    <time dateTime={ranAt(run)} title={formatDate(ranAt(run))}>
+                      {shortTime(ranAt(run))}
                     </time>
                   </td>
                   <td className="px-3 py-2 text-heading">{run.entityLabel}</td>
@@ -297,7 +315,7 @@ function RunDrawer({
     <Drawer
       open
       title={run ? `${run.entityLabel} run` : 'Sync run'}
-      subtitle={run ? formatDate(run.createdAt) : undefined}
+      subtitle={run ? formatDate(ranAt(run)) : undefined}
       onClose={onClose}
     >
       {query.isError ? (

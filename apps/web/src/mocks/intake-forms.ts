@@ -33,10 +33,12 @@ import {
   SendIntakeFormRequest,
   UpdateAssignedFormRequest,
   UpdateIntakeSettingsRequest,
+  submissionIdOf,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { appointmentIntakes } from './appointment-intakes';
 import { mockIntakeAnswers } from './intake-forms-answers';
+import { teamFixtures } from './team';
 
 /** The categories with a mock service, and the service kind (one of the built-in forms' six). */
 const KIND_OF_CATEGORY: Partial<Record<FormCategory, IntakeFormKey>> = {
@@ -78,6 +80,9 @@ const LATER = 'Choose an expiration date and time later than now.';
 const copy = <T>(value: T): T => structuredClone(value);
 const ago = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString();
 const day = (hours: number) => ago(hours).slice(0, 10);
+/** The team mock's Sam Staff, who works with the first form's client (USABILITY-03). */
+const samStaffId = () => teamFixtures().find((m) => m.user.name === 'Sam Staff')!.user.id;
+
 const staff = (n: number, name: string): MemberRef => ({
   userId: `0199c0a0-0b00-7000-8000-${String(n).padStart(12, '0')}`,
   name,
@@ -204,6 +209,7 @@ function seed(empty: boolean): Store {
     lastUsedAt: empty ? null : ago(24 * (3 + i * 2)),
     updatedAt: ago(24 * (5 + i)),
     owner: people[i % people.length] ?? null,
+    archived: false,
     internalNotes: null,
     sections: [
       section('personal', 'Personal Information', [
@@ -234,7 +240,8 @@ function seed(empty: boolean): Store {
     settings: {
       requireAllQuestions: true,
       allowFileUploads: true,
-      requireSignature: false,
+      // Intake Review 2 23-h: always on, as the API keeps it.
+      requireSignature: true,
       showProgressBar: true,
       expiresAfterDays: null,
       successMessage: "Thank you! We've received your information and will be in touch soon.",
@@ -311,6 +318,8 @@ function seed(empty: boolean): Store {
             name,
             email: `${first.toLowerCase()}@example.test`,
             phone: `(555) 040-${String(1000 + i)}`,
+            // USABILITY-03: the first form's client works with the team mock's Sam Staff.
+            assignedUserId: i === 0 ? samStaffId() : null,
           },
           form: { id: form?.id ?? uuid('0f00', 1), name: form?.name ?? 'Form' },
           service: {
@@ -366,6 +375,8 @@ function seed(empty: boolean): Store {
           history,
           communications: history.filter((h) => h.kind === 'SENT'),
           revisionNote: null,
+          // Intake Review 2 23-g: the mock firm numbers its forms (Auto-generate submission ID on).
+          submissionId: submissionIdOf(i + 1),
         };
       });
   return {
@@ -481,13 +492,16 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           : ('LIVE' as const),
     };
   };
+  /** Intake Review 2 P4-16: each form's share link generation (Make a New Link adds one). */
+  const linkVersions = new Map<string, number>();
   const shareOf = (id: string): IntakeShare => {
     const f = findForm(id);
     const shareable = s.live.has(f.id) && f.status !== 'RETIRED';
     const main = mainLinkOf(f);
     const set = shares.get(id) ?? { sharing: shareable && !main, portalPublished: false };
-    // The share link's token: 43 base64url characters, as the API's.
-    const url = `${PORTAL}/lvp/start/${f.id.replace(/-/g, '')}mockshare00`;
+    // The share link's token: 43 base64url characters, as the API's; its generation (P4-16) last.
+    const version = String(linkVersions.get(id) ?? 0).padStart(2, '0');
+    const url = `${PORTAL}/lvp/start/${f.id.replace(/-/g, '')}mockshare${version}`;
     return {
       templateId: f.id,
       main: main !== null,
@@ -737,6 +751,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           name: 'Selected recipient',
           email: null,
           phone: null,
+          assignedUserId: null,
         },
         form: { id: form.id, name: form.name },
         service: form.service,
@@ -760,6 +775,10 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
               ? null
               : `${input.expiresOn ?? day(-24 * 14)}T23:59:59.999Z`,
         formVersionId: form.id,
+        // 23-g, as the database: numbered while Auto-generate submission ID is on.
+        submissionId: s.settings.general.autoSubmissionId
+          ? submissionIdOf(s.assigned.length + 1)
+          : null,
         submittedAt: null,
         completedAt: null,
         completedBy: null,
@@ -845,6 +864,18 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       await mockDelay();
       const input = parseInput(UpdateAssignedFormRequest, body);
       const r = find(id);
+      if (input.assignedUserId) {
+        // As the API: a Staff member takes only a form of their own client or lead.
+        const member = teamFixtures().find((m) => m.user.id === input.assignedUserId);
+        if (!member || member.status !== 'ACTIVE')
+          throw new ApiRequestError(409, 'NOT_A_MEMBER', 'The assignee is not an active member');
+        if (member.role === 'STAFF' && member.user.id !== r.recipient.assignedUserId)
+          throw new ApiRequestError(
+            409,
+            'CLIENT_NOT_ASSIGNED',
+            'This client is not assigned to that staff member',
+          );
+      }
       if (input.assignedUserId !== undefined) {
         r.assignedTo = input.assignedUserId
           ? { userId: input.assignedUserId, name: 'Assigned member' }
@@ -936,6 +967,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         f.status === 'DRAFT' && s.live.has(f.id) ? { ...f, status: 'PUBLISHED' as const } : f;
       const rows = s.forms
         .map(shown)
+        // Intake Review 2 24c-i, as the API: the Archived view lists only the archived ones.
+        .filter((f) => f.archived === (q.archived === 'true'))
         .filter((f) => q.templates === 'all' || String(f.isTemplate) === q.templates)
         .filter((f) => !q.category || f.category === q.category)
         .filter((f) => !q.status || f.status === q.status)
@@ -1019,6 +1052,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         category: filed.category,
         service: filed.service ?? null,
         description: input.description ?? null,
+        archived: false,
         isTemplate: input.isTemplate,
         custom: true,
         status: 'DRAFT',
@@ -1038,7 +1072,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         settings: {
           requireAllQuestions: input.settings?.requireAllQuestions ?? false,
           allowFileUploads: input.settings?.allowFileUploads ?? true,
-          requireSignature: input.settings?.requireSignature ?? false,
+          requireSignature: true,
           showProgressBar: input.settings?.showProgressBar ?? true,
           expiresAfterDays: input.settings?.expiresAfterDays ?? null,
           successMessage: input.settings?.successMessage ?? null,
@@ -1081,6 +1115,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         Object.assign(
           f.settings,
           Object.fromEntries(Object.entries(input.settings).filter(([, v]) => v !== undefined)),
+          // 23-h, as the API: Require e-signature stays on.
+          { requireSignature: true },
         );
       f.updatedAt = new Date().toISOString();
       return copy(f);
@@ -1128,7 +1164,20 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       managers();
       const f = findForm(id);
       f.status = 'RETIRED';
+      f.archived = true;
       s.live.delete(f.id);
+      return copy(f);
+    },
+    // Intake Review 2 24c-i, as the API: Owner and Admin bring it back as a draft to publish.
+    restoreForm: async (id) => {
+      await mockDelay();
+      managers();
+      const f = findForm(id);
+      if (f.archived) {
+        f.archived = false;
+        f.status = 'DRAFT';
+        f.updatedAt = new Date().toISOString();
+      }
       return copy(f);
     },
     publicLink: async (id) => {
@@ -1153,6 +1202,16 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         sharing: input.sharing && !before.main,
         portalPublished: input.portalPublished,
       });
+      return shareOf(id);
+    },
+    // P4-16, as the API: a new link generation; a main form has no link of its own (409).
+    rotateShare: async (id) => {
+      await mockDelay();
+      managers();
+      const before = shareOf(id);
+      if (before.main)
+        throw fail(409, 'NOT_SHAREABLE', 'This form is reached through its Begin Online page');
+      linkVersions.set(id, (linkVersions.get(id) ?? 0) + 1);
       return shareOf(id);
     },
 
@@ -1188,6 +1247,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         ]);
       const { defaultOwnerUserId, ...general } = input.general ?? {};
       Object.assign(st.general, pick(general));
+      // 23-h, as the API: Require e-signature stays on.
+      st.general.requireSignature = true;
       if (defaultOwnerUserId !== undefined)
         st.general.defaultOwner = defaultOwnerUserId
           ? { userId: defaultOwnerUserId, name: 'Selected member' }
@@ -1260,6 +1321,12 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
  * submitted intake and the season before's completed one; their ids are records of the intake
  * forms mock, so Open shows that form's page and Request Correction goes through `api.intakeForms`.
  */
+/**
+ * Intake Review 2 23-g (mock mode): Intake Form Settings > Use this branding on client-facing
+ * forms, as the portal info reads it for the forms outside the portal.
+ */
+export const mockFormBranding = (): boolean => storeFor({}).settings.branding.useFirmBranding;
+
 export function createIntakesMock(): IntakesClient {
   const season = new Date().getFullYear() - 1;
   // The same store as `api.intakeForms` in mock mode, so a correction requested there shows here.

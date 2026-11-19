@@ -43,6 +43,8 @@ import {
   NOTICES,
   list,
 } from '../../../new/security/_components/security-step';
+import { useFirmTimeZone } from '../../../../intake-forms/_components/expiry';
+import { ApplyToExisting } from './apply-existing';
 
 const KEY = ['staff', 'security-defaults'];
 const quiet = 'rounded-lg bg-subtle p-4 text-sm text-muted';
@@ -111,8 +113,8 @@ function check(f: Form): Record<string, string> {
 
 const accounts = (n: number) => `${n} existing staff account${n === 1 ? '' : 's'}`;
 
-const when = (iso: string) =>
-  new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(
+const when = (iso: string, timeZone?: string) =>
+  new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(
     new Date(iso),
   );
 
@@ -196,14 +198,14 @@ function Sections({
             />
             <Radio
               name="defaults-location"
-              label="Specific IP Addresses Only"
+              label="Specific IP Addresses Only (not active yet)"
               checked={form.accessLocation === 'ALLOWED_IPS'}
               onChange={() => set('accessLocation', 'ALLOWED_IPS')}
               className="text-sm"
             />
             <Radio
               name="defaults-location"
-              label="Specific Countries/Regions Only"
+              label="Specific Countries/Regions Only (not active yet)"
               checked={form.accessLocation === 'ALLOWED_COUNTRIES'}
               onChange={() => set('accessLocation', 'ALLOWED_COUNTRIES')}
               className="text-sm"
@@ -227,15 +229,17 @@ function Sections({
                 onChange={(e) => set('allowedCountries', e.target.value)}
               />
             ) : null}
+            {/* SM33: the lists are kept, but sign-in does not check them yet (decision 9a). */}
+            {form.accessLocation !== 'ANYWHERE' ? (
+              <p className="text-xs text-muted" data-testid="location-not-active">
+                Not active yet: sign-in does not check IP addresses or countries yet. What you enter
+                is saved for when it does.
+              </p>
+            ) : null}
           </fieldset>
           <fieldset className="flex min-w-0 flex-col">
             <legend className="mb-1 text-sm font-medium text-text">Login Restrictions</legend>
-            <Checkbox
-              label="Restrict login to specific devices"
-              checked={form.restrictDevices}
-              onChange={(e) => set('restrictDevices', e.target.checked)}
-              className="text-sm"
-            />
+            {/* SM33: no device list exists yet, so device restriction is not offered (kept as saved). */}
             <div className="grid grid-cols-[1fr_auto] items-center gap-2">
               <Checkbox
                 label="Set automatic logout after inactivity"
@@ -330,9 +334,13 @@ function Editor({
 }) {
   const [form, setForm] = useState<Form>(() => formOf(data));
   const [base, setBase] = useState(data);
+  const timeZone = useFirmTimeZone(); // SM38: the firm's time zone
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirming, setConfirming] = useState(false);
   const [saved, setSaved] = useState(false);
+  // SM05: Apply to Existing Accounts, and what it did.
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState('');
   const save = useApiMutation(
     (body: SaveStaffSecurityDefaultsRequest) => api.staff.saveSecurityDefaults(body),
     { invalidate: KEY },
@@ -349,8 +357,8 @@ function Editor({
       <div className="flex min-w-0 flex-col gap-4 min-[1440px]:col-span-2">
         <Callout icon={Info} tone="navy" surface="plain" size="compact">
           These settings apply to staff accounts created from now on, in Create Staff and Bulk
-          Upload Staff. Your {accounts(data.existingAccounts)} keep their own settings; change one
-          on its Access &amp; Security page.
+          Upload Staff. Your {accounts(data.existingAccounts)} keep their own settings until you use
+          Apply to Existing Accounts; change one on its Access &amp; Security page.
         </Callout>
         <Sections form={form} errors={errors} set={set} />
         <div className="flex flex-wrap items-center justify-end gap-3">
@@ -420,17 +428,46 @@ function Editor({
                 {data.existingAccounts} keep their own
               </dd>
             </div>
+            <div className="flex flex-col gap-2 py-2">
+              <Button
+                variant="secondary"
+                disabled={dirty}
+                onClick={() => {
+                  setApplied('');
+                  setApplying(true);
+                }}
+              >
+                Apply to Existing Accounts
+              </Button>
+              {dirty ? (
+                <p className={hint}>Save your changes first: this applies the saved defaults.</p>
+              ) : null}
+              {applied ? (
+                <p role="status" data-testid="apply-result" className="text-sm text-success">
+                  {applied}
+                </p>
+              ) : null}
+            </div>
             <div className="flex items-center justify-between gap-3 py-2">
               <dt className="text-heading">Last saved</dt>
               <dd className="text-right font-semibold text-link">
                 {base.updatedAt
-                  ? `${when(base.updatedAt)}${base.updatedBy ? ` by ${base.updatedBy}` : ''}`
+                  ? `${when(base.updatedAt, timeZone)}${base.updatedBy ? ` by ${base.updatedBy}` : ''}`
                   : "Firmivra's defaults, not changed yet"}
               </dd>
             </div>
           </dl>
         </section>
       </aside>
+      {applying ? (
+        <ApplyToExisting
+          onClose={() => setApplying(false)}
+          onDone={(message) => {
+            setApplying(false);
+            setApplied(message);
+          }}
+        />
+      ) : null}
       <Modal
         open={confirming}
         title="Save the new account defaults?"
@@ -461,7 +498,8 @@ function Editor({
       >
         <p className="text-sm text-text">
           Staff accounts created from now on start with these settings. Your{' '}
-          {accounts(data.existingAccounts)} keep their own settings; nothing changes for them.
+          {accounts(data.existingAccounts)} keep their own settings; nothing changes for them unless
+          you then use Apply to Existing Accounts.
         </p>
       </Modal>
     </div>

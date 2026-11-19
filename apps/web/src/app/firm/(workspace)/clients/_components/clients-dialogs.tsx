@@ -6,10 +6,10 @@ import {
   type ClientStatus,
   type CreateClientRequest,
   type ExportClientsRequest,
-  type MemberRef,
   type DuplicatePhoneDetails,
   NewClientForm,
   US_STATES,
+  zipStateWarning,
 } from '@firmivra/types';
 import { Button, Input, Modal, Select } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
@@ -20,8 +20,8 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ACCOUNT_TYPES, CLIENT_ERRORS, CLIENTS, clientKey } from './client-parts';
 import { DuplicatePhoneDialog, duplicateOf } from './duplicate-phone';
-import { zipStateWarning } from './zip-state';
 import { bulkSummary, STAGE_ORDER, STAGES } from './list-parts';
+import { type Assignee, workloadWarning } from './workload';
 
 type Field =
   | 'accountType'
@@ -70,7 +70,8 @@ export function AddClientDialog({
   onClose,
 }: {
   manager: boolean;
-  members: MemberRef[];
+  /** With their workload (the Clients list) for SM08's warning; plain refs elsewhere. */
+  members: Assignee[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -256,6 +257,14 @@ export function AddClientDialog({
             ]}
           />
         ) : null}
+        {manager ? (
+          <WorkloadWarning
+            warning={workloadWarning(
+              members.find((m) => m.userId === values.assignedUserId),
+              1,
+            )}
+          />
+        ) : null}
         {duplicate ? (
           <DuplicatePhoneDialog
             details={duplicate.details}
@@ -339,8 +348,8 @@ export function BulkDialog({
   onDone,
 }: {
   kind: BulkKind;
-  clients: { id: string; displayName: string }[];
-  members: MemberRef[];
+  clients: { id: string; displayName: string; assignedUserId?: string | null }[];
+  members: Assignee[];
   /** Mark Inactive: Change Status with Inactive chosen. */
   initialStatus?: ClientStatus | '';
   onClose: () => void;
@@ -387,16 +396,25 @@ export function BulkDialog({
     <Modal open title={title} subtitle={count} onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-4">
         {kind === 'ASSIGN' ? (
-          <Select
-            label="Assign to"
-            value={assignee}
-            onChange={(event) => setAssignee(event.target.value)}
-            options={[
-              { value: '', label: 'Choose a staff member' },
-              ...members.map((m) => ({ value: m.userId, label: m.name })),
-              { value: NOBODY, label: 'Nobody (unassign)' },
-            ]}
-          />
+          <>
+            <Select
+              label="Assign to"
+              value={assignee}
+              onChange={(event) => setAssignee(event.target.value)}
+              options={[
+                { value: '', label: 'Choose a staff member' },
+                ...members.map((m) => ({ value: m.userId, label: m.name })),
+                { value: NOBODY, label: 'Nobody (unassign)' },
+              ]}
+            />
+            <WorkloadWarning
+              warning={workloadWarning(
+                members.find((m) => m.userId === assignee),
+                // Only the clients not already theirs are new to them.
+                clients.filter((c) => c.assignedUserId !== assignee).length,
+              )}
+            />
+          </>
         ) : kind === 'TAG' ? (
           <>
             <Select
@@ -545,4 +563,13 @@ export function ExportDialog({
       </div>
     </Modal>
   );
+}
+
+/** SM08: advisory only; Assign stays enabled. */
+function WorkloadWarning({ warning }: { warning: string | null }) {
+  return warning ? (
+    <p role="status" data-testid="workload-warning" className="text-sm text-warning">
+      {warning}
+    </p>
+  ) : null;
 }

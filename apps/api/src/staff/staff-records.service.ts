@@ -12,6 +12,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { notFound } from '../workspaces/common.js';
 import type { SaveStaffDraftBody, StaffCompensationBody } from './staff-input.js';
+import { draftFilesOf, StaffDraftFilesService } from './staff-draft-files.service.js';
 import { StaffWriteService } from './staff-write.service.js';
 import {
   assertActsOn,
@@ -22,6 +23,7 @@ import {
   type StaffActor,
   tiersOf,
 } from './staff.common.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -55,6 +57,7 @@ export class StaffRecordsService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly write: StaffWriteService,
+    private readonly files: StaffDraftFilesService,
   ) {}
 
   // ---------- Notes ----------
@@ -164,16 +167,17 @@ export class StaffRecordsService {
           await requireManager(tx, actor);
           const target = await lockTarget(tx, businessId, id);
           await assertActsOn(tx, actor, target, 'edit');
+          const before = await tx.staffCompensation.findUnique({
+            where: { businessId_membershipId: { businessId, membershipId: id } },
+          });
           await this.write.writePay(tx, businessId, id, body);
           await this.audit.logIn(
             tx,
             'staff.compensation_saved',
             { type: 'membership', id },
-            {
-              fields: Object.keys(body).filter(
-                (k) => (body as Record<string, unknown>)[k] !== undefined,
-              ),
-            },
+            // Audit Log Review 2, R03: each changed field's old and new value.
+            // Pay is named, never its amount (staff-write e2e).
+            auditChanges(before ?? {}, body, { fields: Object.keys(body), text: 'all' }),
             { businessId },
           );
         },
@@ -185,13 +189,15 @@ export class StaffRecordsService {
   }
 
   // ---------- Drafts (Save as Draft: no account, no invite) ----------
+  // SM17 (Staff Management Review 2, decision 3a): a draft is its creator's own. Another Owner or
+  // Admin never lists, opens, saves or deletes it (404, as for another firm's).
 
   drafts(actor: StaffActor): Promise<StaffDraft[]> {
     const { businessId } = actor;
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-      await requireManager(tx, actor);
+      const by = await requireManager(tx, actor);
       const rows = await tx.staffDraft.findMany({
-        where: { businessId },
+        where: { businessId, createdById: by },
         select: draftSelect,
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         take: 100,
@@ -203,13 +209,14 @@ export class StaffRecordsService {
   draft(actor: StaffActor, draftId: string): Promise<StaffDraft> {
     const { businessId } = actor;
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-      await requireManager(tx, actor);
+      const by = await requireManager(tx, actor);
       const row = await tx.staffDraft.findFirst({
-        where: { businessId, id: draftId },
+        where: { businessId, id: draftId, createdById: by },
         select: draftSelect,
       });
       if (!row) throw notFound();
-      return toDraft(row);
+      // SM17: with the files kept with it.
+      return { ...toDraft(row), attachments: await draftFilesOf(tx, businessId, draftId) };
     });
   }
 
@@ -227,7 +234,7 @@ export class StaffRecordsService {
         let id = draftId;
         if (id) {
           const { count } = await tx.staffDraft.updateMany({
-            where: { businessId, id },
+            where: { businessId, id, createdById: by },
             data: { step: body.step, data },
           });
           if (count !== 1) throw notFound();
@@ -257,9 +264,13 @@ export class StaffRecordsService {
 
   async deleteDraft(actor: StaffActor, draftId: string): Promise<OkResponse> {
     const { businessId } = actor;
+    // SM17: its files, read first; their stored copies go once the draft is deleted.
+    const files = await this.files.filesOf(actor, draftId);
     await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-      await requireManager(tx, actor);
-      const { count } = await tx.staffDraft.deleteMany({ where: { businessId, id: draftId } });
+      const by = await requireManager(tx, actor);
+      const { count } = await tx.staffDraft.deleteMany({
+        where: { businessId, id: draftId, createdById: by },
+      });
       if (count !== 1) throw notFound();
       await this.audit.logIn(
         tx,
@@ -269,6 +280,7 @@ export class StaffRecordsService {
         { businessId },
       );
     });
+    await this.files.dropAll(businessId, files);
     return { ok: true };
   }
 }

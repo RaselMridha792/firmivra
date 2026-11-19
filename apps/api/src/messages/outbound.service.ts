@@ -7,25 +7,28 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type {
-  CheckOutboundRequest,
-  ListOutboundQuery,
-  OutboundAssigneeList,
-  OutboundCheck,
-  OutboundExclusion,
-  OutboundMessage,
-  OutboundMessageList,
-  OutboundRecipient,
-  OutboundRelated,
-  OutboundRelatedOptions,
-  OutboundReview,
-  SaveOutboundRequest,
-  ScheduleOutboundRequest,
-  UpdateOutboundRequest,
+import {
+  type CheckOutboundRequest,
+  filesOnlyBody,
+  type ListOutboundQuery,
+  type OutboundAssigneeList,
+  type OutboundCheck,
+  type OutboundExclusion,
+  type OutboundMessage,
+  type OutboundMessageList,
+  type OutboundRecipient,
+  type OutboundRelated,
+  type OutboundRelatedOptions,
+  type OutboundReview,
+  type OutboundSendResult,
+  type SaveOutboundRequest,
+  type ScheduleOutboundRequest,
+  type UpdateOutboundRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
+import { recordTemplateUse } from '../templates/template-use.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { legacyFirmRole } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';
@@ -39,9 +42,11 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { fill } from '../templates/merge-fields.js';
 import { TemplateRenderService } from '../templates/template-render.service.js';
 import { MessagesService } from './messages.service.js';
-import { OutboundFilesService } from './outbound-files.service.js';
+import { bodyRequired, NO_TEXT, OutboundFilesService } from './outbound-files.service.js';
 
 type Channel = OutboundMessage['channel'];
+/** M19: a review's per-channel reach. */
+type ChannelReach = NonNullable<OutboundReview['channels']>[number];
 type Save = z.output<typeof SaveOutboundRequest>;
 type Update = z.output<typeof UpdateOutboundRequest>;
 type Check = z.output<typeof CheckOutboundRequest>;
@@ -68,7 +73,17 @@ const CHANNEL_HOW = {
   EMAIL: 'by email',
   SMS: 'by text',
 } as const;
+/** M19: a refusal of the request's own fields (400 VALIDATION_FAILED), as the contract's. */
+const invalid = (path: string, message: string) =>
+  new BadRequestException({
+    code: 'VALIDATION_FAILED',
+    message: 'The request is not valid',
+    details: [{ path, message }],
+  });
 const linkOn = (base: string, path: string) => `${base.replace(/\/+$/, '')}${path}`;
+/** M22: a message of files only says what was sent (the reply's line), its files by name. */
+const filesLine = (files: readonly { fileName: string }[]) =>
+  filesOnlyBody(files.map((f) => f.fileName));
 
 const messageSelect = {
   id: true,
@@ -356,7 +371,7 @@ export class OutboundMessagesService {
       status: row.status,
       channel: row.channel,
       subject: row.subject,
-      body: row.body,
+      body: row.body === NO_TEXT ? '' : row.body,
       templateId: row.templateId,
       related:
         row.relatedEntityType && row.relatedEntityId
@@ -626,7 +641,7 @@ export class OutboundMessagesService {
         channel: body.channel,
         status: 'DRAFT',
         subject: body.subject ?? null,
-        body: body.body,
+        body: body.body ?? NO_TEXT,
         templateId: await this.template(tx, businessId, body.templateId),
         ...extras,
         createdByUserId: actor.userId,
@@ -698,11 +713,19 @@ export class OutboundMessagesService {
             code: 'SUBJECT_REQUIRED',
             message: 'An email needs a subject',
           });
+        // M22: a scheduled message keeps a text or a file.
+        if (
+          row.status === 'SCHEDULED' &&
+          save.body === undefined &&
+          (await tx.outboundMessageFile.count({ where: { businessId, outboundMessageId: id } })) ===
+            0
+        )
+          throw bodyRequired();
         await tx.outboundMessage.update({
           where: { id },
           data: {
             subject: save.subject ?? null,
-            body: save.body,
+            body: save.body ?? NO_TEXT,
             templateId: await this.template(tx, businessId, save.templateId),
             ...(await this.extras(tx, businessId, save)),
           },
@@ -814,10 +837,21 @@ export class OutboundMessagesService {
     );
   }
 
-  async review(businessId: string, actor: ClientsActor, id: string): Promise<OutboundReview> {
+  /**
+   * M19: `channels`, every channel the review covers (the draft's own when none are named): each
+   * one's reach, and the checks for them all. Without it the answer is as before.
+   */
+  async review(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    channels?: readonly Channel[],
+  ): Promise<OutboundReview> {
     return this.inFirm(businessId, async (tx) => {
       const row = await this.row(tx, businessId, actor, id);
       const m = await this.shape(tx, businessId, row);
+      const list = this.channelsFor(row, channels);
+      const multi = list.length > 1;
       const author: ClientsActor = {
         userId: row.createdByUserId,
         role: legacyFirmRole(row.createdBy.role),
@@ -835,42 +869,71 @@ export class OutboundMessagesService {
           canReceive: r.canReceive,
           reason: r.reason,
           ...f,
+          // M22: files with no text go with the files line, never filled.
+          body: m.body ? f.body : filesLine(m.files),
         });
       }
       const unresolved = [
         ...new Set(recipients.filter((r) => r.canReceive).flatMap((r) => r.unresolved)),
       ];
+      // M19: who each channel reaches, by its own rules (the draft's channel as shaped above).
+      const firm = await this.settings(tx, businessId);
+      const reach: ChannelReach[] = list.map((channel) => {
+        const out =
+          channel === m.channel
+            ? m.recipients
+                .filter((r) => !r.canReceive)
+                .map((r) => ({ kind: r.kind, id: r.id, name: r.name, reason: r.reason }))
+            : people.flatMap((p) => {
+                const reason = this.exclusion(p, channel, firm);
+                return reason ? [{ kind: p.kind, id: p.id, name: p.name, reason }] : [];
+              });
+        const total = channel === m.channel ? m.counts.total : people.length;
+        return { channel, total, canReceive: total - out.length, cannotReceive: out };
+      });
+      const on = (c: Channel) => (multi ? CHANNEL_HOW[c] : 'on this channel');
       const checks: OutboundReview['checks'] = [];
-      if (m.counts.canReceive === 0)
+      const nobody = reach.filter((c) => c.canReceive === 0);
+      if (nobody.length > 0)
         checks.push({
           code: 'NO_RECIPIENTS',
           severity: 'BLOCK',
-          message: 'Nobody you chose can receive it on this channel.',
+          message: `Nobody you chose can receive it ${nobody.map((c) => on(c.channel)).join(' or ')}.`,
         });
-      if (m.channel === 'EMAIL' && !m.subject?.trim())
+      if (list.includes('EMAIL') && !m.subject?.trim())
         checks.push({
           code: 'SUBJECT_REQUIRED',
           severity: 'BLOCK',
           message: 'An email needs a subject.',
         });
+      if (!m.body && m.files.length === 0)
+        checks.push({
+          code: 'BODY_REQUIRED',
+          severity: 'BLOCK',
+          message: 'Write a message or attach a file.',
+        });
+      const fanOut = this.fanOutProblem(m.body, m.files.length > 0, list);
+      if (fanOut)
+        checks.push({ code: fanOut.code, severity: 'BLOCK', message: `${fanOut.message}.` });
       if (unresolved.length > 0)
         checks.push({
           code: 'UNRESOLVED_FIELDS',
           severity: 'WARN',
           message: `Some fields cannot be filled for everyone: ${unresolved.map((u) => `[${u}]`).join(', ')}. They would go as written.`,
         });
-      const files = this.fileProblem(m);
+      const files = this.fileProblem(m, list);
       if (files)
         checks.push({
           code: files.code === 'FILE_BLOCKED' ? 'FILES_NOT_READY' : files.code,
           severity: 'BLOCK',
           message: `${files.message}.`,
         });
-      if (m.counts.cannotReceive > 0)
+      const some = reach.filter((c) => c.cannotReceive.length > 0);
+      if (some.length > 0)
         checks.push({
           code: 'SOME_SKIPPED',
           severity: 'WARN',
-          message: `${m.counts.cannotReceive} of ${m.counts.total} cannot receive it on this channel and will be skipped.`,
+          message: `${some.map((c) => `${c.cannotReceive.length} of ${c.total} cannot receive it ${on(c.channel)}`).join('; ')} and will be skipped.`,
         });
       if (!checks.some((c) => c.severity === 'BLOCK'))
         checks.push({ code: 'READY', severity: 'OK', message: 'Ready to send.' });
@@ -884,8 +947,136 @@ export class OutboundMessagesService {
         recipients,
         unresolved,
         checks,
+        ...(channels ? { channels: reach } : {}),
       };
     });
+  }
+
+  /**
+   * M19: the channels a Send, Schedule or review covers, the draft's own first: just it when none
+   * are named; named, they must include it (400).
+   */
+  private channelsFor(row: { channel: Channel }, channels: readonly Channel[] | undefined) {
+    if (!channels) return [row.channel];
+    if (!channels.includes(row.channel))
+      throw invalid('channels', 'Include the channel the message is saved on');
+    return [row.channel, ...channels.filter((c) => c !== row.channel)];
+  }
+
+  /**
+   * M19: what the message cannot be on one of the channels: files alone with Email or Text (they
+   * carry the words), or a text over 1,600 characters. Null when it fits them all.
+   */
+  private fanOutProblem(
+    body: string,
+    hasFiles: boolean,
+    list: readonly Channel[],
+  ): { code: 'TEXT_REQUIRED' | 'SMS_TOO_LONG'; message: string } | null {
+    if (!body && hasFiles && list.some((c) => c !== 'PORTAL'))
+      return {
+        code: 'TEXT_REQUIRED',
+        message:
+          'Email and text carry the words: write a message. Only a portal message can go with files alone',
+      };
+    if (list.includes('SMS') && body.length > 1600)
+      return {
+        code: 'SMS_TOO_LONG',
+        message: 'A text message is at most 1,600 characters. Shorten it, or leave Text out',
+      };
+    return null;
+  }
+
+  /**
+   * M19: a copy of the draft for each other channel, in the caller's transaction: the same people
+   * (on that channel), text and options; a text has no subject. Files go with the Portal message.
+   * Answers every message's id, the draft's first, in the channels' order.
+   */
+  private async fanOut(
+    tx: TxClient,
+    businessId: string,
+    row: Row,
+    list: readonly Channel[],
+  ): Promise<string[]> {
+    const people = row.recipients.filter(
+      (r) => r.channel === row.channel && r.exclusion !== 'MANUALLY_EXCLUDED',
+    );
+    const ids: string[] = [];
+    for (const channel of list) {
+      if (channel === row.channel) {
+        ids.push(row.id);
+        continue;
+      }
+      const made = await tx.outboundMessage.create({
+        data: {
+          businessId,
+          kind: 'DIRECT',
+          channel,
+          status: 'DRAFT',
+          subject: channel === 'SMS' ? null : row.subject,
+          body: row.body,
+          templateId: row.templateId,
+          relatedEntityType: row.relatedEntityType,
+          relatedEntityId: row.relatedEntityId,
+          assignedUserId: row.assignedUserId,
+          addToTimeline: row.addToTimeline,
+          createdByUserId: row.createdByUserId,
+        },
+        select: { id: true },
+      });
+      await tx.outboundMessageRecipient.createMany({
+        data: people.map((r) => ({
+          businessId,
+          outboundMessageId: made.id,
+          channel,
+          ...(r.clientId ? { clientId: r.clientId } : { leadId: r.leadId! }),
+        })),
+      });
+      ids.push(made.id);
+    }
+    const portal = list.includes('PORTAL') ? ids[list.indexOf('PORTAL')] : undefined;
+    if (portal && portal !== row.id) await this.files.move(tx, businessId, row.id, portal);
+    return ids;
+  }
+
+  /**
+   * The messages a Send or Schedule takes, each checked: the draft alone, or (M19) the draft and
+   * a copy for each other channel named. A copy is made only from a draft: a scheduled message
+   * stays on its channel (409 CHANNELS_FIXED). When any one cannot go, nothing is kept.
+   */
+  private async takeAll(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    row: Row,
+    channels: readonly Channel[] | undefined,
+    confirmUnresolved: boolean,
+  ): Promise<string[]> {
+    const list = this.channelsFor(row, channels);
+    const multi = list.length > 1;
+    if (multi) {
+      if (row.status !== 'DRAFT')
+        throw conflict(
+          'CHANNELS_FIXED',
+          'A scheduled message stays on its channel. Send it as it is, or cancel it and start a new one.',
+        );
+      const m = await this.shape(tx, businessId, row);
+      const problem = this.fanOutProblem(m.body, m.files.length > 0, list);
+      if (problem) throw new BadRequestException(problem);
+    }
+    const ids = multi ? await this.fanOut(tx, businessId, row, list) : [row.id];
+    for (const each of ids) {
+      const r = each === row.id ? row : await this.row(tx, businessId, actor, each);
+      const m = await this.shape(tx, businessId, r);
+      this.ready(m, multi);
+      await this.confirmFields(tx, businessId, r, m, confirmUnresolved);
+    }
+    return ids;
+  }
+
+  /** M19: each copy made for another channel, audited with ids only. */
+  private async auditCopies(fromId: string, ids: readonly string[]) {
+    for (const id of ids.filter((x) => x !== fromId))
+      await this.audit.log('outbound_message.copied', { type: 'outbound_message', id }, { fromId });
   }
 
   /** Fields left unfilled for someone who receives it block a send until confirmed (409). */
@@ -917,15 +1108,24 @@ export class OutboundMessagesService {
     }
   }
 
-  /** Ready to leave: an email has its subject, and someone can receive it. */
-  private ready(m: OutboundMessage): void {
+  /**
+   * Ready to leave: a text or a file (M22), an email has its subject, and someone can receive it.
+   * `multi` (M19): one of several channels, so a refusal names its channel.
+   */
+  private ready(m: OutboundMessage, multi = false): void {
+    if (!m.body && m.files.length === 0) throw bodyRequired();
     if (m.channel === 'EMAIL' && !m.subject?.trim())
       throw new BadRequestException({
         code: 'SUBJECT_REQUIRED',
         message: 'An email needs a subject',
       });
     if (m.counts.canReceive === 0)
-      throw conflict('NO_RECIPIENTS', 'Nobody you chose can receive it on this channel.');
+      throw conflict(
+        'NO_RECIPIENTS',
+        multi
+          ? `Nobody you chose can receive it ${CHANNEL_HOW[m.channel]}. Leave that channel out.`
+          : 'Nobody you chose can receive it on this channel.',
+      );
     const files = this.fileProblem(m);
     if (files) throw conflict(files.code, files.message);
   }
@@ -935,12 +1135,16 @@ export class OutboundMessagesService {
    * Portal channel, the only one whose delivery links the client's portal message (R1's
    * outbound_recipients_rules), so a lead or a text never takes them. Every file passed its scan.
    */
-  private fileProblem(m: OutboundMessage): {
+  private fileProblem(
+    m: OutboundMessage,
+    list: readonly Channel[] = [m.channel],
+  ): {
     code: 'FILES_NEED_PORTAL' | 'FILES_NOT_READY' | 'FILE_BLOCKED';
     message: string;
   } | null {
     if (m.files.length === 0) return null;
-    if (m.channel !== 'PORTAL')
+    // M19: with Portal among several channels, the files go with the Portal message.
+    if (!list.includes('PORTAL'))
       return {
         code: 'FILES_NEED_PORTAL',
         message: 'Files go to clients through their portal. Choose Portal, or remove the files',
@@ -960,33 +1164,49 @@ export class OutboundMessagesService {
     actor: ClientsActor,
     id: string,
     body: Schedule,
-  ): Promise<OutboundMessage> {
+  ): Promise<OutboundSendResult> {
     const at = new Date(body.scheduledFor);
     if (at.getTime() < Date.now() + LEAD_TIME_MS)
       throw new BadRequestException({
         code: 'SCHEDULE_IN_PAST',
         message: 'Choose a time at least a minute from now',
       });
-    const result = await this.inFirm(businessId, async (tx) => {
+    const results = await this.inFirm(businessId, async (tx) => {
       const row = await this.row(tx, businessId, actor, id, true);
       if (row.status !== 'DRAFT' && row.status !== 'SCHEDULED')
         throw conflict('NOT_EDITABLE', 'This message was already sent or canceled.');
       if (row.updatedAt.toISOString() !== body.version) throw stale();
-      const m = await this.shape(tx, businessId, row);
-      this.ready(m);
-      await this.confirmFields(tx, businessId, row, m, body.confirmUnresolved === true);
-      await tx.outboundMessage.update({
-        where: { id },
-        data: { status: 'SCHEDULED', scheduledFor: at },
-      });
-      return this.shape(tx, businessId, await this.row(tx, businessId, actor, id));
+      // M19: one message per channel named, each scheduled for the same time.
+      const ids = await this.takeAll(
+        tx,
+        businessId,
+        actor,
+        row,
+        body.channels,
+        body.confirmUnresolved === true,
+      );
+      const out: OutboundMessage[] = [];
+      for (const each of ids) {
+        await tx.outboundMessage.update({
+          where: { id: each },
+          data: { status: 'SCHEDULED', scheduledFor: at },
+        });
+        out.push(await this.shape(tx, businessId, await this.row(tx, businessId, actor, each)));
+      }
+      return out;
     });
-    await this.audit.log(
-      'outbound_message.scheduled',
-      { type: 'outbound_message', id },
-      { scheduledFor: result.scheduledFor, recipients: result.counts.canReceive },
+    const [result, ...others] = results as [OutboundMessage, ...OutboundMessage[]];
+    await this.auditCopies(
+      id,
+      others.map((o) => o.id),
     );
-    return result;
+    for (const m of results)
+      await this.audit.log(
+        'outbound_message.scheduled',
+        { type: 'outbound_message', id: m.id },
+        { scheduledFor: m.scheduledFor, recipients: m.counts.canReceive },
+      );
+    return body.channels ? { ...result, others } : result;
   }
 
   async cancel(
@@ -1021,20 +1241,39 @@ export class OutboundMessagesService {
     id: string,
     version: string | null,
     confirmUnresolved = false,
-  ): Promise<OutboundMessage> {
+    /** Y04/Y09: an automation's send records its template use as the automation's. */
+    usePurpose: 'MESSAGE' | 'AUTOMATION' = 'MESSAGE',
+    /** M19: every channel it goes on, one message each; left out, the draft's own. */
+    channels?: readonly Channel[],
+  ): Promise<OutboundSendResult> {
     const started = await this.inFirm(businessId, async (tx) => {
       const row = await this.row(tx, businessId, actor, id, true);
       if (row.status === 'CANCELED') throw conflict('CANCELED', 'This message was canceled.');
-      if (row.status !== 'DRAFT' && row.status !== 'SCHEDULED') return false;
+      if (row.status !== 'DRAFT' && row.status !== 'SCHEDULED') return [];
       if (version !== null && row.updatedAt.toISOString() !== version) throw stale();
-      const m = await this.shape(tx, businessId, row);
-      this.ready(m);
-      await this.confirmFields(tx, businessId, row, m, confirmUnresolved);
-      await tx.outboundMessage.update({ where: { id }, data: { status: 'SENDING' } });
-      return true;
+      const ids = await this.takeAll(tx, businessId, actor, row, channels, confirmUnresolved);
+      for (const each of ids) {
+        await tx.outboundMessage.update({ where: { id: each }, data: { status: 'SENDING' } });
+        // Y04/Y09: each message sent records its template's use (M19: each channel's copy too).
+        if (row.templateId)
+          await recordTemplateUse(tx, {
+            businessId,
+            templateId: row.templateId,
+            purpose: usePurpose,
+            entityType: 'outbound_message',
+            entityId: each,
+            usedByUserId: actor.userId,
+          });
+      }
+      return ids;
     });
-    if (started) await this.deliver(businessId, id);
-    return this.get(businessId, actor, id);
+    await this.auditCopies(id, started);
+    for (const each of started) await this.deliver(businessId, each);
+    const own = await this.get(businessId, actor, id);
+    if (!channels) return own;
+    const others: OutboundMessage[] = [];
+    for (const each of started.slice(1)) others.push(await this.get(businessId, actor, each));
+    return { ...own, others };
   }
 
   /** Each queued recipient, once; then the outcome. Also the job's way to send a scheduled one. */
@@ -1061,10 +1300,19 @@ export class OutboundMessagesService {
       const slug = (
         await tx.business.findUnique({ where: { id: businessId }, select: { slug: true } })
       )?.slug;
-      return { m, author, firm, queued, people, slug };
+      // M22: files with no text: each portal message says what was sent (the reply's line).
+      const filesOnly = m.body === NO_TEXT;
+      if (filesOnly)
+        m.body = filesLine(
+          await tx.outboundMessageFile.findMany({
+            where: { businessId, outboundMessageId: id },
+            select: { fileName: true },
+          }),
+        );
+      return { m, author, firm, queued, people, slug, filesOnly };
     });
     if (!plan) return;
-    const { m, author, firm, people, slug } = plan;
+    const { m, author, firm, people, slug, filesOnly } = plan;
     for (const r of plan.queued) {
       const p = people.find((x) => x.id === (r.clientId ?? r.leadId));
       const where = {
@@ -1094,7 +1342,7 @@ export class OutboundMessagesService {
       const text = await this.inFirm(businessId, async (tx) =>
         this.filled(await this.valuesFor(tx, businessId, author, p), m.subject, m.body),
       );
-      const own = { ...m, subject: text.subject, body: text.body };
+      const own = { ...m, subject: text.subject, body: filesOnly ? m.body : text.body };
       const outcome = await this.one(businessId, author, own, p, slug).catch((error: unknown) => {
         this.logger.warn(
           `message ${id}: a recipient failed (${error instanceof Error ? error.name : 'Error'})`,
@@ -1296,7 +1544,7 @@ export class OutboundMessagesService {
     return this.inFirm(businessId, async (tx) => {
       const rows = await tx.outboundMessage.findMany({
         where: { businessId, kind: 'DIRECT', status: 'SCHEDULED', scheduledFor: { lte: now } },
-        select: { id: true, createdByUserId: true },
+        select: { id: true, createdByUserId: true, templateId: true },
         take: 20,
       });
       const due: { id: string; authorUserId: string }[] = [];
@@ -1305,7 +1553,17 @@ export class OutboundMessagesService {
           where: { businessId, id: r.id, status: 'SCHEDULED' },
           data: { status: 'SENDING' },
         });
-        if (moved.count === 1) due.push({ id: r.id, authorUserId: r.createdByUserId });
+        if (moved.count !== 1) continue;
+        due.push({ id: r.id, authorUserId: r.createdByUserId });
+        if (r.templateId)
+          await recordTemplateUse(tx, {
+            businessId,
+            templateId: r.templateId,
+            purpose: 'MESSAGE',
+            entityType: 'outbound_message',
+            entityId: r.id,
+            usedByUserId: r.createdByUserId,
+          });
       }
       return due;
     });

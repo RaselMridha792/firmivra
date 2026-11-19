@@ -90,6 +90,25 @@ export const records: CaseModule['records'] = {
     },
   },
   /** A saved Create Staff form (no account, no invite). */
+  /** SM17: a file kept with staffDraft (Save under Remove), its stored copy never made. */
+  staffDraftFile: {
+    async create({ tx, businessId, get }) {
+      const draftId = await get('staffDraft');
+      const row = await tx.staffDraftAttachment.create({
+        data: {
+          businessId,
+          staffDraftId: draftId,
+          s3Key: `tenant/${businessId}/staff-drafts/${draftId}/${randomUUID()}`,
+          fileName: 'Fake W-4.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 9,
+          documentType: 'W4',
+        },
+        select: { id: true },
+      });
+      return row.id;
+    },
+  },
   staffDraft: {
     async create({ tx, businessId, get }) {
       const owner = await tx.membership.findFirstOrThrow({
@@ -122,6 +141,13 @@ const detailIds = {
 export const cases: CaseModule['cases'] = {
   [`GET ${BASE}/:id`]: { params: { id: 'staffMembership' } },
   [`GET ${BASE}/:id/permissions`]: { params: { id: 'staffMembership' } },
+  // SM05: an exception names one of the firm's accounts; firm P's own get 409, after the ids.
+  'POST /api/v1/business/staff-security-defaults/apply': {
+    params: {},
+    bodyIds: { exceptIds: 'staffMembership' },
+    body: { version: 'stale', confirm: true, exceptIds: [PLACEHOLDER] },
+    expect: 409,
+  },
   [`POST ${BASE}`]: {
     params: {},
     bodyIds: { ...detailIds, draftId: 'staffDraft' },
@@ -246,6 +272,26 @@ export const cases: CaseModule['cases'] = {
     body: { step: 2, data: {} },
   },
   ['DELETE /api/v1/business/staff-drafts/:id']: { params: { id: 'staffDraft' } },
+  // SM17: a draft's files (Save under Remove), its creator's own.
+  ['POST /api/v1/business/staff-drafts/:id/attachments/uploads']: {
+    params: { id: 'staffDraft' },
+    body: {
+      type: 'W4',
+      fileName: 'Fake W-4.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 9,
+      sha256: 'b'.repeat(64),
+    },
+  },
+  // Found, but the token opens nothing: 410 UPLOAD_EXPIRED.
+  ['POST /api/v1/business/staff-drafts/:id/attachments/uploads/confirm']: {
+    params: { id: 'staffDraft' },
+    body: { uploadToken: 'fake-upload-token' },
+    expect: 410,
+  },
+  ['DELETE /api/v1/business/staff-drafts/:id/attachments/:fileId']: {
+    params: { id: 'staffDraft', fileId: 'staffDraftFile' },
+  },
   ['PATCH /api/v1/business/staff-job-titles/:id']: {
     params: { id: 'staffJobTitle' },
     body: () => ({ name: `Fake renamed title ${tag()}` }),

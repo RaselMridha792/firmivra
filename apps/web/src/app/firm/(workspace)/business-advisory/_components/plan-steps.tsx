@@ -30,6 +30,7 @@ import {
   SealCheck,
   Storefront,
   Target,
+  UserCheck,
   Warning,
   X,
 } from '@phosphor-icons/react';
@@ -66,7 +67,7 @@ import {
 import { AddFiguresDialog } from './financials-screen';
 import { EditGoalDialog } from './goals-screen';
 import { WizardFrame, stepHref, useStepSave } from './plan-frame';
-import { SendPlanDialog, VersionsDialog } from './plans-screen';
+import { RequestApprovalDialog, SendPlanDialog, VersionsDialog } from './plans-screen';
 
 type Plan = AdvisoryPlanDetail;
 const orNull = (v: string) => v.trim() || null;
@@ -299,7 +300,6 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
               caption="Financial figures"
               dense
               noun="periods"
-              pageSize={10}
               showPagination={false}
               emptyTitle="No figures yet"
               emptyText="Add figures, or connect bookkeeping, payroll or a bank."
@@ -868,7 +868,6 @@ export function ActionStep({ plan }: { plan: Plan }) {
           caption="Tasks in this plan"
           dense
           noun="tasks"
-          pageSize={10}
           showPagination={false}
           emptyTitle="No tasks yet"
           emptyText="Add the steps that carry out the plan."
@@ -1022,7 +1021,11 @@ export function ReviewStep({ plan }: { plan: Plan }) {
   const qc = useQueryClient();
   const { save, saving, setSaving, error, setError, reload } = useStepSave(plan);
   const [msg, setMsg] = useState<string>();
-  const [dialog, setDialog] = useState<'versions' | 'send'>();
+  const [dialog, setDialog] = useState<'versions' | 'send' | 'approval'>();
+  // B10: waiting for the client's approval in the portal: their Approve finalizes it.
+  const awaiting = plan.status === 'AWAITING_CLIENT_APPROVAL';
+  // B10 (the lead's decision B): with a portal login, the client's approval finalizes the plan.
+  const approvalFirst = plan.clientApprovalRequired && !plan.clientApproval;
   const checks = readiness(plan);
   const missing = checks.filter((c) => !c.done);
   const p = plan.profile;
@@ -1067,7 +1070,7 @@ export function ReviewStep({ plan }: { plan: Plan }) {
       onReload={reload}
       onSaveDraft={() => save({ step: 5 })}
       nextLabel="Finalize Plan"
-      nextDisabled={missing.length > 0 || !plan.canEdit}
+      nextDisabled={missing.length > 0 || !plan.canEdit || awaiting || approvalFirst}
       onNext={() =>
         void run(
           () => api.advisory.finalizePlan(plan.id, { etag: plan.etag }),
@@ -1086,6 +1089,14 @@ export function ReviewStep({ plan }: { plan: Plan }) {
         {missing.length ? (
           <p className="mt-2 text-sm text-danger" data-testid="still-needed">
             Still needed: {missing.map((m) => m.todo).join('; ')}.
+          </p>
+        ) : null}
+        {approvalFirst && !awaiting ? (
+          <p className="mt-2 text-sm text-text" data-testid="finalize-needs-approval">
+            {plan.client.name} has a portal login, so they approve this plan before it is finalized.
+            {plan.status === 'IN_REVIEW'
+              ? ' Send it for their approval; their approval finalizes it.'
+              : ' Submit it for review, then send it for their approval.'}
           </p>
         ) : null}
       </section>
@@ -1162,6 +1173,17 @@ export function ReviewStep({ plan }: { plan: Plan }) {
             {plan.finalizedAt ? ` · finalized ${dayText(plan.finalizedAt)}` : ''}
             {plan.sentAt ? ` · sent ${dayText(plan.sentAt)}` : ''}
           </span>
+          {plan.canSend && plan.status === 'IN_REVIEW' && plan.clientApprovalRequired ? (
+            <button
+              type="button"
+              className={`${outlined} min-h-9 px-3`}
+              disabled={saving || missing.length > 0}
+              onClick={() => setDialog('approval')}
+            >
+              <UserCheck aria-hidden weight="fill" className="size-4 text-action" /> Send for Client
+              Approval
+            </button>
+          ) : null}
           {plan.status === 'DRAFT' ? (
             <button
               type="button"
@@ -1186,7 +1208,7 @@ export function ReviewStep({ plan }: { plan: Plan }) {
             <ClockCounterClockwise aria-hidden weight="bold" className="size-4 text-action" />{' '}
             Version History
           </button>
-          {plan.canSend && plan.currentVersion > 0 ? (
+          {plan.canSend && plan.currentVersion > 0 && !awaiting ? (
             <button
               type="button"
               className={`${outlined} min-h-9 px-3`}
@@ -1198,7 +1220,39 @@ export function ReviewStep({ plan }: { plan: Plan }) {
           ) : null}
         </div>
       </section>
+      {awaiting || plan.clientApproval ? (
+        <section className={card} aria-label="Client approval" data-testid="plan-client-approval">
+          <SectionHead
+            icon={UserCheck}
+            title="Client Approval"
+            subtitle="The client approves the plan in their portal before it is finalized."
+          />
+          {awaiting ? (
+            <p className="text-sm text-text" data-testid="plan-awaiting-approval">
+              Awaiting client approval{plan.sentAt ? ` since ${dayText(plan.sentAt)}` : ''}. The
+              plan is locked; Modify Plan withdraws the request.
+            </p>
+          ) : null}
+          {plan.clientApproval ? (
+            <p className="text-sm text-text" data-testid="plan-approved-by">
+              Approved by {plan.clientApproval.approvedBy ?? 'the client'} on{' '}
+              {dayText(plan.clientApproval.approvedAt)} in the portal (version{' '}
+              {plan.clientApproval.version}).
+            </p>
+          ) : null}
+        </section>
+      ) : null}
       <Disclaimer text={plan.disclaimer} />
+      {dialog === 'approval' ? (
+        <RequestApprovalDialog
+          plan={plan}
+          onClose={() => setDialog(undefined)}
+          onSent={() => {
+            setDialog(undefined);
+            setMsg(`${plan.name} sent to ${plan.client.name} for approval.`);
+          }}
+        />
+      ) : null}
       {dialog === 'versions' ? (
         <VersionsDialog plan={plan} onClose={() => setDialog(undefined)} />
       ) : null}

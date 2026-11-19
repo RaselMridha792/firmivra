@@ -4,6 +4,9 @@ import {
   CreateCustomRoleRequest,
   CreateDepartmentRequest,
   CreateStaffDocumentUploadRequest,
+  CreateStaffDraftUploadRequest,
+  STAFF_DRAFT_FILE_LIMIT,
+  type StaffDraftAttachment,
   CreateStaffRequest,
   CreateStaffTeamRequest,
   DEFAULT_ROLE_PERMISSIONS,
@@ -51,6 +54,9 @@ import {
   SaveStaffJobTitleRequest,
   type StaffSecurityDefaults,
   SaveStaffSecurityDefaultsRequest,
+  ApplyStaffSecurityDefaultsRequest,
+  type StaffSecurityApplyPreview,
+  type StaffSecurityDefaultField,
   StaffListQuery,
   type StaffListItem,
   type StaffLoginEvent,
@@ -287,6 +293,7 @@ function seed(empty: boolean): Store {
       head: null,
       teamCount: 0,
       staffCount: 0,
+      assignedCount: 0,
       status: name === 'Human Resources' ? 'INACTIVE' : 'ACTIVE',
       createdAt: '2024-01-12T14:00:00.000Z',
     });
@@ -493,6 +500,7 @@ function seed(empty: boolean): Store {
       department: { id: dept.id, name: dept.name },
       lead: dept.head,
       memberCount: 0,
+      assignedCount: 0,
       status: 'ACTIVE',
       createdAt: '2024-01-12T14:00:00.000Z',
     });
@@ -578,12 +586,18 @@ function storeFor(options: Options): Store {
 /** Counts that follow the rows: department staff and team counts, team member counts. */
 function recount(s: Store) {
   for (const d of s.departments) {
-    d.staffCount = s.members.filter(
-      (m) => m.detail.status !== 'DEACTIVATED' && m.detail.departments.some((x) => x.id === d.id),
-    ).length;
+    // SM15: as the API, the active staff and everyone assigned but the deactivated.
+    const inDept = s.members.filter((m) => m.detail.departments.some((x) => x.id === d.id));
+    d.staffCount = inDept.filter((m) => m.detail.status === 'ACTIVE').length;
+    d.assignedCount = inDept.filter((m) => m.detail.status !== 'DEACTIVATED').length;
     d.teamCount = s.teams.filter((t) => t.department.id === d.id && t.status !== 'ARCHIVED').length;
   }
-  for (const t of s.teams) t.memberCount = s.teamMembers.get(t.id)?.size ?? 0;
+  for (const t of s.teams) {
+    const ids = [...(s.teamMembers.get(t.id)?.keys() ?? [])];
+    const ms = s.members.filter((m) => ids.includes(m.detail.id));
+    t.memberCount = ms.filter((m) => m.detail.status === 'ACTIVE').length;
+    t.assignedCount = ms.filter((m) => m.detail.status !== 'DEACTIVATED').length;
+  }
 }
 
 const key = (module: string, capability: string) => `${module}:${capability}`;
@@ -611,6 +625,30 @@ function cellsFor(s: Store, role: MembershipRole, member?: Member): PermissionCe
   }
   return cells;
 }
+
+/**
+ * SM02: as the API, only what the actor has themselves. The Owner gives anything; anyone else
+ * only the cells their own grid has. `given` is the cells newly given; a kept cell never counts.
+ */
+function checkGrantable(s: Store, role: MembershipRole, given: Iterable<string>) {
+  if (role === 'OWNER') return;
+  const you = s.members.find((m) => m.detail.isYou);
+  const has = new Set(
+    cellsFor(s, you?.detail.role ?? role, you)
+      .filter((c) => c.granted)
+      .map((c) => key(c.module, c.capability)),
+  );
+  if ([...given].some((k) => !has.has(k)))
+    throw fail(403, 'CANNOT_GRANT', 'You can only give permissions you have yourself');
+}
+
+/** The cells `grants` turns on that `cells` does not have yet. */
+const newlyGiven = (cells: readonly PermissionCell[], grants: readonly PermissionGrant[]) => {
+  const on = new Set(cells.filter((c) => c.granted).map((c) => key(c.module, c.capability)));
+  return grants
+    .filter((gr) => gr.granted && !on.has(key(gr.module, gr.capability)))
+    .map((gr) => key(gr.module, gr.capability));
+};
 
 /** Edit and the others need View; Owner is locked. */
 function checkGrants(grants: readonly PermissionGrant[]) {
@@ -779,7 +817,8 @@ export function addInvitedMember(
     },
     mfa: 'PENDING',
     lastLogin: null,
-    invite: failed ? null : { sentAt, expiresAt },
+    // SM21: as the API, the invite is kept even when its email failed; it is just not sent.
+    invite: failed ? { sentAt: null, expiresAt } : { sentAt, expiresAt },
     notes: null,
     isYou: false,
     authority: NO_AUTHORITY,
@@ -880,6 +919,52 @@ function guard(options: Options) {
 export function createStaffMock(options: Options = {}): StaffClient {
   const g = guard(options);
   const { s } = g;
+  /** SM17: a draft made here ('You') or by the signed-in person. */
+  const mine = (d: StaffDraft) =>
+    d.createdBy === 'You' || d.createdBy === s.members.find((m) => m.detail.isYou)?.detail.name;
+  /** SM05: the accounts the saved defaults would change, as the API plans them. */
+  const applyPlan = (): StaffSecurityApplyPreview => {
+    const d = s.securityDefaults;
+    const plan: StaffSecurityApplyPreview = {
+      version: d.version,
+      accounts: [],
+      skipped: [],
+      unchanged: 0,
+    };
+    const live = s.members
+      .filter((m) => m.detail.status !== 'DEACTIVATED')
+      .sort((a, b) => a.detail.name.localeCompare(b.detail.name));
+    for (const m of live) {
+      const { id, name, role } = m.detail;
+      if (m.detail.isYou) plan.skipped.push({ id, name, reason: 'YOU' });
+      else if (!g.authorityOf(m).edit) plan.skipped.push({ id, name, reason: 'NOT_YOURS' });
+      else {
+        const x = m.security;
+        const differs: [StaffSecurityDefaultField, unknown, unknown][] = [
+          ['allowedAuthMethods', x.allowedAuthMethods, d.allowedAuthMethods],
+          ['accessLocation', x.accessLocation, d.accessLocation],
+          ['allowedIps', x.allowedIps, d.allowedIps],
+          ['allowedCountries', x.allowedCountries, d.allowedCountries],
+          ['restrictDevices', x.restrictDevices, d.restrictDevices],
+          ['autoLogoutMinutes', x.autoLogoutMinutes, d.autoLogoutMinutes],
+          ['maxConcurrentSessions', x.maxConcurrentSessions, d.maxConcurrentSessions],
+          ['signOutOtherSessions', x.signOutOtherSessions, d.signOutOtherSessions],
+          ['allowTrustedDevices', x.allowTrustedDevices, d.allowTrustedDevices],
+          ['notifyNewDeviceLogin', x.notices.newDeviceLogin, d.notices.newDeviceLogin],
+          ['notifyFailedLogins', x.notices.failedLogins, d.notices.failedLogins],
+          ['notifyPasswordChanges', x.notices.passwordChanges, d.notices.passwordChanges],
+          ['notifySecurityAlerts', x.notices.securityAlerts, d.notices.securityAlerts],
+          ['notifyLockouts', x.notices.lockouts, d.notices.lockouts],
+        ];
+        const changes = differs
+          .filter(([, a, b]) => JSON.stringify(a) !== JSON.stringify(b))
+          .map(([f]) => f);
+        if (changes.length) plan.accounts.push({ id, name, role, changes });
+        else plan.unchanged++;
+      }
+    }
+    return plan;
+  };
   const ownerOrAdmin = () => {
     if (g.role !== 'OWNER' && g.role !== 'ADMIN') throw forbidden();
   };
@@ -1017,7 +1102,13 @@ export function createStaffMock(options: Options = {}): StaffClient {
       }
       if (!ROLES_MANAGED_BY[g.role].includes(input.account.role))
         throw fail(403, 'CANNOT_GRANT', 'You cannot give this role');
-      if (input.permissions) checkGrants(input.permissions);
+      // SM17: only your own draft.
+      if (input.draftId && !s.drafts.some((d) => d.id === input.draftId && mine(d)))
+        throw notFound();
+      if (input.permissions) {
+        checkGrants(input.permissions);
+        checkGrantable(s, g.role, newlyGiven(cellsFor(s, input.account.role), input.permissions));
+      }
       const { member, invitation } = addInvitedMember(options, {
         name: `${input.account.firstName} ${input.account.lastName}`,
         email: input.account.email,
@@ -1037,11 +1128,33 @@ export function createStaffMock(options: Options = {}): StaffClient {
       if (input.details?.office !== undefined) m.detail.profile.office = input.details.office;
       if (input.compensation)
         Object.assign(m.compensation, input.compensation, { updatedAt: now() });
-      if (!input.sendWelcomeEmail) m.detail.invite = null;
+      // SM21: as the API, Send Welcome Email off still makes the invite, never emailed.
+      if (!input.sendWelcomeEmail)
+        m.detail.invite = {
+          sentAt: null,
+          expiresAt:
+            m.detail.invite?.expiresAt ?? new Date(Date.now() + 7 * 86_400_000).toISOString(),
+        };
       for (const p of input.permissions ?? [])
         m.overrides.set(key(p.module, p.capability), p.granted);
       s.created.set(input.idempotencyKey, m.detail.id);
-      if (input.draftId) s.drafts = s.drafts.filter((d) => d.id !== input.draftId);
+      if (input.draftId) {
+        // SM17: as the API, the draft's clean files become the member's documents.
+        const kept = s.drafts.find((d) => d.id === input.draftId)?.attachments ?? [];
+        for (const f of kept.filter((x) => x.scanStatus === 'CLEAN'))
+          m.documents.push({
+            id: uuid('0f00', s.next++),
+            type: f.type,
+            fileName: f.fileName,
+            contentType: f.contentType,
+            sizeBytes: f.sizeBytes,
+            scanStatus: 'CLEAN',
+            uploadedBy: 'You',
+            createdAt: now(),
+            archivedAt: null,
+          });
+        s.drafts = s.drafts.filter((d) => d.id !== input.draftId);
+      }
       return {
         staff: copy(m.detail),
         invitation: input.sendWelcomeEmail
@@ -1112,6 +1225,20 @@ export function createStaffMock(options: Options = {}): StaffClient {
         if (d.acceptsNewClients !== undefined) p.acceptsNewClients = d.acceptsNewClients;
         if (d.supervisorId !== undefined) {
           const boss = d.supervisorId ? g.find(d.supervisorId) : null;
+          // SM25: as the API, never a loop of reporting lines.
+          for (
+            let up = boss?.detail.profile.supervisor?.id, hops = 0;
+            up && hops < 100;
+            hops += 1
+          ) {
+            if (up === m.detail.id)
+              throw new ApiRequestError(
+                400,
+                'VALIDATION_FAILED',
+                'This member already supervises that person, directly or through others',
+              );
+            up = g.find(up).detail.profile.supervisor?.id;
+          }
           p.supervisor = boss ? ref(boss) : null;
         }
         for (const [field, kind] of [
@@ -1151,7 +1278,9 @@ export function createStaffMock(options: Options = {}): StaffClient {
     },
     sessions: async (id) => {
       await g.allowed();
-      return copy(g.find(id).sessions);
+      const m = g.find(id);
+      // SM12: as the API, the signed-in person's own session is marked on their own record.
+      return copy(m.sessions).map((x, i) => ({ ...x, current: m.detail.isYou && i === 0 }));
     },
     revokeSession: async (id, sessionId) => {
       await g.allowed();
@@ -1289,6 +1418,7 @@ export function createStaffMock(options: Options = {}): StaffClient {
       const m = g.find(id);
       g.manageable(m);
       checkGrants(input.grants);
+      checkGrantable(s, g.role, newlyGiven(cellsFor(s, m.detail.role, m), input.grants));
       const base = cellsFor(s, m.detail.role);
       const escalates = input.grants.some(
         (gr) =>
@@ -1335,6 +1465,19 @@ export function createStaffMock(options: Options = {}): StaffClient {
           !has(mod, 'VIEW')
         )
           throw fail(400, 'PERMISSION_NEEDS_VIEW', 'Give View before the other capabilities');
+      // A cell this turns on (Allow, or Inherit over a Deny) must be one the actor has.
+      checkGrantable(
+        s,
+        g.role,
+        newlyGiven(
+          cellsFor(s, m.detail.role, m),
+          input.overrides.map((o) => ({
+            module: o.module,
+            capability: o.capability,
+            granted: has(o.module, o.capability),
+          })),
+        ),
+      );
       const escalates = input.overrides.some(
         (o) => o.mode === 'ALLOW' && !roleHas(o.module, o.capability),
       );
@@ -1354,6 +1497,14 @@ export function createStaffMock(options: Options = {}): StaffClient {
       const m = g.find(id);
       const from = g.find(fromId);
       g.manageable(m);
+      checkGrantable(
+        s,
+        g.role,
+        newlyGiven(
+          cellsFor(s, m.detail.role, m),
+          cellsFor(s, from.detail.role, from).filter((c) => c.granted),
+        ),
+      );
       m.overrides = new Map(from.overrides);
       return { role: m.detail.role, cells: cellsFor(s, m.detail.role, m), updatedAt: now() };
     },
@@ -1462,17 +1613,68 @@ export function createStaffMock(options: Options = {}): StaffClient {
       return copy(doc);
     },
 
+    // SM17: as the API, a draft is its creator's own (another's is 404).
     drafts: async () => {
       await g.allowed();
       ownerOrAdmin();
-      return copy(s.drafts);
+      // As the API, the list leaves the files out.
+      return copy(s.drafts.filter(mine)).map(({ attachments: _files, ...d }) => d);
     },
     draft: async (draftId) => {
       await g.allowed();
       ownerOrAdmin();
-      const d = s.drafts.find((x) => x.id === draftId);
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
       if (!d) throw notFound();
-      return copy(d);
+      return copy({ ...d, attachments: d.attachments ?? [] });
+    },
+    // SM17: Save under Remove, as the API: the creator's own draft, at most 20 files.
+    createDraftUpload: async (draftId, body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const input = parseInput(CreateStaffDraftUploadRequest, body);
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
+      if (!d) throw notFound();
+      if ((d.attachments ?? []).length >= STAFF_DRAFT_FILE_LIMIT)
+        throw fail(409, 'DRAFT_FILE_LIMIT', 'A draft keeps up to 20 files. Remove one first.');
+      const n = s.next++;
+      s.uploads.set(`mock-upload-${n}`, { memberId: `draft:${draftId}`, body: input });
+      return mockUploadTicket({
+        uploadToken: `mock-upload-${n}`,
+        url: `mock:upload/${n}`,
+        sizeBytes: input.sizeBytes,
+        headers: { 'content-type': input.contentType },
+        expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+      });
+    },
+    confirmDraftUpload: async (draftId, body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const { uploadToken } = parseInput(ConfirmStaffDocumentUploadRequest, body);
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
+      if (!d) throw notFound();
+      const pending = s.uploads.get(uploadToken);
+      if (!pending || pending.memberId !== `draft:${draftId}`)
+        throw fail(410, 'UPLOAD_EXPIRED', 'This upload has expired. Upload the file again.');
+      s.uploads.delete(uploadToken);
+      const file: StaffDraftAttachment = {
+        id: uuid('0f10', s.next++),
+        type: pending.body.type,
+        fileName: pending.body.fileName,
+        contentType: pending.body.contentType,
+        sizeBytes: pending.body.sizeBytes,
+        scanStatus: 'CLEAN',
+        createdAt: now(),
+      };
+      d.attachments = [...(d.attachments ?? []), file];
+      return copy(file);
+    },
+    deleteDraftAttachment: async (draftId, fileId) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
+      if (!d?.attachments?.some((f) => f.id === fileId)) throw notFound();
+      d.attachments = d.attachments.filter((f) => f.id !== fileId);
+      return { ok: true };
     },
     createDraft: async (body) => {
       await g.allowed();
@@ -1494,7 +1696,7 @@ export function createStaffMock(options: Options = {}): StaffClient {
       await g.allowed();
       ownerOrAdmin();
       const input = parseInput(SaveStaffDraftRequest, body);
-      const d = s.drafts.find((x) => x.id === draftId);
+      const d = s.drafts.find((x) => x.id === draftId && mine(x));
       if (!d) throw notFound();
       d.step = input.step;
       d.data = copy(input.data) as Record<string, unknown>;
@@ -1504,6 +1706,7 @@ export function createStaffMock(options: Options = {}): StaffClient {
     deleteDraft: async (draftId) => {
       await g.allowed();
       ownerOrAdmin();
+      if (!s.drafts.some((d) => d.id === draftId && mine(d))) throw notFound();
       s.drafts = s.drafts.filter((d) => d.id !== draftId);
       return { ok: true };
     },
@@ -1647,9 +1850,81 @@ export function createStaffMock(options: Options = {}): StaffClient {
       };
       return copy({ ...s.securityDefaults, existingAccounts: s.members.length });
     },
+    // SM05: as the API, the saved defaults onto the accounts the viewer may change, but the
+    // exceptions; yourself and the accounts above you are left out, and named.
+    securityApplyPreview: async () => {
+      await g.allowed();
+      ownerOrAdmin();
+      return applyPlan();
+    },
+    applySecurityDefaults: async (body) => {
+      await g.allowed();
+      ownerOrAdmin();
+      const input = parseInput(ApplyStaffSecurityDefaultsRequest, body);
+      const except = new Set(input.exceptIds ?? []);
+      for (const id of except) g.find(id);
+      const plan = applyPlan();
+      if (plan.version !== input.version)
+        throw fail(409, 'SAVE_CONFLICT', 'The defaults were saved again after this preview.');
+      const targets = plan.accounts.filter((a) => !except.has(a.id));
+      const d = s.securityDefaults;
+      for (const a of targets)
+        Object.assign(g.find(a.id).security, {
+          allowedAuthMethods: [...d.allowedAuthMethods],
+          restrictDevices: d.restrictDevices,
+          autoLogoutMinutes: d.autoLogoutMinutes,
+          accessLocation: d.accessLocation,
+          allowedIps: [...d.allowedIps],
+          allowedCountries: [...d.allowedCountries],
+          maxConcurrentSessions: d.maxConcurrentSessions,
+          signOutOtherSessions: d.signOutOtherSessions,
+          allowTrustedDevices: d.allowTrustedDevices,
+          notices: { ...d.notices },
+        });
+      return { applied: targets.length, excepted: plan.accounts.length - targets.length };
+    },
 
     importTemplateUrl: () =>
       `data:text/csv;charset=utf-8,${encodeURIComponent('First Name,Last Name,Work Email,Phone,Job Title,Role,Department\n')}`,
+    // SM09: the API’s own workbook (staff-read.service.ts importTemplateXlsx), made once by it.
+    importTemplateXlsxUrl: () =>
+      'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' +
+      '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',
     previewImport: async (body) => {
       await g.allowed();
       ownerOrAdmin();
@@ -1815,6 +2090,7 @@ export function createDepartmentsMock(options: Options = {}): DepartmentsClient 
         head: headRef(input.headMembershipId),
         teamCount: 0,
         staffCount: 0,
+        assignedCount: 0,
         status: 'ACTIVE',
         createdAt: now(),
       };
@@ -1878,6 +2154,7 @@ export function createDepartmentsMock(options: Options = {}): DepartmentsClient 
         department: { id: d.id, name: d.name },
         lead: headRef(input.leadMembershipId),
         memberCount: 0,
+        assignedCount: 0,
         status: 'ACTIVE',
         createdAt: now(),
       };
@@ -2106,6 +2383,7 @@ export function createRolesMock(options: Options = {}): RolesClient {
       manage(r);
       const input = parseInput(SaveRolePermissionsRequest, body);
       checkGrants(input.grants);
+      checkGrantable(s, g.role, newlyGiven(cellsFor(s, r), input.grants));
       // An Admin cannot close Roles & Permissions to every Admin; the Owner can.
       if (
         g.role === 'ADMIN' &&
@@ -2185,6 +2463,13 @@ export function createRolesMock(options: Options = {}): RolesClient {
       const grid = new Map(base);
       for (const gr of input.grants ?? []) grid.set(key(gr.module, gr.capability), gr.granted);
       viewFirst(grid);
+      checkGrantable(
+        s,
+        g.role,
+        (input.grants ?? [])
+          .filter((gr) => gr.granted && !base.get(key(gr.module, gr.capability)))
+          .map((gr) => key(gr.module, gr.capability)),
+      );
       if (
         (input.grants ?? []).some((gr) => gr.granted && !base.get(key(gr.module, gr.capability))) &&
         !input.acknowledgeEscalation
@@ -2220,6 +2505,13 @@ export function createRolesMock(options: Options = {}): RolesClient {
         const grid = new Map(role.grid);
         for (const gr of input.grants) grid.set(key(gr.module, gr.capability), gr.granted);
         viewFirst(grid);
+        checkGrantable(
+          s,
+          g.role,
+          input.grants
+            .filter((gr) => gr.granted && !role.grid.get(key(gr.module, gr.capability)))
+            .map((gr) => key(gr.module, gr.capability)),
+        );
         if (
           input.grants.some((gr) => {
             const k = key(gr.module, gr.capability);

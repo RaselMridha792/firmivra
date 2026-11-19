@@ -215,11 +215,13 @@ function hello(data: { name: string }): Block {
 }
 
 function appointment(
-  data: NotifyTemplates['appointment.booked'],
+  data: NotifyTemplates['appointment.booked'] | NotifyTemplates['appointment.lead-booked'],
   b: Branding,
   o: RenderOptions,
   intro: (firm: string) => string,
   subject: (firm: string) => string,
+  /** P4-1: a lead has no portal: no link and no ask to confirm there. */
+  portal = true,
 ): Content {
   const firm = b.name;
   // Review 2 (B7, B9): the firm's own words and the client instructions, when there are any.
@@ -245,10 +247,17 @@ function appointment(
       },
       ...(instructions ? [text(`Instructions: ${instructions}`)] : []),
       // Review 2 (row 8): asked until the client confirms it.
-      ...(field(data, 'confirmAsk') === true
+      ...(portal && field(data as NotifyTemplates['appointment.booked'], 'confirmAsk') === true
         ? [text('Please confirm this appointment in your client portal.')]
         : []),
-      button('View appointment', link(data, 'link', o)),
+      ...(portal
+        ? [
+            button(
+              'View appointment',
+              link(data as NotifyTemplates['appointment.booked'], 'link', o),
+            ),
+          ]
+        : [text('To change or cancel it, reply to this email or contact the firm.')]),
     ],
   };
 }
@@ -313,6 +322,32 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       ],
     };
   },
+
+  // SM33: an Owner reset the member's two-factor sign-in; no link, no code.
+  'staff.mfa-reset': (d, b) => ({
+    channel: 'email',
+    subject: `Your ${b.name} two-factor sign-in was reset`,
+    blocks: [
+      hello(d),
+      text(
+        `Your two-factor sign-in at ${b.name} was reset. You will set it up again when you next sign in.`,
+      ),
+      small(
+        "If you didn't expect this, contact your firm right away. Nobody will ask for your codes.",
+      ),
+    ],
+  }),
+
+  // SM33: the member set up two-factor sign-in (Firmivra's own notice).
+  'platform.mfa-enrolled': (d) => ({
+    channel: 'email',
+    subject: 'Two-factor sign-in set up',
+    blocks: [
+      hello(d),
+      text('Two-factor sign-in was set up on your Firmivra account.'),
+      small("If this wasn't you, contact your firm right away. Nobody will ask for your codes."),
+    ],
+  }),
 
   'staff.phone-code': (d, b) => ({
     channel: 'sms',
@@ -458,6 +493,48 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     } in your client portal: ${link(d, 'link', o)}`,
   }),
 
+  // BK-CP2: a new report in the portal, by its service's name; never the report itself.
+  'report.published': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `${firm} shared a new report`,
+      blocks: [
+        hello(d),
+        text(`${firm} shared a new report for ${required(d, 'title')} in your client portal.`),
+        button('Open the client portal', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  // CP-3d: a new announcement in the portal, by its title; never its text.
+  // An announcement may have no title: the notice then says only that there is one.
+  'announcement.published': (d, b, o) => {
+    const firm = b.name;
+    const title = d.title.trim();
+    return {
+      channel: 'email',
+      subject: `New announcement from ${firm}`,
+      blocks: [
+        hello(d),
+        text(
+          title
+            ? `${firm} posted a new announcement in your client portal: ${title}.`
+            : `${firm} posted a new announcement in your client portal.`,
+        ),
+        button('Read it in the client portal', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  'announcement.published-sms': (d, b, o) => {
+    const title = d.title.trim();
+    return {
+      channel: 'sms',
+      text: `${b.name}: new announcement${title ? `, ${title}` : ''}. Read it in your client portal: ${link(d, 'link', o)}`,
+    };
+  },
+
   'appointment.booked': (d, b, o) =>
     appointment(
       d,
@@ -483,6 +560,49 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       o,
       (firm) => `This is a reminder of your appointment with ${firm}.`,
       (firm) => `Reminder: your appointment with ${firm}`,
+    ),
+
+  // A7: a configured Text reminder: the time and the portal link, with the reminder's own note
+  // and the instructions shown in texts (B9), each kept short.
+  'appointment.reminder-sms': (d, b, o) => {
+    const words = (key: 'message' | 'instructions') => {
+      const value = field(d, key);
+      return typeof value === 'string' && value.trim() ? capped(oneLine(value), 300) : null;
+    };
+    const message = words('message');
+    const instructions = words('instructions');
+    return {
+      channel: 'sms',
+      text: [
+        `${b.name}: reminder of your ${required(d, 'title')} on ${dateTime(d, 'startsAt', required(d, 'timeZone'))}.`,
+        message,
+        instructions ? `Instructions: ${instructions}` : null,
+        `Details: ${link(d, 'link', o)}`,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    };
+  },
+
+  // P4-1: a lead's own appointment, to the lead's email: no portal link, never a text.
+  'appointment.lead-booked': (d, b, o) =>
+    appointment(
+      d,
+      b,
+      o,
+      (firm) => `Your appointment with ${firm} is booked.`,
+      (firm) => `Your appointment with ${firm} is booked`,
+      false,
+    ),
+
+  'appointment.lead-reminder': (d, b, o) =>
+    appointment(
+      d,
+      b,
+      o,
+      (firm) => `This is a reminder of your appointment with ${firm}.`,
+      (firm) => `Reminder: your appointment with ${firm}`,
+      false,
     ),
 
   // Tax Planning Review 2 (Project Deadlines): a member's reminder, never the description.

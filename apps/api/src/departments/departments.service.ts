@@ -35,6 +35,7 @@ import type {
   UpdateDepartmentBody,
   UpdateTeamBody,
 } from './departments-input.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -161,7 +162,7 @@ export class DepartmentsService {
     rows: Prisma.DepartmentGetPayload<object>[],
   ): Promise<Department[]> {
     const ids = rows.map((r) => r.id);
-    const [heads, teams, staff] = await Promise.all([
+    const [heads, teams, staff, assigned] = await Promise.all([
       this.heads(
         tx,
         businessId,
@@ -177,9 +178,20 @@ export class DepartmentsService {
         where: { businessId, departmentId: { in: ids }, membership: { status: 'ACTIVE' } },
         _count: { _all: true },
       }),
+      // SM15: everyone assigned but the deactivated, the directory's set.
+      tx.memberDepartment.groupBy({
+        by: ['departmentId'],
+        where: {
+          businessId,
+          departmentId: { in: ids },
+          membership: { status: { not: 'DEACTIVATED' } },
+        },
+        _count: { _all: true },
+      }),
     ]);
     const tc = new Map(teams.map((t) => [t.departmentId, t._count._all]));
     const sc = new Map(staff.map((s) => [s.departmentId, s._count._all]));
+    const ac = new Map(assigned.map((s) => [s.departmentId, s._count._all]));
     return rows.map((r) => ({
       id: r.id,
       name: r.name,
@@ -187,6 +199,7 @@ export class DepartmentsService {
       head: r.headMembershipId ? (heads.get(r.headMembershipId) ?? null) : null,
       teamCount: tc.get(r.id) ?? 0,
       staffCount: sc.get(r.id) ?? 0,
+      assignedCount: ac.get(r.id) ?? 0,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
     }));
@@ -199,7 +212,7 @@ export class DepartmentsService {
       include: { department: { select: { id: true; name: true } } };
     }>[],
   ): Promise<StaffTeam[]> {
-    const [leads, counts] = await Promise.all([
+    const [leads, counts, assigned] = await Promise.all([
       this.heads(
         tx,
         businessId,
@@ -214,8 +227,18 @@ export class DepartmentsService {
         },
         _count: { _all: true },
       }),
+      tx.teamMember.groupBy({
+        by: ['teamId'],
+        where: {
+          businessId,
+          teamId: { in: rows.map((r) => r.id) },
+          membership: { status: { not: 'DEACTIVATED' } },
+        },
+        _count: { _all: true },
+      }),
     ]);
     const mc = new Map(counts.map((c) => [c.teamId, c._count._all]));
+    const ac = new Map(assigned.map((c) => [c.teamId, c._count._all]));
     return rows.map((r) => ({
       id: r.id,
       name: r.name,
@@ -223,6 +246,7 @@ export class DepartmentsService {
       department: { id: r.department.id, name: r.department.name },
       lead: r.leadMembershipId ? (leads.get(r.leadMembershipId) ?? null) : null,
       memberCount: mc.get(r.id) ?? 0,
+      assignedCount: ac.get(r.id) ?? 0,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
     }));
@@ -404,7 +428,8 @@ export class DepartmentsService {
         { type: 'department', id: d.id },
         {
           departmentId: d.id,
-          fields: Object.keys(body).filter((k) => k !== 'moveTo'),
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          ...auditChanges(d, saved, { fields: Object.keys(body), skip: ['moveTo'] }),
           moved: leaving && body.moveTo !== undefined,
           actorUserId: userId,
         },
@@ -522,7 +547,12 @@ export class DepartmentsService {
         tx,
         'team.updated',
         { type: 'team', id: t.id },
-        { teamId: t.id, fields: Object.keys(body), actorUserId: userId },
+        {
+          teamId: t.id,
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          ...auditChanges(t, saved, { fields: Object.keys(body) }),
+          actorUserId: userId,
+        },
       );
       return (await this.teamRows(tx, businessId, [saved]))[0] as StaffTeam;
     });

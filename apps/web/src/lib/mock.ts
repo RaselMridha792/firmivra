@@ -63,6 +63,26 @@ const role = (tabRole() ?? process.env.NEXT_PUBLIC_API_MOCK_ROLE) as MockRole | 
  */
 export const MOCK_ROLE: MockRole = role && ROLES.includes(role) ? role : 'OWNER';
 
+/**
+ * sessionStorage key a mock spec sets to take module views away from the signed-in member
+ * ("INVOICES_PAYMENTS,TASKS"), as a custom role or a member's own change does (Dashboard Review
+ * Two V5): the dashboard mock then leaves out those numbers, as the API does.
+ */
+export const MOCK_NO_VIEW_KEY = 'fv-mock-no-view';
+export function mockNoView(): ReadonlySet<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    return new Set(
+      (window.sessionStorage.getItem(MOCK_NO_VIEW_KEY) ?? '')
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 /** Waits like a real request, so loading states show in mock mode too. */
 export const mockDelay = (ms = 250) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -74,8 +94,10 @@ export const MOCK_FAIL_KEY = 'fv-mock-fail';
  * calls named in sessionStorage `fv-mock-fail` ("dashboard.summary,messages.inbox") answer 500
  * like a failing API, so a spec can show each widget's error state and Try again. A name ending
  * in "@after" ("leadPipeline.update@after") does the call, then answers 500: a change that went
- * through although its answer was lost (Leads R2 7). Reads the key on every call, so clearing it
- * lets Try again succeed. Mock mode is off in production builds.
+ * through although its answer was lost (Leads R2 7). A name ending in "@slow"
+ * ("leadPipeline.activity@slow") answers 1.5 s late, as one slow query on dev does, so a spec can
+ * check a screen that refetches several queries at once (Leads R2 5). Reads the key on every call,
+ * so clearing it lets Try again succeed. Mock mode is off in production builds.
  */
 export function failable<T extends object>(module: string, client: T): T {
   return new Proxy(client, {
@@ -95,6 +117,8 @@ export function failable<T extends object>(module: string, client: T): T {
         const result = (value as (...a: unknown[]) => unknown).apply(target, args);
         if (failing.includes(`${module}.${prop}@after`))
           return Promise.resolve(result).then(() => Promise.reject(failure()));
+        if (failing.includes(`${module}.${prop}@slow`))
+          return Promise.resolve(result).then((answer) => mockDelay(1500).then(() => answer));
         return result;
       };
     },

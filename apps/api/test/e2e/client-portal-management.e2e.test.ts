@@ -515,4 +515,20 @@ describe('the Client Portal module', () => {
     }
     expect((await call(owner, `/clients/not-a-uuid`)).status).toBe(400);
   });
+
+  it("CP-F2-04: a staff preview is listed as the member's, and never the client's Last Activity", async () => {
+    const lastActivity = async () =>
+      ClientPortalHeader.parse((await call(owner, `/clients/${clients.x}`)).body).portal
+        .lastActivity;
+    // The Admin's lock and unlock (earlier tests) are newer than the client's sign-in.
+    expect((await lastActivity())?.type).toBe('portal.signed_in');
+    expect((await call(owner, `/clients/${clients.x}/preview`)).status).toBe(200);
+    expect((await lastActivity())?.type).toBe('portal.signed_in');
+    const page = ClientPortalActivityPage.parse(
+      (await call(owner, `/clients/${clients.x}/activity?limit=1`)).body,
+    );
+    expect(page.items.map((i) => [i.type, i.actor.kind, i.actor.name])).toEqual([
+      ['portal.preview_opened', 'STAFF', 'Fake owner'],
+    ]);
+  });
 });

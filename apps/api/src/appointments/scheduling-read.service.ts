@@ -14,6 +14,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
+import { reachesLead } from './appointment-party.js';
 import { DAY, zonedDate, zonedInstant } from './calendar.js';
 import { activeMembers, type FirmActor, firmTimeZone, inFullWhere } from './calendar-data.js';
 import { errors } from './errors.js';
@@ -171,6 +172,12 @@ export class SchedulingReadService {
             { client: { email: term } },
             { client: { phone: term } },
             { client: { profile: { businessName: term } } },
+            // P4-1: a lead's own appointment, by its lead.
+            { clientId: null, lead: { firstName: term } },
+            { clientId: null, lead: { lastName: term } },
+            { clientId: null, lead: { email: term } },
+            { clientId: null, lead: { phone: term } },
+            { clientId: null, lead: { businessName: term } },
             { service: { name: term } },
             { type: { name: term } },
             { staff: { user: { name: term } } },
@@ -356,12 +363,16 @@ export class SchedulingReadService {
     const record = await this.inFirm(businessId, async (tx) => {
       const row = await findSchedulingRow(tx, businessId, actor, id);
       if (!row) throw errors.notFound();
-      return toRecord(
+      const record = toRecord(
         row,
         await firmTimeZone(tx, businessId),
         await this.history.events(tx, businessId, row),
         await this.history.sentNotices(tx, businessId, row),
       );
+      // P4-2: whether this member may convert the lead (Convert to New client when completing).
+      return record.contact.kind === 'LEAD' && row.lead
+        ? { ...record, contact: { ...record.contact, leadReach: reachesLead(actor, row.lead) } }
+        : record;
     });
     await this.audit.log('appointment.viewed', { type: 'appointment', id });
     return record;

@@ -490,6 +490,8 @@ export const PORTAL_BLOCKED_TEXT = {
 /** GET /portal/{firmSlug}/me/documents. "View My Uploads" is `source: 'MINE'` (the default). */
 export const ListMyDocumentsQuery = z.strictObject({
   source: z.enum(['MINE', 'FIRM']).optional().default('MINE'),
+  /** CP-5d: the files uploaded through one of the client's custom tabs (404 if they can't see it). */
+  portalTabId: z.uuid().optional(),
   categoryId: z.uuid().optional(),
   taxYear: TaxYear.optional(),
   search: SearchTerm.optional(),
@@ -550,6 +552,8 @@ export type UploadTargets = z.infer<typeof UploadTargets>;
 export const CreateMyUploadRequest = z
   .strictObject({
     serviceId: z.uuid(),
+    /** CP-5d: an upload through a custom document tab the client sees; the file keeps the tab. */
+    portalTabId: z.uuid().optional(),
     requestId: z.uuid().nullable().optional(),
     categoryId: z.uuid().nullable().optional(),
     taxYear: TaxYear.nullable().optional(),

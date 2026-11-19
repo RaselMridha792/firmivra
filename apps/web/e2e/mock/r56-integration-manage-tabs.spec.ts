@@ -113,7 +113,23 @@ test('sync settings send only what changed and keep unsupported directions out',
   await page.getByLabel('Sync frequency').selectOption('30');
   await page.getByRole('switch', { name: 'Create clients that do not exist yet' }).click();
   await save.click();
+  // I-UA06: a review first: what changes and what the next sync does; Back keeps the choices.
+  const review = page.getByRole('dialog', { name: 'Review sync settings' });
+  const facts = review.getByTestId('setup-review');
+  await expect(facts).toContainText('EnvironmentLive');
+  await expect(facts).toContainText('Direction(changed)Import to Firmivra');
+  await expect(facts).toContainText('Schedule(changed)Every 30 minutes');
+  await expect(facts).toContainText('Objects(changed)');
+  await expect(facts).toContainText('Chart of Accounts');
+  await expect(facts).toContainText('Saving changes no data.');
+  expect(sent.filter((s) => s.method === 'PATCH')).toHaveLength(0);
+  await review.getByRole('button', { name: 'Back' }).click();
+  await expect(review).toBeHidden();
+  await expect(page.getByLabel('Sync frequency')).toHaveValue('30');
+  await save.click();
+  await review.getByRole('button', { name: 'Confirm and save' }).click();
   await expect(page.getByText('Sync settings saved.')).toBeVisible();
+  expect(sent.filter((s) => s.method === 'PATCH')).toHaveLength(1);
   const patch = sent.find((s) => s.method === 'PATCH');
   expect(patch?.path).toBe(`/connections/${MANAGE_INTEGRATION_ID}/settings`);
   expect(patch?.body).toEqual({
@@ -161,6 +177,78 @@ test('permissions show what is missing and Reconnect goes to the provider', asyn
   await expect(list.getByRole('listitem')).toHaveCount(4);
   await list.getByRole('button', { name: 'Reconnect' }).click();
   await expect(page).toHaveURL('https://provider.example.test/authorize');
+});
+
+test('I-R2-06: a connection needing attention offers no Sync Now, and says what comes first', async ({
+  page,
+}) => {
+  await serve(page, 'attention');
+  await open(page, base);
+  await expect(page.getByTestId('sync-blocked')).toHaveText(
+    'Fix the connection first (see Troubleshooting): it cannot sync until then.',
+    { timeout: 60_000 },
+  );
+  // Both Sync Now buttons (the header and Sync Controls) are off.
+  for (const button of await page.getByRole('button', { name: 'Sync Now', exact: true }).all())
+    await expect(button).toBeDisabled();
+});
+
+test('I-UA04: a problem says what it affects and what to do; the last success apart from the failed attempt', async ({
+  page,
+}) => {
+  await serve(page, 'attention');
+  await open(page, base);
+  const advice = page.getByTestId('status-advice');
+  await expect(advice).toContainText(
+    'What it affects:The objects that need that permission do not sync.',
+    { timeout: 60_000 },
+  );
+  await expect(advice).toContainText(
+    'What to do:Choose Fix permissions and grant the missing permission at the provider.',
+  );
+  await expect(page.getByTestId('last-success')).toContainText('Last Successful Sync');
+  await expect(page.getByTestId('last-success')).toContainText('3 hours ago');
+  await expect(page.getByTestId('last-attempt')).toContainText('Last Attempt');
+  await expect(page.getByTestId('last-attempt')).toContainText('20 minutes ago');
+});
+
+test('I-UA04: a healthy connection shows its last successful sync and no separate attempt', async ({
+  page,
+}) => {
+  await serve(page);
+  await open(page, base);
+  await expect(page.getByTestId('last-success')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('last-attempt')).toHaveCount(0);
+  await expect(page.getByTestId('status-advice')).toHaveCount(0);
+});
+
+test('I-UA01: every tab and each consequential control has its own Help', async ({ page }) => {
+  await serve(page);
+  const tabs: [string, string[]][] = [
+    ['/sync-settings', ['Sync schedule', 'Data to sync', 'Provider options', 'Sync Now']],
+    ['/data-mapping', ['Data mapping']],
+    ['/permissions', ['Granted permissions']],
+    ['/sync-history', ['Sync history']],
+    ['/troubleshooting', ['Connection health']],
+  ];
+  for (const [path, topics] of tabs) {
+    await open(page, `${base}${path}`);
+    for (const topic of topics)
+      await expect(page.getByRole('button', { name: `About ${topic}`, exact: true })).toBeVisible({
+        timeout: 60_000,
+      });
+  }
+  // Each says what the area does and names the consequence (read with the icon).
+  await expect(
+    page.getByRole('button', { name: 'About Connection health', exact: true }),
+  ).toHaveAccessibleDescription(/syncs no data/);
+  await open(page, `${base}/sync-settings`);
+  await expect(
+    page.getByRole('button', { name: 'About Data to sync', exact: true }),
+  ).toHaveAccessibleDescription(/what is already in Firmivra stays/, { timeout: 60_000 });
+  await expect(
+    page.getByRole('button', { name: 'About Sync Now', exact: true }),
+  ).toHaveAccessibleDescription(/cannot run while the connection is disconnected/);
 });
 
 test('sync history filters, pages and opens a failed run with guidance', async ({ page }) => {
@@ -214,7 +302,7 @@ test('the custom API setup saves, rotates a write-only secret and sends a test',
     events: ['client.created', 'invoice.paid', 'appointment.booked'],
   });
   await setup.getByLabel('New secret (write-only)').fill('synthetic-secret-value-123');
-  await setup.getByRole('button', { name: 'Rotate Secret' }).click();
+  await setup.getByRole('button', { name: 'Rotate Secret', exact: true }).click();
   await expect(setup.getByText(/It ends in a1b2; it is not shown again/)).toBeVisible();
   await expect(setup.getByLabel('New secret (write-only)')).toHaveValue('');
   await setup.getByRole('button', { name: 'Send Test Event' }).click();

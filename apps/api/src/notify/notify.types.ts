@@ -31,6 +31,13 @@ export interface NotifyTemplates {
   'staff.invite': IgnoredFirmName & { name: string; link: string; expiresAt: Date };
   /** The 6-digit code that verifies a member's mobile number (R60's column request 13). */
   'staff.phone-code': IgnoredFirmName & { code: string };
+  /** SM33: an Owner of the firm reset the member's two-factor sign-in. */
+  'staff.mfa-reset': IgnoredFirmName & { name: string };
+  /**
+   * SM33: the member set up two-factor sign-in. Firmivra's own notice: one login may be in
+   * several firms.
+   */
+  'platform.mfa-enrolled': { name: string };
 
   // ----- Client portal (R3) -----
   /** The 6-digit code that verifies a sign-up's email. */
@@ -187,10 +194,39 @@ export interface NotifyTemplates {
     link: string;
   };
 
+  // ----- Workspaces (BK-CP2) -----
+  /**
+   * The firm published a Bookkeeping report: the service's name (the firm's own words) and the
+   * portal link to My Services. Never the report's title, figures or file.
+   */
+  'report.published': IgnoredFirmName & { name: string; title: string; link: string };
+
+  // ----- Announcements (CP-3d) -----
+  /**
+   * A general announcement went live in the client's portal: its title (the firm's own words,
+   * filled for the client) and the portal link. Never its text: the portal holds the rest.
+   */
+  'announcement.published': IgnoredFirmName & { name: string; title: string; link: string };
+  /** The same as a text, to a client who agreed to texts about announcements. */
+  'announcement.published-sms': IgnoredFirmName & { title: string; link: string };
+
   // ----- Appointments (R12) -----
   'appointment.booked': AppointmentData;
   'appointment.changed': AppointmentData;
   'appointment.reminder': AppointmentData;
+  /**
+   * A7: a configured Text reminder, to a client who agreed to appointment texts, when the firm
+   * sends texts. The time and the portal link, the reminder's own note, and the client
+   * instructions only when the appointment shows them in texts (B9).
+   */
+  'appointment.reminder-sms': IgnoredFirmName &
+    Pick<AppointmentData, 'title' | 'startsAt' | 'timeZone' | 'link' | 'message' | 'instructions'>;
+  /**
+   * P4-1: a lead's own appointment (no client yet), to the lead's email: the booking's
+   * confirmation and its reminder only. No portal (a lead has none): no link and no ask to confirm.
+   */
+  'appointment.lead-booked': LeadAppointmentData;
+  'appointment.lead-reminder': LeadAppointmentData;
   /** Appointments Review 2 (P3): the firm cancelled it; the reason staff gave, if any. */
   'appointment.cancelled': Omit<AppointmentData, 'message' | 'instructions'> & {
     reason: string | null;
@@ -340,6 +376,9 @@ export interface AppointmentData extends IgnoredFirmName {
   confirmAsk?: boolean;
 }
 
+/** P4-1: a lead's appointment notice: as a client's, without the portal link or confirm ask. */
+export type LeadAppointmentData = Omit<AppointmentData, 'link' | 'confirmAsk'>;
+
 export type NotifyTemplate = keyof NotifyTemplates;
 export type NotifyChannel = 'email' | 'sms';
 
@@ -347,6 +386,8 @@ export type NotifyChannel = 'email' | 'sms';
 export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> = {
   'staff.invite': 'email',
   'staff.phone-code': 'sms',
+  'staff.mfa-reset': 'email',
+  'platform.mfa-enrolled': 'email',
   'client.signup-email-code': 'email',
   'client.signup-sms-code': 'sms',
   'client.already-registered': 'email',
@@ -359,9 +400,15 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'firm-application.declined': 'email',
   'document.requested': 'email',
   'document.requested-sms': 'sms',
+  'report.published': 'email',
+  'announcement.published': 'email',
+  'announcement.published-sms': 'sms',
   'appointment.booked': 'email',
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
+  'appointment.reminder-sms': 'sms',
+  'appointment.lead-booked': 'email',
+  'appointment.lead-reminder': 'email',
   'appointment.cancelled': 'email',
   'appointment.waitlist-offer': 'email',
   'project-deadline.reminder': 'email',
@@ -406,6 +453,8 @@ export type NotifySender = 'firm' | 'platform';
 export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'staff.invite': 'firm',
   'staff.phone-code': 'firm',
+  'staff.mfa-reset': 'firm',
+  'platform.mfa-enrolled': 'platform',
   'client.signup-email-code': 'firm',
   'client.signup-sms-code': 'firm',
   'client.already-registered': 'firm',
@@ -418,9 +467,15 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'firm-application.declined': 'platform',
   'document.requested': 'firm',
   'document.requested-sms': 'firm',
+  'report.published': 'firm',
+  'announcement.published': 'firm',
+  'announcement.published-sms': 'firm',
   'appointment.booked': 'firm',
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
+  'appointment.reminder-sms': 'firm',
+  'appointment.lead-booked': 'firm',
+  'appointment.lead-reminder': 'firm',
   'appointment.cancelled': 'firm',
   'appointment.waitlist-offer': 'firm',
   'project-deadline.reminder': 'firm',
@@ -462,6 +517,8 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
 export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>([
   'staff.invite',
   'staff.phone-code',
+  'staff.mfa-reset',
+  'platform.mfa-enrolled',
   'client.signup-email-code',
   'client.signup-sms-code',
   'client.already-registered',
@@ -501,6 +558,8 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
 export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCategory>> = {
   'staff.invite': 'ACCOUNT',
   'staff.phone-code': 'ACCOUNT',
+  'staff.mfa-reset': 'ACCOUNT',
+  'platform.mfa-enrolled': 'ACCOUNT',
   'client.signup-email-code': 'ACCOUNT',
   'client.signup-sms-code': 'ACCOUNT',
   'client.already-registered': 'ACCOUNT',
@@ -513,9 +572,15 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'firm-application.declined': 'ACCOUNT',
   'document.requested': 'DOCUMENTS',
   'document.requested-sms': 'DOCUMENTS',
+  'report.published': 'SERVICES',
+  'announcement.published': 'ANNOUNCEMENTS',
+  'announcement.published-sms': 'ANNOUNCEMENTS',
   'appointment.booked': 'APPOINTMENTS',
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',
+  'appointment.reminder-sms': 'APPOINTMENTS',
+  'appointment.lead-booked': 'APPOINTMENTS',
+  'appointment.lead-reminder': 'APPOINTMENTS',
   'appointment.cancelled': 'APPOINTMENTS',
   'appointment.waitlist-offer': 'APPOINTMENTS',
   'project-deadline.reminder': 'SERVICES',

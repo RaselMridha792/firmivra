@@ -13,6 +13,7 @@ import {
   Put,
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
+import { LIVE_DOCUMENT } from '../storage/document-records.js';
 import {
   ClientId,
   type ClientPortalAccessResult,
@@ -20,6 +21,7 @@ import {
   type ClientPortalFormsSummary,
   type ClientPortalPreview,
   type ClientPortalVisibility,
+  PORTAL_AREAS,
   PortalModule,
   UpdateClientPortalVisibilityRequest,
 } from '@firmivra/types';
@@ -88,7 +90,7 @@ export class PortalAccessService {
       const before = await this.tabs.areasIn(tx, clientId);
       const shown: PortalModule[] = [];
       const hidden: PortalModule[] = [];
-      for (const module of PortalModule.options) {
+      for (const module of PORTAL_AREAS) {
         const visible = changes[module];
         if (visible === undefined || visible === before[module].clientOn) continue;
         (visible ? shown : hidden).push(module);
@@ -267,7 +269,8 @@ export class PortalAccessService {
   ): Promise<ClientPortalDocumentsSummary> {
     return this.inFirm(tenant, async (tx) => {
       await this.client(tx, tenant, userId, clientId);
-      const live = { clientId, trashedAt: null, archivedAt: null, supersededAt: null };
+      // CP-PT-03: the same rule as the client's own portal.
+      const live = { clientId, ...LIVE_DOCUMENT };
       const [total, clientUploaded, firmShared, pendingReview, requested] = await Promise.all([
         tx.document.count({ where: live }),
         tx.document.count({ where: { ...live, direction: 'CLIENT_TO_FIRM' } }),
@@ -344,7 +347,7 @@ export class PortalAccessService {
   ): Promise<ClientPortalVisibility> {
     const areas = await this.tabs.areasIn(tx, clientId);
     return {
-      areas: PortalModule.options.map((module) => ({
+      areas: PORTAL_AREAS.map((module) => ({
         module,
         firmOn: areas[module].firmOn,
         clientOn: areas[module].clientOn,

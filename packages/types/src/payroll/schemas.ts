@@ -171,6 +171,8 @@ export const PayrollOverview = z.object({
       label: z.string(),
       clientCount: z.number().int(),
       connected: z.boolean(),
+      /** F01: the newest successful sync of the provider's clients; null when none yet. */
+      lastSyncedAt: DateTime.nullable(),
     }),
   ),
   upcomingRuns: z.array(
@@ -411,8 +413,16 @@ export const PayrollPlanRequest = z
   .strictObject({
     plan: text(100).nullable().optional(),
     catalogServiceId: z.uuid().nullable().optional(),
+    /**
+     * Remove Plan: the only way to clear a saved plan. A save with no plan and no `remove` is 409
+     * PLAN_REMOVE_EXPLICIT when the client has a plan (a form that had not loaded it yet).
+     */
+    remove: z.literal(true).optional(),
   })
-  .refine((b) => b.plan !== undefined || b.catalogServiceId !== undefined, 'Choose a plan');
+  .refine(
+    (b) => b.plan !== undefined || b.catalogServiceId !== undefined || b.remove === true,
+    'Choose a plan',
+  );
 export type PayrollPlanRequest = z.input<typeof PayrollPlanRequest>;
 
 /** POST /clients/{id}/sync: queued, not run. 409 PROVIDER_NOT_CONNECTED without a connection. */
@@ -947,5 +957,7 @@ export const PayrollErrorCode = z.enum([
   'NOT_THIS_CLIENTS',
   /** 409: the same report, form or period is already recorded. */
   'DUPLICATE',
+  /** 409: a save with no plan would clear the client's plan: use Remove Plan (F01). */
+  'PLAN_REMOVE_EXPLICIT',
 ]);
 export type PayrollErrorCode = z.infer<typeof PayrollErrorCode>;

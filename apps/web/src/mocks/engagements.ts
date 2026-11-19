@@ -499,10 +499,22 @@ export function createMyServicesMock(
 ): MyServicesClient {
   const primary = (options.portalRole ?? 'PRIMARY') === 'PRIMARY';
   const { all, find, save } = createStore(new Set([client]));
+  // BA-CP: the client's Business Advisory engagement (My Services only; no other mock lists it).
+  // Recurring with no billing date yet, so no cancellation deadline applies.
+  const advisory = fixture(5, {
+    title: 'Business Advisory',
+    service: {
+      id: '0199b6a2-0000-7000-8000-0000000000a5',
+      name: 'Business Planning',
+      kind: 'BUSINESS_DEVELOPMENT',
+    },
+    billingInterval: 'MONTHLY',
+    recurring: true,
+  });
   return {
     list: async () => {
       await pause();
-      return all().sort(newestFirst).map(toMyService);
+      return [...all(), advisory].sort(newestFirst).map(toMyService);
     },
     requestCancellation: async (id, body = {}) => {
       await pause();

@@ -287,8 +287,17 @@ export type MyIntakeListItem = z.infer<typeof MyIntakeListItem>;
 export const IntakeCompletion = z.object({
   message: z.string().nullable(),
   redirectUrl: z.string().nullable(),
+  /**
+   * Intake Review 2 23-g: the form's Submission ID ("SUB-00012", from the number the database
+   * gives while Auto-generate submission ID is on); null for a form sent without one.
+   */
+  submissionId: z.string().nullable().default(null),
 });
 export type IntakeCompletion = z.infer<typeof IntakeCompletion>;
+
+/** 23-g: how a form's reference number reads as its Submission ID ("SUB-00012"). */
+export const submissionIdOf = (referenceNumber: number | null | undefined): string | null =>
+  referenceNumber ? `SUB-${String(referenceNumber).padStart(5, '0')}` : null;
 
 /** GET /portal/{firmSlug}/me/intakes: open ones first (by due date), then the newest. */
 export const MyIntakeList = z.object({ items: z.array(MyIntakeListItem).max(200) });
@@ -323,6 +332,8 @@ export const MyIntake = MyIntakeListItem.extend({
   consentRequired: z.boolean(),
   /** Review Two row 21: the message and redirect once it is sent. */
   completion: IntakeCompletion,
+  /** Intake Review 2 23-h: the form's Show progress bar (the stepper); upload questions are left out of `definition` while Allow file uploads is off. */
+  showProgressBar: z.boolean().default(true),
 }).superRefine(refuseFullNumbers);
 export type MyIntake = z.infer<typeof MyIntake>;
 

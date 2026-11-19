@@ -1,3 +1,4 @@
+import { LIVE_DOCUMENT } from '../storage/document-records.js';
 import {
   BadRequestException,
   ConflictException,
@@ -230,7 +231,8 @@ export class IntakeUploadsService {
     }
     const files = await tx.document.groupBy({
       by: ['intakeSlot'],
-      where: { businessId: who.businessId, intakeId },
+      // CP-PT-03: a file the firm trashed or archived no longer takes a place.
+      where: { businessId: who.businessId, intakeId, ...LIVE_DOCUMENT },
       _count: { _all: true },
     });
     const inSlot = files.find((f) => f.intakeSlot === slot)?._count._all ?? 0;

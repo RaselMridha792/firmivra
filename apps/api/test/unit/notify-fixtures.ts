@@ -19,6 +19,8 @@ const appointment = {
   timeZone: 'America/Chicago',
   link,
 };
+/** P4-1: a lead's own appointment: no portal link. */
+const { link: _portal, ...leadAppointment } = appointment;
 
 export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'staff.invite': {
@@ -28,6 +30,8 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   },
   'client.signup-email-code': { code: '482913' },
   'staff.phone-code': { code: '482913' },
+  'staff.mfa-reset': { name: 'Fake Member' },
+  'platform.mfa-enrolled': { name: 'Fake Member' },
   'client.signup-sms-code': { code: '482913' },
   'client.already-registered': {
     signInLink: 'https://portal.example.test/sample/sign-in',
@@ -64,9 +68,22 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     link,
   },
   'document.requested-sms': { title: '2025 W-2', dueOn: '2026-11-01', link },
+  'report.published': { name: 'Robin Example', title: 'Monthly bookkeeping', link },
+  'announcement.published': { name: 'Robin Example', title: 'Extended office hours', link },
+  'announcement.published-sms': { title: 'Extended office hours', link },
   'appointment.booked': appointment,
   'appointment.changed': appointment,
   'appointment.reminder': appointment,
+  'appointment.reminder-sms': {
+    title: 'Tax review',
+    startsAt: new Date('2026-10-20T14:30:00Z'),
+    timeZone: 'America/Chicago',
+    link,
+    message: 'Fake: bring your W-2.',
+    instructions: null,
+  },
+  'appointment.lead-booked': leadAppointment,
+  'appointment.lead-reminder': leadAppointment,
   'appointment.cancelled': {
     name: 'Robin Example',
     title: 'Tax review',

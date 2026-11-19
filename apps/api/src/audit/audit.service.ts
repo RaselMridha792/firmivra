@@ -7,6 +7,7 @@ import {
 } from '../client-portal/portal-activity.js';
 import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { redactMetadata } from './audit-values.js';
 
 export interface AuditEntity {
   /** For example 'client', 'document', 'membership'. */
@@ -26,7 +27,8 @@ export interface AuditAt {
 /**
  * Append-only audit log. Every action on client data calls `log` (CLAUDE.md rule 8).
  * Actor, firm, IP, user agent and request id come from the request context.
- * Metadata must never hold passwords, codes, tokens, SSNs or document content.
+ * Metadata must never hold passwords, codes, tokens, SSNs or document content; as a second wall,
+ * every row's metadata goes through `redactMetadata` (audit-values.ts) before it is written.
  * A firm row whose action is one of a client's portal actions, written by that firm's client
  * login, is also copied into the client's portal activity (client-portal/portal-activity.ts).
  */
@@ -50,7 +52,13 @@ export class AuditService {
   ): Promise<void> {
     const data = this.row(action, entity, metadata, at);
     const client = data.businessId ? this.db.forBusiness(data.businessId) : this.db.forPlatform();
-    await client.auditLog.create({ data });
+    try {
+      await client.auditLog.create({ data });
+    } catch (error) {
+      // The caller's change has committed; this row is lost unless someone sees this line.
+      this.writeFailed(data, error, false);
+      throw error;
+    }
     const businessId = data.businessId;
     if (businessId && this.copied(data)) {
       // The audit row stands; a feed copy that fails never fails the client's action.
@@ -75,9 +83,42 @@ export class AuditService {
     at: AuditAt = {},
   ): Promise<void> {
     const data = this.row(action, entity, metadata, at);
-    await tx.auditLog.create({ data });
+    try {
+      await tx.auditLog.create({ data });
+    } catch (error) {
+      // In the caller's transaction: its change rolls back with the row unless it catches this.
+      this.writeFailed(data, error, true);
+      throw error;
+    }
     // In the caller's transaction, so the copy commits or rolls back with the action.
     if (this.copied(data)) await this.copy(tx, data);
+  }
+
+  /**
+   * Audit Log Review 2, M04: a row that could not be written leaves one structured line,
+   * `audit_write_failed`, that a log metric and alarm watch (infra). It names the action, the
+   * firm, the record type and the request, and the error's class and database code: never the
+   * metadata, the record id or the error's message, which may quote values (CLAUDE.md rule 4).
+   */
+  private writeFailed(
+    data: ReturnType<AuditService['row']>,
+    error: unknown,
+    inTransaction: boolean,
+  ): void {
+    const name = error instanceof Error ? error.name : '';
+    const code = (error as { code?: unknown } | null)?.code;
+    this.logger.error(
+      JSON.stringify({
+        event: 'audit_write_failed',
+        action: data.action,
+        businessId: data.businessId,
+        entityType: data.entityType,
+        requestId: data.requestId,
+        inTransaction,
+        error: /^[A-Za-z][\w.]{0,63}$/.test(name) ? name : 'Error',
+        ...(typeof code === 'string' && /^P\d{4}$/.test(code) ? { code } : {}),
+      }),
+    );
   }
 
   /** A firm row of a listed action by someone not known to be staff (sign-in has no tenant). */
@@ -122,7 +163,9 @@ export class AuditService {
       action,
       entityType: entity.type,
       entityId: entity.id ?? null,
-      metadata: metadata as Prisma.InputJsonValue | undefined,
+      // M03: secrets never written, tax ids to their last 4, whatever the caller passed.
+      metadata: (metadata === undefined ? undefined : redactMetadata(metadata)) as
+        Prisma.InputJsonValue | undefined,
       ip: at.withoutOrigin ? null : (store?.ip ?? null),
       userAgent: at.withoutOrigin ? null : (store?.userAgent ?? null),
       requestId: store?.requestId ?? null,

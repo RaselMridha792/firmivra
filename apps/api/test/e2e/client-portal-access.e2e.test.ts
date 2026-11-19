@@ -168,7 +168,8 @@ describe('Portal Content & Visibility', () => {
     );
     expect(start.canChange).toBe(false);
     expect(start.areas.every((a) => a.visible && a.firmOn && a.clientOn)).toBe(true);
-    expect(start.areas).toHaveLength(8);
+    // Nine areas: Business Documents & Resources has its switch too (CP-5a).
+    expect(start.areas).toHaveLength(9);
 
     const set = await send('put', cp(clients.x, '/visibility'), owner, {
       areas: { APPOINTMENTS: false, MESSAGES: false },
@@ -286,7 +287,7 @@ describe('Open Client Portal preview', () => {
     const p = ClientPortalPreview.parse(res.body);
     expect(p.clientName).toBe('Fake Access Client');
     expect(p.firmName).toBe(firms.a.slug);
-    expect(p.areas).toHaveLength(8);
+    expect(p.areas).toHaveLength(9);
     expect(await audited('client_portal.preview_opened')).toHaveLength(1);
     expect((await send('get', cp(clients.x, '/preview'), ownerB)).status).toBe(404);
     expect((await send('get', cp(clients.n, '/preview'), staff)).status).toBe(404);

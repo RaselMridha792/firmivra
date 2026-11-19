@@ -28,6 +28,8 @@ export const NOTIFICATION_CATEGORY_LABELS = {
   MESSAGES: 'Messages and notes',
   APPOINTMENTS: 'Appointments',
   BILLING: 'Invoices and payments',
+  // Client Portal Review One CP-3d: the firm's general announcements.
+  ANNOUNCEMENTS: 'Announcements',
 } as const satisfies Record<NotificationCategory, string>;
 
 /**
@@ -49,6 +51,11 @@ export const NotificationTargetKind = z.enum([
   'document_request',
   'intake',
   'engagement',
+  /**
+   * A bookkeeping client (Client Portal BK-CP3): the firm site only, the client's Terms page. Its
+   * id is the bookkeeping client's (BookkeepingClientRow.id).
+   */
+  'bookkeeping_client',
   'tax_return',
   'message_thread',
   'client_note_reminder',
@@ -65,6 +72,12 @@ export const NotificationTargetKind = z.enum([
   'task',
   /** A recurring task series (T-D15): the firm site only, its overview. */
   'task_series',
+  /** A tax plan (P4-8): the firm site only, the plan itself. */
+  'tax_plan',
+  /** A business plan (Business Advisory B10): the firm site only, the plan's review step. */
+  'advisory_plan',
+  /** CP-3d: a general announcement the firm published (Communications): the portal only. */
+  'announcement',
 ]);
 export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
 
@@ -107,6 +120,31 @@ export const NOTIFICATION_EVENTS = {
   'intake.submitted': { category: 'INTAKE', kind: 'intake', to: 'staff' },
   // ----- Services and tax returns (R10, R12) -----
   'engagement.status-changed': { category: 'SERVICES', kind: 'engagement', to: 'both' },
+  /**
+   * BK-CP2 (Client Portal Review One): the firm published a Bookkeeping report for the first time.
+   * A bell item, and an email when the client's Report Delivery allows email; it names the service,
+   * never the report's figures or file. It opens the portal's My Services, where the report is.
+   */
+  'report.published': { category: 'SERVICES', kind: 'engagement', to: 'client' },
+  /**
+   * BK-CP3 (Client Portal Review One): the firm sent bookkeeping terms for the client's answer. A
+   * bell item naming the service; it opens My Services, where the terms wait.
+   */
+  'bookkeeping-terms.sent': { category: 'SERVICES', kind: 'engagement', to: 'client' },
+  /**
+   * BK-CP3: the client accepted (the terms are in force) or declined (back to draft) the terms in
+   * the portal. To the client's assigned member and the Owners and Admins; it opens the Terms page.
+   */
+  'bookkeeping-terms.client-accepted': {
+    category: 'SERVICES',
+    kind: 'bookkeeping_client',
+    to: 'staff',
+  },
+  'bookkeeping-terms.client-declined': {
+    category: 'SERVICES',
+    kind: 'bookkeeping_client',
+    to: 'staff',
+  },
   'tax-return.status-changed': { category: 'SERVICES', kind: 'tax_return', to: 'client' },
   /** A client finished signing up and waits for the firm (R3's queue; Owner and Admin). */
   'client.signup-submitted': { category: 'SERVICES', kind: 'client_account', to: 'staff' },
@@ -147,6 +185,12 @@ export const NOTIFICATION_EVENTS = {
   'payment.received': { category: 'BILLING', kind: 'invoice', to: 'both' },
   // ----- Account and team (locked) -----
   'account.password-changed': { category: 'ACCOUNT', kind: 'user', to: 'both' },
+  /**
+   * SM33 (Staff Management Review 2, decision 10a): the member's two-factor sign-in was reset
+   * (by an Owner), or they set it up. To the member themself, with an email of its own.
+   */
+  'account.mfa-reset': { category: 'ACCOUNT', kind: 'user', to: 'staff' },
+  'account.mfa-enrolled': { category: 'ACCOUNT', kind: 'user', to: 'staff' },
   /** A member accepted their invite (Owner and Admin; R2's invites): who can see client data. */
   'staff.joined': { category: 'ACCOUNT', kind: 'membership', to: 'staff' },
   // ----- Automations (R55; the lead's one-off exception, Nov 6) -----
@@ -173,11 +217,32 @@ export const NOTIFICATION_EVENTS = {
    */
   'task.reminder': { category: 'SERVICES', kind: 'task', to: 'staff' },
   /**
+   * P4-8 (Tax Planning Review 2): the client asked a question, requested a revision or a meeting,
+   * or approved the plan in the portal. To the plan's assigned staff (the caller names them).
+   */
+  'tax-plan.client-request': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
+  'tax-plan.client-approved': { category: 'SERVICES', kind: 'tax_plan', to: 'staff' },
+  /**
+   * Business Advisory B10 (Client Portal Review One): the client approved the business plan sent
+   * for their approval, in the portal. To the advisory client's advisor and the member who sent
+   * it (the caller names them).
+   */
+  'advisory-plan.client-approved': { category: 'SERVICES', kind: 'advisory_plan', to: 'staff' },
+  /**
    * Tasks Review Two T-D15: an occurrence of a recurring series could not be made after its
    * retries (FAILED). Owners and Admins only (the series is the record, not the client's). It
    * opens the series, where the occurrence shows why and can be skipped.
    */
   'task.series-failed': { category: 'SERVICES', kind: 'task_series', to: 'staff' },
+
+  // ----- Announcements (Client Portal Review One CP-3d, the lead's decision 3a) -----
+  /**
+   * A general announcement went live in the client's portal: a short notice (its title and the
+   * portal link, never its text) to each client it was published to, once. The email and text
+   * copies follow the firm's policy for each channel (Settings > Client Portal > Announcements)
+   * and, where the firm leaves it to them, the client's own choice.
+   */
+  'announcement.published': { category: 'ANNOUNCEMENTS', kind: 'announcement', to: 'client' },
 } as const satisfies Record<
   string,
   {
@@ -260,12 +325,18 @@ export const NotificationPreference = z.object({
   /** Always sent, whatever the switches say (ACCOUNT): show the row with its switches disabled. */
   locked: z.boolean(),
   /**
-   * Email always goes out, so `email` is true: show the email box checked and disabled. Every
-   * category is about the person's own account or services, so this is true for everyone: the
-   * firm's staff (Octavia's Notifications review of Oct 18) and clients (Client Portal guide 9.2:
-   * personal and service email is mandatory), enforced by the API and the sender.
+   * The person can't change the email box: show it disabled with `email` as it is. Notices about
+   * the person's own account or services always go by email (`email: true`): for the firm's staff
+   * (Octavia's Notifications review of Oct 18) and clients (Client Portal guide 9.2). The one
+   * exception is a client's ANNOUNCEMENTS (CP-3d): the firm's policy decides: the client's choice
+   * (not locked), always sent (locked, true) or never sent (locked, false).
    */
   emailLocked: z.boolean(),
+  /**
+   * CP-3d: the firm never sends texts for this category (a client's ANNOUNCEMENTS when the firm's
+   * text policy is OFF): show the text box disabled and off. Absent from an older answer: false.
+   */
+  smsLocked: z.boolean().default(false),
 });
 export type NotificationPreference = z.infer<typeof NotificationPreference>;
 
@@ -287,7 +358,11 @@ export const NotificationPreferences = z.object({
    * opt-in (Client Portal guide 7.5). Always false for the firm's staff.
    */
   smsStopped: z.boolean(),
-  /** Every category, in the order of NotificationCategory. */
+  /**
+   * The categories this person gets, in the order of NotificationCategory: every one, except
+   * ANNOUNCEMENTS for the firm's staff (announcements are for clients) and for a client while the
+   * firm's announcements are off (CP-3c).
+   */
   items: z.array(NotificationPreference),
 });
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
@@ -296,7 +371,10 @@ export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
  * PATCH .../notification-preferences: only the categories and channels given change (one switch,
  * or the whole form). A locked category is refused like any bad input (400), and so is
  * `sms: true` while SMS is not in the person's `channels` (the API checks that one).
- * `email: false` is 400 EMAIL_ALWAYS_ON for everyone.
+ * `email: false` is 400 EMAIL_ALWAYS_ON, except for a client's ANNOUNCEMENTS while the firm leaves
+ * the email copy to the client (CP-3d). A change the firm's announcement policy doesn't allow (an
+ * email box it locks, `sms: true` with texts OFF) is 400 CHANNEL_LOCKED; ANNOUNCEMENTS from the
+ * firm's staff, or while the firm's announcements are off, is 400 VALIDATION_FAILED.
  */
 export const UpdateNotificationPreferencesRequest = z.strictObject({
   items: z

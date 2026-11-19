@@ -15,7 +15,8 @@ test.describe.configure({ timeout: 180_000 });
 
 test('Contact Information switches offices and methods, with a Live Preview', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1200 });
-  await page.goto(app('/settings/portal'));
+  // CP-1: the Contact Information panel by its address.
+  await page.goto(app('/settings/portal?panel=contact'));
   const card = page.getByTestId('portal-contact');
   const preview = card.getByTestId('contact-preview');
   await expect(card).toContainText('Office Information to Display', { timeout: 60_000 });

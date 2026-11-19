@@ -54,7 +54,14 @@ function Permissions({
   return (
     <div className="grid gap-4 xl:grid-cols-3">
       <Card data-testid="permission-list" className="p-5! xl:col-span-2">
-        <CardTitle>Granted Permissions</CardTitle>
+        <CardTitle
+          help={{
+            topic: 'Granted permissions',
+            text: 'What the provider lets Firmivra do. A missing permission stops the objects that need it; Reconnect asks the provider for it again, and your settings stay.',
+          }}
+        >
+          Granted Permissions
+        </CardTitle>
         {reconnect.isError ? (
           <Notice tone="error">{integrationError(reconnect.error)}</Notice>
         ) : null}

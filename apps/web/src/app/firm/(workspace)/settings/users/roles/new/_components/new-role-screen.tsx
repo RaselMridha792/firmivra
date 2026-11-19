@@ -36,8 +36,8 @@ const toValue = (cells: readonly { module: string; capability: string; granted: 
  * Permissions, guide §5, §8; Octavia's review, section 4): a name, a description and the role it
  * starts from, with that role's grid shown as the starting permissions. Next opens Set
  * Permissions; Save Role there creates the role and its grid together (`api.roles.createCustom`),
- * then Users & Roles shows it. `from` is the template chosen on Users & Roles (`?from=BOOKKEEPER`,
- * or `?from=custom:<id>` for a custom role: its permissions are the start, and the new role is
+ * then Users & Roles shows it. `from` is the template chosen on Users & Roles
+ * (`?template=BOOKKEEPER`, or `?template=custom:<id>` for a custom role: its permissions are the start, and the new role is
  * based on the same built-in role).
  */
 export function NewRoleScreen({ from }: { from?: string }) {

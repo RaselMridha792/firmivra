@@ -176,6 +176,8 @@ export const cases: CaseModule['cases'] = {
 
   // ---------- Packages ----------
   [`GET ${BASE}/packages/:id`]: { params: { id: 'catalogPackage' } },
+  // SP-1 (S12): the package's public link.
+  [`GET ${BASE}/packages/:id/public-link`]: { params: { id: 'catalogPackage' } },
   [`POST ${BASE}/packages/:id/activate`]: { params: { id: 'catalogPackage' } },
   [`POST ${BASE}/packages/:id/deactivate`]: { params: { id: 'catalogPackage' } },
   [`POST ${BASE}/packages/:id/duplicate`]: { params: { id: 'catalogPackage' } },
@@ -192,6 +194,8 @@ export const cases: CaseModule['cases'] = {
       categoryId: 'catalogCategory',
       'services.serviceId': 'catalogPackageService',
       'addOns.id': 'catalogPackageAddOn',
+      // S12: the Booking type, one of the firm's own appointment types (400 otherwise).
+      appointmentTypeId: 'appointmentType',
     },
   },
   [`POST ${BASE}/packages`]: {
@@ -201,7 +205,11 @@ export const cases: CaseModule['cases'] = {
       shortDescription: 'A fake package',
       services: [{ serviceId: PLACEHOLDER, included: true }],
     }),
-    bodyIds: { categoryId: 'catalogCategory', 'services.serviceId': 'catalogPackageService' },
+    bodyIds: {
+      categoryId: 'catalogCategory',
+      'services.serviceId': 'catalogPackageService',
+      appointmentTypeId: 'appointmentType',
+    },
   },
   [`POST ${BASE}/packages/pricing`]: {
     params: {},
@@ -236,4 +244,10 @@ export const cases: CaseModule['cases'] = {
     }),
     bodyIds: { targetIds: 'catalogCategory' },
   },
+};
+
+export const excluded: CaseModule['excluded'] = {
+  // SP-1. Firm Q's slug never reaches firm P's package: test/e2e/public-packages.e2e.test.ts.
+  'GET /api/v1/portal/:firmSlug/packages/:id':
+    "Public: what a visitor may see of one of the slug's firm's packages while it is live (name, price, included and not included services, add-ons; never internal notes); another firm's package is 404",
 };

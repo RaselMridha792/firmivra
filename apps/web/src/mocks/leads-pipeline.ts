@@ -427,6 +427,7 @@ function seed(empty: boolean): Store {
                 type: 'Consultation',
                 staff: assigned,
                 status: 'CONFIRMED',
+                client: null,
               },
             ]
           : [];
@@ -462,6 +463,136 @@ function storeFor(options: Options): Store {
     stores.set(key, s);
   }
   return s;
+}
+
+/**
+ * P4-1: the lead a booking names, as the API's leadToBook reads it (the scheduling mock asks):
+ * 404 for an archived lead, and for Staff a lead not assigned to them; a converted lead books as
+ * its client. Null for a lead this mock does not hold (the scheduling mock's own sample leads).
+ */
+export function mockLeadToBook(
+  id: string,
+  staffUserId: string | null,
+): {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  businessName: string | null;
+  client: { id: string; name: string } | null;
+} | null {
+  const s = stores?.get('full') ?? storeFor({});
+  const l = s.leads.find((x) => x.profile.id === id);
+  if (!l) return null;
+  if (l.profile.archivedAt) throw fail(404, 'NOT_FOUND', 'Not found');
+  const client = l.profile.client;
+  if (!client && staffUserId && l.profile.assignedTo?.userId !== staffUserId)
+    throw fail(404, 'NOT_FOUND', 'Not found');
+  const p = l.profile;
+  return {
+    id: p.id,
+    name: `${p.firstName} ${p.lastName}`.trim(),
+    email: p.email || null,
+    phone: p.phone,
+    businessName: p.businessName,
+    client,
+  };
+}
+
+/** P4-1: a lead's own appointment the scheduling mock booked, on the lead's Appointments tab. */
+export function addMockLeadAppointment(id: string, appointment: LeadAppointment): void {
+  const s = stores?.get('full') ?? storeFor({});
+  s.leads.find((x) => x.profile.id === id)?.appointments.push(appointment);
+}
+
+const CLOSED: string[] = ['CONVERTED', 'DECLINED', 'LOST'];
+
+/** L8: the lead's steps; a seeded next action becomes its first step (as the API adopts it). */
+function stepsOf(s: Store, l: Lead) {
+  const p = l.profile;
+  if (!p.followUps.some((f) => !f.doneAt) && p.nextAction && !CLOSED.includes(p.stage))
+    p.followUps.unshift({
+      id: uuid('0f0e', s.next++),
+      type: p.nextAction.type,
+      dueAt: p.nextAction.dueAt,
+      notes: p.nextAction.notes,
+      doneAt: null,
+      outcome: null,
+    });
+  return p.followUps;
+}
+
+/** As the API: the Next Action is the next unfinished step; a closed lead has none. */
+function syncNext(l: Lead) {
+  const open = l.profile.followUps
+    .filter((f) => !f.doneAt)
+    .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+  const next = CLOSED.includes(l.profile.stage) ? undefined : open[0];
+  l.profile.nextAction = next
+    ? {
+        type: next.type,
+        dueAt: next.dueAt,
+        notes: next.notes,
+        overdue: next.type !== 'CLOSE_LEAD' && Date.parse(next.dueAt) < Date.now(),
+      }
+    : null;
+  l.profile.followUps = [
+    ...open,
+    ...l.profile.followUps
+      .filter((f) => f.doneAt)
+      .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? '')),
+  ];
+}
+
+/**
+ * P4-2 (Clients Review 2 N8-18): what came of a lead's own appointment, as the API records it: a
+ * Meeting on the lead's activity titled with the outcome, and for Keep as Lead and Follow Up the
+ * lead's next follow-up (`followUpAt`; 404 for an archived lead, 409 for a closed or converted
+ * one). The lead's stage never changes. Nothing for a lead this mock does not hold (the scheduling
+ * mock's own sample leads).
+ */
+/**
+ * P4-2, as the API's `reachesLead`: whether the mock member reaches the lead by the lead pages'
+ * rule (Owner and Admin every lead; Staff, Daniel Okafor, the leads assigned to him).
+ */
+export function mockLeadReach(id: string, role: MockRole): boolean {
+  if (role !== 'STAFF') return true;
+  const s = stores?.get('full') ?? storeFor({});
+  const l = s.leads.find((x) => x.profile.id === id);
+  return l?.profile.assignedTo?.userId === staff(3, 'Daniel Okafor').userId;
+}
+
+export function mockLeadAppointmentOutcome(
+  id: string,
+  outcome: { label: string; followUpAt: string | null; by: MemberRef },
+): void {
+  const s = stores?.get('full') ?? storeFor({});
+  const l = s.leads.find((x) => x.profile.id === id);
+  if (!l) return;
+  if (outcome.followUpAt !== null) {
+    if (l.profile.archivedAt) throw fail(404, 'NOT_FOUND', 'Not found');
+    if (l.profile.stage === 'CONVERTED')
+      throw fail(409, 'ALREADY_CONVERTED', 'This lead is already a client');
+    if (CLOSED.includes(l.profile.stage))
+      throw fail(409, 'LEAD_CLOSED', 'A closed lead has no follow-up');
+    stepsOf(s, l).push({
+      id: uuid('0f0f', s.next++),
+      type: 'FOLLOW_UP',
+      dueAt: outcome.followUpAt,
+      notes: null,
+      doneAt: null,
+      outcome: null,
+    });
+    syncNext(l);
+  }
+  l.activity.unshift({
+    id: uuid('0f00', s.next++),
+    at: new Date().toISOString(),
+    kind: 'MEETING',
+    label: `Meeting: Appointment completed: ${outcome.label}`,
+    by: outcome.by,
+  });
+  l.profile.version = `v${Number(l.profile.version.slice(1)) + 1}`;
 }
 
 const toRow = (l: Lead): LeadRow => {
@@ -656,42 +787,8 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
   const bump = (l: Lead) => {
     l.profile.version = `v${Number(l.profile.version.slice(1)) + 1}`;
   };
-  const CLOSED: string[] = ['CONVERTED', 'DECLINED', 'LOST'];
-  /** L8: the lead's steps; a seeded next action becomes its first step (as the API adopts it). */
-  const steps = (l: Lead) => {
-    const p = l.profile;
-    if (!p.followUps.some((f) => !f.doneAt) && p.nextAction && !CLOSED.includes(p.stage))
-      p.followUps.unshift({
-        id: uuid('0f0e', s.next++),
-        type: p.nextAction.type,
-        dueAt: p.nextAction.dueAt,
-        notes: p.nextAction.notes,
-        doneAt: null,
-        outcome: null,
-      });
-    return p.followUps;
-  };
-  /** As the API: the Next Action is the next unfinished step; a closed lead has none. */
-  const sync = (l: Lead) => {
-    const open = l.profile.followUps
-      .filter((f) => !f.doneAt)
-      .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-    const next = CLOSED.includes(l.profile.stage) ? undefined : open[0];
-    l.profile.nextAction = next
-      ? {
-          type: next.type,
-          dueAt: next.dueAt,
-          notes: next.notes,
-          overdue: next.type !== 'CLOSE_LEAD' && Date.parse(next.dueAt) < Date.now(),
-        }
-      : null;
-    l.profile.followUps = [
-      ...open,
-      ...l.profile.followUps
-        .filter((f) => f.doneAt)
-        .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? '')),
-    ];
-  };
+  const steps = (l: Lead) => stepsOf(s, l);
+  const sync = syncNext;
   const openStep = (l: Lead, followUpId: string) => {
     if (CLOSED.includes(l.profile.stage))
       throw fail(409, 'LEAD_CLOSED', 'A closed lead has no follow-up');
@@ -1045,7 +1142,19 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
     },
     saveSignature: async (body) => {
       await mockDelay();
-      const { html } = parseInput(SaveMessageSignatureRequest, body);
+      // As the API's cleaner: only the firm's own images stay (its logo, or an email image uploaded
+      // from any area: Leads, Communications or Templates; in mock mode their placeholder
+      // pictures), any other image is dropped, and a signature with nothing left to show is refused.
+      const html = parseInput(SaveMessageSignatureRequest, body).html.replace(
+        /<img\b[^>]*>/gi,
+        (tag) => {
+          const src = /\ssrc="([^"]*)"/i.exec(tag)?.[1]?.replace(/&amp;/g, '&') ?? '';
+          return src.startsWith('data:image/svg+xml,') ? tag : '';
+        },
+      );
+      const text = html.replace(/<[^>]*>|&nbsp;|\s/gi, '');
+      if (!text && !/<img\b/i.test(html))
+        throw fail(400, 'SIGNATURE_EMPTY', 'Write a signature first');
       if (html.length > EMAIL_SIGNATURE_MAX)
         throw fail(400, 'SIGNATURE_TOO_LONG', 'Shorten the signature to save it');
       signature = { ...signature, html, updatedAt: new Date().toISOString() };

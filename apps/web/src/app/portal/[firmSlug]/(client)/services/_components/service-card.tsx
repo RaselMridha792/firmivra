@@ -20,6 +20,7 @@ import { useForm } from 'react-hook-form';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
+import { BookkeepingTermsLink } from './bookkeeping-terms-link';
 
 const SERVICE_ERRORS = {
   TOO_LATE_TO_CANCEL: 'It is too late to cancel before the next billing date. Message the firm.',
@@ -134,6 +135,10 @@ export function ServiceCard({ slug, service: s }: { slug: string; service: MySer
       </div>
 
       <p className="text-sm leading-5 text-muted">{SERVICE_DESCRIPTION[s.service.kind]}</p>
+      {/* BK-CP3: the bookkeeping terms the firm sent, once there are any. */}
+      {s.service.kind === 'BOOKKEEPING' ? (
+        <BookkeepingTermsLink slug={slug} serviceId={s.id} />
+      ) : null}
 
       {s.stage && nextStep ? (
         <Link
@@ -149,6 +154,19 @@ export function ServiceCard({ slug, service: s }: { slug: string; service: MySer
             <p className="mt-0.5 truncate text-sm font-semibold text-heading">{s.stage}</p>
           </div>
           <ChevronRight aria-hidden className="size-4 shrink-0 text-link" />
+        </Link>
+      ) : null}
+
+      {s.service.kind === 'BUSINESS_DEVELOPMENT' ? (
+        // BA-CP: the advisory engagement opens what the firm shares from Business Advisory.
+        <Link
+          href={'/' + slug + '/services/advisory'}
+          data-testid="service-advisory-link"
+          className="inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-link hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+        >
+          <Lightbulb aria-hidden className="size-4" />
+          Your plan, recommendations and resources
+          <ChevronRight aria-hidden className="size-4" />
         </Link>
       ) : null}
 

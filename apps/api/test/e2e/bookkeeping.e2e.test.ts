@@ -21,6 +21,7 @@ import {
   BookkeepingClientPage,
   BookkeepingClientWorkspace,
   BookkeepingTransactionPage,
+  ClientTimelinePage,
   BookkeepingReportPreview,
   BookkeepingReportVersionList,
   BookkeepingReportVersionRow,
@@ -761,15 +762,26 @@ describe('the client workspace and its service actions', () => {
         categorizationRules: [{ match: 'AMAZON', category: 'Office Supplies' }],
       }),
     );
-    expect(ws.portalDefaults).toEqual({ reports: true, documents: false });
+    // BK-CP4: as they apply, a default never saved reads as shown.
+    expect(ws.portalDefaults).toEqual({
+      reports: true,
+      tasks: true,
+      documents: false,
+      notes: true,
+    });
     expect(ws.alerts).toEqual({ staleSync: false });
     expect(ws.categorizationRules).toEqual([{ match: 'AMAZON', category: 'Office Supplies' }]);
     // Merged, not replaced.
     const again = exact(
       BookkeepingClientWorkspace,
-      await call('patch', `/clients/${bk}`, people.staffA, { portalDefaults: { notes: true } }),
+      await call('patch', `/clients/${bk}`, people.staffA, { portalDefaults: { notes: false } }),
     );
-    expect(again.portalDefaults).toEqual({ reports: true, documents: false, notes: true });
+    expect(again.portalDefaults).toEqual({
+      reports: true,
+      tasks: true,
+      documents: false,
+      notes: false,
+    });
     for (const body of [
       { cadence: 'QUARTERLY' },
       { closeTargetDay: 5 },
@@ -858,8 +870,9 @@ describe('the client workspace and its service actions', () => {
       await call('get', `/clients/${bk}/activities`, people.staffA),
     );
     expect(history.items.map((a) => a.kind)).toContain('STATUS_CHANGE');
+    // Review 2 (E01a A01): the statuses in words, never their codes.
     expect(history.items.map((a) => a.summary)).toContain(
-      'Status changed from NOT_STARTED to OVERDUE',
+      'Status changed from Not started to Overdue',
     );
     expect(await auditActions(bk)).toContain('bookkeeping.client.status_changed');
   });
@@ -897,6 +910,74 @@ describe('the client workspace and its service actions', () => {
       ['PLAN_CHANGE', 'Added to Bookkeeping', people.ownerA.id],
     ]);
     expect(JSON.stringify(after.recentActivity)).not.toContain('receipts');
+  });
+
+  it("E01a A01: the client's Activity page lists the Bookkeeping events in words, as the card, without the note's copy", async () => {
+    const clientId = await asOwner(ids.firmA, (tx) =>
+      tx.client
+        .create({
+          data: {
+            businessId: ids.firmA,
+            displayName: `Fake E01a client ${run}`,
+            assignedUserId: people.staffA.id,
+          },
+        })
+        .then((c) => c.id),
+    );
+    const ws = await addClient(clientId);
+    const as = async (who: Who) => `Bearer ${await tokenFor(who.email)}`;
+    exact(
+      BookkeepingClientWorkspace,
+      await call('post', `/clients/${ws.id}/status`, people.staffA, { status: 'OVERDUE' }),
+    );
+    const note = await request(app.getHttpServer())
+      .post(`/api/v1/business/clients/${clientId}/notes`)
+      .set('x-business-id', ids.firmA)
+      .set('authorization', await as(people.staffA))
+      .send({ body: 'Fake: a general note', engagementId: ws.engagementId, noteType: 'GENERAL' });
+    expect(note.status, JSON.stringify(note.body)).toBe(201);
+    // A line written before the labels reads in words too.
+    await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingActivity.create({
+        data: {
+          businessId: ids.firmA,
+          engagementId: ws.engagementId,
+          kind: 'STATUS_CHANGE',
+          summary: 'Status changed from OVERDUE to ON_TRACK',
+          createdAt: new Date(Date.now() - 60_000),
+        },
+      }),
+    );
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/business/clients/${clientId}/timeline?limit=50`)
+      .set('x-business-id', ids.firmA)
+      .set('authorization', await as(people.staffA));
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const page = ClientTimelinePage.parse(res.body);
+    const bookkeeping = page.items.filter((i) => i.summary === 'Bookkeeping');
+    expect(bookkeeping.map((i) => i.title)).toEqual(
+      expect.arrayContaining([
+        'Status changed from Not started to Overdue',
+        'Status changed from Overdue to On track',
+        'Added to Bookkeeping',
+      ]),
+    );
+    expect(new Set(bookkeeping.map((i) => i.href))).toEqual(
+      new Set([`/bookkeeping/clients/${ws.id}`]),
+    );
+    // The card's own events: everything it lists, but its note line is the note's own entry.
+    const card = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${ws.id}`, people.staffA),
+    );
+    for (const a of card.recentActivity.filter((x) => x.kind !== 'NOTE')) {
+      expect(bookkeeping.map((i) => i.title)).toContain(a.summary);
+    }
+    expect(page.items.filter((i) => i.title === 'General note added')).toEqual([]);
+    expect(page.items.filter((i) => i.title === 'Note added').map((i) => i.summary)).toEqual([
+      'General note',
+    ]);
+    expect(JSON.stringify(page.items)).not.toMatch(/NOT_STARTED|OVERDUE|ON_TRACK|GENERAL/);
   });
 
   it('logs activity with a kind and a short summary, newest first', async () => {
@@ -1121,7 +1202,7 @@ describe("statuses from the firm's rules", () => {
       await call('get', `/clients/${bk}/activities`, people.ownerA),
     );
     expect(history.items.map((a) => a.summary)).toContain(
-      'Status changed from NOT_STARTED to MISSING_DOCUMENTS',
+      'Status changed from Not started to Missing documents',
     );
     // The client turned this alert off: it no longer drives the status.
     const off = exact(

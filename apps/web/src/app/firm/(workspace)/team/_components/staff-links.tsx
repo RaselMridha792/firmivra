@@ -1,6 +1,7 @@
 'use client';
 
 import { Button, LinkCard, Modal, Select } from '@firmivra/ui';
+import { withOrigin } from '../../../../../lib/origin';
 import {
   ChartBar,
   FileText,
@@ -88,7 +89,8 @@ const TILES: Tile[] = [
     title: 'Reports',
     description: 'View staff performance, activity, and access reports.',
     icon: ChartBar,
-    href: '/reports/staff_team',
+    // SM01: the Staff & Team report, with Staff Management as the way back.
+    href: withOrigin('/reports/staff_team', '/team'),
   },
 ];
 

@@ -5,12 +5,18 @@ import type {
   CreateServicePackageRequest,
   PackagePricing,
   PackagePricingRequest,
+  PublicLink,
+  PublicLinkState,
+  PublicPackage,
   ServicePackage,
   ServicePackageRow,
   UpdateServicePackageRequest,
 } from '@firmivra/types';
+import { publicButtonCode, publicItemUrl } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE, TenantPrisma } from '../database/database.module.js';
 import {
   categoryRef,
@@ -65,8 +71,27 @@ const packageInclude = {
     include: { service: { select: serviceBits } },
   },
   addOns: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+  // S12: the Booking type, and whether clients can book it online now.
+  appointmentType: { select: { id: true, name: true, archivedAt: true, clientBookable: true } },
 } satisfies Prisma.ServicePackageInclude;
 type PackageShape = Prisma.ServicePackageGetPayload<{ include: typeof packageInclude }>;
+
+/**
+ * SP-1 (S12): a package's public state. LIVE only while it is Active, Visible to Clients and set
+ * to Display on Website/Portal; archived, a draft, inactive or hidden refuse new public use, and
+ * the link stays the same so reactivating it brings it back.
+ */
+export function packagePublicState(p: {
+  archivedAt: Date | null;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
+  visibleToClients: boolean;
+  displayOnPortal: boolean;
+}): PublicLinkState {
+  if (p.archivedAt) return 'ARCHIVED';
+  if (p.status === 'DRAFT') return 'DRAFT';
+  if (p.status === 'INACTIVE') return 'INACTIVE';
+  return p.visibleToClients && p.displayOnPortal ? 'LIVE' : 'HIDDEN';
+}
 
 const pricingOf = (p: PackageShape): PackagePricing =>
   packagePricing({
@@ -116,9 +141,20 @@ export const toServicePackage = (p: PackageShape): ServicePackage => ({
   visibleToClients: p.visibleToClients,
   allowClientAddOns: p.allowClientAddOns,
   displayOnWebsite: p.displayOnPortal,
+  bookingType: p.appointmentType
+    ? {
+        id: p.appointmentType.id,
+        name: p.appointmentType.name,
+        bookable: bookable(p.appointmentType),
+      }
+    : null,
   internalNotes: p.internalNotes,
   version: versionOf(p),
 });
+
+/** S12: a Booking type the public page can open: not archived, and booked online by clients. */
+const bookable = (t: { archivedAt: Date | null; clientBookable: boolean }) =>
+  t.archivedAt === null && t.clientBookable;
 
 /**
  * The Package Builder: packages of catalog services at one price. Savings and totals are worked
@@ -131,6 +167,7 @@ export class CatalogPackagesService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly tenantPrisma: TenantPrisma,
     private readonly audit: AuditService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /** By status (S4); without one, every package not archived. */
@@ -150,6 +187,87 @@ export class CatalogPackagesService {
     });
     if (!p) throw errors.notFound();
     return toServicePackage(p);
+  }
+
+  /**
+   * SP-1 (S12): the package's public link (`publicItemUrl`, on the portal host from config) and
+   * its button code for the firm's website, with the state the public page applies. Everyone at
+   * the firm reads it, whatever the package's state.
+   */
+  async publicLink(businessId: string, id: string): Promise<PublicLink> {
+    return inFirm(this.database, businessId, async (tx) => {
+      const p = await tx.servicePackage.findFirst({
+        where: { businessId, id },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          archivedAt: true,
+          visibleToClients: true,
+          displayOnPortal: true,
+        },
+      });
+      if (!p) throw errors.notFound();
+      const firm = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { slug: true },
+      });
+      const settings = await tx.businessSettings.findUnique({
+        where: { businessId },
+        select: { buttonColor: true, brandColor: true },
+      });
+      const url = publicItemUrl(this.env.PORTAL_BASE_URL, firm.slug, 'PACKAGE', p.id);
+      return {
+        kind: 'PACKAGE',
+        itemId: p.id,
+        url,
+        embedCode: publicButtonCode(
+          url,
+          `View ${p.name}`,
+          settings?.buttonColor ?? settings?.brandColor,
+        ),
+        state: packagePublicState(p),
+      };
+    });
+  }
+
+  /**
+   * SP-1 (S7, S12): the page behind the public link, before anyone signs in. Only while LIVE, and
+   * only the client's view: the included services and the ones not included, the price and
+   * savings, and the add-ons when clients may add them. Never internal notes or staff fields.
+   */
+  async publicPackage(businessId: string, id: string): Promise<PublicPackage> {
+    const p = await this.database.forBusiness(businessId).servicePackage.findFirst({
+      where: { businessId, id },
+      include: packageInclude,
+    });
+    if (!p) throw errors.notFound();
+    const state = packagePublicState(p);
+    if (state !== 'LIVE') return { id: p.id, state, details: null };
+    const pricing = pricingOf(p);
+    return {
+      id: p.id,
+      state,
+      details: {
+        name: p.name,
+        shortDescription: p.shortDescription,
+        category: p.category?.name ?? null,
+        packagePriceCents: pricing.packagePriceCents,
+        savingsCents: pricing.savingsCents,
+        included: p.items.filter((i) => i.included).map((i) => ({ name: i.service.name })),
+        notIncluded: p.items.filter((i) => !i.included).map((i) => ({ name: i.service.name })),
+        // S12: Book opens the Booking type's booking while clients can book it online.
+        bookingTypeId:
+          p.appointmentType && bookable(p.appointmentType) ? p.appointmentType.id : null,
+        addOns: p.allowClientAddOns
+          ? p.addOns.map((a) => ({
+              name: a.name,
+              description: a.description,
+              priceCents: a.priceCents,
+            }))
+          : [],
+      },
+    };
   }
 
   /** The Package Pricing panel for the form's unsaved values. Saves nothing. */
@@ -184,6 +302,8 @@ export class CatalogPackagesService {
     const id = await this.write(businessId, async (tx) => {
       await this.checkName(tx, businessId, body.name);
       await this.checkCategory(tx, businessId, body.categoryId);
+      if (body.appointmentTypeId)
+        await this.checkBookingType(tx, businessId, body.appointmentTypeId);
       const created = await tx.servicePackage.create({
         data: {
           businessId,
@@ -196,6 +316,7 @@ export class CatalogPackagesService {
           visibleToClients: body.visibleToClients ?? false,
           allowClientAddOns: body.allowClientAddOns ?? false,
           displayOnPortal: body.displayOnWebsite ?? false,
+          appointmentTypeId: body.appointmentTypeId ?? null,
           internalNotes: body.internalNotes ?? null,
           status: 'DRAFT',
           updatedByUserId: userId,
@@ -239,6 +360,9 @@ export class CatalogPackagesService {
       if (changes.name !== undefined && changes.name !== cur.name) {
         await this.checkName(tx, businessId, changes.name, id);
       }
+      if (changes.appointmentTypeId && changes.appointmentTypeId !== cur.appointmentTypeId) {
+        await this.checkBookingType(tx, businessId, changes.appointmentTypeId);
+      }
       if (changes.categoryId !== undefined && changes.categoryId !== cur.categoryId) {
         await this.checkCategory(tx, businessId, changes.categoryId);
       }
@@ -251,6 +375,7 @@ export class CatalogPackagesService {
         packagePriceCents: cur.packagePriceCents,
         ...discountOf(cur),
         services: cur.items.map((i) => `${i.serviceId}:${i.included}`).sort(),
+        appointmentTypeId: cur.appointmentTypeId,
       };
       const discount =
         changes.discountType !== undefined || changes.discountValue !== undefined
@@ -287,6 +412,9 @@ export class CatalogPackagesService {
             ? { displayOnPortal: changes.displayOnWebsite }
             : {}),
           ...(changes.internalNotes !== undefined ? { internalNotes: changes.internalNotes } : {}),
+          ...(changes.appointmentTypeId !== undefined
+            ? { appointmentTypeId: changes.appointmentTypeId }
+            : {}),
           updatedByUserId: userId,
         },
       });
@@ -303,6 +431,7 @@ export class CatalogPackagesService {
         packagePriceCents: after.packagePriceCents,
         ...discountOf(after),
         services: after.items.map((i) => `${i.serviceId}:${i.included}`).sort(),
+        appointmentTypeId: after.appointmentTypeId,
       });
     });
     await this.audit.log(
@@ -371,6 +500,7 @@ export class CatalogPackagesService {
           discountPercent: src.discountPercent,
           discountCents: src.discountCents,
           allowClientAddOns: src.allowClientAddOns,
+          appointmentTypeId: src.appointmentTypeId,
           internalNotes: src.internalNotes,
           status: 'DRAFT',
           updatedByUserId: userId,
@@ -617,6 +747,16 @@ export class CatalogPackagesService {
       select: { id: true },
     });
     if (clash) throw errors.duplicateName('package');
+  }
+
+  /** S12: a Booking type is one of the firm's appointment types, not archived. */
+  private async checkBookingType(tx: TxClient, businessId: string, typeId: string) {
+    const t = await tx.appointmentType.findFirst({
+      where: { businessId, id: typeId },
+      select: { archivedAt: true },
+    });
+    if (!t || t.archivedAt)
+      throw errors.invalid('appointmentTypeId', 'Choose one of your active appointment types');
   }
 
   private async checkCategory(tx: TxClient, businessId: string, categoryId: string) {

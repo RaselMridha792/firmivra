@@ -23,6 +23,7 @@ import { NOT_LOADED, QuietCard } from '../../_components/quiet-card';
 import { RowMenu } from '../../_components/row-menu';
 import { MembersModal, MoveModal } from './team-dialogs';
 import { TeamDetails } from './team-details';
+import { staffCountText } from '../../_components/staff-counts';
 
 const PAGE_SIZE = 10;
 
@@ -196,7 +197,7 @@ export function TeamsScreen({ departmentId, teamId }: { departmentId?: string; t
                 cell: (t) => (
                   <span className="inline-flex items-center gap-1.5">
                     <UsersThree aria-hidden weight="fill" className="size-4 text-heading" />
-                    {t.memberCount}
+                    {staffCountText(t.memberCount, t.assignedCount)}
                   </span>
                 ),
               },

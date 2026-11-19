@@ -90,6 +90,15 @@ export const PortalInfo = z.object({
     header: z.string().nullable(),
     /** Welcome text on the landing page; null shows the default. */
     welcomeMessage: z.string().nullable(),
+    /** CP-1g: the landing page's button text; null shows the default words. */
+    signInLabel: z.string().nullable().default(null),
+    signUpLabel: z.string().nullable().default(null),
+    /**
+     * Intake Review 2 23-g: Intake Form Settings > "Use this branding on client-facing forms". Off:
+     * the forms outside the portal (a lead's link, a public share link) show the firm's name only,
+     * with no logo or colours; the portal itself keeps its branding.
+     */
+    formBranding: z.boolean().default(true),
   }),
   /** False when the firm closed sign-ups or has not published Terms and Privacy yet. */
   signUpOpen: z.boolean(),
@@ -99,6 +108,11 @@ export const PortalInfo = z.object({
    * main office's in Locations, and that office's opening hours. Null or empty: not set.
    */
   contact: PortalContact,
+  /**
+   * SM10: the firm's time zone (an IANA name), which the portal header's clock shows, named, as
+   * the firm workspace's does. The default stands in for an answer from before it existed.
+   */
+  timezone: z.string().default('America/New_York'),
 });
 export type PortalInfo = z.infer<typeof PortalInfo>;
 

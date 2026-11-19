@@ -24,6 +24,7 @@ import {
   BookMyAppointmentRequest,
   CancelAppointmentRequest,
   CancelMyAppointmentRequest,
+  CompleteAppointmentRequest,
   CreateAppointmentTypeRequest,
   CreateBlockedTimeRequest,
   FreeSlotsBlockResult,
@@ -195,8 +196,13 @@ export function createAppointmentsClient(request: ApiRequest) {
         `${appointment(id)}/cancel`,
         post(parseInput(CancelAppointmentRequest, body)),
       ),
-    complete: async (id: string): Promise<Appointment> =>
-      request(Appointment, `${appointment(id)}/complete`, post()),
+    /** P4-2: a lead's own appointment takes its outcome and notes (CompleteAppointmentRequest). */
+    complete: async (id: string, body: CompleteAppointmentRequest = {}): Promise<Appointment> =>
+      request(
+        Appointment,
+        `${appointment(id)}/complete`,
+        post(parseInput(CompleteAppointmentRequest, body)),
+      ),
     noShow: async (id: string): Promise<Appointment> =>
       request(Appointment, `${appointment(id)}/no-show`, post()),
   };

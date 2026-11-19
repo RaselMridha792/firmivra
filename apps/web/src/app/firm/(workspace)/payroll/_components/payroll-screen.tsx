@@ -64,6 +64,7 @@ import {
   daysUntil,
   moneyShort,
   outlined,
+  providerState,
   quiet,
 } from './payroll-shared';
 import { OriginLink } from '../../../../../components/origin-link';
@@ -971,10 +972,9 @@ function PickClientDialog({
               mode === 'reports'
                 ? router.push(`/payroll/clients/${clientId}?tab=reports`)
                 : send.mutate(undefined, {
-                    onSuccess: () =>
-                      onDone(
-                        'Provider saved for this client. It shows as connected after its first successful sync.',
-                      ),
+                    // F01: the same state the client's Overview shows.
+                    onSuccess: (w) =>
+                      onDone(`Provider saved for this client: ${providerState(w).label}.`),
                   })
             }
           >

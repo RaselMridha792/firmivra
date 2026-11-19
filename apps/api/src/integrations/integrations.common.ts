@@ -69,43 +69,67 @@ export function requireManage(tenant: TenantContext | undefined): void {
   if (!canManageIntegrations(tenant)) throw integrationErrors.forbidden();
 }
 
+/**
+ * Why a connection needs attention: the short message, what it stops (`impact`) and what to do
+ * (`nextStep`), in plain words (I-UA04, Integrations Review Two), and the fix the card offers.
+ */
 const REASONS: Record<
   string,
   {
     issue: IntegrationIssueCode;
     message: string;
+    impact: string;
+    nextStep: string;
     action: IntegrationConnectionSummary['statusAction'];
   }
 > = {
   authorization_expired: {
     issue: 'AUTHORIZATION_EXPIRED',
     message: 'Authorization expired',
+    impact: 'Nothing syncs until you sign in again. What is already in Firmivra stays.',
+    nextStep: 'Choose Reconnect and sign in to the provider again.',
     action: 'RECONNECT',
   },
   authorization_revoked: {
     issue: 'AUTHORIZATION_REVOKED',
     message: 'Access was revoked at the provider',
+    impact: 'Nothing syncs: the provider no longer lets Firmivra in. What is already here stays.',
+    nextStep: 'Choose Reconnect and approve access at the provider again.',
     action: 'RECONNECT',
   },
   permission_missing: {
     issue: 'PERMISSION_MISSING',
     message: 'A required permission is missing',
+    impact: 'The objects that need that permission do not sync.',
+    nextStep: 'Choose Fix permissions and grant the missing permission at the provider.',
     action: 'FIX_PERMISSIONS',
   },
-  sync_failed: { issue: 'SYNC_FAILED', message: 'Syncs keep failing', action: 'VIEW_HISTORY' },
+  sync_failed: {
+    issue: 'SYNC_FAILED',
+    message: 'Syncs keep failing',
+    impact: 'Recent syncs did not finish, so some records may be out of date.',
+    nextStep: 'Open Sync History to see which run failed and why, then choose Sync Now.',
+    action: 'VIEW_HISTORY',
+  },
   provider_outage: {
     issue: 'PROVIDER_OUTAGE',
     message: 'The provider is unavailable',
+    impact: 'Syncs wait until the provider answers again. Nothing is lost.',
+    nextStep: 'Retry later, or choose Sync Now once the provider is back.',
     action: 'RETRY',
   },
   rate_limited: {
     issue: 'RATE_LIMITED',
     message: 'The provider is limiting requests',
+    impact: 'Syncs are held back while the provider limits requests.',
+    nextStep: 'Wait a few minutes, then Retry. The next scheduled sync also tries again.',
     action: 'RETRY',
   },
   configuration_incomplete: {
     issue: 'CONFIGURATION_INCOMPLETE',
     message: 'Setup is not finished',
+    impact: 'Nothing syncs until the setup is finished.',
+    nextStep: 'Choose Reconnect and finish the setup steps.',
     action: 'RECONNECT',
   },
 };
@@ -115,6 +139,8 @@ export const reasonInfo = (reason: string | null) =>
     ? (REASONS[reason] ?? {
         issue: 'SYNC_FAILED' as const,
         message: 'Needs attention',
+        impact: 'Syncs may not be running.',
+        nextStep: 'Open Sync History to see what failed.',
         action: 'VIEW_HISTORY' as const,
       })
     : null;
@@ -131,6 +157,8 @@ export interface ConnectionRow {
   syncEveryMinutes: number | null;
   connectedAt: Date;
   lastSyncAt: Date | null;
+  /** The last connection test (I-R2-02: the overview's "last checked"). */
+  lastCheckAt: Date | null;
   nextSyncAt: Date | null;
 }
 
@@ -143,6 +171,8 @@ export function toSummary(c: ConnectionRow): IntegrationConnectionSummary {
     status: c.status,
     issue: info?.issue ?? null,
     statusMessage: info?.message ?? null,
+    statusImpact: info?.impact ?? null,
+    statusNextStep: info?.nextStep ?? null,
     statusAction: info?.action ?? null,
     accountLabel: c.accountLabel,
     direction: c.direction,
@@ -200,6 +230,19 @@ const ENTITY_LABELS = new Map<string, string>([
   ['test', 'Connection test'],
   ['webhook', 'Webhook'],
 ]);
+/** I-F03 (Integrations Review Two): a check or a sync older than this makes the health STALE. */
+export const STALE_AFTER_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * I-R2-04 (Integrations Review Two): runs newest first by when they actually ran; one queued and
+ * not started yet comes first. The screens show the same time (`startedAt`, else `createdAt`).
+ */
+export const RUN_ORDER = [
+  { startedAt: { sort: 'desc', nulls: 'first' } },
+  { createdAt: 'desc' },
+  { id: 'asc' },
+] as const;
+
 export function entityLabelOf(provider: IntegrationProvider | undefined, entity: string): string {
   return (
     ENTITY_LABELS.get(entity) ??

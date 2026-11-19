@@ -1,5 +1,8 @@
 import {
   AgendaQuery,
+  type Appointment,
+  CompleteAppointmentRequest,
+  LEAD_APPOINTMENT_OUTCOME_LABELS,
   type AgendaItem,
   type AppointmentDraft,
   type AppointmentNotice,
@@ -34,6 +37,12 @@ import {
 import { mockDelay } from '../lib/mock';
 import { appointmentIntakes } from './appointment-intakes';
 import { liveEquipment, liveRooms, resourceStore } from './appointment-resources';
+import {
+  addMockLeadAppointment,
+  mockLeadAppointmentOutcome,
+  mockLeadReach,
+  mockLeadToBook,
+} from './leads-pipeline';
 
 /**
  * Mock data for `api.scheduling` (R42 contract, the Appointments workspace). Synthetic people
@@ -142,14 +151,39 @@ function seed(empty: boolean): Store {
       4,
       '14:30',
       '15:30',
-      contact(2, 'Amber Kessler', 'LEAD'),
+      // P4-2: a lead the leads mock holds (Ravi Greenwood, Qualified): completing it reaches the
+      // lead's activity and follow-up, and Convert to New client opens the lead's Convert page.
+      {
+        ...contact(2, 'Ravi Greenwood', 'LEAD'),
+        id: '0199c0c0-0a00-7000-8000-000000000005',
+        email: 'ravi.greenwood@example.test',
+        phone: '(555) 030-1005',
+      },
       0,
       null,
       daniel,
       'CONFIRMED',
       'VIDEO',
     ],
-    [5, '10:00', '11:00', contact(9, 'Jack Banfield'), 1, 0, daniel, 'CONFIRMED', 'IN_PERSON'],
+    [
+      5,
+      '10:00',
+      '11:00',
+      // P4-2: a lead the leads mock assigns to Theo Grant (Owen Hartley, Contacted), with Daniel
+      // Okafor as the appointment's staff member: Daniel (Staff) records Keep as Lead and Follow
+      // Up through the appointment and is not offered Convert to New client.
+      {
+        ...contact(10, 'Owen Hartley', 'LEAD'),
+        id: '0199c0c0-0a00-7000-8000-000000000010',
+        email: 'owen.hartley@example.test',
+        phone: '(555) 030-1010',
+      },
+      1,
+      null,
+      daniel,
+      'CONFIRMED',
+      'IN_PERSON',
+    ],
     [5, '13:00', '14:00', contact(10, 'Clara Voss'), 3, 1, hana, 'CONFIRMED', 'PHONE'],
     [6, '09:00', '11:00', contact(11, 'Workshop Group'), 7, 3, owner, 'CONFIRMED', 'IN_PERSON'],
     [-6, '10:00', '11:00', contact(12, 'Elena Brooks'), 1, 0, daniel, 'COMPLETED', 'IN_PERSON'],
@@ -370,6 +404,94 @@ function storeFor(options: Options): Store {
   return s;
 }
 
+/**
+ * Mark Completed on an Appointments-workspace record (`api.appointments.complete` in mock mode;
+ * the detail page's records live here), as the API: Staff only on their own, only while open (409
+ * APPOINTMENT_CLOSED) and once started (409 APPOINTMENT_NOT_STARTED). P4-2: a lead's own
+ * appointment needs its outcome and notes (400 at `outcome`) and a client's takes none; the outcome
+ * goes on the notes and, through the leads mock, on the lead (a Meeting, and Keep as Lead and
+ * Follow Up's next follow-up that day at 10:00). Nothing converts. Null when no store holds `id`.
+ */
+export function completeMockRecord(
+  id: string,
+  body: CompleteAppointmentRequest,
+  role: MockRole,
+): Appointment | null {
+  const r = [...(stores?.values() ?? [])].flatMap((s) => s.records).find((x) => x.id === id);
+  if (!r) return null;
+  const me =
+    role === 'STAFF'
+      ? staffRef(3, 'Daniel Okafor')
+      : role === 'ADMIN'
+        ? staffRef(2, 'Priya Ramos')
+        : staffRef(1, 'Morgan Avery');
+  if (role === 'STAFF' && !r.staff.some((x) => x.userId === me.userId))
+    throw fail(404, 'NOT_FOUND', 'Not found');
+  if (!['PENDING', 'CONFIRMED', 'RESCHEDULED'].includes(r.status))
+    throw fail(409, 'APPOINTMENT_CLOSED', 'This appointment is no longer scheduled');
+  if (Date.now() < Date.parse(r.startsAt))
+    throw fail(409, 'APPOINTMENT_NOT_STARTED', 'This appointment has not started yet');
+  const input = parseInput(CompleteAppointmentRequest, body);
+  const leadId = r.contact.kind === 'LEAD' ? r.contact.id : null;
+  const invalid = (path: string, message: string) =>
+    new ApiRequestError(400, 'VALIDATION_FAILED', message, undefined, undefined, [
+      { path, message },
+    ]);
+  if (leadId && !input.outcome)
+    throw invalid('outcome', 'Choose what came of the appointment with this lead');
+  if (!leadId && input.outcome)
+    throw invalid('outcome', 'Only an appointment with a lead has an outcome');
+  if (leadId && input.outcome === 'CONVERT_NEW' && !mockLeadReach(leadId, role))
+    throw fail(403, 'FORBIDDEN', "The lead's owner can convert this lead.");
+  if (leadId && input.outcome) {
+    const label = LEAD_APPOINTMENT_OUTCOME_LABELS[input.outcome];
+    const day = input.followUpOn ?? null;
+    if (day && day < localDate(Date.now()))
+      throw invalid('followUpOn', 'Choose today or a later date');
+    mockLeadAppointmentOutcome(leadId, {
+      label,
+      followUpAt: day ? at(day, '10:00') : null,
+      by: me,
+    });
+    const title = `Outcome: ${label}${day ? ` (follow up on ${day})` : ''}`;
+    r.internalNotes = [r.internalNotes, `${me.name}: ${title}. ${input.notes ?? ''}`]
+      .filter(Boolean)
+      .join('\n');
+  }
+  r.status = 'COMPLETED';
+  r.history.push({
+    at: new Date().toISOString(),
+    action: 'COMPLETED',
+    by: { kind: 'STAFF', name: me.name },
+    from: null,
+    to: null,
+    reason: null,
+  });
+  r.version = `v${Number(r.version.slice(1)) + 1}`;
+  const staff = r.staff[0] ?? me;
+  return {
+    id: r.id,
+    client:
+      r.contact.kind === 'CLIENT' && r.contact.id
+        ? { id: r.contact.id, displayName: r.contact.name }
+        : null,
+    lead: leadId ? { id: leadId, name: r.contact.name } : null,
+    staff,
+    type: r.type,
+    engagementId: null,
+    startsAt: r.startsAt,
+    endsAt: r.endsAt,
+    status: 'COMPLETED',
+    locationKind: r.method === 'IN_PERSON' || r.method === 'PHONE' ? r.method : 'VIDEO',
+    locationDetails: r.place.details,
+    bookedByClient: false,
+    rescheduleCount: 0,
+    cancelledAt: null,
+    cancelReason: null,
+    createdAt: r.createdAt,
+  };
+}
+
 /** `api.scheduling` in mock mode. */
 export function createSchedulingMock(options: Options = {}): SchedulingClient {
   const role = options.role ?? 'OWNER';
@@ -420,9 +542,26 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
     endsAt: string;
     excludeAppointmentId?: string;
     equipmentIds?: readonly string[];
+    /** The client being booked: one already booked then is a hard conflict (W10), as the API. */
+    clientId?: string | undefined;
   }): ConflictResult {
     const found: ConflictResult['conflicts'] = [];
     const date = localDate(Date.parse(input.startsAt));
+    if (input.clientId) {
+      for (const r of s.records) {
+        if (r.id === input.excludeAppointmentId || r.status === 'CANCELED' || r.status === 'DRAFT')
+          continue;
+        if (r.contact.kind === 'CLIENT' && r.contact.id === input.clientId && overlaps(r, input)) {
+          found.push({
+            kind: 'CLIENT_DOUBLE_BOOKED',
+            staff: null,
+            startsAt: r.startsAt,
+            endsAt: r.endsAt,
+            message: 'This client already has an appointment at this time',
+          });
+        }
+      }
+    }
     // Review 2 (A2): an item another live appointment holds then; never overridden.
     for (const r of s.records) {
       if (r.id === input.excludeAppointmentId || r.status === 'CANCELED' || r.status === 'DRAFT')
@@ -481,7 +620,10 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       ok: found.length === 0,
       conflicts: found,
       alternatives,
-      canOverride: role !== 'STAFF' && !found.some((c) => c.kind === 'EQUIPMENT'),
+      // As the API: a hard conflict (an item held, the client already booked) is never overridden.
+      canOverride:
+        role !== 'STAFF' &&
+        !found.some((c) => c.kind === 'EQUIPMENT' || c.kind === 'CLIENT_DOUBLE_BOOKED'),
     };
   }
   /** 409 SCHEDULING_CONFLICT with the check's answer in its details, as the API sends it. */
@@ -682,7 +824,15 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
 
     record: async (id) => {
       await mockDelay();
-      const r = copy(find(id));
+      const found = copy(find(id));
+      // P4-2, as the API: whether this member may convert the lead (Convert to New client).
+      const r =
+        found.contact.kind === 'LEAD' && found.contact.id
+          ? {
+              ...found,
+              contact: { ...found.contact, leadReach: mockLeadReach(found.contact.id, role) },
+            }
+          : found;
       // A9: the intake form sent for this appointment, when there is one.
       const intake = appointmentIntakes().get(id);
       return intake ? { ...r, related: { ...r.related, intakeForm: intake } } : r;
@@ -698,6 +848,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         startsAt: input.startsAt,
         endsAt: input.endsAt,
         equipmentIds: input.equipmentIds ?? [],
+        clientId: input.contact.kind === 'CLIENT' ? input.contact.id : undefined,
       });
       if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
         throw conflictError(check);
@@ -728,13 +879,58 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       if (!type) throw fail(404, 'NOT_FOUND', 'Appointment type not found');
       const staff = staffByIds(input.staffUserIds);
       const createdAt = new Date().toISOString();
+      // P4-1: a lead books as itself until it converts (then as its client), as the API.
+      let contact = contactOf(input.contact);
+      let leadOnly: string | null = null;
+      if (input.contact.kind === 'LEAD') {
+        const lead = mockLeadToBook(input.contact.id, role === 'STAFF' ? me.userId : null);
+        contact = !lead
+          ? contact
+          : lead.client
+            ? {
+                kind: 'CLIENT',
+                id: lead.client.id,
+                name: lead.client.name,
+                businessName: null,
+                email: lead.email,
+                phone: lead.phone,
+                clientType: 'INDIVIDUAL',
+              }
+            : {
+                kind: 'LEAD',
+                id: lead.id,
+                name: lead.name,
+                businessName: lead.businessName,
+                email: lead.email,
+                phone: lead.phone,
+                clientType: null,
+              };
+        if (!lead?.client) leadOnly = input.contact.id;
+      }
+      if (leadOnly) {
+        const convertFirst = (what: string) =>
+          fail(
+            400,
+            'VALIDATION_FAILED',
+            `A lead's appointment ${what}. Convert the lead to a client first.`,
+          );
+        if (input.related?.taxReturnId) throw convertFirst('cannot link a tax return');
+        if (input.taxPlanId) throw convertFirst('cannot link a tax plan');
+        if (input.attendeeClientIds?.length) throw convertFirst('has no other attendees');
+        if (input.reminders.some((r) => r.channel === 'SMS'))
+          throw fail(
+            400,
+            'SMS_UNAVAILABLE',
+            'Text reminders are not sent to leads. Use email, or convert the lead to a client.',
+          );
+      }
       const r: AppointmentRecord = {
         restricted: false,
         id: uuid('0a10', s.next++),
         startsAt: input.startsAt,
         endsAt: input.endsAt,
         allDay: input.allDay,
-        contact: contactOf(input.contact),
+        contact,
         attendees: attendeesOf(input.attendeeClientIds).filter(
           (a) => input.contact.kind === 'CONTACT' || a.id !== input.contact.id,
         ),
@@ -792,6 +988,17 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       };
       s.records.push(r);
       s.idempotent.set(input.idempotencyKey, r.id);
+      if (leadOnly) {
+        addMockLeadAppointment(leadOnly, {
+          id: r.id,
+          startsAt: r.startsAt,
+          endsAt: r.endsAt,
+          type: type.name,
+          staff: r.staff[0] ?? me,
+          status: r.status,
+          client: null,
+        });
+      }
       return copy(r);
     },
     updateDetails: async (id, body) => {
@@ -815,6 +1022,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           endsAt,
           excludeAppointmentId: id,
           equipmentIds: equipment.map((e) => e.id),
+          clientId: r.contact.kind === 'CLIENT' ? (r.contact.id ?? undefined) : undefined,
         });
         if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
           throw conflictError(check);
@@ -891,6 +1099,13 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       const input = parseInput(SendReminderRequest, body);
       const r = find(id);
       const channels = input.channels ?? ['EMAIL'];
+      // P4-1: a lead's own appointment reminds its lead by email only, as the API.
+      if (r.contact.kind === 'LEAD' && channels.includes('SMS'))
+        throw fail(
+          400,
+          'SMS_UNAVAILABLE',
+          'Text reminders are not sent to leads. Use email, or convert the lead to a client.',
+        );
       for (const c of channels) r.notices.push(notice('REMINDER', c));
       return {
         sent: r.contact.email ? channels.length : 0,

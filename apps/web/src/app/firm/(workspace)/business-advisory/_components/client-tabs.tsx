@@ -35,6 +35,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { ShareNoteDialog } from '../../../../../components/share-note-dialog';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { ActionItemsSection } from './action-plans-screen';
@@ -259,7 +260,6 @@ export function ClientPlanTab({ advisoryClientId }: { advisoryClientId: string }
             caption="Plan versions"
             dense
             noun="versions"
-            pageSize={20}
             showPagination={false}
             loading={Boolean(currentId) && versions.isPending}
             emptyTitle={
@@ -293,7 +293,6 @@ export function ClientPlanTab({ advisoryClientId }: { advisoryClientId: string }
           caption="Business plans"
           dense
           noun="plans"
-          pageSize={50}
           showPagination={false}
           loading={plans.isPending}
           emptyTitle={plans.isError ? 'Plans are not available' : 'No business plans yet'}
@@ -338,7 +337,8 @@ export function ClientTasksTab({ advisoryClientId }: { advisoryClientId: string 
 
 /**
  * /business-advisory/clients/[clientId]/notes: the staff's advisory and meeting notes (the client's
- * internal notes, kept with the advisory engagement when there is one). Never shown to the client.
+ * internal notes, kept with the advisory engagement when there is one). Never shown to the client;
+ * B32's Share with Client sends a copy of one note's text as a portal message, after a preview.
  */
 export function ClientNotesTab({ advisoryClientId }: { advisoryClientId: string }) {
   const client = useAdvisoryClient(advisoryClientId);
@@ -348,6 +348,8 @@ export function ClientNotesTab({ advisoryClientId }: { advisoryClientId: string 
   const [body, setBody] = useState('');
   const [editing, setEditing] = useState<{ id: string; body: string }>();
   const [removing, setRemoving] = useState<InternalNote>();
+  // B32: the note whose text is being previewed before it is shared with the client.
+  const [sharing, setSharing] = useState<InternalNote>();
   const [error, setError] = useState<string>();
   const engagement = scope === 'advisory' ? (c?.engagementId ?? null) : null;
   const notes = useApiQuery([...BA_KEY, 'client-notes', c?.client.id, engagement], () =>
@@ -389,7 +391,8 @@ export function ClientNotesTab({ advisoryClientId }: { advisoryClientId: string 
             <Badge tone="neutral" icon={LockSimple}>
               Internal · staff only
             </Badge>
-            Every note is internal. Sharing a note with the client is not offered.
+            Every note is internal. Share with Client sends a note’s text to the client as a portal
+            message, after you see it and confirm.
           </p>
           <div className="flex flex-col gap-3">
             <ErrorLine text={error} />
@@ -443,22 +446,31 @@ export function ClientNotesTab({ advisoryClientId }: { advisoryClientId: string 
                     <Badge tone="neutral" icon={LockSimple}>
                       Internal · staff only
                     </Badge>
-                    {n.canEdit && editing?.id !== n.id ? (
+                    {editing?.id !== n.id ? (
                       <span className="ml-auto flex gap-1">
-                        <Button
-                          variant="secondary"
-                          aria-label="Edit note"
-                          onClick={() => setEditing({ id: n.id, body: n.body })}
-                        >
-                          <PencilSimple aria-hidden weight="fill" className="size-4" />
+                        {/* B32: a copy of the text, after a preview; the note stays internal. */}
+                        <Button variant="secondary" onClick={() => setSharing(n)}>
+                          <PaperPlaneTilt aria-hidden weight="fill" className="size-4" />
+                          Share with Client
                         </Button>
-                        <Button
-                          variant="secondary"
-                          aria-label="Delete note"
-                          onClick={() => setRemoving(n)}
-                        >
-                          <Trash aria-hidden weight="fill" className="size-4" />
-                        </Button>
+                        {n.canEdit ? (
+                          <>
+                            <Button
+                              variant="secondary"
+                              aria-label="Edit note"
+                              onClick={() => setEditing({ id: n.id, body: n.body })}
+                            >
+                              <PencilSimple aria-hidden weight="fill" className="size-4" />
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              aria-label="Delete note"
+                              onClick={() => setRemoving(n)}
+                            >
+                              <Trash aria-hidden weight="fill" className="size-4" />
+                            </Button>
+                          </>
+                        ) : null}
                       </span>
                     ) : null}
                   </div>
@@ -530,6 +542,20 @@ export function ClientNotesTab({ advisoryClientId }: { advisoryClientId: string 
         >
           <p className="line-clamp-3 text-sm text-text">{removing.body}</p>
         </Modal>
+      ) : null}
+      {sharing && c ? (
+        <ShareNoteDialog
+          note={sharing}
+          clientName={c.client.name}
+          onClose={() => setSharing(undefined)}
+          onShared={async () => {
+            setSharing(undefined);
+            await act(
+              () => Promise.resolve(),
+              'Shared with the client as a portal message. The note stays internal.',
+            );
+          }}
+        />
       ) : null}
     </ClientShell>
   );

@@ -183,11 +183,13 @@ export const cases: CaseModule['cases'] = {
     params: {},
     bodyIds: { appointmentIds: 'appointment' },
   },
+  // P4-1: the form's contact is a lead here (the check resolves it by the lead pages' rule); the
+  // client contact is swapped on Schedule Appointment and the drafts.
   'POST /api/v1/business/appointments/conflicts': {
     params: {},
     bodyIds: {
       staffUserIds: 'staffUser',
-      'contact.id': 'client',
+      'contact.id': 'lead',
       roomId: 'firmRoom',
       equipmentIds: 'firmEquipment',
       excludeAppointmentId: 'appointment',
@@ -196,7 +198,7 @@ export const cases: CaseModule['cases'] = {
       // A1: the other attendees, each checked for another appointment then.
       attendeeClientIds: 'attendeeClient',
     },
-    body: { ...inOneHour(), contact: { kind: 'CLIENT', id: '' } },
+    body: { ...inOneHour(), contact: { kind: 'LEAD', id: '' } },
   },
   'GET /api/v1/business/availability/:userId/rules': { params: { userId: 'staffUser' } },
   'PUT /api/v1/business/availability/:userId/rules': {
@@ -297,9 +299,11 @@ export const cases: CaseModule['cases'] = {
     body: { meetingUrl: 'https://meet.example.com/fake-room' },
   },
   // Found, but no one has working hours, so no slot is free.
+  // S12: `packageId`, booked from a package's page; another firm's package is 404 like an unknown
+  // one, and the firm's own package of another type books as usual without being named.
   'POST /api/v1/portal/:firmSlug/me/appointments': {
     params: {},
-    bodyIds: { typeId: 'appointmentType' },
+    bodyIds: { typeId: 'appointmentType', packageId: 'catalogPackage' },
     body: { startsAt: at3pm(12), locationKind: 'PHONE' },
     expect: 409,
   },

@@ -5,7 +5,9 @@ import type {
   IntegrationMappingScope,
   IntegrationOptionField,
   IntegrationPermission,
+  IntegrationNextStep,
   IntegrationProvider,
+  IntegrationReadiness,
 } from '@firmivra/types';
 
 // The integration catalog (the registry the developer guide's section 8 asks for): what each
@@ -114,6 +116,81 @@ interface Def {
   learnMoreUrl?: string | null;
 }
 
+/**
+ * I-UA05: what stands between each provider and Connect while no adapter is registered for it (a
+ * built-in provider, or one whose adapter is registered, is Ready: see `readinessOf`). Every
+ * catalog provider is in this table (a unit test checks it), so a new one is classified on purpose.
+ *  - DEVELOPER_SETUP: it signs in through the provider, so Firmivra first registers its app there
+ *    and builds the adapter (Developer setup pending).
+ *  - ENABLE: its setup needs only the firm's key, so Firmivra only has to build and turn on the
+ *    adapter (Supported, not enabled).
+ *  - CHOOSE_SYSTEM: a family of systems with no one system chosen yet (Unavailable).
+ */
+export const NOT_YET_READY: Record<string, 'DEVELOPER_SETUP' | 'ENABLE' | 'CHOOSE_SYSTEM'> = {
+  quickbooks: 'DEVELOPER_SETUP',
+  microsoft365: 'DEVELOPER_SETUP',
+  google_workspace: 'DEVELOPER_SETUP',
+  stripe: 'DEVELOPER_SETUP',
+  plaid: 'DEVELOPER_SETUP',
+  dropbox_sign: 'DEVELOPER_SETUP',
+  zoom: 'DEVELOPER_SETUP',
+  textmagic: 'ENABLE',
+  firmivra_mail: 'ENABLE',
+  website_forms: 'ENABLE',
+  custom_api: 'ENABLE',
+  tax_software: 'CHOOSE_SYSTEM',
+  payroll_providers: 'CHOOSE_SYSTEM',
+  square: 'DEVELOPER_SETUP',
+  xero: 'DEVELOPER_SETUP',
+  calendly: 'DEVELOPER_SETUP',
+  hubspot: 'DEVELOPER_SETUP',
+  mailchimp: 'DEVELOPER_SETUP',
+  shopify: 'DEVELOPER_SETUP',
+};
+
+/** I-UA05: how close `p` is to Connect and who acts next; `connectable` when it can connect now. */
+export function readinessOf(
+  p: Pick<IntegrationProvider, 'provider' | 'name' | 'authMethod'>,
+  connectable: boolean,
+): { readiness: IntegrationReadiness; nextStep: IntegrationNextStep } {
+  if (connectable)
+    return {
+      readiness: 'READY',
+      nextStep: {
+        who: 'FIRM',
+        what:
+          p.authMethod === 'NONE'
+            ? 'Set it up here. Nothing outside Firmivra is needed.'
+            : `Connect it here: you ${p.authMethod === 'API_KEY' ? `enter the key ${p.name} gives you` : `sign in to ${p.name}`}.`,
+      },
+    };
+  const left =
+    NOT_YET_READY[p.provider] ?? (p.authMethod === 'API_KEY' ? 'ENABLE' : 'DEVELOPER_SETUP');
+  if (left === 'CHOOSE_SYSTEM')
+    return {
+      readiness: 'UNAVAILABLE',
+      nextStep: {
+        who: 'FIRM',
+        what: 'Not one system yet. Use Request Integration to name the software you use.',
+      },
+    };
+  if (left === 'ENABLE')
+    return {
+      readiness: 'SUPPORTED_NOT_ENABLED',
+      nextStep: {
+        who: 'FIRMIVRA',
+        what: `Firmivra turns on the ${p.name} connection. Then you connect it here.`,
+      },
+    };
+  return {
+    readiness: 'SETUP_PENDING',
+    nextStep: {
+      who: 'FIRMIVRA',
+      what: `Firmivra finishes its developer setup with ${p.name}. Then you ${p.authMethod === 'PROVIDER_LINK' ? 'approve the link' : 'sign in'} here.`,
+    },
+  };
+}
+
 const build = (d: Def): IntegrationProvider => ({
   provider: d.provider,
   name: d.name,
@@ -135,6 +212,10 @@ const build = (d: Def): IntegrationProvider => ({
   mappingScopes: d.mappingScopes ?? [],
   multipleConnections: d.multipleConnections ?? false,
   comingSoon: !(d.live ?? false),
+  ...readinessOf(
+    { provider: d.provider, name: d.name, authMethod: d.authMethod ?? 'OAUTH2' },
+    d.live ?? false,
+  ),
   learnMoreUrl: d.learnMoreUrl ?? null,
 });
 
@@ -373,7 +454,8 @@ export const PROVIDERS: readonly IntegrationProvider[] = [
       'Connect a system Firmivra does not support yet with your own endpoint, events and a signing secret.',
     popularity: 60,
     authMethod: 'NONE',
-    directions: ['EXPORT', 'IMPORT'],
+    // I-R2-07 (Integrations Review Two): it only sends events out, so it offers only that way.
+    directions: ['EXPORT'],
     entities: [entity('events', 'Events', 'Events sent to your endpoint', ['EXPORT'])],
     multipleConnections: false,
     live: true,

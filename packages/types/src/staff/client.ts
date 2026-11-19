@@ -23,7 +23,13 @@ import {
   UpdateDepartmentRequest,
   UpdateStaffTeamRequest,
 } from './departments.js';
-import { SaveStaffSecurityDefaultsRequest, StaffSecurityDefaults } from './security-defaults.js';
+import {
+  ApplyStaffSecurityDefaultsRequest,
+  SaveStaffSecurityDefaultsRequest,
+  StaffSecurityApplyPreview,
+  StaffSecurityApplyResult,
+  StaffSecurityDefaults,
+} from './security-defaults.js';
 import {
   SaveStaffJobTitleRequest,
   StaffJobTitle,
@@ -49,6 +55,7 @@ import {
 import {
   ConfirmStaffDocumentUploadRequest,
   CreateStaffDocumentUploadRequest,
+  CreateStaffDraftUploadRequest,
   CreateStaffRequest,
   CreateStaffResponse,
   LockStaffRequest,
@@ -68,6 +75,8 @@ import {
   StaffDocumentLink,
   StaffDocumentList,
   StaffDraft,
+  StaffDraftAttachment,
+  StaffDraftAttachmentId,
   StaffDraftId,
   StaffDraftList,
   StaffFormOptions,
@@ -298,6 +307,32 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
       ),
     deleteDraft: async (draftId: string): Promise<OkResponse> =>
       request(OkResponse, `${DRAFTS}/${parseInput(StaffDraftId, draftId)}`, { method: 'DELETE' }),
+    /** SM17: Save under Remove: where to PUT a file kept with the draft. */
+    createDraftUpload: async (
+      draftId: string,
+      body: CreateStaffDraftUploadRequest,
+    ): Promise<UploadTicket> =>
+      request(
+        UploadTicket,
+        `${DRAFTS}/${parseInput(StaffDraftId, draftId)}/attachments/uploads`,
+        post(parseInput(CreateStaffDraftUploadRequest, body)),
+      ),
+    confirmDraftUpload: async (
+      draftId: string,
+      body: ConfirmStaffDocumentUploadRequest,
+    ): Promise<StaffDraftAttachment> =>
+      request(
+        StaffDraftAttachment,
+        `${DRAFTS}/${parseInput(StaffDraftId, draftId)}/attachments/uploads/confirm`,
+        post(parseInput(ConfirmStaffDocumentUploadRequest, body)),
+      ),
+    /** SM17: Remove a saved file: its row and its stored file. */
+    deleteDraftAttachment: async (draftId: string, attachmentId: string): Promise<OkResponse> =>
+      request(
+        OkResponse,
+        `${DRAFTS}/${parseInput(StaffDraftId, draftId)}/attachments/${parseInput(StaffDraftAttachmentId, attachmentId)}`,
+        { method: 'DELETE' },
+      ),
 
     // Offices & Job Titles: the firm's saved job titles (Owner and Admin)
     jobTitles: async (includeArchived = false): Promise<StaffJobTitle[]> =>
@@ -349,10 +384,24 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
         SECURITY_DEFAULTS,
         put(parseInput(SaveStaffSecurityDefaultsRequest, body)),
       ),
+    /** SM05: who Apply to Existing Accounts would change, before the confirm. */
+    securityApplyPreview: async (): Promise<StaffSecurityApplyPreview> =>
+      request(StaffSecurityApplyPreview, `${SECURITY_DEFAULTS}/apply-preview`),
+    /** SM05: the saved defaults onto those accounts, but the exceptions (confirmed, audited). */
+    applySecurityDefaults: async (
+      body: ApplyStaffSecurityDefaultsRequest,
+    ): Promise<StaffSecurityApplyResult> =>
+      request(
+        StaffSecurityApplyResult,
+        `${SECURITY_DEFAULTS}/apply`,
+        post(parseInput(ApplyStaffSecurityDefaultsRequest, body)),
+      ),
 
     // Bulk Upload Staff
     /** The CSV template's address (a plain download link). */
     importTemplateUrl: (): string => `${baseUrl}${STAFF}/import/template`,
+    /** SM09: the same template as an Excel workbook. */
+    importTemplateXlsxUrl: (): string => `${baseUrl}${STAFF}/import/template/xlsx`,
     previewImport: async (body: StaffImportPreviewRequest): Promise<StaffImportPreview> =>
       request(
         StaffImportPreview,

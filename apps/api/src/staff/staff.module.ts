@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { poolSecrets } from '../auth/sealed.js';
 import { SignInModule } from '../auth/sign-in.controller.js';
 import { ENV } from '../config/config.module.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import type { Env } from '../config/env.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
 import {
@@ -20,6 +21,8 @@ import {
 import { StaffActionsService } from './staff-actions.service.js';
 import { StaffDocumentsController } from './staff-documents.controller.js';
 import { StaffDocumentsService, StaffUploadTokens } from './staff-documents.service.js';
+import { StaffDraftFilesService, StaffDraftUploadTokens } from './staff-draft-files.service.js';
+import { StaffDraftScanHandler } from './staff-draft-scan-handler.js';
 import { StaffDraftsController } from './staff-drafts.controller.js';
 import { StaffImportService } from './staff-import.service.js';
 import { StaffJobTitlesController } from './staff-job-titles.controller.js';
@@ -49,7 +52,7 @@ import { UsersService } from './users.service.js';
  * must never meet an ':id' route.
  */
 @Module({
-  imports: [SignInModule, ScanRouterModule],
+  imports: [SignInModule, ScanRouterModule, NotificationsModule],
   controllers: [
     StaffDocumentsController,
     StaffController,
@@ -73,6 +76,8 @@ import { UsersService } from './users.service.js';
     StaffSecurityService,
     StaffDocumentsService,
     StaffScanHandler,
+    StaffDraftFilesService,
+    StaffDraftScanHandler,
     StaffImportService,
     StaffJobTitlesService,
     StaffWorkSchedulesService,
@@ -87,6 +92,11 @@ import { UsersService } from './users.service.js';
       inject: [DOCUMENTS_CONFIG],
       useFactory: (config: DocumentsConfig) =>
         new S3DocumentStorage(createS3Client(config), config.bucket),
+    },
+    {
+      provide: StaffDraftUploadTokens,
+      inject: [ENV],
+      useFactory: (env: Env) => new StaffDraftUploadTokens(poolSecrets(env)),
     },
     {
       provide: StaffUploadTokens,

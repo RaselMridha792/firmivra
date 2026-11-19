@@ -39,6 +39,8 @@ const zoom = 'https://zoom.us/j/0000000000';
 const appointment = {
   id,
   client: { id: '0199b6a1-0000-7000-8000-000000000001', displayName: 'Jamie Sample' },
+  // P4-1: a client's appointment names no lead.
+  lead: null,
   staff: member,
   type: null,
   engagementId: null,

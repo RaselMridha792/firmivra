@@ -73,13 +73,13 @@ export class StaffUploadTokens extends Sealer<StaffUploadClaim> {
   }
 }
 
-const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+export const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** tenant/{businessId}/staff/{membershipId}/{uploadId}, as ticket() names a new object. */
 const KEY = new RegExp(`^tenant/(${UUID})/staff/(${UUID})/(${UUID})$`);
 /** A late scan result still finds its upload's refusal. */
-const SCAN_REFUSALS_SINCE_MS = 24 * 60 * 60_000;
+export const SCAN_REFUSALS_SINCE_MS = 24 * 60 * 60_000;
 /** UNSUPPORTED because of the file itself (as documents); anything else is our side. */
-const FILE_REASON =
+export const FILE_REASON =
   /^(PASSWORD_PROTECTED|OBJECT_SIZE_LIMIT_EXCEEDED|EXTRACTED_[A-Z_]+_LIMIT_EXCEEDED|EXTRACTION_RATIO_LIMIT_EXCEEDED)$/;
 const CFB = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 /** A Word 97-2003 file's macro storages, as their UTF-16 directory names. */
@@ -106,13 +106,47 @@ const MESSAGES: Record<Refusal | 'UPLOAD_EXPIRED', string> = {
   FILE_PASSWORD_PROTECTED: 'Remove the password from the file, then upload it again.',
   FILE_HAS_MACROS: 'Files with macros can’t be uploaded.',
 };
-const refusal = (code: Refusal | 'UPLOAD_EXPIRED') =>
+/**
+ * A staff upload's stored bytes against its claim (staff documents and, SM17, draft files),
+ * holding the file's size of the read budget (no room: 503, nothing deleted or completed). A
+ * multipart upload is completed first: 410 when storage no longer has it. `s3` wraps each storage
+ * call (a failure is 503).
+ */
+export function checkStoredUpload(
+  claim: {
+    key: string;
+    sizeBytes: number;
+    sha256: string;
+    contentType: string;
+    uploadId?: string | null | undefined;
+  },
+  storage: DocumentStorage,
+  s3: <T>(call: () => Promise<T>) => Promise<T>,
+): Promise<Refusal | null> {
+  return readBudget.hold(claim.sizeBytes, unavailable, async () => {
+    const { uploadId } = claim;
+    if (uploadId) {
+      const done = await s3(() => storage.completeUpload(claim.key, uploadId, claim.sizeBytes));
+      if (done === 'MISSING') throw refusal('UPLOAD_EXPIRED');
+      if (done === 'MISMATCH') return 'UPLOAD_MISMATCH';
+    }
+    const head = await s3(() => storage.head(claim.key));
+    if (head?.sizeBytes !== claim.sizeBytes || head.contentEncoding !== null)
+      return 'UPLOAD_MISMATCH';
+    const bytes = await s3(() => storage.read(claim.key));
+    if (bytes?.byteLength !== claim.sizeBytes) return 'UPLOAD_MISMATCH';
+    if (createHash('sha256').update(bytes).digest('hex') !== claim.sha256) return 'UPLOAD_MISMATCH';
+    return checkStaffFile(claim.contentType, bytes);
+  });
+}
+
+export const refusal = (code: Refusal | 'UPLOAD_EXPIRED') =>
   code === 'UPLOAD_EXPIRED'
     ? new GoneException({ code, message: MESSAGES[code] })
     : new ConflictException({ code, message: MESSAGES[code] });
 const notReady = () =>
   staffConflict('DOCUMENT_NOT_READY', 'This file is still being checked, or failed the check');
-const unavailable = () =>
+export const unavailable = () =>
   new ServiceUnavailableException({
     code: 'SERVICE_UNAVAILABLE',
     message: 'File storage is busy. Try again in a moment.',
@@ -487,29 +521,8 @@ export class StaffDocumentsService {
     });
   }
 
-  /**
-   * Holding the file's size of the read budget (no room: 503, nothing deleted or completed). A
-   * multipart upload is completed first: 410 when storage no longer has it.
-   */
   private checkStored(claim: StaffUploadClaim): Promise<Refusal | null> {
-    return readBudget.hold(claim.sizeBytes, unavailable, async () => {
-      const { uploadId } = claim;
-      if (uploadId) {
-        const done = await this.s3(() =>
-          this.storage.completeUpload(claim.key, uploadId, claim.sizeBytes),
-        );
-        if (done === 'MISSING') throw refusal('UPLOAD_EXPIRED');
-        if (done === 'MISMATCH') return 'UPLOAD_MISMATCH';
-      }
-      const head = await this.s3(() => this.storage.head(claim.key));
-      if (head?.sizeBytes !== claim.sizeBytes || head.contentEncoding !== null)
-        return 'UPLOAD_MISMATCH';
-      const bytes = await this.s3(() => this.storage.read(claim.key));
-      if (bytes?.byteLength !== claim.sizeBytes) return 'UPLOAD_MISMATCH';
-      if (createHash('sha256').update(bytes).digest('hex') !== claim.sha256)
-        return 'UPLOAD_MISMATCH';
-      return checkStaffFile(claim.contentType, bytes);
-    });
+    return checkStoredUpload(claim, this.storage, (call) => this.s3(call));
   }
 
   /** A storage call; any failure is 503 with Retry-After (nothing deleted). */

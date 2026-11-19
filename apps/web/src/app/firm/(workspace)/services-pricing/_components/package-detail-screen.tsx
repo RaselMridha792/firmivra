@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { PublicLinkSection } from '../../../../../components/public-link';
 import {
   CATALOG_ERRORS,
   CATALOG_KEY,
@@ -42,6 +43,10 @@ const yes = (v: boolean) => (v ? 'Yes' : 'No');
 export function PackageDetailScreen({ id }: { id: string }) {
   const router = useRouter();
   const query = useApiQuery([...CATALOG_KEY, 'package', id], () => api.servicesPricing.package(id));
+  // SP-1 (S12): the package's booking link, whatever its state (the block says when it is off).
+  const link = useApiQuery([...CATALOG_KEY, 'package', id, 'public-link'], () =>
+    api.servicesPricing.packagePublicLink(id),
+  );
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const p: ServicePackage | undefined = query.data;
   const options = { invalidate: [...CATALOG_KEY] };
@@ -305,6 +310,19 @@ export function PackageDetailScreen({ id }: { id: string }) {
               {p?.internalNotes || <span className="text-muted">No internal notes.</span>}
             </p>
           </Panel>
+          <div data-testid="detail-link">
+            <PublicLinkSection
+              kind="PACKAGE"
+              link={link.data}
+              emptyText={
+                link.isError
+                  ? 'The booking link is not available right now. Try again in a moment.'
+                  : link.isPending
+                    ? 'Loading the booking link…'
+                    : undefined
+              }
+            />
+          </div>
           <Panel title="Package Settings" testId="detail-settings">
             {p ? (
               <dl className="grid grid-cols-[1fr_auto] gap-y-2 text-sm">
@@ -314,6 +332,12 @@ export function PackageDetailScreen({ id }: { id: string }) {
                 <dd className="text-heading">{yes(p.allowClientAddOns)}</dd>
                 <dt className="text-text">Display on Website/Portal</dt>
                 <dd className="text-heading">{yes(p.displayOnWebsite)}</dd>
+                <dt className="text-text">Booking Type</dt>
+                <dd data-testid="detail-booking-type" className="text-right text-heading">
+                  {p.bookingType
+                    ? `${p.bookingType.name}${p.bookingType.bookable ? '' : ' (not booked online)'}`
+                    : 'None'}
+                </dd>
               </dl>
             ) : (
               <Quiet>{note}</Quiet>

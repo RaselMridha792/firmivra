@@ -420,19 +420,17 @@ describe('create and update', () => {
     expect([clash.status, codeOf(clash)]).toEqual([409, 'DUPLICATE_EMAIL']);
   });
 
-  it('updates only the fields sent; "" clears; an archived client is 409; bad input 400', async () => {
+  it('updates only the fields sent; an archived client is 409; bad input 400', async () => {
     const c = await create({
       displayName: 'Update Me',
       email: email('update'),
       phone: '+14045550101',
     });
-    const res = await call('patch', `/${c.id}`, people.ownerA, 'a', {
-      phone: '',
-      displayName: 'Updated',
-    });
+    // Clients Review 2 (P4-4): a required phone is no longer cleared with "" (see below).
+    const res = await call('patch', `/${c.id}`, people.ownerA, 'a', { displayName: 'Updated' });
     expect(Record_.parse(res.body)).toMatchObject({
       displayName: 'Updated',
-      phone: null,
+      phone: '+14045550101',
       email: email('update'),
     });
 
@@ -654,7 +652,12 @@ describe('the answer after a change', () => {
       people.staffA2.id,
       people.staffA.id,
     ]);
-    expect(after.audit.metadata).toEqual({ fields: ['assignedUserId'], tasksMoved: 1 });
+    // Audit Log Review 2, R03: the field's old and new value.
+    expect(after.audit.metadata).toEqual({
+      fields: ['assignedUserId'],
+      changes: { assignedUserId: { from: people.staffA.id, to: people.staffA2.id } },
+      tasksMoved: 1,
+    });
   });
 
   it('archiving an archived client changes nothing and is audited as the read it is', async () => {
@@ -700,7 +703,7 @@ describe('the answer after a change', () => {
 });
 
 describe('audit', () => {
-  it('logs every read and change with ids and field names, never names or emails', async () => {
+  it('logs every read and change with ids and field names; only an edit holds the old and new value', async () => {
     const c = await create({ displayName: `Audited Person ${run}`, email: email('audited') });
     await call('get', `/${c.id}`, people.ownerA);
     await call('patch', `/${c.id}`, people.ownerA, 'a', { displayName: `Audited Again ${run}` });
@@ -724,11 +727,16 @@ describe('audit', () => {
     ]) {
       expect(actions).toContain(action);
     }
-    const text = JSON.stringify(rows.map((r) => r.metadata));
+    // Reads, the list, creating and archiving never write the client's name or email; an edit
+    // holds the changed field's old and new value (Audit Log Review 2, R03: lead decision 2).
+    const text = JSON.stringify(
+      rows.filter((r) => r.action !== 'client.updated').map((r) => r.metadata),
+    );
     expect(text).not.toContain('Audited');
     expect(text).not.toContain('audited-');
     expect(rows.find((r) => r.action === 'client.updated')?.metadata).toEqual({
       fields: ['displayName'],
+      changes: { displayName: { from: `Audited Person ${run}`, to: `Audited Again ${run}` } },
     });
     // Clients Review 2: archive and restore name the client (its Client ID) and what changed.
     const archivedRow = rows.find((r) => r.action === 'client.archived')?.metadata as {
@@ -864,5 +872,286 @@ describe('changes at the same time', () => {
       await holder;
       await owner.$disconnect();
     }
+  });
+});
+
+describe('Edit validation on the server (Clients Review 2 §3, P4-4)', () => {
+  const put = (id: string, body: object) => call('put', `/${id}/profile`, people.ownerA, 'a', body);
+  const fieldsOf = (res: Response) =>
+    (res.body as { error?: { details?: { path: string }[] } }).error?.details?.map((d) => d.path);
+  const address = { line1: '12 Sample Road', city: 'Atlanta', state: 'GA', postalCode: '30301' };
+
+  it('PATCH refuses clearing the email or the phone (400 naming the field); the record keeps them', async () => {
+    const c = await create({
+      displayName: 'Keeps Contact (fake)',
+      email: email('keeps-contact'),
+      phone: '+14045550141',
+    });
+    for (const [body, fields] of [
+      [{ email: '' }, ['email']],
+      [{ email: null }, ['email']],
+      [{ phone: '' }, ['phone']],
+      [{ phone: null, displayName: 'Renamed' }, ['phone']],
+      [{ email: '  ', phone: null }, ['email', 'phone']],
+    ] as const) {
+      const res = await call('patch', `/${c.id}`, people.ownerA, 'a', body);
+      expect([res.status, codeOf(res)], JSON.stringify(body)).toEqual([400, 'VALIDATION_FAILED']);
+      expect(fieldsOf(res), JSON.stringify(body)).toEqual(fields);
+    }
+    const after = Record_.parse((await call('get', `/${c.id}`, people.ownerA)).body);
+    expect(after).toMatchObject({
+      displayName: 'Keeps Contact (fake)',
+      email: email('keeps-contact'),
+      phone: '+14045550141',
+    });
+    // A new value is a change, not a clearing.
+    const changed = await call('patch', `/${c.id}`, people.ownerA, 'a', { phone: '+14045550142' });
+    expect(Record_.parse(changed.body).phone).toBe('+14045550142');
+  });
+
+  it('PUT profile refuses clearing each address field; a part left out keeps what is stored', async () => {
+    const c = await create({
+      displayName: 'Keeps Address (fake)',
+      email: email('keeps-address'),
+      profile: { address },
+    });
+    for (const field of ['line1', 'city', 'state', 'postalCode'] as const) {
+      for (const cleared of [null, '']) {
+        const res = await put(c.id, { address: { ...address, [field]: cleared } });
+        expect([res.status, codeOf(res)], `${field}=${cleared}`).toEqual([
+          400,
+          'VALIDATION_FAILED',
+        ]);
+        expect(fieldsOf(res)).toEqual([`address.${field}`]);
+      }
+    }
+    const all = await put(c.id, {
+      address: { line1: null, city: null, state: null, postalCode: null },
+    });
+    expect(fieldsOf(all)).toEqual([
+      'address.line1',
+      'address.city',
+      'address.state',
+      'address.postalCode',
+    ]);
+    // The second line is not required; the rest stays as stored.
+    const line2 = await put(c.id, { address: { line2: 'Suite 4' } });
+    expect(line2.status, JSON.stringify(line2.body)).toBe(200);
+    expect(Profile.parse(line2.body).address).toMatchObject({ ...address, line2: 'Suite 4' });
+    const cleared = await put(c.id, { address: { line2: null } });
+    expect(Profile.parse(cleared.body).address).toMatchObject({ ...address, line2: null });
+  });
+
+  it("a Business's name and responsible party are changed, never cleared; an individual's business name may be", async () => {
+    const party = { name: 'Rae Fake', email: 'rae.fake@example.test', phone: '+14045550143' };
+    const biz = await create({
+      displayName: `Clearing Biz ${run}`,
+      accountType: 'BUSINESS',
+      email: email('clearing-biz'),
+      profile: { businessName: `Clearing Biz ${run} LLC`, address, responsibleParty: party },
+    });
+    const name = await put(biz.id, { businessName: null });
+    expect([name.status, codeOf(name)]).toEqual([400, 'VALIDATION_FAILED']);
+    expect(fieldsOf(name)).toEqual(['businessName']);
+    const blank = await put(biz.id, { businessName: '' });
+    expect(fieldsOf(blank)).toEqual(['businessName']);
+    const partyGone = await put(biz.id, { responsibleParty: null });
+    expect(fieldsOf(partyGone)).toEqual(['responsibleParty']);
+    const renamed = await put(biz.id, { businessName: `Clearing Biz ${run} Inc` });
+    expect(Profile.parse(renamed.body).businessName).toBe(`Clearing Biz ${run} Inc`);
+
+    const person = await create({
+      displayName: 'Person With Shop (fake)',
+      email: email('person-shop'),
+      profile: { businessName: 'Side Shop (fake)' },
+    });
+    const freed = await put(person.id, { businessName: null });
+    expect(freed.status, JSON.stringify(freed.body)).toBe(200);
+    expect(Profile.parse(freed.body).businessName).toBeNull();
+  });
+
+  it('an older record with no address or phone can still change its other fields', async () => {
+    // Saved before these rules: no phone, no address.
+    const old = await create({ displayName: 'Older Record (fake)', email: email('older') });
+    expect(old.phone).toBeNull();
+    expect(old.profile.address.line1).toBeNull();
+    const renamed = await call('patch', `/${old.id}`, people.ownerA, 'a', {
+      displayName: 'Older Record Renamed (fake)',
+    });
+    expect(renamed.status, JSON.stringify(renamed.body)).toBe(200);
+    const profile = await put(old.id, {
+      referralSource: 'A friend (fake)',
+      preferredName: 'Ollie',
+    });
+    expect(profile.status, JSON.stringify(profile.body)).toBe(200);
+    expect(Profile.parse(profile.body)).toMatchObject({
+      referralSource: 'A friend (fake)',
+      address: { line1: null, city: null, state: null, postalCode: null },
+    });
+    // Filling the address in part keeps the missing parts missing (no clearing).
+    const part = await put(old.id, { address: { line1: '3 Late Lane' } });
+    expect(part.status, JSON.stringify(part.body)).toBe(200);
+    expect(Profile.parse(part.body).address).toMatchObject({ line1: '3 Late Lane', city: null });
+  });
+});
+
+describe('Create Anyway in the audit (Clients Review 2 §5 duplicate safeguards, P4-5)', () => {
+  const auditOf = (id: string, action: string) =>
+    inFirmA((tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, entityId: id, action },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { metadata: true },
+      }),
+    );
+
+  it('a client created past the phone warning names the matched clients, by id only', async () => {
+    const phone = '+13125550171';
+    const first = await create({ displayName: `Audit Phone One ${run}`, phone });
+    const second = await create({
+      displayName: `Audit Phone Two ${run}`,
+      phone: '(312) 555-0171',
+      email: email('audit-phone-two'),
+      allowDuplicatePhone: true,
+    });
+    const [row] = await auditOf(second.id, 'client.created');
+    expect(row?.metadata).toMatchObject({
+      createdAnyway: { matchedClientIds: [first.id], reasons: ['PHONE'] },
+    });
+    // Ids only: no name, email or phone of either client.
+    const text = JSON.stringify(row);
+    for (const value of [phone, '3125550171', 'Audit Phone', email('audit-phone-two')]) {
+      expect(text).not.toContain(value);
+    }
+    // Confirming with nothing to match writes no override.
+    const lone = await create({
+      displayName: `Audit Lone ${run}`,
+      phone: '+13125550172',
+      allowDuplicatePhone: true,
+    });
+    const [plain] = await auditOf(lone.id, 'client.created');
+    expect(plain?.metadata).not.toHaveProperty('createdAnyway');
+  });
+
+  it('a business saved past the name warning, on Add and on Edit, names the matches by id', async () => {
+    const first = await create({
+      accountType: 'BUSINESS',
+      displayName: `Lantern Works LLC ${run}`,
+    });
+    const second = await create({
+      accountType: 'BUSINESS',
+      displayName: `lantern works, inc. ${run}`,
+      allowDuplicatePhone: true,
+    });
+    const [created] = await auditOf(second.id, 'client.created');
+    expect(created?.metadata).toMatchObject({
+      createdAnyway: { matchedClientIds: [first.id], reasons: ['NAME'] },
+    });
+
+    const third = await create({ accountType: 'BUSINESS', displayName: `Dockside Co ${run}` });
+    const renamed = await call('patch', `/${third.id}`, people.ownerA, 'a', {
+      displayName: `Lantern-Works ${run}`,
+      allowDuplicatePhone: true,
+    });
+    expect(renamed.status, JSON.stringify(renamed.body)).toBe(200);
+    const [updated] = await auditOf(third.id, 'client.updated');
+    expect(updated?.metadata).toMatchObject({
+      fields: ['displayName'],
+      savedAnyway: { matchedClientIds: [first.id, second.id], reasons: ['NAME'] },
+    });
+    // Audit Log Review 2, R03: the client's own rename is its old and new name; the matches are
+    // named by id only, never by their names.
+    expect(updated?.metadata).toMatchObject({
+      changes: { displayName: { from: `Dockside Co ${run}`, to: `Lantern-Works ${run}` } },
+    });
+    const text = JSON.stringify(updated);
+    for (const name of [`Lantern Works LLC ${run}`, `lantern works, inc. ${run}`]) {
+      expect(text).not.toContain(name);
+    }
+    expect(JSON.stringify(updated?.metadata)).not.toMatch(/"savedAnyway":\{[^}]*Lantern/);
+  });
+
+  it('an Edit to a phone another client has, saved anyway, names that client; another firm never counts', async () => {
+    const phone = '+13125550173';
+    await create({ displayName: `Firm B Same Phone ${run}`, phone }, people.ownerB, 'b');
+    const first = await create({ displayName: `Edit Phone One ${run}`, phone });
+    const other = await create({ displayName: `Edit Phone Two ${run}`, phone: '+13125550174' });
+    const saved = await call('patch', `/${other.id}`, people.ownerA, 'a', {
+      phone,
+      allowDuplicatePhone: true,
+    });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    const [row] = await auditOf(other.id, 'client.updated');
+    expect(row?.metadata).toMatchObject({
+      fields: ['phone'],
+      savedAnyway: { matchedClientIds: [first.id], reasons: ['PHONE'] },
+    });
+    // A change that matches nothing has no override, even when confirmed.
+    const plain = await call('patch', `/${other.id}`, people.ownerA, 'a', {
+      displayName: `Edit Phone Two Renamed ${run}`,
+      allowDuplicatePhone: true,
+    });
+    expect(plain.status).toBe(200);
+    const rows = await auditOf(other.id, 'client.updated');
+    expect(rows.at(-1)?.metadata).not.toHaveProperty('savedAnyway');
+  });
+});
+
+describe('the ZIP and the state, checked on the server (Clients Review 2 §5, P4-6)', () => {
+  const put = (id: string, body: object) => call('put', `/${id}/profile`, people.ownerA, 'a', body);
+
+  it('a mismatched ZIP saves and answers a warning; a matching one has none', async () => {
+    const mismatched = await create({
+      displayName: 'Zip Mismatch (fake)',
+      email: email('zip-mismatch'),
+      profile: {
+        address: { line1: '1 Fake St', city: 'Atlanta', state: 'GA', postalCode: '10001' },
+      },
+    });
+    // Saved as typed, with the warning naming the field.
+    expect(mismatched.profile.address).toMatchObject({ state: 'GA', postalCode: '10001' });
+    expect(mismatched.profile.warnings).toEqual([
+      {
+        path: 'profile.address.postalCode',
+        code: 'ZIP_STATE_MISMATCH',
+        message:
+          'ZIP code 10001 is usually in NY, not GA. Check the state and ZIP code; you can still save.',
+      },
+    ]);
+    const matching = await create({
+      displayName: 'Zip Match (fake)',
+      email: email('zip-match'),
+      profile: {
+        address: { line1: '1 Fake St', city: 'Atlanta', state: 'GA', postalCode: '30301' },
+      },
+    });
+    expect(matching.profile.warnings).toBeUndefined();
+
+    // Edit: the ZIP alone is checked against the stored state.
+    const edited = await put(matching.id, { address: { postalCode: '73301' } });
+    expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+    const profile = Profile.parse(edited.body);
+    expect(profile.address).toMatchObject({ state: 'GA', postalCode: '73301' });
+    expect(profile.warnings).toEqual([
+      expect.objectContaining({ path: 'address.postalCode', code: 'ZIP_STATE_MISMATCH' }),
+    ]);
+    // Fixed: no warning.
+    const fixed = await put(matching.id, { address: { state: 'TX' } });
+    expect(Profile.parse(fixed.body).warnings).toBeUndefined();
+    // A prefix the table doesn't know is "can't verify", never invalid; still saved.
+    const unknown = await put(matching.id, { address: { postalCode: '00012' } });
+    expect(unknown.status).toBe(200);
+    expect(Profile.parse(unknown.body).warnings).toEqual([
+      {
+        path: 'address.postalCode',
+        code: 'ZIP_UNVERIFIED',
+        message: "We can't verify ZIP code 00012. Check it before saving.",
+      },
+    ]);
+    // A change that leaves the address alone answers no warning, and the record reads none.
+    const other = await put(matching.id, { referralSource: 'A friend (fake)' });
+    expect(Profile.parse(other.body).warnings).toBeUndefined();
+    const read = Record_.parse((await call('get', `/${matching.id}`, people.ownerA)).body);
+    expect(read.profile.warnings).toBeUndefined();
   });
 });

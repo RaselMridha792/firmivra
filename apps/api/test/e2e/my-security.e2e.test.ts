@@ -16,19 +16,37 @@ import {
   MySecurityResult,
   MySessionList,
   type SignInResult,
+  StaffDetail,
+  StaffSecurity,
+  StaffSessionList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { LOCAL_MFA_CODE, LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
+
+/** The emails the API sends (SM33's MFA notice among them), never a real address. */
+const mails: NotifyMessage[] = [];
+const fakeNotify = {
+  send: (m: NotifyMessage) => {
+    mails.push(m);
+    return Promise.resolve();
+  },
+};
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
 const person = (key: string) => ({ id: randomUUID(), email: `r55z-${key}-${run}@r55.test` });
 /** A Staff-tier member of firm A, also in firm B; and one whose password changes. */
-const people = { staff: person('staff'), changer: person('changer'), ownerA: person('owner-a') };
+const people = {
+  staff: person('staff'),
+  changer: person('changer'),
+  ownerA: person('owner-a'),
+  limited: person('limited'),
+};
 const firms = {} as Record<'a' | 'b', string>;
-const member = {} as Record<'staffA' | 'staffB' | 'changerA', string>;
+const member = {} as Record<'staffA' | 'staffB' | 'changerA' | 'ownerA' | 'limitedA', string>;
 const NEW_PASSWORD = 'Brand-New-Passw0rd';
 
 let app: INestApplication;
@@ -133,7 +151,8 @@ beforeAll(async () => {
         }),
       )
     ).id;
-  await add('a', people.ownerA.id, 'OWNER');
+  member.ownerA = await add('a', people.ownerA.id, 'OWNER');
+  member.limitedA = await add('a', people.limited.id, 'STAFF');
   member.staffA = await add('a', people.staff.id, 'STAFF');
   member.staffB = await add('b', people.staff.id, 'STAFF');
   member.changerA = await add('a', people.changer.id, 'STAFF');
@@ -145,7 +164,10 @@ beforeAll(async () => {
     DATABASE_URL_APP: fx.appUrl,
   });
   appOrigin = new URL(env.APP_BASE_URL).origin;
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue(fakeNotify)
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -193,6 +215,130 @@ describe('my sessions (SM14 part B)', () => {
       }),
     );
     expect(audit).toMatchObject({ entityId: member.staffA, metadata: { sessionsRevoked: 1 } });
+  });
+});
+
+describe('the session limit, Last Login and this session (SM12)', () => {
+  it('a sign-in over the saved limit ends the oldest, audited; Last Login is the newest sign-in', async () => {
+    const owner = await signIn(people.ownerA.email);
+    const inA = <T>(work: Parameters<typeof runInScope<T>>[2]) =>
+      asOwner<T>({ kind: 'business', businessId: firms.a }, work);
+    const newest = async () =>
+      new Date(
+        Math.max(...(await rows('a', member.limitedA)).map((r) => r.createdAt.getTime())),
+      ).toISOString();
+    // No limit saved yet: both sign-ins stay.
+    const one = await signIn(people.limited.email);
+    ok(await as(one, 'get', '/me/sessions'));
+    const two = await signIn(people.limited.email);
+    ok(await as(two, 'get', '/me/sessions'));
+    ok(await as(one, 'get', '/me/sessions'));
+    // Last Login is the newest sign-in, though no security settings were saved.
+    const detail = StaffDetail.parse(ok(await as(owner, 'get', `/staff/${member.limitedA}`)));
+    expect(detail.lastLogin?.at).toBe(await newest());
+
+    // Two saved: a third sign-in ends the oldest only, audited.
+    await inA((tx) =>
+      tx.staffSecuritySettings.create({
+        data: { businessId: firms.a, membershipId: member.limitedA, maxConcurrentSessions: 2 },
+      }),
+    );
+    const three = await signIn(people.limited.email);
+    ok(await as(three, 'get', '/me/sessions'));
+    expectError(await as(one, 'get', '/me/sessions'), 401, 'SESSION_REVOKED');
+    ok(await as(two, 'get', '/me/sessions'));
+    const audit = await inA((tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { action: 'staff.session_limit_signed_out', entityId: member.limitedA },
+      }),
+    );
+    expect(audit.metadata).toEqual({ sessionsRevoked: 1, limit: 2 });
+    const security = StaffSecurity.parse(
+      ok(await as(owner, 'get', `/staff/${member.limitedA}/security`)),
+    );
+    expect(security.lastLogin?.at).toBe(await newest());
+
+    // "Sign out other sessions on new sign-in": one at a time.
+    await inA((tx) =>
+      tx.staffSecuritySettings.update({
+        where: { businessId_membershipId: { businessId: firms.a, membershipId: member.limitedA } },
+        data: { signOutOtherSessions: true },
+      }),
+    );
+    const four = await signIn(people.limited.email);
+    ok(await as(four, 'get', '/me/sessions'));
+    for (const ended of [two, three])
+      expectError(await as(ended, 'get', '/me/sessions'), 401, 'SESSION_REVOKED');
+
+    // This session is marked on the viewer's own record, never on someone else's.
+    const own = StaffSessionList.parse(
+      ok(await as(owner, 'get', `/staff/${member.ownerA}/sessions`)),
+    );
+    expect(own.items.filter((s) => s.current)).toHaveLength(1);
+    const theirs = StaffSessionList.parse(
+      ok(await as(owner, 'get', `/staff/${member.limitedA}/sessions`)),
+    );
+    expect(theirs.items.some((s) => s.current)).toBe(false);
+  });
+});
+
+describe('two-factor sign-in set up (SM33)', () => {
+  it('tells the member when they set it up again after a reset, never at their first set-up', async () => {
+    // The local identity asks a person to set up their authenticator at their first sign-in.
+    const email = person('enrol');
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: email.id,
+          cognitoSub: email.id,
+          pool: 'STAFF',
+          email: email.email,
+          name: 'Fake enrol',
+        },
+      }),
+    );
+    const memberOf = {} as Record<'a' | 'b', string>;
+    for (const firm of ['a', 'b'] as const)
+      memberOf[firm] = (
+        await asOwner({ kind: 'business', businessId: firms[firm] }, (tx) =>
+          tx.membership.create({
+            data: { businessId: firms[firm], userId: email.id, role: 'STAFF', status: 'ACTIVE' },
+            select: { id: true },
+          }),
+        )
+      ).id;
+    const bells = (firm: 'a' | 'b') =>
+      asOwner({ kind: 'business', businessId: firms[firm] }, (tx) =>
+        tx.notification.findMany({
+          where: {
+            businessId: firms[firm],
+            recipientUserId: email.id,
+            type: 'account.mfa_enrolled',
+          },
+          select: { entityId: true },
+        }),
+      );
+    const enrolled = () =>
+      mails.filter((m) => m.template === 'platform.mfa-enrolled' && m.to === email.email);
+
+    // The first set-up (their account's activation) tells nobody: they just did it themselves.
+    const first = await signIn(email.email);
+    ok(await as(first, 'get', '/me/sessions'));
+    expect(await bells('a')).toEqual([]);
+    expect(enrolled()).toEqual([]);
+
+    // An Owner resets it; setting it up again is told in each of their firms, and by one email.
+    const owner = await signIn(people.ownerA.email);
+    ok(await as(owner, 'post', `/staff/${memberOf.a}/reset-mfa`, { confirm: true }));
+    await signIn(email.email);
+    for (const firm of ['a', 'b'] as const)
+      expect(await bells(firm)).toEqual([{ entityId: email.id }]);
+    expect(enrolled()).toEqual([
+      expect.objectContaining({ businessId: null, data: { name: 'Fake enrol' } }),
+    ]);
+    // A later sign-in with the authenticator already set up tells nobody again.
+    await signIn(email.email);
+    expect(enrolled()).toHaveLength(1);
   });
 });
 

@@ -244,4 +244,11 @@ export const cases: CaseModule['cases'] = {
   'DELETE /api/v1/business/tax-returns/:id/documents/:documentId': {
     params: { id: 'taxReturn', documentId: 'linkedTaxDocument' },
   },
+  // F18: a linked document's download, by the return's reach. As for the documents' own download
+  // (documents.ts), the suite has no storage to sign with: the firm's own Owner passes the reach
+  // and gets 503.
+  'GET /api/v1/business/tax-returns/:id/documents/:documentId/download': {
+    params: { id: 'taxReturn', documentId: 'linkedTaxDocument' },
+    expect: 503,
+  },
 };

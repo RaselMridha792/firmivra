@@ -12,10 +12,12 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   CreateStaffResponse,
+  PermissionCapability,
   StaffActionResult,
   StaffCompensation,
   StaffDetail,
   StaffDraft,
+  StaffActivityPage,
   StaffPermissions,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -396,6 +398,77 @@ describe('Create Staff', () => {
     expect(await membersWith(FAILING)).toBe(1);
   });
 
+  it('SM20 and SM21: a compound first name stays whole, and an invitation reads as sent only once emailed', async () => {
+    const create = async (key: string, over: object, sendWelcomeEmail: boolean) =>
+      CreateStaffResponse.parse(
+        ok(
+          await call('post', '/staff', ownerA, {
+            idempotencyKey: randomUUID(),
+            account: account(key, over),
+            sendWelcomeEmail,
+          }),
+          201,
+        ),
+      ).staff.id;
+    const detail = async (id: string) =>
+      StaffDetail.parse(ok(await call('get', `/staff/${id}`, ownerA)));
+    const labels = async (id: string) =>
+      StaffActivityPage.parse(ok(await call('get', `/staff/${id}/activity`, ownerA))).items.map(
+        (i) => i.action,
+      );
+    // SM20: "Fake Mary Ann" + "Smith" comes back as typed, and Edit accepts it unchanged.
+    const quiet = await create('sm20', { firstName: 'Fake Mary Ann', lastName: 'Smith' }, false);
+    const d = await detail(quiet);
+    expect([d.firstName, d.lastName]).toEqual(['Fake Mary Ann', 'Smith']);
+    ok(
+      await call('patch', `/staff/${quiet}`, ownerA, {
+        version: d.version,
+        account: { firstName: 'Fake Mary Ann', lastName: 'Smith', jobTitle: 'Bookkeeper' },
+      }),
+    );
+    // SM21: Send Welcome Email off: an invite, never emailed, and no "emailed" activity.
+    expect(d.invite?.sentAt ?? null).toBeNull();
+    expect(await labels(quiet)).not.toContain('membership.invite_emailed');
+    // Sent: emailed, with its time and the activity row.
+    const sent = await create('sm21', {}, true);
+    expect((await detail(sent)).invite?.sentAt).not.toBeNull();
+    expect(await labels(sent)).toContain('membership.invite_emailed');
+  });
+
+  it('SM04: Create Staff gives Export like any other column, and the new member keeps it', async () => {
+    const create = async (key: string, permissions?: object[]) =>
+      CreateStaffResponse.parse(
+        ok(
+          await call('post', '/staff', ownerA, {
+            idempotencyKey: randomUUID(),
+            account: account(key),
+            sendWelcomeEmail: false,
+            ...(permissions ? { permissions } : {}),
+          }),
+          201,
+        ),
+      ).staff.id;
+    const gridOf = async (id: string) =>
+      StaffPermissions.parse(ok(await call('get', `/staff/${id}/permissions`, ownerA))).cells;
+    // A module the role lets them view but not export.
+    const roleCells = await gridOf(await create('sm04-role'));
+    const has = (module: string, capability: string) =>
+      roleCells.some((c) => c.module === module && c.capability === capability && c.granted);
+    const module = roleCells.find(
+      (c) => c.capability === 'VIEW' && c.granted && !has(c.module, 'EXPORT'),
+    )?.module;
+    expect(module).toBeTruthy();
+    const cells = await gridOf(
+      await create('sm04', [
+        { module: module!, capability: 'VIEW', granted: true },
+        { module: module!, capability: 'EXPORT', granted: true },
+      ]),
+    );
+    expect(cells.find((c) => c.module === module && c.capability === 'EXPORT')).toMatchObject({
+      granted: true,
+    });
+  });
+
   it('refuses an email someone here already has', async () => {
     for (const email of [staffA.email, invitedA.email.toUpperCase(), gonerA.email])
       expectError(
@@ -532,6 +605,35 @@ describe('Edit Staff', () => {
       400,
       'VALIDATION_FAILED',
     );
+  });
+
+  it('SM06 and SM25: keeps the work schedule and both teams, and refuses a loop of supervisors', async () => {
+    const detail = async (id: string) =>
+      StaffDetail.parse(ok(await call('get', `/staff/${id}`, ownerA)));
+    const patch = async (id: string, details: object) =>
+      call('patch', `/staff/${id}`, ownerA, { version: (await detail(id)).version, details });
+    const saved = StaffDetail.parse(
+      ok(
+        await patch(member.managerA, {
+          workSchedule: `Mon-Thu 7-5 ${run}`,
+          primaryTeamId: team.evening,
+          backupTeamId: team.morning,
+        }),
+      ),
+    );
+    expect(saved.profile).toMatchObject({
+      workSchedule: `Mon-Thu 7-5 ${run}`,
+      primaryTeam: { id: team.evening },
+      backupTeam: { id: team.morning },
+    });
+    // The manager supervises the staff member; the staff member may not then supervise them.
+    ok(await patch(member.staffA, { supervisorId: member.managerA }));
+    expectError(
+      await patch(member.managerA, { supervisorId: member.staffA }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect((await detail(member.managerA)).profile.supervisor?.id).not.toBe(member.staffA);
   });
 
   it("keeps the member's phone as the firm's own number, set by the Owner only (Dashboard Review 2, R2 NEW2)", async () => {
@@ -922,6 +1024,85 @@ describe("a member's permissions", () => {
       p.cells.filter((c) => c.granted).map((c) => `${c.module}:${c.capability}`);
     expect(granted(copied)).toEqual(granted(manager));
   });
+
+  it('SM02: an Admin gives no cell they lack themselves; one the member already has is kept', async () => {
+    const integrations = (mode: 'DENY' | 'INHERIT') =>
+      PermissionCapability.options.map((capability) => ({
+        module: 'INTEGRATIONS',
+        capability,
+        mode,
+      }));
+    const give = { module: 'INTEGRATIONS', capability: 'VIEW', granted: true };
+    const refused = (res: Response) => {
+      expectError(res, 403, 'CANNOT_GRANT');
+      expect((res.body as { error: { details: object[] } }).error.details).toContainEqual(
+        expect.objectContaining({ module: 'INTEGRATIONS', capability: 'VIEW' }),
+      );
+    };
+    // The Owner takes Integrations from this Admin alone.
+    ok(
+      await call('patch', `/staff/${member.adminA}/permissions`, ownerA, {
+        overrides: integrations('DENY'),
+      }),
+    );
+    try {
+      refused(
+        await call('put', `/staff/${member.staffA}/permissions`, adminA, {
+          grants: [give],
+          acknowledgeEscalation: true,
+        }),
+      );
+      refused(
+        await call('patch', `/staff/${member.staffA}/permissions`, adminA, {
+          overrides: [{ module: 'INTEGRATIONS', capability: 'VIEW', mode: 'ALLOW' }],
+          acknowledgeEscalation: true,
+        }),
+      );
+      // Create Staff: refused before anyone is invited.
+      refused(
+        await call('post', '/staff', adminA, {
+          idempotencyKey: randomUUID(),
+          account: account('sm02'),
+          permissions: [give],
+        }),
+      );
+      expect(await membersWith(newEmail('sm02'))).toBe(0);
+      // The Owner gives it; the Admin's later save keeps it: only a cell newly given is checked.
+      ok(
+        await call('put', `/staff/${member.staffA}/permissions`, ownerA, {
+          grants: [give],
+          acknowledgeEscalation: true,
+        }),
+      );
+      const kept = StaffPermissions.parse(
+        ok(
+          await call('put', `/staff/${member.staffA}/permissions`, adminA, {
+            grants: [give, { module: 'TASKS', capability: 'EDIT', granted: false }],
+            acknowledgeEscalation: true,
+          }),
+        ),
+      );
+      const at = (module: string, capability: string) =>
+        kept.cells.find((c) => c.module === module && c.capability === capability)?.granted;
+      expect([at('INTEGRATIONS', 'VIEW'), at('TASKS', 'EDIT')]).toEqual([true, false]);
+    } finally {
+      ok(
+        await call('patch', `/staff/${member.adminA}/permissions`, ownerA, {
+          overrides: integrations('INHERIT'),
+        }),
+      );
+      ok(
+        await call('put', `/staff/${member.staffA}/permissions`, ownerA, {
+          grants: [
+            { ...give, granted: false },
+            { module: 'TASKS', capability: 'EDIT', granted: true },
+          ],
+          // An earlier test's Allow beyond the role is still theirs.
+          acknowledgeEscalation: true,
+        }),
+      );
+    }
+  });
 });
 
 describe('notes and pay', () => {
@@ -987,20 +1168,88 @@ describe('drafts', () => {
       ),
     );
     expect(draft).toMatchObject({ step: 1, createdBy: 'Fake R55w adminA' });
-    const list = ok(await call('get', '/staff-drafts', ownerA)) as { items: StaffDraft[] };
+    const list = ok(await call('get', '/staff-drafts', adminA)) as { items: StaffDraft[] };
     expect(list.items.map((d) => d.id)).toContain(draft.id);
     const saved = StaffDraft.parse(
-      ok(await call('put', `/staff-drafts/${draft.id}`, ownerA, { step: 3, data: {} })),
+      ok(await call('put', `/staff-drafts/${draft.id}`, adminA, { step: 3, data: {} })),
     );
     expect(saved.step).toBe(3);
+    // Pay is never kept in a draft.
     expectError(
       await call('post', '/staff-drafts', ownerA, { step: 1, data: { compensation: {} } }),
       400,
       'VALIDATION_FAILED',
     );
     expectError(await call('get', '/staff-drafts', staffA), 403, 'FORBIDDEN');
-    expect(ok(await call('delete', `/staff-drafts/${draft.id}`, ownerA))).toEqual({ ok: true });
+    expect(ok(await call('delete', `/staff-drafts/${draft.id}`, adminA))).toEqual({ ok: true });
+    expectError(await call('get', `/staff-drafts/${draft.id}`, adminA), 404, 'NOT_FOUND');
+  });
+
+  it("SM17: a draft is its creator's own: another Owner or Admin never lists, opens, saves, uses or deletes it", async () => {
+    const draft = StaffDraft.parse(
+      ok(
+        await call('post', '/staff-drafts', adminA, {
+          step: 1,
+          data: { account: { firstName: 'Fake', lastName: 'Private' } },
+        }),
+        201,
+      ),
+    );
+    const owners = ok(await call('get', '/staff-drafts', ownerA)) as { items: StaffDraft[] };
+    expect(owners.items.map((d) => d.id)).not.toContain(draft.id);
     expectError(await call('get', `/staff-drafts/${draft.id}`, ownerA), 404, 'NOT_FOUND');
+    expectError(
+      await call('put', `/staff-drafts/${draft.id}`, ownerA, { step: 2, data: {} }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(await call('delete', `/staff-drafts/${draft.id}`, ownerA), 404, 'NOT_FOUND');
+    expectError(
+      await call('post', '/staff', ownerA, {
+        idempotencyKey: randomUUID(),
+        account: account('not-mine'),
+        draftId: draft.id,
+        sendWelcomeEmail: false,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expect(await membersWith(newEmail('not-mine'))).toBe(0);
+    // Its creator still has it, as saved.
+    expect(StaffDraft.parse(ok(await call('get', `/staff-drafts/${draft.id}`, adminA))).step).toBe(
+      1,
+    );
+    expect(ok(await call('delete', `/staff-drafts/${draft.id}`, adminA))).toEqual({ ok: true });
+  });
+
+  it('SM16: a draft keeps a changed permission grid and custom security settings as saved', async () => {
+    const data = {
+      account: { firstName: 'Fake', lastName: 'Roundtrip', role: 'TAX_PREPARER' },
+      permissions: [
+        { module: 'CLIENTS', capability: 'VIEW', granted: true },
+        { module: 'CLIENTS', capability: 'EXPORT', granted: true },
+        { module: 'SETTINGS', capability: 'VIEW', granted: false },
+      ],
+      access: {
+        autoLogoutMinutes: 45,
+        maxConcurrentSessions: 2,
+        notices: {
+          newDeviceLogin: false,
+          failedLogins: true,
+          passwordChanges: true,
+          securityAlerts: false,
+          lockouts: true,
+        },
+      },
+      sendWelcomeEmail: false,
+    };
+    const draft = StaffDraft.parse(
+      ok(await call('post', '/staff-drafts', ownerA, { step: 3, data }), 201),
+    );
+    const read = StaffDraft.parse(ok(await call('get', `/staff-drafts/${draft.id}`, ownerA)));
+    expect(read.step).toBe(3);
+    expect(read.data).toMatchObject(data);
+    expect(ok(await call('delete', `/staff-drafts/${draft.id}`, ownerA))).toEqual({ ok: true });
   });
 });
 

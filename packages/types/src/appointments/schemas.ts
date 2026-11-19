@@ -436,9 +436,37 @@ export type ClientRef = z.infer<typeof ClientRef>;
 export const AppointmentTypeRef = z.object({ id: z.uuid(), name: z.string() });
 export type AppointmentTypeRef = z.infer<typeof AppointmentTypeRef>;
 
+/**
+ * P4-1 (Leads Review Two 26 and 17): the lead an appointment was booked for, by name. A lead's own
+ * appointment has a lead and no client yet; at the lead's conversion it takes the new client and
+ * keeps its lead (where it came from). Every other appointment has a client and no lead.
+ */
+export const AppointmentLeadRef = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  /**
+   * P4-2 (N8-18), on the appointments list: whether the member reaches the lead by the lead pages'
+   * rule (Owner and Admin every lead; Staff the leads assigned to them). Only they are offered
+   * Convert to New client when completing it; absent on other answers.
+   */
+  reach: z.boolean().optional(),
+});
+export type AppointmentLeadRef = z.infer<typeof AppointmentLeadRef>;
+
+/** Who an appointment is with, as the screens name it: its client, else its lead (P4-1). */
+export function appointmentWith(a: {
+  client: { displayName: string } | null;
+  lead: { name: string } | null;
+}): string {
+  return a.client?.displayName ?? a.lead?.name ?? 'Lead';
+}
+
 export const Appointment = z.object({
   id: z.uuid(),
-  client: ClientRef,
+  /** Null for a lead's own appointment (P4-1): `lead` names who it is with. */
+  client: ClientRef.nullable(),
+  /** The lead it was booked for (P4-1): a lead's own appointment, or a converted lead's. */
+  lead: AppointmentLeadRef.nullable(),
   staff: MemberRef,
   type: AppointmentTypeRef.nullable(),
   engagementId: z.uuid().nullable(),
@@ -584,6 +612,56 @@ export const CancelAppointmentRequest = z.strictObject({ reason: Reason });
 export type CancelAppointmentRequest = z.input<typeof CancelAppointmentRequest>;
 
 /**
+ * P4-2 (Clients Review 2 N8-18): what came of a completed appointment with a lead. A meeting alone
+ * never converts or activates anyone: KEEP_LEAD (undecided, no service chosen) and
+ * KEEP_LEAD_FOLLOW_UP (with the date of the lead's next follow-up) leave the lead as it is;
+ * CONVERT_NEW (a service was chosen) sends staff on to the lead's Convert flow, which makes a New
+ * client.
+ */
+export const LeadAppointmentOutcome = z.enum(['KEEP_LEAD', 'KEEP_LEAD_FOLLOW_UP', 'CONVERT_NEW']);
+export type LeadAppointmentOutcome = z.infer<typeof LeadAppointmentOutcome>;
+export const LEAD_APPOINTMENT_OUTCOME_LABELS: Record<LeadAppointmentOutcome, string> = {
+  KEEP_LEAD: 'Keep as Lead',
+  KEEP_LEAD_FOLLOW_UP: 'Keep as Lead and Follow Up',
+  CONVERT_NEW: 'Convert to New client',
+};
+
+/**
+ * POST /business/appointments/{id}/complete. A lead's own appointment (a lead, no client yet)
+ * needs its `outcome` and `notes` (400 VALIDATION_FAILED at `outcome`); KEEP_LEAD_FOLLOW_UP needs
+ * `followUpOn`, today or later in the firm's time zone, and sets the lead's next follow-up that day
+ * at 10:00. A client's appointment takes none of them (400 at `outcome`): no body, or `{}`.
+ * CONVERT_NEW is the lead's owner's (a member who reaches the lead by the lead pages' rule): the
+ * appointment's own staff member without that reach records the other two, and CONVERT_NEW is 403
+ * FORBIDDEN "The lead's owner can convert this lead."
+ */
+export const CompleteAppointmentRequest = z
+  .strictObject({
+    outcome: LeadAppointmentOutcome.optional(),
+    notes: text(2000, 'many', 'Add notes about the appointment').optional(),
+    followUpOn: CalendarDate.optional(),
+  })
+  .superRefine((b, ctx) => {
+    if (b.outcome && b.notes === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['notes'], message: 'Add notes about the appointment' });
+    }
+    if (!b.outcome && b.notes !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['outcome'], message: 'Choose the outcome' });
+    }
+    if (b.outcome === 'KEEP_LEAD_FOLLOW_UP' && b.followUpOn === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['followUpOn'], message: 'Choose the follow-up date' });
+    }
+    if (b.outcome !== 'KEEP_LEAD_FOLLOW_UP' && b.followUpOn !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['followUpOn'],
+        message: 'Only Keep as Lead and Follow Up takes a follow-up date',
+      });
+    }
+  });
+export type CompleteAppointmentRequest = z.input<typeof CompleteAppointmentRequest>;
+
+/**
  * PATCH /business/appointments/{id}: changes where it happens; send at least one field. Staff:
  * only appointments they see in full (404 otherwise); a final one is 409 APPOINTMENT_CLOSED. When
  * the result is VIDEO and `locationDetails` is left out, the staff member's link is filled in;
@@ -704,6 +782,12 @@ export const BookMyAppointmentRequest = z.strictObject({
   typeId: AppointmentTypeId,
   startsAt: DateTime,
   locationKind: LocationKind.optional(),
+  /**
+   * S12: booked from a package's page (its Booking type is `typeId`): the firm sees the package
+   * named on the booking, in its staff notes. Another firm's or an unknown package is 404; one of
+   * the firm's that is not live now, or not of this type, books as usual without naming it.
+   */
+  packageId: z.uuid().optional(),
 });
 export type BookMyAppointmentRequest = z.input<typeof BookMyAppointmentRequest>;
 
@@ -756,5 +840,10 @@ export const AppointmentErrorCode = z.enum([
    * (every member reads as having none until then). Then this code goes away.
    */
   'MEETING_LINKS_UNAVAILABLE',
+  /**
+   * 409 (P4-1): a lead's own appointment (no client yet) on a path that needs a client (the
+   * portal, the waitlist, a client's reminders): convert the lead first.
+   */
+  'LEAD_APPOINTMENT',
 ]);
 export type AppointmentErrorCode = z.infer<typeof AppointmentErrorCode>;

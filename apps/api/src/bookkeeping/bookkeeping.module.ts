@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { BookkeepingClientsService } from './bookkeeping-clients.service.js';
 import { BookkeepingConnectionsService } from './bookkeeping-connections.service.js';
 import { BookkeepingPeriodsService } from './bookkeeping-periods.service.js';
@@ -9,12 +10,18 @@ import { BookkeepingTermsService } from './bookkeeping-terms.service.js';
 import { BookkeepingController } from './bookkeeping.controller.js';
 import { BookkeepingReportVersionsService } from './bookkeeping-report-versions.service.js';
 import { BookkeepingTransactionsService } from './bookkeeping-transactions.service.js';
+import { MyBookkeepingTermsController } from './my-bookkeeping-terms.controller.js';
+import { MyBookkeepingTermsService } from './my-bookkeeping-terms.service.js';
 
 /** The firm's bookkeeping work (contract in packages/types/src/bookkeeping). */
 @Module({
-  // Terms first: its fixed paths must never meet an `:id` route of the main controller.
-  controllers: [BookkeepingTermsController, BookkeepingController],
+  // BK-CP3 and the sent terms' notice: the Notifier.
+  imports: [NotificationsModule],
+  // Terms first: its fixed paths must never meet an `:id` route of the main controller. The
+  // portal's terms (BK-CP3) are under /portal and meet neither.
+  controllers: [BookkeepingTermsController, BookkeepingController, MyBookkeepingTermsController],
   providers: [
+    MyBookkeepingTermsService,
     BookkeepingStatusService,
     BookkeepingClientsService,
     BookkeepingConnectionsService,

@@ -68,6 +68,11 @@ export const FormRecipient = z.object({
   name: z.string(),
   email: z.string().nullable(),
   phone: z.string().nullable(),
+  /**
+   * Intake Review 2 USABILITY-03: the client's or lead's assigned staff member. Assign Staff
+   * offers them and the Owner and Admins; anyone else is 409 CLIENT_NOT_ASSIGNED.
+   */
+  assignedUserId: z.uuid().nullable().default(null),
 });
 export type FormRecipient = z.infer<typeof FormRecipient>;
 
@@ -248,6 +253,8 @@ export const IntakeFormListItem = z.object({
   updatedAt: DateTime,
   /** The owner shown on the card (the last editor until Octavia says otherwise). */
   owner: MemberRef.nullable(),
+  /** Intake Review 2 24c-i: archived (listed only with `archived=true`); Restore brings it back. */
+  archived: z.boolean().default(false),
 });
 export type IntakeFormListItem = z.infer<typeof IntakeFormListItem>;
 
@@ -258,6 +265,8 @@ export const IntakeFormsQuery = z.strictObject({
   search: SearchText.optional(),
   status: IntakeFormStatus.optional(),
   sort: z.enum(['updated', 'name', 'used', 'recent']).optional().default('updated'),
+  /** Intake Review 2 24c-i: 'true' lists only the archived forms and templates (the Archived view). */
+  archived: z.enum(['true', 'false']).optional().default('false'),
 });
 export type IntakeFormsQuery = z.input<typeof IntakeFormsQuery>;
 
@@ -485,6 +494,8 @@ export type FormNote = z.infer<typeof FormNote>;
  * history. The answers themselves are R11's IntakeView (`api.intakeForms.responses`).
  */
 export const AssignedFormRecord = AssignedFormRow.extend({
+  /** Intake Review 2 23-g: "SUB-00012" (`submissionIdOf`); null when the form has no number. */
+  submissionId: z.string().nullable().default(null),
   submittedAt: DateTime.nullable(),
   completedAt: DateTime.nullable(),
   completedBy: MemberRef.nullable(),

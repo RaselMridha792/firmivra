@@ -583,7 +583,8 @@ describe("a business return's own identity (Octavia's TX-F31, F32; R1's #1176)",
       fields: ['addressLine2', 'ein', 'name'],
       changes: {
         addressLine2: { from: null, to: 'Suite 4' },
-        ein: { from: null, to: '6789' },
+        // Audit Log Review 2, M03: a tax id keeps its last 4 only, masked.
+        ein: { from: null, to: '•••6789' },
         name: { from: 'Bayside Bakery LLC (fake)', to: 'Bayside Bakery Holdings (fake)' },
       },
     });
@@ -782,5 +783,96 @@ describe('archive and restore (Review 2)', () => {
       ['RESTORED', 'Fake adminA'],
       ['ARCHIVED', 'Fake ownerA'],
     ]);
+  });
+});
+
+describe('a return its Staff preparer or reviewer opens without the client (F18, DECISIONS Nov 17)', () => {
+  it('reaches that return and its linked documents only, never the client or its other returns', async () => {
+    const { clientId, documentId } = await inFirm('a', async (tx) => {
+      // A client no one is assigned to: Staff reach none of its records by the client.
+      const client = await tx.client.create({
+        data: { businessId: firms.a, displayName: 'Dale Unassigned (fake)' },
+      });
+      const service = await tx.service.create({
+        data: { businessId: firms.a, kind: 'ANNUAL_TAX', name: `Tax F18 ${run}`, status: 'ACTIVE' },
+      });
+      const e = await tx.engagement.create({
+        data: {
+          businessId: firms.a,
+          clientId: client.id,
+          serviceId: service.id,
+          title: 'Tax 2019',
+        },
+      });
+      const tag = randomUUID();
+      const d = await tx.document.create({
+        data: {
+          businessId: firms.a,
+          clientId: client.id,
+          engagementId: e.id,
+          direction: 'FIRM_TO_CLIENT',
+          fileName: '2019-draft-return.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 100,
+          sha256: createHash('sha256').update(tag).digest('hex'),
+          s3Key: `tenant/${firms.a}/e2e/${tag}.pdf`,
+        },
+      });
+      return { clientId: client.id, documentId: d.id };
+    });
+    const make = async (preparerUserId: string) =>
+      ok(
+        await call('post', '/tax-returns', ownerA, {
+          clientId,
+          taxYear: preparerUserId === staffA.id ? 2019 : 2018,
+          filingType: 'INDIVIDUAL',
+          formType: '1040',
+          preparerUserId,
+          reviewerUserId: adminA.id,
+          dueOn: '2020-07-15',
+        }),
+        TaxReturnDetail,
+        201,
+      );
+    const mine = await make(staffA.id);
+    const other = await make(adminA.id);
+    ok(
+      await call('post', `/tax-returns/${mine.id}/documents`, ownerA, {
+        documentId,
+        kind: 'DRAFT_RETURN',
+      }),
+      TaxReturnDocumentList,
+    );
+    // The return and its documents: the preparer opens them.
+    expect(ok(await call('get', `/tax-returns/${mine.id}`, staffA), TaxReturnDetail).id).toBe(
+      mine.id,
+    );
+    const docs = ok(
+      await call('get', `/tax-returns/${mine.id}/documents`, staffA),
+      TaxReturnDocumentList,
+    );
+    expect(docs.items.map((d) => d.document.id)).toEqual([documentId]);
+    // Its download passes the reach (the file is still being scanned, so 409, not 404).
+    expectError(
+      await call('get', `/tax-returns/${mine.id}/documents/${documentId}/download`, staffA),
+      409,
+      'SCAN_PENDING',
+    );
+    // That return only: not the client's other return, not the client, not the document by the
+    // client's documents.
+    expectError(await call('get', `/tax-returns/${other.id}`, staffA), 404, 'NOT_FOUND');
+    expectError(
+      await call('get', `/tax-returns/${other.id}/documents/${documentId}/download`, staffA),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(await call('get', `/clients/${clientId}`, staffA), 404, 'NOT_FOUND');
+    expectError(await call('get', `/documents/${documentId}/download`, staffA), 404, 'NOT_FOUND');
+    // A document not linked to the return is not reached through it.
+    expectError(
+      await call('get', `/tax-returns/${mine.id}/documents/${randomUUID()}/download`, staffA),
+      404,
+      'NOT_FOUND',
+    );
   });
 });

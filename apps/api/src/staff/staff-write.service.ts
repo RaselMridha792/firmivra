@@ -14,7 +14,13 @@ import { DATABASE, OUTSIDE_CALL_LIMITS } from '../database/database.module.js';
 import { notFound, toDay } from '../workspaces/common.js';
 import type { CreateStaffBody, UpdateStaffBody } from './staff-input.js';
 import { writeMemberGrid } from './staff-permissions.service.js';
+import {
+  type DraftFileMove,
+  draftFilesToMove,
+  StaffDraftFilesService,
+} from './staff-draft-files.service.js';
 import { StaffReadService } from './staff-read.service.js';
+import { namesOf } from './staff-names.js';
 import { type NewAccountSecurity, newAccountSecurity } from './staff-security-defaults.service.js';
 import {
   assertActsOn,
@@ -64,6 +70,10 @@ function profileData(
   details: Details | undefined,
 ): Prisma.StaffProfileUncheckedUpdateInput {
   const data: Prisma.StaffProfileUncheckedUpdateInput = {};
+  // SM20 (Staff Management Review 2): the first and last name as typed, kept apart (users.name
+  // holds them joined), so a compound first name survives import and edit.
+  if (account?.firstName !== undefined) data.firstName = account.firstName.trim() || null;
+  if (account?.lastName !== undefined) data.lastName = account.lastName.trim() || null;
   if (account?.serviceAreas !== undefined) data.serviceAreas = account.serviceAreas;
   if (account?.accessLevel !== undefined) data.accessLevel = account.accessLevel;
   if (account?.accessStartsOn !== undefined)
@@ -100,6 +110,7 @@ export class StaffWriteService {
     private readonly audit: AuditService,
     private readonly invites: InvitesService,
     private readonly read: StaffReadService,
+    private readonly draftFiles: StaffDraftFilesService,
   ) {}
 
   /**
@@ -115,7 +126,12 @@ export class StaffWriteService {
   ): Promise<CreateStaffResponse> {
     const { businessId } = actor;
     const a = body.account;
-    let made: { id: string; invitation: InvitationOutcome };
+    // SM17: the draft's files, read before the draft goes, move after the commit.
+    let made: {
+      id: string;
+      invitation: InvitationOutcome;
+      moving?: { by: string; files: DraftFileMove[] };
+    };
     try {
       made = await this.database.withScope(
         { kind: 'business', businessId, actorUserId: actor.userId },
@@ -136,8 +152,9 @@ export class StaffWriteService {
             details: body.details,
           });
           if (body.draftId) {
+            // SM17: only the creator's own draft.
             const draft = await tx.staffDraft.findFirst({
-              where: { businessId, id: body.draftId },
+              where: { businessId, id: body.draftId, createdById: by },
               select: { id: true },
             });
             if (!draft) throw notFound();
@@ -150,6 +167,7 @@ export class StaffWriteService {
             acknowledged: true,
             updatedById: by,
             fresh: true,
+            grantedBy: actor,
           };
           // Checked before the invite commits: a refused grid leaves no member behind.
           if (body.permissions?.length)
@@ -212,8 +230,11 @@ export class StaffWriteService {
           if (body.permissions?.length)
             // Create Staff's step 2 is the Owner or Admin choosing the grid: no second confirm.
             grid = await writeMemberGrid(tx, { ...gridInput, membershipId: id });
+          const files = body.draftId ? await draftFilesToMove(tx, businessId, body.draftId) : [];
           if (body.draftId)
-            await tx.staffDraft.deleteMany({ where: { businessId, id: body.draftId } });
+            await tx.staffDraft.deleteMany({
+              where: { businessId, id: body.draftId, createdById: by },
+            });
           await this.audit.logIn(
             tx,
             'staff.created',
@@ -232,11 +253,12 @@ export class StaffWriteService {
               permissionCells: grid.changedCells,
               escalated: grid.escalated,
               draftId: body.draftId ?? null,
+              draftFiles: files.length,
               invitation,
             },
             { businessId },
           );
-          return { id, invitation };
+          return { id, invitation, moving: { by, files } };
         },
         // The invite calls Cognito and the email sender inside this transaction's time.
         OUTSIDE_CALL_LIMITS,
@@ -244,6 +266,8 @@ export class StaffWriteService {
     } catch (e) {
       throw mapStaffDbError(e);
     }
+    if (made.moving?.files.length)
+      await this.draftFiles.moveToMember(actor, made.id, made.moving.by, made.moving.files);
     return {
       staff: await this.read.get(tenant, actor.userId, made.id),
       invitation: made.invitation,
@@ -337,6 +361,23 @@ export class StaffWriteService {
       if (!boss) throw notFound();
       if (boss.status !== 'ACTIVE')
         throw invalid('details.supervisorId', 'Choose an active member as supervisor');
+      // SM25 (Staff Management Review 2): never a loop of reporting lines. Up the supervisor's own
+      // chain, this member must not appear (a reports to b, b to a).
+      if (membershipId) {
+        let up: string | null = d.supervisorId;
+        for (let hops = 0; up && hops < 100; hops += 1) {
+          const next: { supervisorId: string | null } | null = await tx.staffProfile.findFirst({
+            where: { businessId, membershipId: up },
+            select: { supervisorId: true },
+          });
+          up = next?.supervisorId ?? null;
+          if (up === membershipId)
+            throw invalid(
+              'details.supervisorId',
+              'This member already supervises that person, directly or through others',
+            );
+        }
+      }
     }
     if (d.employeeId) {
       const taken = await tx.staffProfile.findFirst({
@@ -479,10 +520,15 @@ export class StaffWriteService {
             where: { id: target.userId },
             select: { name: true, email: true },
           });
-          const [first = '', ...rest] = (user?.name ?? '').trim().split(/\s+/);
-          if (a.firstName !== undefined && a.firstName !== first)
+          // SM20: the names as kept (or, before they were kept apart, as users.name splits).
+          const kept = await tx.staffProfile.findUnique({
+            where: { businessId_membershipId: { businessId, membershipId: id } },
+            select: { firstName: true, lastName: true },
+          });
+          const { firstName: first, lastName: last } = namesOf(user?.name ?? '', kept);
+          if (a.firstName !== undefined && a.firstName.trim() !== first)
             throw invalid('account.firstName', 'Only the person can change their name');
-          if (a.lastName !== undefined && a.lastName !== rest.join(' '))
+          if (a.lastName !== undefined && a.lastName.trim() !== last)
             throw invalid('account.lastName', 'Only the person can change their name');
           if (a.email !== undefined && a.email.toLowerCase() !== user?.email.toLowerCase())
             throw invalid(

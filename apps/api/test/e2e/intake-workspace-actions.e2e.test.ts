@@ -14,6 +14,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   AssignedFormRecord,
   FormFileLink,
+  FormNote,
   IntakeFormDetail,
   IntakeFormList,
   INTAKE_FORMS,
@@ -31,6 +32,7 @@ import { loadEnv } from '../../src/config/env.js';
 import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { IntakeScheduleJobs } from '../../src/intake-workspace/intake-schedule.jobs.js';
+import { IntakeAutomations } from '../../src/intake-workspace/intake-automations.js';
 
 class MemoryFiles implements ReportFiles {
   readonly objects = new Map<string, Buffer>();
@@ -642,6 +644,187 @@ describe('send a form', () => {
       'NOT_FOUND',
     );
   });
+
+  it("A9 on booking: the type's required form goes to the client's portal, linked to the appointment, once; a reschedule never sends it again; a lead's own appointment gets none", async () => {
+    const bo = { id: randomUUID(), email: `r55s-bo-${run}@r55.test` };
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: bo.id, cognitoSub: bo.id, pool: 'CLIENT', email: bo.email, name: 'Fake Bo' },
+      }),
+    );
+    const made = await inFirm('a', async (tx) => {
+      const businessId = firms.a;
+      const client = await tx.client.create({
+        data: { businessId, displayName: 'Bo Booked (fake)', email: `bo-${run}@client.test` },
+        select: { id: true },
+      });
+      await tx.engagement.create({
+        data: { businessId, clientId: client.id, serviceId: ids.service!, title: 'Bo tax' },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId,
+          userId: bo.id,
+          clientId: client.id,
+          email: bo.email,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      const type = await tx.appointmentType.create({
+        data: {
+          businessId,
+          name: `Fake A9 booked ${run}`,
+          durationMinutes: 30,
+          clientBookable: true,
+          requiredIntakeTemplateId: ids.template,
+        },
+        select: { id: true },
+      });
+      const lead = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: ids.service!,
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          firstName: 'Lia',
+          lastName: 'Booked (fake)',
+          email: `lia-${run}@lead.test`,
+        },
+        select: { id: true },
+      });
+      return { client: client.id, type: type.id, lead: lead.id };
+    });
+    // Days in 2031 no other test of this file books at these hours.
+    const base = 400 + Math.floor(Math.random() * 300);
+    const on = (n: number, time: string) =>
+      zonedInstant(addDays('2031-01-01', base + n), time, NY).toISOString();
+    const schedule = (contact: object, n: number) =>
+      call('post', '/appointments/schedule', ownerA, {
+        idempotencyKey: randomUUID(),
+        contact,
+        typeId: made.type,
+        startsAt: on(n, '18:00'),
+        endsAt: on(n, '18:30'),
+        method: 'VIDEO',
+        staffUserIds: [ownerA.id],
+        overrideConflicts: { reason: 'Fake: outside working hours' },
+      });
+    const intakesOf = (appointmentId: string) =>
+      inFirm('a', (tx) =>
+        tx.intake.findMany({
+          where: { businessId: firms.a, appointmentId },
+          select: { id: true, status: true, deliveryChannel: true, createdByUserId: true },
+        }),
+      );
+    const notSent = (appointmentId: string) =>
+      inFirm('a', (tx) =>
+        tx.auditLog.findMany({
+          where: {
+            businessId: firms.a,
+            action: 'appointment.intake_not_sent',
+            entityType: 'appointment',
+            entityId: appointmentId,
+          },
+          select: { metadata: true },
+        }),
+      );
+    const bell = (intakeId: string) =>
+      inFirm('a', (tx) =>
+        tx.notification.count({ where: { entityId: intakeId, recipientUserId: bo.id } }),
+      );
+
+    // The firm books it: the form goes in the portal, linked, and the record shows it waiting.
+    const booked = AppointmentRecord.parse(
+      ok(await schedule({ kind: 'CLIENT', id: made.client }, 1)),
+    );
+    const [sent, ...more] = await intakesOf(booked.id);
+    expect(more).toEqual([]);
+    expect(sent).toMatchObject({
+      status: 'SENT',
+      deliveryChannel: 'PORTAL',
+      createdByUserId: ownerA.id,
+    });
+    expect(booked.related.intakeForm).toEqual({
+      id: sent!.id,
+      name: 'Annual Tax Intake',
+      completed: false,
+    });
+    expect(await bell(sent!.id)).toBe(1);
+    expect(
+      await inFirm('a', (tx) =>
+        tx.auditLog.findFirst({
+          where: { businessId: firms.a, action: 'intake.sent', entityId: sent!.id },
+          select: { metadata: true },
+        }),
+      ),
+    ).toMatchObject({
+      metadata: { channel: 'PORTAL', appointmentId: booked.id, via: 'appointment' },
+    });
+
+    // A reschedule sends nothing more.
+    ok(
+      await call('post', `/appointments/${booked.id}/reschedule`, ownerA, {
+        startsAt: on(2, '18:00'),
+      }),
+    );
+    expect((await intakesOf(booked.id)).map((i) => i.id)).toEqual([sent!.id]);
+
+    // Another booking while the client still has the form open: no second copy, and why.
+    const again = AppointmentRecord.parse(
+      ok(await schedule({ kind: 'CLIENT', id: made.client }, 3)),
+    );
+    expect(again.related.intakeForm).toBeNull();
+    expect(await notSent(again.id)).toEqual([{ metadata: { reason: 'FORM_ALREADY_OPEN' } }]);
+
+    // Completed: the appointment records it.
+    await inFirm('a', (tx) =>
+      tx.intake.update({ where: { id: sent!.id }, data: { status: 'COMPLETED' } }),
+    );
+    const record = AppointmentRecord.parse(
+      ok(await call('get', `/appointments/${booked.id}/record`, ownerA)),
+    );
+    expect(record.related.intakeForm).toMatchObject({ id: sent!.id, completed: true });
+
+    // The client books in the portal: a new form for that appointment, with its portal notice.
+    ok(
+      await call('put', `/availability/${otherStaffA.id}/working-hours`, ownerA, {
+        hours: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+          weekday,
+          startsAt: '09:00',
+          endsAt: '12:00',
+        })),
+      }),
+    );
+    const mine = await request(app.getHttpServer())
+      .post(`/api/v1/portal/${slugs.a}/me/appointments`)
+      .set('authorization', `Bearer ${await tokenFor(bo.email)}`)
+      .set('x-forwarded-for', viewer())
+      .send({ typeId: made.type, startsAt: on(4, '10:00') });
+    expect(mine.status, JSON.stringify(mine.body)).toBe(201);
+    const portalId = (mine.body as { id: string }).id;
+    const [fromPortal, ...extra] = await intakesOf(portalId);
+    expect(extra).toEqual([]);
+    expect(fromPortal).toMatchObject({
+      status: 'SENT',
+      deliveryChannel: 'PORTAL',
+      createdByUserId: null,
+    });
+    // The client who booked still gets the portal notice of the form.
+    expect(await bell(fromPortal!.id)).toBe(1);
+
+    // A lead's own appointment: no form (a lead has no portal), and why.
+    const forLead = AppointmentRecord.parse(ok(await schedule({ kind: 'LEAD', id: made.lead }, 5)));
+    expect(await intakesOf(forLead.id)).toEqual([]);
+    expect(await notSent(forLead.id)).toEqual([{ metadata: { reason: 'LEAD_APPOINTMENT' } }]);
+
+    // Another firm reaches none of it.
+    expectError(
+      await call('get', `/appointments/${booked.id}/record`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+  });
 });
 
 describe('send drafts', () => {
@@ -756,13 +939,31 @@ describe('one form', () => {
     expectError(await call('get', '/intakes/nope/record', ownerA), 400, 'VALIDATION_FAILED');
   });
 
-  it('notes need their table: 503 after the checks', async () => {
-    expectError(
-      await call('post', `/intakes/${ids.sent}/notes`, ownerA, { text: 'Fake note' }),
-      503,
-      'NOTES_UNAVAILABLE',
+  it('24b-i: a staff note is kept on the form, newest first, its author and time; the audit has no text', async () => {
+    const first = FormNote.parse(
+      ok(await call('post', `/intakes/${ids.sent}/notes`, ownerA, { text: 'Fake note one' }), 201),
     );
+    expect(first).toMatchObject({ text: 'Fake note one', by: { userId: ownerA.id } });
+    const second = FormNote.parse(
+      ok(await call('post', `/intakes/${ids.sent}/notes`, adminA, { text: 'Fake note two' }), 201),
+    );
+    const record = AssignedFormRecord.parse(
+      ok(await call('get', `/intakes/${ids.sent}/record`, ownerA)),
+    );
+    expect(record.notes.map((n) => n.id).slice(0, 2)).toEqual([second.id, first.id]);
+    const audits = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { entityId: ids.sent, action: 'intake.note_added' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audits.map((a) => a.metadata)).toEqual(
+      expect.arrayContaining([{ noteId: first.id }, { noteId: second.id }]),
+    );
+    expect(JSON.stringify(audits)).not.toContain('Fake note');
     expect((await call('post', `/intakes/${ids.sent}/notes`, ownerA, {})).status).toBe(400);
+    const long = { text: 'x'.repeat(2001) };
+    expect((await call('post', `/intakes/${ids.sent}/notes`, ownerA, long)).status).toBe(400);
     expectError(
       await call('post', `/intakes/${ids.sent}/notes`, otherStaffA, { text: 'x' }),
       404,
@@ -793,6 +994,19 @@ describe('one form', () => {
       409,
       'NOT_A_MEMBER',
     );
+    // USABILITY-03: the row names the client's own staff member, the one Staff who can take it;
+    // any other Staff member is 409 CLIENT_NOT_ASSIGNED.
+    expect(r.recipient.assignedUserId).toBe(staffA.id);
+    expectError(
+      await call('patch', `/intakes/${ids.sent}`, ownerA, { assignedUserId: otherStaffA.id }),
+      409,
+      'CLIENT_NOT_ASSIGNED',
+    );
+    expect(
+      AssignedFormRecord.parse(
+        ok(await call('patch', `/intakes/${ids.sent}`, ownerA, { assignedUserId: staffA.id })),
+      ).assignedTo?.userId,
+    ).toBe(staffA.id);
     expect((await call('patch', `/intakes/${ids.sent}`, ownerA, {})).status).toBe(400);
     const reopened = AssignedFormRecord.parse(
       ok(await call('patch', `/intakes/${ids.expired}`, ownerA, { expiresOn: future(7) })),
@@ -1121,6 +1335,31 @@ describe('the form builder', () => {
       'INVALID_STATUS',
     );
     expectError(await call('post', `/intake-forms/${copy.id}/archive`, staffA), 403, 'FORBIDDEN');
+    // Intake Review 2 24c-i: the Archived view lists it; Restore (Owner and Admin) brings it back
+    // as a draft, its content kept, ready to publish; audited once.
+    const archivedView = IntakeFormList.parse(
+      ok(await call('get', '/intake-forms?archived=true', ownerA)),
+    );
+    expect(archivedView.items.find((f) => f.id === ids.built)).toMatchObject({ archived: true });
+    expect(archivedView.items.every((f) => f.archived)).toBe(true);
+    expectError(await call('post', `/intake-forms/${ids.built}/restore`, staffA), 403, 'FORBIDDEN');
+    const back = IntakeFormDetail.parse(
+      ok(await call('post', `/intake-forms/${ids.built}/restore`, adminA)),
+    );
+    expect(back).toMatchObject({ status: 'DRAFT', archived: false, name: gone.name });
+    expect(back.sections).toEqual(gone.sections);
+    ok(await call('post', `/intake-forms/${ids.built}/restore`, adminA));
+    const live = IntakeFormList.parse(ok(await call('get', '/intake-forms', ownerA)));
+    expect(live.items.map((f) => f.id)).toContain(ids.built);
+    const restored = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({ where: { entityId: ids.built, action: 'intake_form.restored' } }),
+    );
+    expect(restored).toHaveLength(1);
+    // Published again, it can be sent.
+    expect(
+      IntakeFormDetail.parse(ok(await call('post', `/intake-forms/${ids.built}/publish`, ownerA)))
+        .status,
+    ).toBe('PUBLISHED');
   });
 
   it('18d: a copy keeps every question, the description, the settings, the notes and the default assignee, and stays its own form', async () => {
@@ -1243,6 +1482,7 @@ describe('another firm', () => {
       ['post', `/intake-forms/${ids.template}/publish`, undefined],
       ['post', `/intake-forms/${ids.template}/duplicate`, {}],
       ['post', `/intake-forms/${ids.template}/archive`, undefined],
+      ['post', `/intake-forms/${ids.template}/restore`, undefined],
     ] as const) {
       expectError(await call(method, path, ownerB, body, 'b'), 404, 'NOT_FOUND');
     }
@@ -1407,6 +1647,78 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
     ).toEqual({ kind: 'FIRST', reason: 'PORTAL_LOCKED' });
   });
 
+  it('23-d to 23-f: one follow-up task per form, for its assignee, else the engagement staff (Route by service type), else the default owner', async () => {
+    const automations = app.get(IntakeAutomations);
+    const settings = (data: {
+      autoCreateFollowUpTask?: boolean;
+      routeByService?: boolean;
+      followUpOwnerUserId?: string | null;
+    }) =>
+      inFirm('a', (tx) =>
+        tx.intakeSettings.upsert({
+          where: { businessId: firms.a },
+          create: { businessId: firms.a, ...data },
+          update: data,
+        }),
+      );
+    const tasksOf = (intakeId: string) =>
+      inFirm('a', (tx) =>
+        tx.task.findMany({
+          where: { businessId: firms.a, idempotencyKey: intakeId },
+          select: { id: true, assignedUserId: true, clientId: true },
+        }),
+      );
+    const submitted = async (key: string, assignedUserId: string | null) => {
+      const f = await sentForm(key);
+      await inFirm('a', async (tx) => {
+        await tx.intake.update({
+          where: { id: f.id },
+          data: { assignedUserId, status: 'SUBMITTED' },
+        });
+        await tx.engagement.updateMany({
+          where: { businessId: firms.a, clientId: f.clientId },
+          data: { assignedUserId: staffA.id },
+        });
+      });
+      return f;
+    };
+    await settings({
+      autoCreateFollowUpTask: true,
+      routeByService: true,
+      followUpOwnerUserId: adminA.id,
+    });
+    // No assignee: the client's engagement staff, as Route by service type is on. Once only.
+    const routed = await submitted('auto-route', null);
+    const first = await automations.afterSubmit(firms.a, routed.id);
+    expect((await automations.afterSubmit(firms.a, routed.id)).taskId).toBeNull();
+    expect(await tasksOf(routed.id)).toEqual([
+      { id: first.taskId, assignedUserId: staffA.id, clientId: routed.clientId },
+    ]);
+    // The form's assignee comes first.
+    const assigned = await submitted('auto-assignee', otherStaffA.id);
+    await automations.afterSubmit(firms.a, assigned.id);
+    expect((await tasksOf(assigned.id)).map((t) => t.assignedUserId)).toEqual([otherStaffA.id]);
+    // Route by service type off: the default follow-up owner.
+    await settings({ routeByService: false });
+    const fallback = await submitted('auto-default', null);
+    await automations.afterSubmit(firms.a, fallback.id);
+    expect((await tasksOf(fallback.id)).map((t) => t.assignedUserId)).toEqual([adminA.id]);
+    // Off: nothing, as before.
+    await settings({ autoCreateFollowUpTask: false });
+    const off = await submitted('auto-off', null);
+    expect(await automations.afterSubmit(firms.a, off.id)).toEqual({
+      taskId: null,
+      clientId: null,
+    });
+    expect(await tasksOf(off.id)).toEqual([]);
+    const audits = await inFirm('a', (tx) =>
+      tx.auditLog.count({
+        where: { entityId: routed.id, action: 'intake.follow_up_task_created' },
+      }),
+    );
+    expect(audits).toBe(1);
+  });
+
   it('10c order: a first that would come after the final is skipped from the send, in History, and never sent', async () => {
     const jobs = app.get(IntakeScheduleJobs);
     // 9 days: the final (7 days before) comes on day 2, the first (3 days in) on day 3.
@@ -1437,6 +1749,59 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
       ]),
     );
     expect(record.history.map((e) => e.label)).not.toContain('First reminder sent');
+  });
+
+  it("23-g: Auto-generate submission ID gives a sent form SUB-00012 on its record and in the client's completion; off, none", async () => {
+    const settings = async (autoSubmissionId: boolean) => {
+      const s = z
+        .object({ version: z.string() })
+        .parse(ok(await call('get', '/intake-settings', ownerA)));
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: s.version,
+          general: { autoSubmissionId },
+        }),
+      );
+    };
+    const recordOf = async (id: string) =>
+      AssignedFormRecord.parse(ok(await call('get', `/intakes/${id}/record`, ownerA)));
+    await settings(true);
+    const on = await sentForm('subid-on');
+    const record = await recordOf(on.id);
+    expect(record.submissionId).toMatch(/^SUB-\d{5}$/);
+    const mine = await request(app.getHttpServer())
+      .get(`/api/v1/portal/${slugs.a}/me/intakes/${on.id}`)
+      .set('authorization', `Bearer ${await tokenFor(on.email)}`);
+    expect(mine.status, JSON.stringify(mine.body)).toBe(200);
+    expect((mine.body as { completion: { submissionId: string | null } }).completion).toMatchObject(
+      {
+        submissionId: record.submissionId,
+      },
+    );
+    await settings(false);
+    const off = await sentForm('subid-off');
+    expect((await recordOf(off.id)).submissionId).toBeNull();
+  });
+
+  it('22: a submitted or completed form gets no reminder, even with one due', async () => {
+    const jobs = app.get(IntakeScheduleJobs);
+    const submitted = await sentForm('stop-sub');
+    const completed = await sentForm('stop-done');
+    await inFirm('a', async (tx) => {
+      await tx.intake.update({ where: { id: submitted.id }, data: { status: 'SUBMITTED' } });
+      await tx.intake.update({ where: { id: completed.id }, data: { status: 'COMPLETED' } });
+    });
+    const at = (ms: number) => ({ now: new Date(ms), businessIds: [firms.a] });
+    // Both reminders are due by then (first 3 days in, final 7 days before the expiry).
+    await jobs.run('intake-reminders', at(Date.now() + 4320 * MIN + MIN));
+    await jobs.run('intake-reminders', at(submitted.expiresAt - 10080 * MIN + MIN));
+    for (const f of [submitted, completed]) {
+      expect(reminders(f.email)).toEqual([]);
+      expect(await row(f.id)).toMatchObject({
+        firstReminderSentAt: null,
+        finalReminderSentAt: null,
+      });
+    }
   });
 
   it('10c order: when the final goes before a first that was due (the job was behind), the first is skipped, never marked sent', async () => {

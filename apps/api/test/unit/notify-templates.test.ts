@@ -142,6 +142,27 @@ describe('templates', () => {
     expect(confirmed.text).toContain('Fake: we look forward to seeing you.');
   });
 
+  it("A7: a Text reminder names the firm, the time and the portal link, with the reminder's note and the instructions shown in texts, kept short", () => {
+    const sms = (data: Partial<(typeof SAMPLE_DATA)['appointment.reminder-sms']> = {}) => {
+      const out = render(
+        'appointment.reminder-sms',
+        { ...SAMPLE_DATA['appointment.reminder-sms'], ...data },
+        firm,
+      );
+      if (out.channel !== 'sms') throw new Error('not a text');
+      return out.text;
+    };
+    expect(sms()).toBe(
+      `${FIRM_NAME}: reminder of your Tax review on Tuesday, October 20, 2026 at 9:30 AM CDT. Fake: bring your W-2. Details: https://portal.example.test/sample/documents?a=1&b=2`,
+    );
+    expect(sms({ message: null })).not.toContain('Fake');
+    const long = sms({ instructions: `Fake: ${'x'.repeat(500)}\nsecond line` });
+    expect(long).toContain('Instructions: Fake: xxx');
+    expect(long).toContain('…');
+    expect(long).not.toContain('\n');
+    expect(long.length).toBeLessThan(800);
+  });
+
   it('Review 2 (row 8): a notice asks the client to confirm only while the firm waits for it', () => {
     const ask = 'Please confirm this appointment in your client portal.';
     expect(email('appointment.booked').text).not.toContain(ask);
@@ -151,6 +172,19 @@ describe('templates', () => {
       const done = email(template, { ...SAMPLE_DATA[template], confirmAsk: false });
       expect(done.text).not.toContain(ask);
     }
+  });
+
+  it("P4-1: a lead's appointment email has no portal link and never asks to confirm in a portal", () => {
+    for (const template of ['appointment.lead-booked', 'appointment.lead-reminder'] as const) {
+      const out = email(template, { ...SAMPLE_DATA[template], message: 'Fake: bring the W-2.' });
+      expect(out.text).toContain('When: Tuesday, October 20, 2026 at 9:30 AM CDT');
+      expect(out.text).toContain('Fake: bring the W-2.');
+      expect(out.text).not.toContain('View appointment');
+      expect(out.text).not.toContain('client portal');
+      expect(JSON.stringify(out)).not.toContain('portal.example.test');
+    }
+    expect(email('appointment.lead-booked').text).toContain('is booked.');
+    expect(email('appointment.lead-reminder').text).toContain('This is a reminder');
   });
 
   it('q18: a declined client sign-up carries no reason; a declined firm application does', () => {

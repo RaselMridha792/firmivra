@@ -19,7 +19,6 @@ import { errors } from './errors.js';
 import { findSchedulingRow, toAgendaItem, toRecord } from './scheduling-data.js';
 import { reminderFromOffset } from './scheduling-map.js';
 import type { NoteBody, ReminderBody, RemindersBody } from './scheduling.input.js';
-import { withClient } from './appointment-party.js';
 
 type ReminderReq = z.output<typeof ReminderBody>;
 type RemindersReq = z.output<typeof RemindersBody>;
@@ -27,6 +26,39 @@ type NoteReq = z.output<typeof NoteBody>;
 
 /** appointments_notes: up to 5,000 characters. */
 const NOTES_LIMIT = 5000;
+
+/**
+ * Appends "date time · name: text" to an appointment's internal notes, in the firm's time zone
+ * (Add Notes, and P4-2's outcome of a lead's appointment). 400 when the notes would pass 5,000
+ * characters. The caller holds the appointment's lock and audits; the text never goes there.
+ */
+export async function appendInternalNote(
+  tx: TxClient,
+  businessId: string,
+  actor: FirmActor,
+  row: { id: string; internalNotes: string | null },
+  text: string,
+  timeZone: string,
+): Promise<void> {
+  const who = (await memberNames(tx, businessId, [actor.userId])).get(actor.userId);
+  const now = Date.now();
+  const clock = new Date(now).toLocaleTimeString('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const entry = `${zonedDate(timeZone, now)} ${clock} · ${who ?? 'Staff member'}: ${text}`;
+  const notes = row.internalNotes ? `${row.internalNotes}\n\n${entry}` : entry;
+  if (notes.length > NOTES_LIMIT) {
+    throw errors.unsupported('The notes are full. Shorten the note or an earlier one.');
+  }
+  await tx.appointment.update({
+    where: { id: row.id },
+    data: { internalNotes: notes, updatedAt: new Date() },
+    select: { id: true },
+  });
+}
 /** Bulk reminders go to at most this many appointments in one call. */
 const BULK_LIMIT = 200;
 
@@ -64,10 +96,13 @@ export class SchedulingActionsService {
     const target = await this.inFirm(businessId, async (tx) => {
       const row = await findSchedulingRow(tx, businessId, actor, id);
       if (!row) throw errors.notFound();
-      // P4-1: a lead's own appointment has no client to remind here (refused, never skipped).
-      const { clientId } = withClient(row);
-      if (channels.includes('SMS')) await this.requireSms(tx, businessId, clientId);
-      return { id: row.id, clientId };
+      // P4-1: a lead's own appointment reminds its lead by email only (never a text).
+      if (!row.clientId) {
+        if (channels.includes('SMS')) throw errors.leadSms();
+        return { id: row.id, clientId: null, leadId: row.leadId };
+      }
+      if (channels.includes('SMS')) await this.requireSms(tx, businessId, row.clientId);
+      return { id: row.id, clientId: row.clientId, leadId: null };
     });
     return this.remind(businessId, [target], channels);
   }
@@ -95,20 +130,16 @@ export class SchedulingActionsService {
         },
         orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
         take: BULK_LIMIT,
-        select: { id: true, clientId: true, status: true, startsAt: true },
+        select: { id: true, clientId: true, leadId: true, status: true, startsAt: true },
       });
       if (body.appointmentIds && rows.length < new Set(body.appointmentIds).size) {
         throw errors.notFound();
       }
       return rows;
     });
-    // Over or closed appointments are skipped, not an error; so is a lead's own (P4-1: no client
-    // to remind here), counted among the skipped.
-    const open = asked.flatMap((a) =>
-      a.status === 'SCHEDULED' && a.startsAt > now && a.clientId
-        ? [{ ...a, clientId: a.clientId }]
-        : [],
-    );
+    // Over or closed appointments are skipped, not an error. P4-1: a lead's own reminds its lead
+    // by email (skipped when the lead has none).
+    const open = asked.filter((a) => a.status === 'SCHEDULED' && a.startsAt > now);
     const result = await this.remind(businessId, open, ['EMAIL']);
     return { sent: result.sent, skipped: result.skipped + (asked.length - open.length) };
   }
@@ -116,7 +147,8 @@ export class SchedulingActionsService {
   /** Emails each client now; the count of those who got one and of those who could not. */
   private async remind(
     businessId: string,
-    targets: { id: string; clientId: string }[],
+    /** P4-1: clientId null for a lead's own appointment, which names its lead. */
+    targets: { id: string; clientId: string | null; leadId: string | null }[],
     channels: readonly ReminderChannel[],
   ): Promise<RemindersSent> {
     let sent = 0;
@@ -131,7 +163,12 @@ export class SchedulingActionsService {
       await this.audit.log(
         'appointment.reminder_sent',
         { type: 'appointment', id: target.id },
-        { clientId: target.clientId, channels: [...channels].sort(), delivered },
+        {
+          clientId: target.clientId,
+          ...(target.clientId ? {} : { leadId: target.leadId }),
+          channels: [...channels].sort(),
+          delivered,
+        },
       );
     }
     return { sent, skipped };
@@ -168,24 +205,7 @@ export class SchedulingActionsService {
         const row = await findSchedulingRow(tx, businessId, actor, id);
         if (!row) throw errors.notFound();
         const timeZone = await firmTimeZone(tx, businessId);
-        const who = (await memberNames(tx, businessId, [actor.userId])).get(actor.userId);
-        const now = Date.now();
-        const clock = new Date(now).toLocaleTimeString('en-GB', {
-          timeZone,
-          hour: '2-digit',
-          minute: '2-digit',
-          hourCycle: 'h23',
-        });
-        const entry = `${zonedDate(timeZone, now)} ${clock} · ${who ?? 'Staff member'}: ${body.text}`;
-        const notes = row.internalNotes ? `${row.internalNotes}\n\n${entry}` : entry;
-        if (notes.length > NOTES_LIMIT) {
-          throw errors.unsupported('The notes are full. Shorten the note or an earlier one.');
-        }
-        await tx.appointment.update({
-          where: { id: row.id },
-          data: { internalNotes: notes, updatedAt: new Date() },
-          select: { id: true },
-        });
+        await appendInternalNote(tx, businessId, actor, row, body.text, timeZone);
         await this.audit.logIn(
           tx,
           'appointment.note_added',

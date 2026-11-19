@@ -49,6 +49,8 @@ import {
   createPublicCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyTasksClient,
+  createPublicPackagesClient,
   createMyIntakesClient,
   createIntakeLinkClient,
   createLeadRoutingClient,
@@ -63,18 +65,22 @@ import {
   createMyReportsClient,
   createMyServicesClient,
   createMySignaturesClient,
+  createMyAdvisoryClient,
+  createMyTaxPlansClient,
   createSigningClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
   createStaffPhoneClient,
   createPaymentsSetupClient,
   createFirmBillingClient,
+  createPortalAnnouncementSettingsClient,
   createPortalContactClient,
   createPortalTabsClient,
   createPaymentPreferencesClient,
   createProfileChangesClient,
   createSupportMessagesClient,
   createPublicAgreementsClient,
+  createDownload,
   createRequest,
   createRolesClient,
   createSchedulingClient,
@@ -91,6 +97,7 @@ import {
   createTasksClient,
   createBookkeepingClient,
   createBookkeepingTermsClient,
+  createMyBookkeepingTermsClient,
   createPayrollClient,
   createTaskWorkClient,
   createComplianceClient,
@@ -147,6 +154,8 @@ import {
   MOCK_ESIGN_ROLE,
   mySignaturesMock,
 } from '../mocks/esign';
+import { myTaxPlansMock } from '../mocks/my-tax-plans';
+import { myAdvisoryMock } from '../mocks/my-advisory';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { intakeLinkMock } from '../mocks/intake-link';
@@ -177,6 +186,7 @@ import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
 import { createProfileChangesMock } from '../mocks/profile-changes';
 import { createSupportMessagesMock } from '../mocks/support-messages';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
+import { createPortalAnnouncementSettingsMock } from '../mocks/portal-announcement-settings';
 import { createPortalContactMock } from '../mocks/portal-contact';
 import { createPortalTabsMock } from '../mocks/portal-tabs';
 import { createSettingsMock } from '../mocks/settings';
@@ -207,6 +217,7 @@ import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-retur
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
 import { createBookkeepingTermsMock } from '../mocks/bookkeeping-terms';
+import { myBookkeepingTermsMock } from '../mocks/my-bookkeeping-terms';
 import { createPortalInvitationsMock, portalInvitationMock } from '../mocks/portal-invitations';
 import { createClientPortalMock } from '../mocks/client-portal';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
@@ -219,6 +230,8 @@ import { sessionFetch } from './session';
  */
 const options = { baseUrl: '/api/v1', fetch: sessionFetch };
 const request = createRequest(options);
+/** Exports (CSV) through the same session refresh, so an expired access cookie never shows raw JSON. */
+const download = createDownload(options);
 /** False in production builds, where the compiler then drops every mock from the bundle. */
 const dev = process.env.NODE_ENV !== 'production';
 
@@ -293,7 +306,7 @@ export const api = {
   users:
     dev && mocked('users')
       ? createUsersMock({ role: MOCK_ROLE, empty: mockedEmpty('users') })
-      : createUsersClient(request, options.baseUrl),
+      : createUsersClient(request, download),
   /** Settings, the setup wizard, and the firm's Terms and Privacy (docs/api/settings.yaml). */
   settings:
     dev && mocked('settings')
@@ -305,6 +318,11 @@ export const api = {
       ? createPortalTabsMock({ role: MOCK_ROLE })
       : createPortalTabsClient(request),
   /** Client Portal > Contact Information (PRT-3), and the portal's contact card (`mine`). */
+  /** Settings > Client Portal > Announcements (CP-3c, CP-3d, CP-3i): Owner and Admin. */
+  portalAnnouncementSettings:
+    dev && mocked('portalAnnouncementSettings')
+      ? createPortalAnnouncementSettingsMock({ role: MOCK_ROLE })
+      : createPortalAnnouncementSettingsClient(request),
   portalContact:
     dev && mocked('portalContact')
       ? createPortalContactMock({ role: MOCK_ROLE })
@@ -394,7 +412,11 @@ export const api = {
   /** Services & Pricing (R43 contract): services, categories, packages, promotions. */
   servicesPricing:
     dev && mocked('servicesPricing')
-      ? createServicesPricingMock({ role: MOCK_ROLE, empty: mockedEmpty('servicesPricing') })
+      ? // F08-S: the catalog can be made to fail (`fv-mock-fail`).
+        failable(
+          'servicesPricing',
+          createServicesPricingMock({ role: MOCK_ROLE, empty: mockedEmpty('servicesPricing') }),
+        )
       : createServicesPricingClient(request),
   /** The firm dashboard's numbers (R30). */
   dashboard:
@@ -428,7 +450,11 @@ export const api = {
   /** Appointments workspace (R42 contract): KPIs, agenda views, the full scheduling form, availability panel. */
   scheduling:
     dev && mocked('scheduling')
-      ? createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
+      ? // Dashboard Review Two V6: Send Reminder can be made to fail (`fv-mock-fail`).
+        failable(
+          'scheduling',
+          createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') }),
+        )
       : createSchedulingClient(request),
   /** Appointments A3 (R55): the firm's waitlist requests, and its switch and mode. */
   appointmentWaitlist:
@@ -491,8 +517,16 @@ export const api = {
     dev && mocked('myDocuments')
       ? myDocumentsMock(firmSlug)
       : createMyDocumentsClient(request, firmSlug),
+  /** Client Portal Review One SP-1: a package's public page, read without signing in. */
+  publicPackages: (firmSlug: string) => createPublicPackagesClient(request, firmSlug),
+  /** Client Portal Review One T16: the tasks the firm shows this client (portal Requests area). */
+  myTasks: (firmSlug: string) => createMyTasksClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
-  tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  // Dashboard Review Two V6: completing a task can be made to fail (`fv-mock-fail`).
+  tasks:
+    dev && mocked('tasks')
+      ? failable('tasks', createTasksMock({ role: MOCK_ROLE }))
+      : createTasksClient(request),
   /**
    * Payroll (R39): payroll clients, workers, runs, filings and reports. Mock:
    * NEXT_PUBLIC_API_MOCK=payroll (mocks/payroll.ts, R56).
@@ -549,6 +583,11 @@ export const api = {
     dev && mocked('bookkeepingTerms')
       ? createBookkeepingTermsMock()
       : createBookkeepingTermsClient(request),
+  /** Client Portal BK-CP3: the signed-in client's bookkeeping terms under My Services (portal). */
+  myBookkeepingTerms: (firmSlug: string) =>
+    dev && mocked('myBookkeepingTerms')
+      ? myBookkeepingTermsMock(firmSlug)
+      : createMyBookkeepingTermsClient(request, firmSlug),
   /**
    * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
    * Mock: NEXT_PUBLIC_API_MOCK=automations (mocks/automations.ts, R56).
@@ -626,8 +665,8 @@ export const api = {
   /** Audit log viewer (R12): the firm's own log, for the Owner and Admins. */
   auditLog:
     dev && mocked('auditLog')
-      ? createAuditLogMock({ role: MOCK_ROLE })
-      : createAuditLogClient(request, options.baseUrl),
+      ? failable('auditLog', createAuditLogMock({ role: MOCK_ROLE }))
+      : createAuditLogClient(request, download),
   /** Super Admin Audit & Security (R55): the cross-firm event log, alerts, notes and the security policy. The screens call it through audit-security/_components/audit-api.ts (mock: mocks/admin-audit-security.ts). */
   adminAudit: createAdminAuditClient(request),
   /** Super Admin Reports & Analytics (R55): overview, tabs, firm reports, the builder and saved reports. */
@@ -738,6 +777,16 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** P4-8: the signed-in client's tax plans (portal Tax Plans). */
+  myTaxPlans: (firmSlug: string) =>
+    dev && mocked('myTaxPlans')
+      ? myTaxPlansMock(firmSlug)
+      : createMyTaxPlansClient(request, firmSlug),
+  /** BA-CP: the signed-in client's Business Advisory under My Services (portal). */
+  myAdvisory: (firmSlug: string) =>
+    dev && mocked('myAdvisory')
+      ? myAdvisoryMock(firmSlug)
+      : createMyAdvisoryClient(request, firmSlug),
   /** The signed-out invitation page at /{slug}/invitation (Business Advisory B3). */
   portalInvitation: (firmSlug: string) =>
     dev && mocked('portalInvitation')

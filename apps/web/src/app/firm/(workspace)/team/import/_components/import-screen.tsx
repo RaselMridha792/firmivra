@@ -221,14 +221,25 @@ export function ImportScreen() {
                   Email, First Name, Last Name, Role and Department are required, and Job Title for
                   someone new. Employee ID is optional. Save it as CSV or Excel (.xlsx).
                 </p>
-                <a
-                  href={api.staff.importTemplateUrl()}
-                  download="staff-import-template.csv"
-                  className="inline-flex min-h-11 w-fit items-center gap-2 rounded-control border border-action px-5 text-sm font-semibold text-action hover:bg-folder-surface"
-                >
-                  <DownloadSimple aria-hidden weight="bold" className="size-4" />
-                  Download CSV Template
-                </a>
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={api.staff.importTemplateUrl()}
+                    download="staff-import-template.csv"
+                    className="inline-flex min-h-11 w-fit items-center gap-2 rounded-control border border-action px-5 text-sm font-semibold text-action hover:bg-folder-surface"
+                  >
+                    <DownloadSimple aria-hidden weight="bold" className="size-4" />
+                    Download CSV Template
+                  </a>
+                  {/* SM09: the same template as an Excel workbook. */}
+                  <a
+                    href={api.staff.importTemplateXlsxUrl()}
+                    download="staff-import-template.xlsx"
+                    className="inline-flex min-h-11 w-fit items-center gap-2 rounded-control border border-action px-5 text-sm font-semibold text-action hover:bg-folder-surface"
+                  >
+                    <DownloadSimple aria-hidden weight="bold" className="size-4" />
+                    Download Excel Template
+                  </a>
+                </div>
               </Card>
               <Card title="2. Upload Your File" testId="import-upload">
                 <FileDropzone

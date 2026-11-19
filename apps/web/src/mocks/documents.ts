@@ -30,6 +30,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
+import { mockMyCustomTabs } from './portal-tabs';
 import { engagementFixtures } from './engagements';
 import { mockUploadTicket } from './upload-ticket';
 import { serviceEngagement, serviceMockClient } from './service-engagements';
@@ -217,6 +218,22 @@ const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
  */
 let documentLimitMb = 100;
 export const mockDocumentLimitMb = () => documentLimitMb;
+
+/**
+ * CP-PT-03: the files the firm moved to Trash or archived (Documents' library mock writes here), as
+ * the API's LIVE_DOCUMENT: the client's portal never lists, opens or downloads one.
+ */
+let removed: Map<string, { trashed: boolean; archived: boolean }> | undefined;
+export function setMockDocumentRemoved(
+  id: string,
+  change: Partial<{ trashed: boolean; archived: boolean }>,
+): void {
+  removed ??= new Map();
+  const next = { trashed: false, archived: false, ...removed.get(id), ...change };
+  if (next.trashed || next.archived) removed.set(id, next);
+  else removed.delete(id);
+}
+const isRemoved = (id: string) => removed?.has(id) ?? false;
 export function setMockDocumentLimitMb(mb: number): void {
   documentLimitMb = mb;
 }
@@ -688,6 +705,16 @@ export function myDocumentsMock(firmSlug: string): MyDocumentsClient {
   return mock;
 }
 
+/** CP-5d: the custom tab each portal upload came through (the store's rows don't carry it). */
+let tabOfDocumentMap: Map<string, string> | null = null;
+const tabOfDocument = () => (tabOfDocumentMap ??= new Map());
+
+/** A custom document tab the mock client sees, or the API's 404. */
+function documentTab(tabId: string) {
+  const tab = mockMyCustomTabs().find((t) => t.id === tabId);
+  if (!tab || tab.module !== 'DOCUMENTS') throw notFound();
+}
+
 /** An in-memory `api.myDocuments(slug)` for the signed-in portal client (client 1). */
 export function createMyDocumentsMock(): MyDocumentsClient {
   const s = store();
@@ -699,8 +726,9 @@ export function createMyDocumentsMock(): MyDocumentsClient {
     INFECTED: 'BLOCKED',
     FAILED: 'BLOCKED',
   } as const;
-  // Never INTERNAL, never another client's.
-  const mine = () => s.documents.filter((d) => d.clientId === me && d.direction !== 'INTERNAL');
+  // Never INTERNAL, never another client's, never one the firm trashed or archived (as the API).
+  const mine = () =>
+    s.documents.filter((d) => d.clientId === me && d.direction !== 'INTERNAL' && !isRemoved(d.id));
   const toMine = (d: FirmDocument): MyDocument => ({
     id: d.id,
     source: sourceOf(d),
@@ -727,9 +755,10 @@ export function createMyDocumentsMock(): MyDocumentsClient {
     list: async (query = {}) => {
       await mockDelay();
       const q = parseInput(ListMyDocumentsQuery, query);
-      const docs = mine().filter(
-        (d) => (q.source === 'MINE') === (d.direction === 'CLIENT_TO_FIRM'),
-      );
+      if (q.portalTabId) documentTab(q.portalTabId);
+      const docs = mine()
+        .filter((d) => (q.source === 'MINE') === (d.direction === 'CLIENT_TO_FIRM'))
+        .filter((d) => !q.portalTabId || tabOfDocument().get(d.id) === q.portalTabId);
       const found = docs
         .filter((d) => !q.categoryId || d.category?.id === q.categoryId)
         .filter((d) => !q.taxYear || d.taxYear === q.taxYear)
@@ -768,6 +797,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
     createUpload: async (body) => {
       await mockDelay();
       const b = parseInput(CreateMyUploadRequest, body);
+      if (b.portalTabId) documentTab(b.portalTabId);
       s.target(me, b);
       checkDocumentSize(b.sizeBytes);
       return s.ticket(me, b);
@@ -778,6 +808,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
       const d = s.confirm(uploadToken, ({ body: raw }, id) => {
         const b = raw as ReturnType<typeof CreateMyUploadRequest.parse>;
         const e = s.engagement(me, b.serviceId)!;
+        if (b.portalTabId) tabOfDocument().set(id, b.portalTabId);
         return {
           id,
           clientId: me,

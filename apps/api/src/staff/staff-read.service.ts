@@ -1,3 +1,5 @@
+import { toXlsx } from '../reports/report-formats.js';
+import { namesOf } from './staff-names.js';
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
@@ -24,7 +26,7 @@ import { ROLE_DESCRIPTIONS } from '../roles/roles-catalog.js';
 import { notFound } from '../workspaces/common.js';
 import type { StaffListQ } from './staff-input.js';
 import { memberGrid, toPermissions } from './staff-permissions.service.js';
-import { originalOwnerOf } from './staff.common.js';
+import { lastLoginsOf, originalOwnerOf } from './staff.common.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -69,11 +71,6 @@ export const mfaOf = (status: string): StaffMfaState =>
 
 const BOM = String.fromCharCode(0xfeff);
 
-const split = (name: string): { firstName: string; lastName: string } => {
-  const [first = '', ...rest] = name.trim().split(/\s+/);
-  return { firstName: first, lastName: rest.join(' ') };
-};
-
 /** The Staff Management directory: list, summary, form options and one member's details. */
 @Injectable()
 export class StaffReadService {
@@ -109,14 +106,15 @@ export class StaffReadService {
         acceptedAt: null,
         revokedAt: null,
       },
-      select: { membershipId: true, createdAt: true, expiresAt: true },
+      select: { membershipId: true, emailedAt: true, expiresAt: true },
       orderBy: { createdAt: 'desc' },
     });
-    const out = new Map<string, { sentAt: string; expiresAt: string }>();
+    // SM21: sent only when its email went out (invites.emailed_at).
+    const out = new Map<string, { sentAt: string | null; expiresAt: string }>();
     for (const r of rows)
       if (r.membershipId && !out.has(r.membershipId))
         out.set(r.membershipId, {
-          sentAt: r.createdAt.toISOString(),
+          sentAt: r.emailedAt?.toISOString() ?? null,
           expiresAt: r.expiresAt.toISOString(),
         });
     return out;
@@ -171,18 +169,19 @@ export class StaffReadService {
           take: q.pageSize,
         }),
       ]);
-      const [invites, logins] = await Promise.all([
+      const [invites, login] = await Promise.all([
         this.openInvites(
           tx,
           businessId,
           rows.filter((r) => r.status === 'INVITED').map((r) => r.id),
         ),
-        tx.staffSecuritySettings.findMany({
-          where: { businessId, membershipId: { in: rows.map((r) => r.id) } },
-          select: { membershipId: true, lastLoginAt: true },
-        }),
+        // SM12: the newest sign-in, as everywhere.
+        lastLoginsOf(
+          tx,
+          businessId,
+          rows.map((r) => r.id),
+        ),
       ]);
-      const login = new Map(logins.map((l) => [l.membershipId, l.lastLoginAt]));
       return {
         items: rows.map((r) => ({
           id: r.id,
@@ -331,10 +330,7 @@ export class StaffReadService {
       if (!m) throw notFound();
       const [invites, security, original] = await Promise.all([
         m.status === 'INVITED' ? this.openInvites(tx, businessId, [m.id]) : new Map(),
-        tx.staffSecuritySettings.findUnique({
-          where: { businessId_membershipId: { businessId, membershipId: m.id } },
-          select: { lastLoginAt: true },
-        }),
+        lastLoginsOf(tx, businessId, [m.id]).then((l) => ({ lastLoginAt: l.get(m.id) ?? null })),
         originalOwnerOf(tx, businessId),
       ]);
       // SM14: what the viewer may do to this member, by the rule the changes check.
@@ -344,7 +340,8 @@ export class StaffReadService {
         const t = m.teamMemberships.find((x) => x.kind === kind && x.team.status !== 'ARCHIVED');
         return t ? { id: t.team.id, name: t.team.name } : null;
       };
-      const { firstName, lastName } = split(m.user.name);
+      // SM20: the names as kept apart, while they still match users.name.
+      const { firstName, lastName } = namesOf(m.user.name, p);
       const day = (d: Date | null | undefined) => d?.toISOString().slice(0, 10) ?? null;
       return {
         id: m.id,
@@ -425,7 +422,8 @@ export class StaffReadService {
   }
 
   /** The CSV a firm fills in to import staff: the columns the import maps, and one made-up row. */
-  importTemplate(): string {
+  /** The import template's columns and one sample row (CSV and XLSX alike). */
+  private templateRows(): { head: string[]; sample: string[] } {
     const head = [
       'firstName',
       'lastName',
@@ -452,6 +450,30 @@ export class StaffReadService {
       '2026-01-15',
       'E-1001',
     ];
+    return { head, sample };
+  }
+
+  importTemplate(): string {
+    const { head, sample } = this.templateRows();
     return `${BOM}${head.join(',')}\r\n${sample.join(',')}\r\n`;
+  }
+
+  /** SM09 (Staff Management Review 2): the same template as an Excel workbook. */
+  importTemplateXlsx(): Buffer {
+    const { head, sample } = this.templateRows();
+    return toXlsx(
+      {
+        columns: head.map((key) => ({
+          key,
+          label: key,
+          type: 'TEXT' as const,
+          locked: false,
+          sortable: false,
+        })),
+        all: [{ cells: Object.fromEntries(head.map((k, n) => [k, sample[n] ?? null])), links: [] }],
+        totals: null,
+      },
+      'Staff import',
+    );
   }
 }

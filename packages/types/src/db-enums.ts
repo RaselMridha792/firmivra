@@ -606,6 +606,7 @@ export const NotificationCategory = z.enum([
   'MESSAGES',
   'APPOINTMENTS',
   'BILLING',
+  'ANNOUNCEMENTS',
 ]);
 export type NotificationCategory = z.infer<typeof NotificationCategory>;
 
@@ -1212,8 +1213,21 @@ export const PortalModule = z.enum([
   'TASKS_REQUESTS',
   'MESSAGES',
   'REPORTS',
+  'BUSINESS_RESOURCES',
 ]);
 export type PortalModule = z.infer<typeof PortalModule>;
+
+/** CP-3d: what a client may do with an optional announcement channel. SMS is never REQUIRED (it needs the client's consent; CHECK on client_portal_settings). */
+export const PortalChannelPolicy = z.enum(['CLIENT_CHOICE', 'REQUIRED', 'OFF']);
+export type PortalChannelPolicy = z.infer<typeof PortalChannelPolicy>;
+
+/** CP-5b to CP-5d: a portal tab of the firm's navigation. */
+export const PortalTabKind = z.enum(['BUILT_IN', 'CUSTOM']);
+export type PortalTabKind = z.infer<typeof PortalTabKind>;
+
+/** CP-5e: who sees a custom tab, among the clients whose portal shows custom tabs (Business). */
+export const PortalTabAudience = z.enum(['ALL', 'TAGS', 'CLIENTS']);
+export type PortalTabAudience = z.infer<typeof PortalTabAudience>;
 
 export const BrandTheme = z.enum(['LIGHT', 'DARK', 'SYSTEM']);
 export type BrandTheme = z.infer<typeof BrandTheme>;
@@ -1526,6 +1540,7 @@ export const AdvisoryPlanStatus = z.enum([
   'DRAFT',
   'IN_REVIEW',
   'FINALIZED',
+  'AWAITING_CLIENT_APPROVAL',
   'SENT',
   'IN_PROGRESS',
   'COMPLETED',

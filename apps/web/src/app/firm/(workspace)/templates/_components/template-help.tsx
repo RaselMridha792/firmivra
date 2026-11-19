@@ -67,17 +67,44 @@ const HELP = {
     topic: 'Version history',
     text: 'Each save keeps a version, with who saved it and when. Restore brings an earlier version back; what was already sent stays as it was.',
   },
+  uses: {
+    topic: 'Where it was used',
+    // Y04/Y09: the use log: each send records the version that went out, by whom and when.
+    text: 'Each time a campaign, a message or an automation sends this template, the version that went out is recorded, with who sent it and when. Editing, archiving or restoring the template never changes what was already sent.',
+  },
   import: {
     topic: 'Importing a template',
-    text: 'Paste HTML or plain text, or choose a Word document (.docx, up to 10 MB) for an email, letter or other formatted kind; a text message takes plain text only. Scripts, a Word document’s images and other unsafe parts are removed, and the document is not kept. It becomes a private draft (Only me, automations off) that you can edit and activate.',
+    // Y08: the limits, stated: 50,000 characters of content, a .docx of at most 10 MB.
+    text: 'Paste HTML or plain text (up to 50,000 characters), or choose a Word document (.docx, up to 10 MB) for an email, letter or other formatted kind; a text message takes plain text only. Scripts, unsafe links, a Word document’s images and other unsafe parts are removed, and the document is not kept. It becomes a private draft (Only me, automations off) that you can edit and activate.',
   },
   branding: {
     topic: 'Branding & Letterhead',
     text: 'The footer, disclaimer and signature added to client messages, and whether letters use your letterhead. Your logo and business name come from Settings. Messages already sent keep what they had.',
   },
+  // Y07: the areas that had no Help yet.
+  share: {
+    topic: 'Sharing a template',
+    text: 'All Team Members lets everyone in your firm use this template; Selected people shares it with the members you tick, and Only me keeps it to you. Sharing decides who can use it; who can change the template itself stays as it is.',
+  },
+  archive: {
+    topic: 'Archiving a template',
+    text: 'An archived template leaves the library’s lists and every picker, so no new message or automation uses it. What was already sent and its versions stay as they were, and Restore brings it back as a draft.',
+  },
+  bulk: {
+    topic: 'Bulk actions',
+    text: 'Applies one change to every ticked template: a category, a tag, or archiving. Each template keeps its own content; archived ones can be restored one by one. Only what you may change is changed.',
+  },
+  tags: {
+    topic: 'Tags',
+    text: 'Short labels that help you find a template: type one and press Enter, or Save keeps a tag you have typed. Search and the Tag filter match a whole tag. Up to 20 tags, each up to 40 characters.',
+  },
+  leadSequences: {
+    topic: 'Lead follow-up sequences',
+    text: 'Reusable steps for following up a lead, each an internal reminder or an outreach its owner sends. Applying a sequence to a lead lets you preview and edit the steps first, and never sends anything by itself; it stops when the lead converts, is not qualified or is lost.',
+  },
   categoryTools: {
     topic: 'Managing categories',
-    text: 'Choose a kind, then add, rename, reorder or archive its categories. Merge moves every template of one category into another and archives the first. Template names and content stay as they are.',
+    text: 'Choose a kind, then add, rename, reorder or archive its categories. Merge moves every template of one category into another and archives the first. A category that still has templates is archived only after they move (Merge does both). Template names and content stay as they are.',
   },
 } as const;
 

@@ -1,3 +1,4 @@
+import { isLiveDocument } from '../../storage/document-records.js';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { Prisma, TxClient } from '@firmivra/db';
 import {
@@ -182,6 +183,7 @@ export const invoiceSelect = {
           scanStatus: true,
           trashedAt: true,
           archivedAt: true,
+          supersededAt: true,
         },
       },
     },
@@ -300,8 +302,8 @@ const shownAttachments = (row: InvoiceRow) =>
       (d) =>
         d.direction !== 'INTERNAL' &&
         d.scanStatus === 'CLEAN' &&
-        d.trashedAt === null &&
-        d.archivedAt === null,
+        // CP-PT-03: LIVE_DOCUMENT (an older, replaced version neither).
+        isLiveDocument(d),
     )
     .map((d) => ({
       documentId: d.id,

@@ -2,6 +2,7 @@
 
 import {
   Archive,
+  ArrowCounterClockwise,
   CalendarBlank,
   ChartBar,
   Copy,
@@ -22,6 +23,8 @@ export interface TemplateActions {
   onUse: (template: IntakeFormListItem) => void;
   onDuplicate: (template: IntakeFormListItem) => void;
   onArchive: (template: IntakeFormListItem) => void;
+  /** Intake Review 2 24c-i: an archived one back in the library, as a draft (Owner and Admin). */
+  onRestore: (template: IntakeFormListItem) => void;
   /** Form Link: the main form's public link and embed code (I3). */
   onLink: (template: IntakeFormListItem) => void;
   /** A duplicate or archive is on its way: those two wait. */
@@ -47,8 +50,10 @@ export function TemplateCard({
   template: IntakeFormListItem;
   actions: TemplateActions;
 }) {
-  const { onPreview, onEdit, onUse, onDuplicate, onArchive, onLink, busy } = actions;
+  const { onPreview, onEdit, onUse, onDuplicate, onArchive, onRestore, onLink, busy } = actions;
   const draft = template.status === 'DRAFT';
+  // 24c-i: an archived one can be previewed and restored, nothing else.
+  const archived = template.archived;
   return (
     <Card
       variant="elevated"
@@ -64,35 +69,51 @@ export function TemplateCard({
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
             <CategoryChip category={template.category} />
-            {draft ? <Badge tone="warning">Draft</Badge> : null}
+            {archived ? (
+              <Badge tone="neutral">Archived</Badge>
+            ) : draft ? (
+              <Badge tone="warning">Draft</Badge>
+            ) : null}
           </div>
         </div>
         <TemplateMenu
           label={`Actions for ${template.name}`}
-          items={[
-            { label: 'Preview', icon: Eye, onSelect: () => onPreview(template) },
-            { label: 'Edit', icon: PencilSimple, onSelect: () => onEdit(template) },
-            {
-              label: 'Duplicate',
-              icon: Copy,
-              onSelect: () => onDuplicate(template),
-              disabled: busy,
-            },
-            {
-              label: 'Send to a client',
-              icon: PaperPlaneTilt,
-              onSelect: () => onUse(template),
-              disabled: draft,
-            },
-            { label: 'Share & Publish', icon: LinkSimple, onSelect: () => onLink(template) },
-            {
-              label: 'Archive',
-              icon: Archive,
-              onSelect: () => onArchive(template),
-              danger: true,
-              disabled: busy,
-            },
-          ]}
+          items={
+            archived
+              ? [
+                  { label: 'Preview', icon: Eye, onSelect: () => onPreview(template) },
+                  {
+                    label: 'Restore',
+                    icon: ArrowCounterClockwise,
+                    onSelect: () => onRestore(template),
+                    disabled: busy,
+                  },
+                ]
+              : [
+                  { label: 'Preview', icon: Eye, onSelect: () => onPreview(template) },
+                  { label: 'Edit', icon: PencilSimple, onSelect: () => onEdit(template) },
+                  {
+                    label: 'Duplicate',
+                    icon: Copy,
+                    onSelect: () => onDuplicate(template),
+                    disabled: busy,
+                  },
+                  {
+                    label: 'Send to a client',
+                    icon: PaperPlaneTilt,
+                    onSelect: () => onUse(template),
+                    disabled: draft,
+                  },
+                  { label: 'Share & Publish', icon: LinkSimple, onSelect: () => onLink(template) },
+                  {
+                    label: 'Archive',
+                    icon: Archive,
+                    onSelect: () => onArchive(template),
+                    danger: true,
+                    disabled: busy,
+                  },
+                ]
+          }
         />
       </div>
 
@@ -142,21 +163,31 @@ export function TemplateCard({
           <Eye aria-hidden weight="fill" className="size-4 text-action" />
           Preview
         </Button>
-        <Button variant="secondary" className={small} onClick={() => onEdit(template)}>
-          <PencilSimple aria-hidden weight="fill" className="size-4 text-action" />
-          Edit
-        </Button>
-        <Button
-          className={`${small} grow`}
-          disabled={draft}
-          title={draft ? PUBLISH_FIRST : undefined}
-          onClick={() => onUse(template)}
-        >
-          <PaperPlaneTilt aria-hidden weight="fill" className="size-4" />
-          Use Template
-        </Button>
+        {archived ? (
+          <Button className={`${small} grow`} disabled={busy} onClick={() => onRestore(template)}>
+            <ArrowCounterClockwise aria-hidden weight="bold" className="size-4" />
+            Restore
+          </Button>
+        ) : null}
+        {archived ? null : (
+          <>
+            <Button variant="secondary" className={small} onClick={() => onEdit(template)}>
+              <PencilSimple aria-hidden weight="fill" className="size-4 text-action" />
+              Edit
+            </Button>
+            <Button
+              className={`${small} grow`}
+              disabled={draft}
+              title={draft ? PUBLISH_FIRST : undefined}
+              onClick={() => onUse(template)}
+            >
+              <PaperPlaneTilt aria-hidden weight="fill" className="size-4" />
+              Use Template
+            </Button>
+          </>
+        )}
       </div>
-      {draft ? <p className="mt-2 text-xs text-muted">{PUBLISH_FIRST}</p> : null}
+      {draft && !archived ? <p className="mt-2 text-xs text-muted">{PUBLISH_FIRST}</p> : null}
     </Card>
   );
 }

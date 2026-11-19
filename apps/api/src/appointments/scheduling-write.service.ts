@@ -3,6 +3,7 @@ import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { AppointmentRecord, MemberRef } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { returnReassignAuthority } from '../tax-returns/return-authority.js';
 import { DATABASE } from '../database/database.module.js';
@@ -43,7 +44,7 @@ import {
 import { expandRecurrence } from './scheduling-recurrence.js';
 import type { DetailsBody, ScheduleBody } from './scheduling.input.js';
 import { MINUTE } from './calendar.js';
-import { withClient } from './appointment-party.js';
+import { leadToBook } from './appointment-party.js';
 
 type Schedule = z.output<typeof ScheduleBody>;
 type Details = z.output<typeof DetailsBody>;
@@ -116,6 +117,7 @@ export class SchedulingWriteService {
     private readonly notices: AppointmentNotices,
     @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
     private readonly grants: PermissionGrantsService,
+    private readonly intakes: IntakeSendService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -159,6 +161,7 @@ export class SchedulingWriteService {
         input.candidate.roomId,
         input.candidate.attendeeClientIds,
         input.candidate.equipmentIds,
+        input.candidate.leadId ?? null,
       );
       return toResult(data, input.candidate, actor).result;
     });
@@ -222,6 +225,12 @@ export class SchedulingWriteService {
     if (body.sendConfirmation) {
       await this.notices.send('appointment.booked', businessId, created.firstId);
     }
+    // A9: the type's required intake form goes to the client (the first of a series only; the
+    // others would find it open), and the record then shows it.
+    const form = await this.intakes.sendForAppointment(businessId, created.firstId, actor.userId);
+    if (form && 'intakeId' in form) {
+      return this.inFirm(businessId, (tx) => this.recordIn(tx, businessId, actor, created.firstId));
+    }
     return created.record;
   }
 
@@ -254,13 +263,15 @@ export class SchedulingWriteService {
       });
       if (!gone.count) throw errors.notFound();
     }
-    const client = await this.clientFor(tx, businessId, actor, body.contact);
+    const party = await this.partyFor(tx, businessId, actor, body.contact);
+    // P4-1: a lead's own appointment (no client yet) is about the lead only.
+    if (!party.clientId) this.requireLeadOnly(body);
     // A1: the other clients who attend (a group appointment), each booked as the client is.
     const attendees = await attendeeClients(
       tx,
       businessId,
       actor,
-      client.id,
+      party.clientId,
       body.attendeeClientIds,
     );
     if (body.staffUserIds.length > 1) {
@@ -273,6 +284,7 @@ export class SchedulingWriteService {
       where: { businessId, id: body.typeId },
       select: {
         id: true,
+        name: true,
         archivedAt: true,
         bufferBeforeMinutes: true,
         bufferAfterMinutes: true,
@@ -310,9 +322,15 @@ export class SchedulingWriteService {
       place.officeId,
       body.equipmentIds ?? [],
     );
-    const reminders = await this.remindersFor(tx, businessId, body.reminders, client.phone);
+    const reminders = await this.remindersFor(
+      tx,
+      businessId,
+      body.reminders,
+      party.phone,
+      !party.clientId,
+    );
 
-    await lockForBooking(tx, businessId, staff.userId, client.id, attendees);
+    await lockForBooking(tx, businessId, staff.userId, party.clientId, attendees);
     await lockEquipment(tx, businessId, equipment);
     const location = await this.locationOf(tx, businessId, kind, staff.userId, {
       details: body.details,
@@ -325,7 +343,8 @@ export class SchedulingWriteService {
         staffUserIds: [staff.userId],
         occurrences: expansion.occurrences,
         allDay: body.allDay,
-        clientId: client.id,
+        clientId: party.clientId,
+        leadId: party.leadId,
         attendeeClientIds: attendees,
         roomId: place.roomId,
         equipmentIds: equipment,
@@ -361,17 +380,18 @@ export class SchedulingWriteService {
         : null;
 
     // Review 2 (TX-F06): the tax return this appointment is for, as its engagement.
-    const engagementId = body.related?.taxReturnId
-      ? await this.returnEngagement(tx, businessId, client.id, body.related.taxReturnId)
-      : null;
+    const engagementId =
+      body.related?.taxReturnId && party.clientId
+        ? await this.returnEngagement(tx, businessId, party.clientId, body.related.taxReturnId)
+        : null;
     // C12 (Tax Planning Review 2): a planning discussion of one of the client's open plans.
     const taxPlanId = body.taxPlanId ?? null;
-    if (taxPlanId) {
+    if (taxPlanId && party.clientId) {
       const plan = await tx.taxPlan.findFirst({
         where: {
           businessId,
           id: taxPlanId,
-          clientId: client.id,
+          clientId: party.clientId,
           archivedAt: null,
           status: { not: 'CLOSED' },
         },
@@ -402,7 +422,9 @@ export class SchedulingWriteService {
       const row = await tx.appointment.create({
         data: {
           businessId,
-          clientId: client.id,
+          clientId: party.clientId,
+          // P4-1: a lead's own appointment (no client yet); a converted lead books as its client.
+          leadId: party.leadId,
           staffUserId: staff.userId,
           typeId: type.id,
           serviceId,
@@ -434,7 +456,14 @@ export class SchedulingWriteService {
           bookedByUserId: actor.userId,
           bookedByClient: false,
         },
-        select: { id: true, clientId: true, startsAt: true, endsAt: true, staffUserId: true },
+        select: {
+          id: true,
+          clientId: true,
+          leadId: true,
+          startsAt: true,
+          endsAt: true,
+          staffUserId: true,
+        },
       });
       if (index === 0) firstId = row.id;
       // Review 2 (A2): the trigger copies the appointment's time onto each hold.
@@ -466,8 +495,26 @@ export class SchedulingWriteService {
         tx,
         'appointment.series_created',
         { type: 'appointment_series', id: series.id },
-        { clientId: client.id, occurrences: expansion.occurrences.length },
+        {
+          clientId: party.clientId,
+          ...(party.leadId ? { leadId: party.leadId } : {}),
+          occurrences: expansion.occurrences.length,
+        },
       );
+    }
+    if (party.leadId) {
+      // P4-1: the booking is in the lead's own timeline (its Activity and Last Contact), by the
+      // type's name only, never the notes.
+      await tx.leadActivity.create({
+        data: {
+          businessId,
+          leadId: party.leadId,
+          kind: 'APPOINTMENT_SCHEDULED',
+          actorUserId: actor.userId,
+          summary: type.name,
+          metadata: { appointmentId: firstId },
+        },
+      });
     }
     return { record: await this.recordIn(tx, businessId, actor, firstId), firstId };
   }
@@ -485,14 +532,23 @@ export class SchedulingWriteService {
       businessId,
       async (tx) => {
         const current = await this.openForChange(tx, businessId, actor, id);
+        // P4-1: a lead's own appointment keeps its lead (the form sends it as the contact).
+        const same = (a: string | null | undefined, b: string | null) =>
+          !!a && !!b && a.toLowerCase() === b.toLowerCase();
         if (
           body.contact &&
-          !(body.contact.kind === 'CLIENT' && body.contact.id === current.clientId)
+          !(body.contact.kind === 'CLIENT' && same(body.contact.id, current.clientId)) &&
+          !(
+            body.contact.kind === 'LEAD' &&
+            !current.clientId &&
+            same(body.contact.id, current.leadId)
+          )
         ) {
           throw errors.unsupported(
             'The client of an appointment cannot change. Cancel it and schedule a new one.',
           );
         }
+        if (!current.clientId) this.requireLeadOnly(body);
         this.requireSupported(body.related, body.recurrence);
 
         const data: Prisma.AppointmentUncheckedUpdateInput = {};
@@ -510,15 +566,15 @@ export class SchedulingWriteService {
 
         // Review 2 (TX-F06): Link to Tax Return set, changed or taken off.
         if (body.related?.taxReturnId !== undefined) {
-          const engagementId = body.related.taxReturnId
-            ? await this.returnEngagement(
-                tx,
-                businessId,
-                // P4-1: a tax return is a client's; a lead's own appointment is refused here.
-                withClient(current).clientId,
-                body.related.taxReturnId,
-              )
-            : null;
+          const engagementId =
+            body.related.taxReturnId && current.clientId
+              ? await this.returnEngagement(
+                  tx,
+                  businessId,
+                  current.clientId,
+                  body.related.taxReturnId,
+                )
+              : null;
           set('taxReturn', 'engagementId', engagementId, engagementId === current.engagementId);
         }
 
@@ -749,8 +805,8 @@ export class SchedulingWriteService {
         let added: string[] = [];
         let removed: string[] = [];
         if (body.attendeeClientIds !== undefined) {
-          // P4-1: other clients attend a client's appointment; a lead's own is refused here.
-          const own = withClient(current).clientId.toLowerCase();
+          // P4-1: other clients attend a client's appointment (a lead's own refused them above).
+          const own = current.clientId?.toLowerCase();
           attendees = [...new Set(body.attendeeClientIds.map((c) => c.toLowerCase()))].filter(
             (c) => c !== own,
           );
@@ -792,6 +848,7 @@ export class SchedulingWriteService {
               occurrences: [{ start, end }],
               allDay,
               clientId: current.clientId,
+              leadId: current.leadId,
               attendeeClientIds: attendees,
               roomId,
               equipmentIds: equipment,
@@ -812,7 +869,14 @@ export class SchedulingWriteService {
         const updated = await tx.appointment.update({
           where: { id: current.id },
           data: { ...data, updatedAt: new Date() },
-          select: { id: true, clientId: true, startsAt: true, endsAt: true, staffUserId: true },
+          select: {
+            id: true,
+            clientId: true,
+            leadId: true,
+            startsAt: true,
+            endsAt: true,
+            staffUserId: true,
+          },
         });
         if (itemsAdded.length > 0) {
           await tx.appointmentEquipment.createMany({
@@ -846,7 +910,11 @@ export class SchedulingWriteService {
           tx,
           'appointment.details_updated',
           { type: 'appointment', id: current.id },
-          { clientId: current.clientId, fields: [...fields].sort() },
+          {
+            clientId: current.clientId,
+            ...(current.clientId ? {} : { leadId: current.leadId }),
+            fields: [...fields].sort(),
+          },
         );
         // The client hears about a new time, staff member, place or link; not about notes or colour.
         const notify =
@@ -887,7 +955,10 @@ export class SchedulingWriteService {
           tx,
           'appointment.confirmed',
           { type: 'appointment', id: current.id },
-          { clientId: current.clientId },
+          {
+            clientId: current.clientId,
+            ...(current.clientId ? {} : { leadId: current.leadId }),
+          },
         );
       }
       return this.recordIn(tx, businessId, actor, id);
@@ -896,28 +967,23 @@ export class SchedulingWriteService {
 
   // ---------- Pieces ----------
 
-  /** The client to book: an existing one the member may see; leads and new contacts need a schema change. */
-  private async clientFor(
+  /**
+   * Who the booking is for: an existing client the member may see, or (P4-1) a lead the member
+   * reaches. A lead that became a client books as that client; one that has not books as itself
+   * (no client yet). New contacts need a schema change.
+   */
+  private async partyFor(
     tx: TxClient,
     businessId: string,
     actor: FirmActor,
     contact: Schedule['contact'],
-  ): Promise<{ id: string; phone: string | null }> {
+  ): Promise<{ clientId: string | null; leadId: string | null; phone: string | null }> {
     let clientId: string;
     if (contact.kind === 'CLIENT') {
       clientId = contact.id;
     } else if (contact.kind === 'LEAD') {
-      // A lead that became a client books as that client; any other has no client to book for.
-      const lead = await tx.lead.findFirst({
-        where: { businessId, id: contact.id },
-        select: { clientId: true },
-      });
-      if (!lead) throw errors.notFound();
-      if (!lead.clientId) {
-        throw errors.unsupported(
-          'Appointments for leads are not available yet. Convert the lead to a client first.',
-        );
-      }
+      const lead = await leadToBook(tx, businessId, actor, contact.id);
+      if (!lead.clientId) return { clientId: null, leadId: lead.id, phone: lead.phone };
       clientId = lead.clientId;
     } else {
       throw errors.unsupported(
@@ -941,7 +1007,36 @@ export class SchedulingWriteService {
       throw errors.notFound();
     }
     if (row.archived_at) throw errors.clientArchived();
-    return { id: row.id, phone: row.phone };
+    return { clientId: row.id, leadId: null, phone: row.phone };
+  }
+
+  /**
+   * P4-1: a lead's own appointment is about the lead only, until it converts: no tax return or
+   * tax plan (a client's), and no other clients attending (400, naming the field).
+   */
+  private requireLeadOnly(body: {
+    related?: { taxReturnId?: string | null | undefined } | null | undefined;
+    taxPlanId?: string | null | undefined;
+    attendeeClientIds?: readonly string[] | undefined;
+  }): void {
+    if (body.related?.taxReturnId) {
+      throw errors.invalidField(
+        'related.taxReturnId',
+        "A lead's appointment cannot link a tax return. Convert the lead to a client first.",
+      );
+    }
+    if (body.taxPlanId) {
+      throw errors.invalidField(
+        'taxPlanId',
+        "A lead's appointment cannot link a tax plan. Convert the lead to a client first.",
+      );
+    }
+    if (body.attendeeClientIds?.length) {
+      throw errors.invalidField(
+        'attendeeClientIds',
+        "A lead's appointment has no other attendees. Convert the lead to a client first.",
+      );
+    }
   }
 
   private async requireService(tx: TxClient, businessId: string, serviceId: string): Promise<void> {
@@ -1182,6 +1277,8 @@ export class SchedulingWriteService {
     businessId: string,
     reminders: readonly Reminder[],
     phone: string | null,
+    /** P4-1: a lead's own appointment: its lead gets email only, never a text. */
+    forLead = false,
   ): Promise<{ channel: Reminder['channel']; offsetMinutes: number; note: string | null }[]> {
     const rows = new Map<
       string,
@@ -1202,6 +1299,7 @@ export class SchedulingWriteService {
       });
     }
     const list = [...rows.values()];
+    if (forLead && list.some((r) => r.channel === 'SMS')) throw errors.leadSms();
     if (list.some((r) => r.channel === 'SMS')) {
       const settings = await tx.messageSettings.findUnique({
         where: { businessId },
@@ -1226,7 +1324,13 @@ export class SchedulingWriteService {
           select: { phone: true },
         })
       : null;
-    const next = await this.remindersFor(tx, businessId, reminders, client?.phone ?? null);
+    const next = await this.remindersFor(
+      tx,
+      businessId,
+      reminders,
+      client?.phone ?? null,
+      !current.clientId,
+    );
     const key = (r: { channel: string; offsetMinutes: number; note: string | null }) =>
       `${r.channel}:${r.offsetMinutes}:${r.note ?? ''}`;
     const before = new Set(current.reminders.map(key));
@@ -1295,6 +1399,7 @@ export class SchedulingWriteService {
       input.candidate.roomId,
       input.candidate.attendeeClientIds,
       input.candidate.equipmentIds,
+      input.candidate.leadId ?? null,
     );
     const { result, found } = toResult(data, input.candidate, actor);
     if (result.ok) return;

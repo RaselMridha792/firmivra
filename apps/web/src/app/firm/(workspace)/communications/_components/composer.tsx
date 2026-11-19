@@ -7,6 +7,8 @@ import {
   TEMPLATE_ATTACHMENT_MAX_BYTES,
   type CommunicationDetail,
   type CommunicationRow,
+  smsCountText,
+  type MessageTemplateKind,
 } from '@firmivra/types';
 import {
   Button,
@@ -488,6 +490,8 @@ function ComposerForm({
   );
   const typeLabel = { EMAIL: 'Email', SMS: 'Text Message (SMS)', ANNOUNCEMENT: 'Announcement' };
   const chips = d.audience?.chips.filter((c) => !c.kind.startsWith('EXCLUDE')) ?? [];
+  // C20: Add all eligible can name thousands one by one; the field shows the first few.
+  const CHIPS_SHOWN = 10;
   // CM-F07: only a confirmed save moves the time; a refused one says why.
   const saveState = saving
     ? 'Saving…'
@@ -507,7 +511,7 @@ function ComposerForm({
         {chips.length === 0 ? (
           <span className="px-1 text-sm text-muted">No recipients chosen yet</span>
         ) : null}
-        {chips.map((c) => (
+        {chips.slice(0, CHIPS_SHOWN).map((c) => (
           <span
             key={`${c.kind}${c.id}`}
             className="inline-flex items-center rounded-pill bg-info-soft px-3 py-1 text-xs font-medium text-info"
@@ -516,6 +520,11 @@ function ComposerForm({
             {c.count !== null && c.kind === 'SEGMENT' ? ` (${c.count})` : ''}
           </span>
         ))}
+        {chips.length > CHIPS_SHOWN ? (
+          <span className="px-1 text-xs font-medium text-muted" data-testid="more-recipients">
+            and {chips.length - CHIPS_SHOWN} more
+          </span>
+        ) : null}
         <button
           type="button"
           disabled={readOnly}
@@ -714,9 +723,9 @@ function ComposerForm({
                 disabled={readOnly}
                 onChange={(e) => set({ body: e.target.value })}
               />
+              {/* Templates Review Two R02: parts as carriers count them, shared with the API. */}
               <p className="mt-1 text-xs text-muted" data-testid="sms-count">
-                {form.body.length} characters · {Math.max(1, Math.ceil(form.body.length / 160))}{' '}
-                text part(s). Plain text only.
+                {smsCountText(form.body)}. Plain text only.
               </p>
             </div>
           ) : (
@@ -1303,18 +1312,32 @@ function TemplateDialog({
   onUsed: (d: CommunicationDetail) => void;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
-  const kinds: string[] =
+  const kinds: MessageTemplateKind[] =
     detail.channel === 'SMS'
       ? ['SMS']
       : detail.channel === 'ANNOUNCEMENT'
         ? ['ANNOUNCEMENT']
         : ['EMAIL', 'CAMPAIGN'];
-  const list = useApiQuery([...COMM_KEY, 'composer-templates', detail.channel], () =>
-    api.templates.list({ tab: 'all', page: 1, pageSize: 50 }),
+  // Templates Review Two P03: the server filters each kind (active only), not the first 50 of
+  // every kind filtered here, so no template of the channel is left out.
+  const list = useApiQuery([...COMM_KEY, 'composer-templates', detail.channel], async () =>
+    (
+      await Promise.all(
+        kinds.map((kind) =>
+          api.templates.list({
+            tab: 'all',
+            kind,
+            status: 'ACTIVE',
+            sort: 'name',
+            direction: 'asc',
+            page: 1,
+            pageSize: 100,
+          }),
+        ),
+      )
+    ).flatMap((page) => page.items),
   );
-  const items = (list.data?.items ?? []).filter(
-    (t) => kinds.includes(t.kind) && t.status === 'ACTIVE',
-  );
+  const items = list.data ?? [];
   return (
     <Modal
       open

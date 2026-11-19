@@ -31,7 +31,8 @@ import { NOT_LOADED } from '../../_components/quiet-card';
 import { RowMenu } from '../../_components/row-menu';
 import { CAPABILITY_ORDER } from '../../roles/_components/role-parts';
 import { mayDo, type StaffAction } from './staff-actions';
-import { MEMBER_ERRORS, STATUS_LOOKS, dateTime, longDate } from './staff-parts';
+import { MEMBER_ERRORS, STATUS_LOOKS, longDate } from './staff-parts';
+import { FirmDateTime } from './firm-time';
 
 /**
  * The designs' large profile picture (about 96 px): the kit's Avatar, which stops at 56 px, drawn
@@ -322,7 +323,7 @@ export function RecentActivity({ id }: { id: string }) {
           {items.map((item) => (
             <li key={item.id} className="grid grid-cols-[minmax(0,11rem)_1fr] gap-3 py-2 text-sm">
               <time dateTime={item.at} className="text-muted">
-                {dateTime(item.at)}
+                <FirmDateTime iso={item.at} />
               </time>
               <span className="min-w-0 break-words text-text">
                 {item.label}

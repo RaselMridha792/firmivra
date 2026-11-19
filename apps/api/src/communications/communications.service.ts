@@ -1,6 +1,7 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import type {
+  AddEligibleContactsResult,
   AnnouncementLocationList,
   AudienceSummary,
   CommunicationChannel,
@@ -12,6 +13,8 @@ import type {
   CommunicationSenderList,
   CommunicationsOverview,
   ChannelReadiness,
+  EligibleContactsCount,
+  RemoveAudienceEntriesResult,
   SelectAllAudienceResult,
   AudienceCandidatePage,
   SendCheck,
@@ -20,13 +23,14 @@ import type {
 import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
+import { recordTemplateUse } from '../templates/template-use.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { sanitize, stripTags } from '../templates/html.js';
 import { BUILT_IN_FIELDS, builtIn, fieldsIn, fill, smsLength } from '../templates/merge-fields.js';
 import { memberNames, memberRef } from '../workspaces/common.js';
 import { comErrors, iso, mask, permsOf } from './communications.common.js';
-import { isGridFirmRole, roleCan } from '@firmivra/types';
+import { AUDIENCE_PEOPLE_LIMIT, isGridFirmRole, roleCan } from '@firmivra/types';
 import {
   addressOf,
   CommunicationAudienceService,
@@ -44,11 +48,20 @@ import type {
   SelectAllAudienceBody,
   SendBody,
   SetAudienceBody,
+  AddEligibleBody,
+  EligibleContactsQ,
+  RemoveEntriesBody,
   UpdateCommunicationBody,
 } from './communications-input.js';
 import { CommunicationProviders } from './communications-provider.js';
 import { FIRMIVRA_MAIL, FIRMIVRA_MAIL_LABEL, holdNoteOf } from './firmivra-mail.js';
 import { type SegCtx, CommunicationSegmentsService } from './communications-segments.service.js';
+import { auditChanges } from '../audit/audit-changes.js';
+import { announcementSettingsIn } from '../client-portal/portal-announcement-settings.js';
+
+/** CP-3c: the composer's note while the firm keeps announcements out of the portal. */
+const ANNOUNCEMENTS_OFF =
+  "Announcements are turned off in Settings > Client Portal, so clients won't see this one until you turn them on.";
 
 type Out<S extends z.ZodType> = z.output<S>;
 type Row = Prisma.CommunicationGetPayload<object>;
@@ -263,8 +276,18 @@ export class CommunicationsService {
         senderCount: 0,
         note: null,
       };
-    if (channel === 'ANNOUNCEMENT')
-      return { channel, ready: true, reason: null, route: null, senderCount: 0, note: null };
+    if (channel === 'ANNOUNCEMENT') {
+      // CP-3c: the firm can turn announcements off in the portal; one can still be made.
+      const portal = await announcementSettingsIn(ctx.tx, ctx.businessId);
+      return {
+        channel,
+        ready: true,
+        reason: null,
+        route: null,
+        senderCount: 0,
+        note: portal.enabled ? null : ANNOUNCEMENTS_OFF,
+      };
+    }
     const all = await this.connections(ctx, channel);
     const healthy = all.filter(
       (c) => (HEALTHY as string[]).includes(c.status) && this.providers.has(c.provider),
@@ -897,9 +920,11 @@ export class CommunicationsService {
         ctx.tx,
         'communication.updated',
         { type: 'communication', id: c.id },
+        // Audit Log Review 2, R03: each changed field's old and new value (the message's text
+        // as "changed").
         {
           communicationId: c.id,
-          fields: Object.keys(body).filter((k) => k !== 'etag' && k !== 'confirmStripContent'),
+          ...auditChanges(c, saved, { fields: Object.keys(data), text: 'all' }),
         },
       );
       return this.detail(ctx, saved);
@@ -924,7 +949,10 @@ export class CommunicationsService {
     if (!t)
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'This template was not found' });
     const mine = t.access !== 'PRIVATE' || t.ownerUserId === ctx.userId || ctx.perms.admin;
-    if (t.kind !== channel || t.status !== 'ACTIVE' || t.archivedAt !== null || !mine)
+    // Templates Review Two P03: an email takes an Email or a Campaign template (a campaign is an
+    // email to many), as the composer offers; SMS and Announcement take their own kind.
+    const fits = t.kind === channel || (channel === 'EMAIL' && t.kind === 'CAMPAIGN');
+    if (!fits || t.status !== 'ACTIVE' || t.archivedAt !== null || !mine)
       throw refuse('TEMPLATE_NOT_ALLOWED', 'This template cannot be used for this channel');
     return {
       templateId: t.id,
@@ -1218,36 +1246,52 @@ export class CommunicationsService {
       check(body.leadIds, lSet, 'leadIds', 'lead');
       check(body.excludeLeadIds, lSet, 'excludeLeadIds', 'lead');
       const uniq = (a: string[]) => [...new Set(a)];
-      await ctx.tx.communicationAudienceEntry.deleteMany({
-        where: { businessId: ctx.businessId, communicationId: c.id },
-      });
       const base = { businessId: ctx.businessId, communicationId: c.id };
-      await ctx.tx.communicationAudienceEntry.createMany({
-        data: [
-          ...uniq(body.segmentIds).map((segmentId) => ({
-            ...base,
-            kind: 'SEGMENT' as const,
-            segmentId,
-            segmentName: segNames.get(segmentId) ?? null,
-          })),
-          ...uniq(body.clientIds).map((clientId) => ({
-            ...base,
-            kind: 'CLIENT' as const,
-            clientId,
-          })),
-          ...uniq(body.leadIds).map((leadId) => ({ ...base, kind: 'LEAD' as const, leadId })),
-          ...uniq(body.excludeClientIds).map((clientId) => ({
-            ...base,
-            kind: 'EXCLUDE_CLIENT' as const,
-            clientId,
-          })),
-          ...uniq(body.excludeLeadIds).map((leadId) => ({
-            ...base,
-            kind: 'EXCLUDE_LEAD' as const,
-            leadId,
-          })),
-        ],
+      const want = [
+        ...uniq(body.segmentIds).map((segmentId) => ({
+          ...base,
+          kind: 'SEGMENT' as const,
+          segmentId,
+          segmentName: segNames.get(segmentId) ?? null,
+        })),
+        ...uniq(body.clientIds).map((clientId) => ({
+          ...base,
+          kind: 'CLIENT' as const,
+          clientId,
+        })),
+        ...uniq(body.leadIds).map((leadId) => ({ ...base, kind: 'LEAD' as const, leadId })),
+        ...uniq(body.excludeClientIds).map((clientId) => ({
+          ...base,
+          kind: 'EXCLUDE_CLIENT' as const,
+          clientId,
+        })),
+        ...uniq(body.excludeLeadIds).map((leadId) => ({
+          ...base,
+          kind: 'EXCLUDE_LEAD' as const,
+          leadId,
+        })),
+      ];
+      // An entry that stays keeps its row (and id: C20's Undo names entries by id); only what
+      // left is deleted and only what is new is written.
+      const entryKey = (e: {
+        kind: string;
+        segmentId?: string | null;
+        clientId?: string | null;
+        leadId?: string | null;
+      }) => `${e.kind}:${e.segmentId ?? e.clientId ?? e.leadId}`;
+      const have = await ctx.tx.communicationAudienceEntry.findMany({
+        where: base,
+        select: { id: true, kind: true, segmentId: true, clientId: true, leadId: true },
       });
+      const wanted = new Set(want.map(entryKey));
+      const kept = new Set(have.map(entryKey));
+      const gone = have.filter((e) => !wanted.has(entryKey(e))).map((e) => e.id);
+      if (gone.length)
+        await ctx.tx.communicationAudienceEntry.deleteMany({
+          where: { ...base, id: { in: gone } },
+        });
+      const added = want.filter((e) => !kept.has(entryKey(e)));
+      if (added.length) await ctx.tx.communicationAudienceEntry.createMany({ data: added });
       await this.audit.logIn(
         ctx.tx,
         'communication.audience_set',
@@ -1261,6 +1305,127 @@ export class CommunicationsService {
         },
       );
       return (await this.audience.compute(ctx, c)).summary;
+    });
+  }
+
+  /** C20: Add all eligible changes a draft only; a scheduled or sent campaign keeps its audience. */
+  private assertDraft(c: Row) {
+    if (c.status === 'DRAFT') return;
+    throw refuse(
+      'NOT_EDITABLE',
+      c.status === 'SCHEDULED'
+        ? 'This communication is scheduled. Only a draft’s recipients can be added all at once.'
+        : 'This communication has gone out and cannot be changed',
+    );
+  }
+
+  /** C20: how many All Contacts' "Add all eligible" adds now, and whether that passes the limit. */
+  eligibleContacts(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    q: Out<typeof EligibleContactsQ>,
+  ): Promise<EligibleContactsCount> {
+    return this.run(tenant, userId, async (ctx) => {
+      const c = await this.load(ctx, id);
+      const { people, chosenClients } = await this.audience.eligibleToAdd(
+        ctx,
+        c,
+        q.search,
+        AUDIENCE_PEOPLE_LIMIT,
+      );
+      return {
+        count: people.length,
+        limit: AUDIENCE_PEOPLE_LIMIT,
+        overLimit: chosenClients + people.length > AUDIENCE_PEOPLE_LIMIT,
+      };
+    });
+  }
+
+  /**
+   * C20: adds every client All Contacts lists (with its search) who may get the channel and is not
+   * in the audience yet, as clients chosen one by one: a snapshot. Nothing is added past
+   * `AUDIENCE_PEOPLE_LIMIT` clients named one by one. Answers the entries it made, for Undo.
+   */
+  addEligibleContacts(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof AddEligibleBody>,
+  ): Promise<AddEligibleContactsResult> {
+    return this.run(tenant, userId, async (ctx) => {
+      this.requireWrite(ctx);
+      const c = await this.lock(ctx, id, body.etag);
+      this.assertDraft(c);
+      const { people, chosenClients } = await this.audience.eligibleToAdd(
+        ctx,
+        c,
+        body.search,
+        AUDIENCE_PEOPLE_LIMIT,
+      );
+      if (chosenClients + people.length > AUDIENCE_PEOPLE_LIMIT)
+        throw refuse(
+          'AUDIENCE_TOO_LARGE',
+          `That would name more than ${AUDIENCE_PEOPLE_LIMIT.toLocaleString('en-US')} people one by one. Narrow the search, or choose a saved segment instead.`,
+          { count: people.length, chosen: chosenClients, limit: AUDIENCE_PEOPLE_LIMIT },
+        );
+      const base = { businessId: ctx.businessId, communicationId: c.id };
+      const made = people.length
+        ? await ctx.tx.communicationAudienceEntry.createManyAndReturn({
+            data: people.map((p) => ({ ...base, kind: 'CLIENT' as const, clientId: p.id })),
+            select: { id: true, clientId: true },
+          })
+        : [];
+      const entryOf = new Map(made.map((e) => [e.clientId, e.id]));
+      await this.audit.logIn(
+        ctx.tx,
+        'communication.audience_contacts_added',
+        { type: 'communication', id: c.id },
+        { communicationId: c.id, added: made.length },
+      );
+      return {
+        added: people.map((p) => ({
+          id: p.id,
+          name: p.name,
+          entryId: entryOf.get(p.id) as string,
+        })),
+        summary: (await this.audience.compute(ctx, c)).summary,
+      };
+    });
+  }
+
+  /**
+   * C20's Undo: removes these entries of a draft's audience (those Add all eligible made). Every
+   * one must be this draft's, or nothing is removed (400).
+   */
+  removeAudienceEntries(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof RemoveEntriesBody>,
+  ): Promise<RemoveAudienceEntriesResult> {
+    return this.run(tenant, userId, async (ctx) => {
+      this.requireWrite(ctx);
+      const c = await this.lock(ctx, id, body.etag);
+      this.assertDraft(c);
+      const ids = [...new Set(body.entryIds)];
+      const where = { businessId: ctx.businessId, communicationId: c.id, id: { in: ids } };
+      const found = new Set(
+        (await ctx.tx.communicationAudienceEntry.findMany({ where, select: { id: true } })).map(
+          (e) => e.id,
+        ),
+      );
+      const missing = body.entryIds.findIndex((e) => !found.has(e));
+      if (missing >= 0)
+        throw comErrors.invalid(`entryIds[${missing}]`, 'This entry is not in the audience');
+      const { count } = await ctx.tx.communicationAudienceEntry.deleteMany({ where });
+      await this.audit.logIn(
+        ctx.tx,
+        'communication.audience_entries_removed',
+        { type: 'communication', id: c.id },
+        { communicationId: c.id, removed: count },
+      );
+      return { removed: count, summary: (await this.audience.compute(ctx, c)).summary };
     });
   }
 
@@ -1621,6 +1786,17 @@ export class CommunicationsService {
       ...(announce && !c.publishStartsAt ? { publishStartsAt: now } : {}),
     });
     await this.record(ctx, c, audience);
+    // Templates Review Two Y04/Y09: the template's use, with the version the content came from.
+    if (c.templateId)
+      await recordTemplateUse(ctx.tx, {
+        businessId: ctx.businessId,
+        templateId: c.templateId,
+        version: c.templateVersion,
+        purpose: 'COMMUNICATION',
+        entityType: 'communication',
+        entityId: c.id,
+        usedByUserId: ctx.userId,
+      });
     // An announcement is published at once: there is no provider to wait for.
     if (announce)
       saved = await ctx.tx.communication.update({

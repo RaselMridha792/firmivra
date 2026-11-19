@@ -34,6 +34,19 @@ export const TeamMember = z.object({
   /** The signed-in person: the screen hides their own role and deactivate controls. */
   isYou: z.boolean(),
   createdAt: z.iso.datetime({ offset: true }),
+  /**
+   * SM08 (Staff Management Review 2, decision 5a): what client assignment warns about, advisory
+   * only. `activeClients` is the clients assigned to them that are not archived or Inactive;
+   * `maxActiveClients` and `acceptsNewClients` are their Staff Management profile's. In the list
+   * (GET /business/team) only.
+   */
+  workload: z
+    .object({
+      activeClients: z.number().int().min(0),
+      maxActiveClients: z.number().int().nullable(),
+      acceptsNewClients: z.boolean(),
+    })
+    .optional(),
 });
 export type TeamMember = z.infer<typeof TeamMember>;
 

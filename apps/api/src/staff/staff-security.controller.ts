@@ -60,7 +60,7 @@ export class StaffSecurityController {
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
   ): Promise<StaffSessionList> {
-    return { items: await this.security.sessions(staffActorOf(auth, tenant), id) };
+    return { items: await this.security.sessions(staffActorOf(auth, tenant), id, auth.session) };
   }
 
   @Post(':id/sessions/revoke-all')

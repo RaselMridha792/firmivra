@@ -45,9 +45,28 @@ export const ACTIVITY: Record<string, { label: string; icon: Icon }> = {
   'portal.reactivated': { label: 'Portal Reactivated', icon: UserPlus },
   'portal.access_reset': { label: 'Access Reset Sent', icon: Key },
   'portal.mfa_reset': { label: 'MFA Reset', icon: ShieldCheck },
+  'portal.preview_opened': { label: 'Portal Preview Opened', icon: Eye },
 };
 
-export const activityOf = (type: string) => ACTIVITY[type] ?? { label: type, icon: ClipboardText };
+/** A type with no label yet in words ("portal.new_thing" is "New thing"), never the raw code. */
+function wordsOf(type: string): string {
+  const words = (type.split('.').at(-1) ?? type).replace(/_+/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Portal activity';
+}
+
+export const activityOf = (type: string) =>
+  ACTIVITY[type] ?? { label: wordsOf(type), icon: ClipboardText };
+
+/**
+ * CP-F1-14, CP-F2-15: a row's words. A staff preview names the member who opened it, so it never
+ * reads as the client's own action.
+ */
+export function activityText(e: { type: string; actor: { name: string | null } }): string {
+  if (e.type === 'portal.preview_opened') {
+    return `Portal preview opened by ${e.actor.name ?? 'a staff member'} (staff)`;
+  }
+  return activityOf(e.type).label;
+}
 
 const DATE = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });

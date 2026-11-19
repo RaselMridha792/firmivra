@@ -311,8 +311,9 @@ export const NoteRelatedKind = z.enum([
 ]);
 export type NoteRelatedKind = z.infer<typeof NoteRelatedKind>;
 export const NoteRelated = z.object({ kind: NoteRelatedKind, id: z.uuid() });
-// Review 2 (N04): who may see a note (NoteVisibility, from the database). Every note is INTERNAL
-// for now: CLIENT waits for Octavia's decision on shared notes (C02), so the API refuses it.
+// Review 2 (N04): who may see a note (NoteVisibility, from the database). Every note is INTERNAL:
+// B32 (decision 5, option B) shares a note's text as a portal message instead (ShareNoteRequest),
+// so the note itself never reaches the portal and CLIENT stays unused (the API refuses it).
 
 export const InternalNote = z.object({
   id: z.uuid(),
@@ -343,10 +344,28 @@ export const CreateInternalNoteRequest = z.strictObject({
   noteType: NoteType.optional(),
   /** A record of this firm (404 otherwise). */
   related: NoteRelated.optional(),
-  /** Only INTERNAL until shared notes are decided (C02). */
+  /** Always INTERNAL: Share with Client (B32) sends a copy of the text instead. */
   visibility: z.literal('INTERNAL').optional(),
 });
 export type CreateInternalNoteRequest = z.input<typeof CreateInternalNoteRequest>;
+
+/** B32: the subject of the portal message a shared note becomes (the preview shows it). */
+export const SHARED_NOTE_SUBJECT = 'A note from your firm';
+
+/**
+ * POST /business/notes/{id}/share (B32, decision 5 option B): Share with Client. The note's text,
+ * exactly as the member previewed it, goes to the client as a new portal message (Messages, with
+ * its usual notice); the note itself stays internal. `updatedAt` is the version of the note the
+ * preview showed: a note changed since is 409 NOTE_CHANGED (preview it again). Whoever may see
+ * the note shares it (Staff: their own clients'); an archived client is 409 CLIENT_ARCHIVED.
+ * A note of a Bookkeeping service whose Portal Defaults leave notes out is 409
+ * NOTES_HIDDEN_IN_PORTAL (Client Portal BK-CP4).
+ */
+export const ShareNoteRequest = z.strictObject({ updatedAt: DateTime });
+export type ShareNoteRequest = z.input<typeof ShareNoteRequest>;
+/** The message the note became: its thread opens in Messages. */
+export const NoteShared = z.object({ threadId: z.uuid(), messageId: z.uuid() });
+export type NoteShared = z.infer<typeof NoteShared>;
 
 /** PATCH /business/notes/{id}. The engagement never changes. */
 export const UpdateInternalNoteRequest = z.strictObject({ body: InternalNoteBody });

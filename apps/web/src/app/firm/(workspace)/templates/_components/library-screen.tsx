@@ -101,8 +101,9 @@ export function LibraryScreen({ slug }: { slug: string }) {
   const cats = useApiQuery([...TEMPLATES_KEY, 'categories', kind], () =>
     api.templates.categories({ kind }),
   );
-  const everything = useApiQuery([...TEMPLATES_KEY, 'library-tags', kind], () =>
-    api.templates.list({ kind, pageSize: 100 }),
+  // Y05: every tag of the kind, from the API (not only the tags of the first 100 templates).
+  const allTags = useApiQuery([...TEMPLATES_KEY, 'library-tags', kind], () =>
+    api.templates.tags({ kind }),
   );
   const team = useApiQuery([...TEMPLATES_KEY, 'members'], () => api.team.list());
   const summary = useApiQuery([...TEMPLATES_KEY, 'summary'], () => api.templates.summary());
@@ -146,7 +147,7 @@ export function LibraryScreen({ slug }: { slug: string }) {
       ? [{ id: NONE, name: 'Uncategorized', templateCount: uncategorized }]
       : []),
   ];
-  const tags = [...new Set((everything.data?.items ?? []).flatMap((r) => r.tags))].sort();
+  const tags = allTags.data ?? [];
   const rows = list.data?.items ?? [];
   const reset = () => {
     setSearch('');
@@ -493,7 +494,8 @@ export function LibraryScreen({ slug }: { slug: string }) {
             </span>
           </form>
           {selected.length > 0 ? (
-            <div className="mb-3">
+            <div className="mb-3 flex items-center gap-2">
+              <TemplateHelp area="bulk" />
               <BulkBar
                 count={selected.length}
                 noun="templates"

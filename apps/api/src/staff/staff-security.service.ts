@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   StaffActionResult,
@@ -10,14 +10,21 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from '../auth/identity/identity-provider.js';
-import { FIRM_SESSION_STARTED } from '../auth/staff-sessions.js';
+import {
+  FIRM_SESSION_STARTED,
+  SESSION_LIMIT_SIGNED_OUT,
+  sessionKey,
+} from '../auth/staff-sessions.js';
 import { DATABASE } from '../database/database.module.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { day, notFound } from '../workspaces/common.js';
 import type { StaffAccessBody, StaffCursorQ } from './staff-input.js';
 import { mfaOf } from './staff-read.service.js';
 import { StaffWriteService } from './staff-write.service.js';
 import {
   assertActsOn,
+  lastLoginsOf,
   lockTarget,
   mapStaffDbError,
   requireManager,
@@ -27,6 +34,7 @@ import {
   type Target,
   targetSelect,
 } from './staff.common.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -47,7 +55,9 @@ const LABELS: Record<string, string> = {
   'auth.signed_in': 'Logged in',
   'auth.sign_in_failed': 'Failed sign-in',
   'auth.signed_out': 'Logged out',
-  'membership.invited': 'Invited',
+  // SM21: the invitation is made before its email goes out; "emailed" only once it did.
+  'membership.invited': 'Invitation created',
+  'membership.invite_emailed': 'Invitation emailed',
   'membership.role_changed': 'Role changed',
   'membership.deactivated': 'Account deactivated',
   'membership.invite_revoked': 'Invitation revoked',
@@ -59,6 +69,8 @@ const LABELS: Record<string, string> = {
   'staff.permissions_saved': 'Permissions changed',
   'staff.security_saved': 'Security settings changed',
   'staff.sessions_revoked': 'Signed out of sessions',
+  // SM12: a new sign-in over the member's limit ended their oldest sessions.
+  [SESSION_LIMIT_SIGNED_OUT]: 'Signed out: session limit',
   'staff.password_reset_sent': 'Password reset sent',
   'staff.mfa_reset': 'MFA reset',
   'staff.note_saved': 'Notes updated',
@@ -93,11 +105,15 @@ const before = (c: { at: Date; id: string } | undefined): Prisma.AuditLogWhereIn
  */
 @Injectable()
 export class StaffSecurityService {
+  private readonly logger = new Logger(StaffSecurityService.name);
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(IDENTITY_PROVIDER) private readonly identity: IdentityProvider,
     private readonly audit: AuditService,
     private readonly write: StaffWriteService,
+    private readonly notifier: Notifier,
+    @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
   ) {}
 
   private inFirm<T>(actor: StaffActor, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -120,7 +136,7 @@ export class StaffSecurityService {
     const { businessId } = actor;
     return this.inFirm(actor, async (tx) => {
       const m = await this.find(tx, businessId, id);
-      const [s, profile, lastSession] = await Promise.all([
+      const [s, profile, lastSession, logins] = await Promise.all([
         tx.staffSecuritySettings.findUnique({
           where: { businessId_membershipId: { businessId, membershipId: id } },
         }),
@@ -133,14 +149,17 @@ export class StaffSecurityService {
           orderBy: { createdAt: 'desc' },
           select: { device: true, place: true },
         }),
+        lastLoginsOf(tx, businessId, [id]),
       ]);
+      // SM12: the newest sign-in, as the directory says.
+      const lastLoginAt = logins.get(id);
       return {
         status: m.status,
         accessLevel: profile?.accessLevel ?? 'STANDARD_USER',
         role: m.role,
-        lastLogin: s?.lastLoginAt
+        lastLogin: lastLoginAt
           ? {
-              at: s.lastLoginAt.toISOString(),
+              at: lastLoginAt.toISOString(),
               device: lastSession?.device ?? null,
               place: lastSession?.place ?? null,
             }
@@ -190,7 +209,6 @@ export class StaffSecurityService {
         await assertActsOn(tx, actor, target, 'edit');
         const now = await tx.staffSecuritySettings.findUnique({
           where: { businessId_membershipId: { businessId, membershipId: id } },
-          select: { accessLocation: true, allowedIps: true, allowedCountries: true },
         });
         const location = body.accessLocation ?? now?.accessLocation ?? 'ANYWHERE';
         if (location === 'ALLOWED_IPS' && !(body.allowedIps ?? now?.allowedIps ?? []).length)
@@ -213,11 +231,12 @@ export class StaffSecurityService {
           tx,
           'staff.security_saved',
           { type: 'membership', id },
-          {
-            fields: Object.keys(body)
-              .filter((k) => (body as Record<string, unknown>)[k] !== undefined)
-              .sort(),
-          },
+          // Audit Log Review 2, R03: each changed field's old and new value.
+          // Allowed addresses and countries and the recovery email by name only (staff-security e2e).
+          auditChanges(now ?? {}, body, {
+            fields: Object.keys(body),
+            text: ['allowedIps', 'allowedCountries', 'recoveryEmail'],
+          }),
           { businessId },
         );
       });
@@ -227,8 +246,10 @@ export class StaffSecurityService {
     return this.get(actor, id);
   }
 
-  sessions(actor: StaffActor, id: string): Promise<StaffSessionItem[]> {
+  /** `session`: the viewer's own sign-in, marked "This session" on their own record (SM12). */
+  sessions(actor: StaffActor, id: string, session?: string): Promise<StaffSessionItem[]> {
     const { businessId } = actor;
+    const mine = session ? sessionKey(businessId, session) : null;
     return this.inFirm(actor, async (tx) => {
       await this.find(tx, businessId, id);
       const since = new Date(Date.now() - SESSION_DAYS * 86_400_000);
@@ -245,6 +266,7 @@ export class StaffSecurityService {
         createdAt: r.createdAt.toISOString(),
         lastActiveAt: r.lastActiveAt.toISOString(),
         activeNow: Date.now() - r.lastActiveAt.getTime() < ACTIVE_NOW_MS,
+        current: r.tokenHash === mine,
       }));
     });
   }
@@ -375,7 +397,40 @@ export class StaffSecurityService {
         return n;
       },
     );
+    await this.tellMfaReset(actor.businessId, target.userId);
     return { ok: true, status: target.status, sessionsRevoked, invitation: null };
+  }
+
+  /**
+   * SM33 (Staff Management Review 2, decision 10a): the member is told their two-factor sign-in
+   * was reset: a bell item (while their account is active here) and an email in the firm's name.
+   * Never fails the reset; a failure is logged with ids only.
+   */
+  private async tellMfaReset(businessId: string, userId: string): Promise<void> {
+    try {
+      await this.notifier.notify({
+        businessId,
+        event: 'account.mfa-reset',
+        recordId: userId,
+        audience: 'staff',
+      });
+      const m = await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+        tx.membership.findFirst({
+          where: { businessId, userId },
+          select: { user: { select: { name: true, email: true } } },
+        }),
+      );
+      if (m)
+        await this.notify.send({
+          template: 'staff.mfa-reset',
+          to: m.user.email,
+          businessId,
+          recipient: { userId },
+          data: { name: m.user.name },
+        });
+    } catch (e) {
+      this.logger.warn(`MFA reset notice for user ${userId} not sent (${errorName(e)})`);
+    }
   }
 
   /**

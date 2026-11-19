@@ -194,6 +194,19 @@ export const LinkedModuleTemplate = z.object({
 });
 export type LinkedModuleTemplate = z.infer<typeof LinkedModuleTemplate>;
 
+/** Templates Review Two Y04/Y09: what a use of a template was for. */
+export const TemplateUsePurpose = z.enum(['COMMUNICATION', 'MESSAGE', 'AUTOMATION']);
+export type TemplateUsePurpose = z.infer<typeof TemplateUsePurpose>;
+
+/** One use: the version that went out, for what, by whom (null: a background step) and when. */
+export const TemplateUse = z.object({
+  version: z.number().int(),
+  purpose: TemplateUsePurpose,
+  usedBy: MemberRef.nullable(),
+  usedAt: DateTime,
+});
+export type TemplateUse = z.infer<typeof TemplateUse>;
+
 export const MessageTemplateDetail = MessageTemplateRow.extend({
   previewText: z.string().nullable(),
   body: z.string(),
@@ -205,6 +218,8 @@ export const MessageTemplateDetail = MessageTemplateRow.extend({
   /** Active automations that use it: warn before a disruptive change or an archive. */
   automationCount: z.number().int(),
   lastUsedAt: DateTime.nullable(),
+  /** Y04/Y09: the latest uses (up to 10), newest first; `useCount` counts them all. */
+  recentUses: z.array(TemplateUse).default([]),
   createdAt: DateTime,
   /** Send the version back on a save: 409 SAVE_CONFLICT when someone saved after it was loaded. */
   etag: z.string(),
@@ -224,6 +239,27 @@ export const TemplateSort = z.enum(['name', 'updated', 'category', 'uses', 'stat
  * everything but archived. `search` matches the name, description, subject and tags. Default
  * order: last updated, newest first.
  */
+/**
+ * Templates Review Two P03, P04: the kinds a template may be offered to Automations as ("Include
+ * in automations"), one list for the API, the screens and the mock. Automations act on one
+ * client's event and send that client a message or start that client's work. A Campaign or an
+ * Announcement goes to many clients at once through Communications, so neither is offered here;
+ * nor are a Tax Workflow (a structure, not a message), an Intake, an Engagement Agreement or a
+ * Letter / Notice, which are started by hand.
+ */
+export const AUTOMATION_TEMPLATE_KINDS = [
+  'EMAIL',
+  'SMS',
+  'PORTAL_MESSAGE',
+  'DOCUMENT_REQUEST',
+  'APPOINTMENT',
+  'INVOICE_PAYMENT',
+  'LEAD_FOLLOW_UP',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'TASK',
+] as const satisfies readonly MessageTemplateKind[];
+
 export const MessageTemplatesQuery = z.strictObject({
   tab: TemplateTab.optional().default('all'),
   kind: MessageTemplateKind.optional(),
@@ -608,6 +644,16 @@ export const SetLinkedTemplateRequest = z.strictObject({
 });
 export type SetLinkedTemplateRequest = z.input<typeof SetLinkedTemplateRequest>;
 
+/**
+ * Templates Review Two Y05: GET /business/templates/tags?kind=: every tag on the templates the
+ * caller can see that are not archived, each once, sorted (the library's tag filter; not only the
+ * tags of its first page).
+ */
+export const TemplateTagsQuery = z.strictObject({ kind: MessageTemplateKind.optional() });
+export type TemplateTagsQuery = z.input<typeof TemplateTagsQuery>;
+export const TemplateTagList = z.object({ items: z.array(z.string()) });
+export type TemplateTagList = z.infer<typeof TemplateTagList>;
+
 /** GET /business/templates/structure-options?kind=: the module templates a template can stand for. */
 export const TemplateStructureOptionsQuery = z.strictObject({ kind: LinkedTemplateKind });
 export type TemplateStructureOptionsQuery = z.input<typeof TemplateStructureOptionsQuery>;
@@ -630,6 +676,8 @@ export const TemplateErrorCode = z.enum([
   'AUTOMATION_IN_USE',
   /** 409: the category is of another kind, or archived. */
   'CATEGORY_NOT_ALLOWED',
+  /** 409 (Y05): archiving a category that still has templates; Merge moves them first. */
+  'CATEGORY_IN_USE',
   /** 400: the subject is required for this kind when it is made ACTIVE. */
   'SUBJECT_REQUIRED',
   /** 409: automations support only ACTIVE templates of certain kinds. */

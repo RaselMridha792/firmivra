@@ -267,7 +267,8 @@ export class IntakeBuilderService {
       if (first && !t.serviceDefault) {
         await tx.intakeTemplate.update({
           where: { id: t.id },
-          data: { shareTokenHash: intakeShareHash(this.env, t.id) },
+          // A first publish: no link was made yet, so generation 0 (P4-16).
+          data: { shareTokenHash: intakeShareHash(this.env, t.id, 0) },
         });
       }
       const definition = publishable(newest.definition, {
@@ -379,6 +380,39 @@ export class IntakeBuilderService {
       return true;
     });
     if (changed) await this.audit.log('intake_form.archived', { type: 'intake_form', id });
+    return this.library.detail(tenant, id);
+  }
+
+  /**
+   * Intake Review 2 24c-i (lead, Nov 17): Restore an archived form or template (Owner and Admin).
+   * It comes back to the library as a draft, its last version's content copied into the next
+   * version (a retired version is never published again), ready to publish; its share link and
+   * portal place stay off until the firm turns them on. Restoring a live one changes nothing.
+   */
+  async restore(tenant: TenantContext, userId: string, id: string): Promise<IntakeFormDetail> {
+    const businessId = tenant.businessId;
+    const changed = await this.inFirm(tenant, async (tx) => {
+      const t = await this.lockTemplate(tx, businessId, id);
+      if (!t.archivedAt) return false;
+      await tx.intakeTemplate.update({ where: { id: t.id }, data: { archivedAt: null } });
+      const newest = t.forms[0];
+      if (newest && newest.status !== 'DRAFT') {
+        await tx.intakeForm.create({
+          data: {
+            businessId,
+            serviceId: t.serviceId,
+            templateId: t.id,
+            version: newest.version + 1,
+            title: newest.title,
+            definition: newest.definition as Prisma.InputJsonValue,
+            status: 'DRAFT',
+            createdByUserId: userId,
+          },
+        });
+      }
+      return true;
+    });
+    if (changed) await this.audit.log('intake_form.restored', { type: 'intake_form', id });
     return this.library.detail(tenant, id);
   }
 }

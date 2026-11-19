@@ -12,6 +12,7 @@ import { isAdmin, reportErrors, requireWrite, toRow, toView } from './reports.co
 import type { DuplicateBody, SaveBody, SavedQuery, UpdateSavedBody } from './reports-input.js';
 import { type Ctx, ReportsService } from './reports.service.js';
 import { sourceOf } from './sources.js';
+import { auditChanges } from '../audit/audit-changes.js';
 
 type Query = z.output<typeof SavedQuery>;
 type Save = z.output<typeof SaveBody>;
@@ -284,7 +285,12 @@ export class ReportsSavedService {
         tx,
         'report.updated',
         { type: ENTITY, id },
-        { fields: Object.keys(body).filter((k) => k !== 'etag') },
+        // Audit Log Review 2, R03: each changed field's old and new value; people shared with
+        // by name only.
+        {
+          ...auditChanges(cur, data, { fields: Object.keys(data) }),
+          ...(body.sharedWithUserIds !== undefined ? { listsChanged: ['sharedWithUserIds'] } : {}),
+        },
         { businessId, actorUserId: userId },
       );
     });

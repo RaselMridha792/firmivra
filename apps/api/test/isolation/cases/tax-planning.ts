@@ -63,6 +63,44 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /**
+   * P4-8: a plan sent to client X for review (version 1 SENT, Awaiting Client): what the portal's
+   * Tax Plans lists and opens.
+   */
+  taxPlanSent: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const row = await tx.taxPlan.create({
+        data: {
+          businessId,
+          clientId: await get('client'),
+          name: `Fake sent plan ${tag()}`,
+          planYear: 2026,
+          filingStatus: 'SINGLE',
+          status: 'AWAITING_CLIENT',
+          createdByUserId: owner.id,
+        },
+      });
+      await tx.taxPlanVersion.create({
+        data: {
+          businessId,
+          planId: row.id,
+          version: 1,
+          event: 'SENT',
+          taxYear: 2026,
+          snapshot: {
+            planName: row.name,
+            strategies: [],
+            inputs: [],
+            projectedSavingsCents: null,
+            disclaimer: 'Fake',
+          },
+          createdByUserId: owner.id,
+        },
+      });
+      return row.id;
+    },
+  },
   // Review 2 workflow: a client's question on the plan.
   taxPlanRequest: {
     async create({ tx, businessId, get }) {
@@ -155,6 +193,17 @@ export const records: CaseModule['records'] = {
 };
 
 export const cases: CaseModule['cases'] = {
+  // ---------- P4-8: the portal's Tax Plans, client X's own sent plan ----------
+  'GET /api/v1/portal/:firmSlug/me/tax-plans/:id': { params: { id: 'taxPlanSent' } },
+  'POST /api/v1/portal/:firmSlug/me/tax-plans/:id/requests': {
+    params: { id: 'taxPlanSent' },
+    body: { kind: 'QUESTION', body: 'Fake question' },
+  },
+  'POST /api/v1/portal/:firmSlug/me/tax-plans/:id/approve': {
+    params: { id: 'taxPlanSent' },
+    body: { version: 1 },
+  },
+
   [`POST ${BASE}/plans`]: {
     params: {},
     bodyIds: { clientId: 'client', assignedUserId: 'adminUser' },

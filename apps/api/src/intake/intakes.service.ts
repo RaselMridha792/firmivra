@@ -1,3 +1,4 @@
+import { LIVE_DOCUMENT } from '../storage/document-records.js';
 import {
   BadRequestException,
   ConflictException,
@@ -47,10 +48,11 @@ import {
   intakeConsentRequired,
   submittedNoticeExcludes,
 } from './intake-completion.js';
-import { publishedForm, readDefinition } from './intake-forms.js';
+import { publishedForm, readDefinition, showsProgressBar } from './intake-forms.js';
 import { maskStoredNumbers } from './intake-numbers.js';
 import type { IntakeSigner } from './intake-signing.js';
 import { intakeLocked, OPEN_STATUSES, requireOpen, saveIntakeStep } from './intake-step.js';
+import { IntakeAutomations } from '../intake-workspace/intake-automations.js';
 import { lockVersion, prepareSubmit, type SlotFile } from './intake-submit.js';
 
 export { OPEN_STATUSES, requireOpen };
@@ -96,6 +98,8 @@ const summarySelect = {
   correctionRequestedAt: true,
   createdAt: true,
   updatedAt: true,
+  // Intake Review 2 23-g: the Submission ID on the done screen.
+  referenceNumber: true,
   form: { select: { version: true, title: true, definition: true } },
   engagement: {
     select: {
@@ -163,15 +167,21 @@ export function toIntakeUpload(u: UploadRow): IntakeUpload {
 }
 
 /** The firm's summary (intakes.ts). */
-function toSummary(row: Row): IntakeSummary {
-  const engagement = row.engagement!;
+/** A summary; for a lead's form (18d: no engagement) the form's service and no engagement. */
+function toSummary(
+  row: Row,
+  formService?: IntakeSummary['service'],
+): Omit<IntakeSummary, 'engagement'> & { engagement: IntakeSummary['engagement'] | null } {
+  const engagement = row.engagement;
   const current = row.submissions[0];
   const sent = row.submissions.find((s) => s.submittedAt);
   return {
     id: row.id,
     status: row.status,
-    service: engagement.service,
-    engagement: { id: engagement.id, title: engagement.title, taxYear: engagement.taxYear },
+    service: engagement?.service ?? formService!,
+    engagement: engagement
+      ? { id: engagement.id, title: engagement.title, taxYear: engagement.taxYear }
+      : null,
     formVersion: row.form.version,
     version: current?.version ?? 1,
     dueOn: row.dueOn?.toISOString().slice(0, 10) ?? null,
@@ -235,6 +245,7 @@ export class IntakesService {
     private readonly notifier: Notifier,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
     @Inject(ENV) private readonly env: Env,
+    private readonly automations: IntakeAutomations,
   ) {}
 
   /**
@@ -300,20 +311,58 @@ export class IntakesService {
   }
 
   private uploadsOf(tx: TxClient, businessId: string, intakeId: string) {
+    // CP-PT-03: never a file the firm trashed, archived or replaced.
     return tx.document.findMany({
-      where: { businessId, intakeId },
+      where: { businessId, intakeId, ...LIVE_DOCUMENT },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: uploadSelect,
     });
   }
 
+  /**
+   * Intake Review 2 18d: a form sent to a lead (no engagement), with the reach of the form's
+   * record pages (workspace.common.ts reachOf): the Owner and Admins, or Staff assigned to the
+   * form or to the lead. Read-only: the firm's actions on a form stay with its client's
+   * engagement (`row`).
+   */
+  private leadRow(tx: TxClient, businessId: string, actor: ClientsActor, id: string) {
+    return tx.intake.findFirst({
+      where: {
+        businessId,
+        id,
+        engagementId: null,
+        leadId: { not: null },
+        ...(actor.role === 'STAFF'
+          ? { OR: [{ assignedUserId: actor.userId }, { lead: { assignedUserId: actor.userId } }] }
+          : {}),
+      },
+      select: {
+        ...summarySelect,
+        form: {
+          select: {
+            version: true,
+            title: true,
+            definition: true,
+            service: { select: { id: true, name: true, kind: true } },
+          },
+        },
+      },
+    });
+  }
+
   /** The firm's view (intakes.ts), parsed before it leaves as MyIntake is. */
-  private async view(tx: TxClient, businessId: string, row: Row): Promise<IntakeView> {
-    const definition = readDefinition(row.form, row.engagement!.service.kind);
+  private async view(
+    tx: TxClient,
+    businessId: string,
+    row: Row,
+    formService?: IntakeSummary['service'],
+  ): Promise<IntakeView> {
+    const service = row.engagement?.service ?? formService!;
+    const definition = readDefinition(row.form, service.kind);
     const current = row.submissions[0];
     const uploads = await this.uploadsOf(tx, businessId, row.id);
     return IntakeView.parse({
-      ...toSummary(row),
+      ...toSummary(row, formService),
       definition,
       answers: await maskStoredNumbers(definition, answersOf(current?.answers)),
       savedSteps: current?.savedSteps ?? [],
@@ -365,7 +414,8 @@ export class IntakesService {
       canEdit: open,
       canSubmit: open,
       consentRequired: await intakeConsentRequired(tx, businessId),
-      completion: await intakeCompletion(tx, businessId, row.form.definition),
+      completion: await intakeCompletion(tx, businessId, row.form.definition, row.referenceNumber),
+      showProgressBar: showsProgressBar(row.form.definition),
     });
   }
 
@@ -417,9 +467,13 @@ export class IntakesService {
   }
 
   async get(businessId: string, reach: IntakeReach, id: string): Promise<IntakeView> {
-    const view = await this.inFirm(businessId, async (tx) =>
-      this.view(tx, businessId, await this.row(tx, businessId, reach, id)),
-    );
+    const view = await this.inFirm(businessId, async (tx) => {
+      // 18d: a lead's form is read too (its Overview and Responses), never a client's view.
+      const lead =
+        reach.kind === 'staff' ? await this.leadRow(tx, businessId, reach.actor, id) : null;
+      if (lead) return this.view(tx, businessId, lead, lead.form.service);
+      return this.view(tx, businessId, await this.row(tx, businessId, reach, id));
+    });
     await this.audit.log('intake.viewed', { type: 'intake', id });
     return view;
   }
@@ -763,13 +817,15 @@ export class IntakesService {
       select: { email: true },
     });
     await sendClientConfirmation(deps, businessId, id, account?.email ?? null);
+    // Intake Review 2 23-c to 23-f: the firm's Automation Rules (a follow-up task), once per form.
+    await this.automations.afterSubmit(businessId, id);
     return intake;
   }
 
   /** The files in the intake's upload slots, oldest first. */
   private async slotFiles(tx: TxClient, businessId: string, intakeId: string): Promise<SlotFile[]> {
     const docs = await tx.document.findMany({
-      where: { businessId, intakeId },
+      where: { businessId, intakeId, ...LIVE_DOCUMENT },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { id: true, intakeSlot: true, scanStatus: true },
     });

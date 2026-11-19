@@ -37,7 +37,9 @@ test('E8: Upload Document, View a file and View Request Details', async ({ page 
   await expect(details).toBeHidden();
   await page.screenshot({ path: `${shots}/documents.png`, fullPage: true });
 
-  await page.getByTestId('upload-document').click();
+  // P4-7: Upload Document is in the tab's More Actions menu.
+  await page.getByTestId('client-tab-header').getByRole('button', { name: 'More Actions' }).click();
+  await page.getByRole('menuitem', { name: 'Upload Document' }).click();
   await expect(page).toHaveURL(new RegExp(`/documents/upload\\?clientId=${jamie}&from=`));
   await page.getByTestId('back-to-origin').click();
   await expect(page).toHaveURL(new RegExp(`/clients/${jamie}/documents$`));

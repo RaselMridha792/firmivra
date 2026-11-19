@@ -12,6 +12,8 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import type { MockFirmRole } from './clients';
+import { mockPortalAccountType } from './portal-account-type';
+import { mockTabOn } from './portal-tabs';
 
 /**
  * Mock data for `api.content` and `api.myContent(slug)` (R12). The external links are the eight
@@ -254,7 +256,7 @@ export function createContentMock(options: { role?: MockFirmRole } = {}): Conten
 export function createMyContentMock(
   options: { accountType?: 'INDIVIDUAL' | 'BUSINESS' } = {},
 ): MyContentClient {
-  const business = (options.accountType ?? 'BUSINESS') === 'BUSINESS';
+  const business = (options.accountType ?? mockPortalAccountType()) === 'BUSINESS';
   return {
     list: async (query = {}) => {
       await mockDelay();
@@ -262,9 +264,19 @@ export function createMyContentMock(
       if (!business && (q.kind === 'RESOURCE' || q.kind === 'EXTERNAL_LINK')) {
         throw fail(403, 'BUSINESS_ONLY', 'This area is for business clients');
       }
+      // CP-5a: with Business Documents & Resources off, its kinds are 403 MODULE_OFF and a whole
+      // list keeps tips only, as the API answers.
+      const tabOn = mockTabOn('BUSINESS_RESOURCES');
+      if (!tabOn && (q.kind === 'RESOURCE' || q.kind === 'EXTERNAL_LINK')) {
+        throw fail(
+          403,
+          'MODULE_OFF',
+          'Business Documents & Resources is turned off in this portal.',
+        );
+      }
       return copy(
         store()
-          .filter((c) => c.publishedAt !== null && (business || c.kind === 'TIP'))
+          .filter((c) => c.publishedAt !== null && ((business && tabOn) || c.kind === 'TIP'))
           .filter(matches(q))
           .sort(byOrder)
           .map(({ publishedAt: _published, updatedAt: _updated, ...rest }) => rest),

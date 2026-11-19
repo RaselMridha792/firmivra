@@ -37,7 +37,10 @@ import {
   type LinkedModuleTemplate,
   TaxWorkflowStructure,
   TemplateStructureOptionsQuery,
+  TemplateTagsQuery,
   SetLinkedTemplateRequest,
+  smsSegments,
+  AUTOMATION_TEMPLATE_KINDS,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -76,18 +79,8 @@ const memberOf = (userId: string): MemberRef | undefined => {
 };
 
 const NEEDS_SUBJECT: MessageTemplateKind[] = ['EMAIL', 'CAMPAIGN', 'LETTER_NOTICE', 'ANNOUNCEMENT'];
-const AUTOMATION_KINDS: MessageTemplateKind[] = [
-  'EMAIL',
-  'SMS',
-  'PORTAL_MESSAGE',
-  'DOCUMENT_REQUEST',
-  'APPOINTMENT',
-  'INVOICE_PAYMENT',
-  'LEAD_FOLLOW_UP',
-  'BOOKKEEPING',
-  'PAYROLL',
-  'TASK',
-];
+/** The kinds Automations may use, as the API (packages/types, P03, P04). */
+const AUTOMATION_KINDS: readonly MessageTemplateKind[] = AUTOMATION_TEMPLATE_KINDS;
 
 const FIELD_DEFS: [MergeField['group'], string, string, string][] = [
   ['CLIENT', 'Client First Name', 'First name of client', 'Jamie'],
@@ -265,6 +258,13 @@ export function createTemplatesMock({
       mergeFields: analyze(`${v.subject ?? ''} ${v.body}`),
       automationCount: v.automationCount ?? 0,
       lastUsedAt: v.uses ? at : null,
+      // Y04/Y09: the latest uses (as the API: up to 10, newest first).
+      recentUses: Array.from({ length: Math.min(v.uses ?? 0, 3) }, (_, i) => ({
+        version: 1,
+        purpose: (['COMMUNICATION', 'MESSAGE', 'AUTOMATION'] as const)[i % 3]!,
+        usedBy: i % 3 === 2 ? null : owner,
+        usedAt: at,
+      })),
       createdAt: at,
       etag: `e${next++}`,
       linkedTemplate: null,
@@ -424,6 +424,7 @@ export function createTemplatesMock({
       mergeFields,
       automationCount,
       lastUsedAt,
+      recentUses,
       createdAt,
       etag,
       ...row
@@ -435,6 +436,7 @@ export function createTemplatesMock({
     void mergeFields;
     void automationCount;
     void lastUsedAt;
+    void recentUses;
     void createdAt;
     void etag;
     return { ...row, favorite: r.favorite };
@@ -945,10 +947,7 @@ export function createTemplatesMock({
           sample: true,
           sms:
             r.d.kind === 'SMS'
-              ? {
-                  characters: plainText.length,
-                  parts: Math.max(1, Math.ceil(plainText.length / 160)),
-                }
+              ? (({ characters, parts }) => ({ characters, parts }))(smsSegments(plainText))
               : null,
         };
       }),
@@ -1134,6 +1133,20 @@ export function createTemplatesMock({
           })),
         };
       }),
+    // Y05, as the API: every tag on the templates the caller can see (not archived), sorted.
+    tags: (q = {}) =>
+      run(() => {
+        const { kind } = parseInput(TemplateTagsQuery, q);
+        return [
+          ...new Set(
+            recs
+              .filter(
+                (r) => visible(r) && r.d.status !== 'ARCHIVED' && (!kind || r.d.kind === kind),
+              )
+              .flatMap((r) => r.d.tags),
+          ),
+        ].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+      }),
     starters: () =>
       run(() => ({
         available: STARTER_TEMPLATES.length,
@@ -1235,6 +1248,16 @@ export function createTemplatesMock({
         manage();
         const c = categories.find((x) => x.id === categoryId);
         if (!c) throw fail(404, 'NOT_FOUND', 'That category was not found.');
+        // Y05, as the API: a category with templates is not archived (Merge moves them first).
+        const inUse = recs.filter(
+          (r) => r.d.category?.id === c.id && r.d.status !== 'ARCHIVED',
+        ).length;
+        if (!c.archivedAt && inUse > 0)
+          throw fail(
+            409,
+            'CATEGORY_IN_USE',
+            `${inUse} template${inUse === 1 ? ' is' : 's are'} in this category.`,
+          );
         c.archivedAt = nowIso();
         return c;
       }),

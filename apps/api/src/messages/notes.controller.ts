@@ -18,9 +18,11 @@ import {
   InternalNoteId,
   ListInternalNotesQuery,
   type MyNoteResponse,
+  type NoteShared,
   type OkResponse,
   SaveMyNoteRequest,
   SetNoteReminderRequest,
+  ShareNoteRequest,
   UpdateInternalNoteRequest,
 } from '@firmivra/types';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
@@ -95,6 +97,18 @@ export class NotesController {
     @Param('id', idPipe) id: string,
   ): Promise<OkResponse> {
     return this.notes.remove(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** B32: Share with Client (a portal message with the note's text); the note stays internal. */
+  @Post(':id/share')
+  @HttpCode(200)
+  share(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(ShareNoteRequest)) body: z.output<typeof ShareNoteRequest>,
+  ): Promise<NoteShared> {
+    return this.notes.share(tenant.businessId, actorOf(auth, tenant), id, body.updatedAt);
   }
 }
 

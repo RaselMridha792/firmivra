@@ -49,7 +49,16 @@ const item = {
 const prefs = {
   channels: ['EMAIL'],
   smsStopped: false,
-  items: [{ category: 'ACCOUNT', email: true, sms: false, locked: true, emailLocked: true }],
+  items: [
+    {
+      category: 'ACCOUNT',
+      email: true,
+      sms: false,
+      locked: true,
+      emailLocked: true,
+      smsLocked: false,
+    },
+  ],
 };
 
 async function rejection(promise: Promise<unknown>) {
@@ -230,6 +239,11 @@ describe('notification links', () => {
       `/clients/${clientId}/invoices`,
     );
     expect(notificationLink(target('engagement', clientId), firm)).toBe(`/clients/${clientId}`);
+    // BK-CP3: a client's answer to its bookkeeping terms opens the Terms page; never the portal.
+    expect(notificationLink(target('bookkeeping_client', clientId), firm)).toBe(
+      `/bookkeeping/clients/${id}/terms`,
+    );
+    expect(notificationLink(target('bookkeeping_client'), portal)).toBeNull();
     // The appointment itself (Octavia's N3), with or without a client.
     expect(notificationLink(target('appointment'), firm)).toBe(`/calendar/${id}`);
     expect(notificationLink(target('appointment', clientId), firm)).toBe(`/calendar/${id}`);
@@ -245,11 +259,19 @@ describe('notification links', () => {
     // T-D12: a task's reminder opens the task; never the portal.
     expect(notificationLink(target('task'), firm)).toBe(`/tasks/${id}`);
     expect(notificationLink(target('task'), portal)).toBeNull();
+    // B10: a client's approval of a business plan opens its review step; never the portal.
+    expect(notificationLink(target('advisory_plan', clientId), firm)).toBe(
+      `/business-advisory/plans/${id}/edit/review`,
+    );
+    expect(notificationLink(target('advisory_plan'), portal)).toBeNull();
     expect(notificationLink(target('project_deadline'), portal)).toBeNull();
     expect(notificationLink(target('document'), portal)).toBe('/lvp/documents');
     expect(notificationLink(target('tax_return'), portal)).toBe('/lvp/taxes');
     expect(notificationLink(target('client_note_reminder'), portal)).toBe('/lvp/messages');
     expect(notificationLink(target('user'), portal)).toBe('/lvp/profile');
+    // CP-3d: an announcement's notice opens the portal's Announcements; never the firm site.
+    expect(notificationLink(target('announcement'), portal)).toBe('/lvp/announcements');
+    expect(notificationLink(target('announcement'), firm)).toBeNull();
     // Intake Forms Review Two (ACCESS-01): the exact form sent, not the forms list.
     expect(notificationLink(target('intake'), portal)).toBe(`/lvp/intake/${id}`);
   });

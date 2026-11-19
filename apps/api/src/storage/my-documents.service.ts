@@ -15,6 +15,7 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { decodeCursor, encodeCursor, likeEscape } from '../clients/clients.service.js';
+import { hiddenFirmDocuments } from '../bookkeeping/portal-defaults.js';
 import { DATABASE } from '../database/database.module.js';
 import {
   badCursor,
@@ -24,6 +25,7 @@ import {
   encodeNameCursor,
   findTarget,
   forbidden,
+  LIVE_DOCUMENT,
   lockClient,
   notFound,
   OPEN_REQUEST,
@@ -46,14 +48,15 @@ const isTax = (kind: string) => (TAX_SERVICE_KINDS as readonly string[]).include
 const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 
 /**
- * The documents this login may see in a source; null when it may see none there. Never INTERNAL
- * and never another client's. Household logins (Rasel, q12): PRIMARY and SPOUSE see every upload
+ * The documents this login may see in a source; null when it may see none there. Never INTERNAL,
+ * never another client's, and only live ones (CP-PT-03: never one the firm trashed or archived,
+ * and a superseded one only as its current version). Household logins (Rasel, q12): PRIMARY and SPOUSE see every upload
  * of the household (MINE) and the firm's shared files (FIRM); an AUTHORIZED login sees only its
  * own uploads, and FIRM is empty for it.
  */
 export function visible(login: PortalLogin, source: Source): Prisma.DocumentWhereInput | null {
   if (!login.clientId) return null;
-  const theirs = { businessId: login.businessId, clientId: login.clientId };
+  const theirs = { businessId: login.businessId, clientId: login.clientId, ...LIVE_DOCUMENT };
   if (source === 'FIRM') return login.household ? { ...theirs, direction: 'FIRM_TO_CLIENT' } : null;
   return login.household
     ? { ...theirs, direction: 'CLIENT_TO_FIRM' }
@@ -79,9 +82,28 @@ export class MyDocumentsService {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }
 
+  /**
+   * `visible`, less the firm's documents a Bookkeeping service's Portal Defaults keep out of the
+   * portal (BK-CP4: Documents off, or a report's file with Reports off). The client's own uploads
+   * (MINE) are theirs and always show.
+   */
+  private async sourceOf(
+    tx: TxClient,
+    login: PortalLogin,
+    source: Source,
+  ): Promise<Prisma.DocumentWhereInput | null> {
+    const where = visible(login, source);
+    if (source === 'MINE' || !where || !login.clientId) return where;
+    const hidden = await hiddenFirmDocuments(tx, login.businessId, login.clientId);
+    return hidden ? { AND: [where, { NOT: hidden }] } : where;
+  }
+
   /** A document this login may see (either source); else 404. */
   private async find(tx: TxClient, login: PortalLogin, id: string): Promise<DocumentRow> {
-    const sources = [visible(login, 'MINE'), visible(login, 'FIRM')].filter((w) => w !== null);
+    const sources = [
+      await this.sourceOf(tx, login, 'MINE'),
+      await this.sourceOf(tx, login, 'FIRM'),
+    ].filter((w) => w !== null);
     const row = sources.length
       ? await tx.document.findFirst({
           where: { AND: [{ id }, { OR: sources }] },
@@ -96,7 +118,7 @@ export class MyDocumentsService {
   async list(caller: PortalCaller, q: ListQuery): Promise<MyDocumentList> {
     const { result, clientId } = await this.inFirm(caller.businessId, async (tx) => {
       const login = await portalLogin(tx, caller);
-      const source = visible(login, q.source);
+      const source = await this.sourceOf(tx, login, q.source);
       const empty = { items: [], nextCursor: null, years: [] };
       if (!source) return { result: empty, clientId: login.clientId };
       const byName = q.sort === 'name';
@@ -107,6 +129,8 @@ export class MyDocumentsService {
             source,
             q.categoryId ? { categoryId: q.categoryId } : {},
             q.taxYear ? { taxYear: q.taxYear } : {},
+            // CP-5d: the files of one custom tab (the controller checked the client sees it).
+            q.portalTabId ? { portalTabId: q.portalTabId } : {},
             term ? { fileName: { contains: term, mode: 'insensitive' } } : {},
             q.cursor ? await this.after(tx, source, byName, q.cursor) : {},
           ],
@@ -305,6 +329,7 @@ export class MyDocumentsService {
       engagementId: target.engagement.id,
       requestId: target.request?.id ?? null,
       categoryId: body.categoryId ?? null,
+      ...(body.portalTabId ? { portalTabId: body.portalTabId } : {}),
       direction: 'CLIENT_TO_FIRM',
       // TR-2: a file answering a request made from a tax return takes that return's year.
       taxYear: target.request?.taxYear ?? body.taxYear ?? target.engagement.taxYear,

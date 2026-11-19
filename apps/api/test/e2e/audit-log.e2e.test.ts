@@ -98,6 +98,16 @@ async function seed(businessId: string, rows: Prisma.AuditLogCreateManyInput[]):
   await db.$disconnect();
 }
 
+/** M02b: the firm's access.denied rows. */
+async function deniedRows(businessId: string) {
+  const db = owner();
+  const rows = await runInScope(db, { kind: 'business', businessId }, (tx) =>
+    tx.auditLog.findMany({ where: { businessId, action: 'access.denied' } }),
+  );
+  await db.$disconnect();
+  return rows;
+}
+
 async function viewedRows(businessId: string) {
   const db = owner();
   const rows = await runInScope(db, { kind: 'business', businessId }, (tx) =>
@@ -127,6 +137,10 @@ beforeAll(async () => {
         select: { id: true, slug: true },
       });
     }
+    // Firm A is in Central time: the export names it beside UTC (R01c).
+    await tx.businessSettings.create({
+      data: { businessId: firms.a.id, timezone: 'America/Chicago' },
+    });
     // The fixture Super Admin asked firm A for support access (R8 approves and uses it later).
     await tx.supportAccessGrant.create({
       data: { businessId: firms.a.id, adminUserId: fx.users.admin.id, reason: 'Fake request' },
@@ -367,11 +381,78 @@ describe('what a row shows', () => {
       expect(Object.keys(item).sort()).toEqual(
         ['action', 'actor', 'at', 'entity', 'id', 'ip', 'metadata', 'requestId'].sort(),
       );
-      expect(Object.keys(item['entity'] as object).sort()).toEqual(['id', 'type']);
+      expect(Object.keys(item['entity'] as object).sort()).toEqual([
+        'deleted',
+        'id',
+        'name',
+        'type',
+      ]);
       if (item['actor'] !== null) {
         expect(Object.keys(item['actor'] as object).sort()).toEqual(['kind', 'name', 'userId']);
       }
     }
+  });
+
+  it('M01a: names each record as it is now; a gone record is "Deleted client"; never another firm’s', async () => {
+    const db = owner();
+    const [mine, gone, theirs] = [randomUUID(), randomUUID(), randomUUID()];
+    await runInScope(db, { kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.client.create({
+        data: { id: mine, businessId: firms.a.id, displayName: 'Fake Renamed Client' },
+      }),
+    );
+    await runInScope(db, { kind: 'business', businessId: firms.b.id }, (tx) =>
+      tx.client.create({
+        data: { id: theirs, businessId: firms.b.id, displayName: 'Fake Firm B Client' },
+      }),
+    );
+    await db.$disconnect();
+    await seed(
+      firms.a.id,
+      [mine, gone, theirs].map((id, i) => ({
+        action: 'rnames.client_updated',
+        entityType: 'client',
+        entityId: id,
+        createdAt: at(i * 1000 + 500),
+      })),
+    );
+    const rows = await all('?action=rnames.');
+    const named = (id: string) => rows.find((r) => r.entity.id === id)?.entity;
+    expect(named(mine)).toEqual({
+      type: 'client',
+      id: mine,
+      name: 'Fake Renamed Client',
+      deleted: false,
+    });
+    expect(named(gone)).toEqual({
+      type: 'client',
+      id: gone,
+      name: 'Deleted client',
+      deleted: true,
+    });
+    // Firm B's client is not firm A's: firm A's log never reads its name.
+    expect(named(theirs)).toEqual({
+      type: 'client',
+      id: theirs,
+      name: 'Deleted client',
+      deleted: true,
+    });
+    expect(JSON.stringify(rows)).not.toContain('Fake Firm B Client');
+    // A type the log does not name keeps its id only.
+    expect((await all('?action=rtest.created'))[0]?.entity).toMatchObject({
+      name: null,
+      deleted: false,
+    });
+    // The export carries the same names.
+    const csv = await request(app.getHttpServer())
+      .get('/api/v1/business/audit-log/export?action=rnames.')
+      .set('x-business-id', firms.a.id)
+      .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+      .set('authorization', `Bearer ${await tokenFor(people.ownerA.email)}`);
+    expect(csv.status).toBe(200);
+    expect(csv.text).toContain(`client,${mine},Fake Renamed Client,`);
+    expect(csv.text).toContain(`client,${gone},Deleted client,`);
+    expect(csv.text).not.toContain('Fake Firm B Client');
   });
 
   it('names staff and clients, hides Super Admins as Firmivra Support without IP', async () => {
@@ -623,11 +704,14 @@ describe('reading the log is audited', () => {
   it('a refused read writes nothing, and nothing in another firm', async () => {
     const beforeA = (await viewedRows(firms.a.id)).length;
     const beforeB = (await viewedRows(firms.b.id)).length;
+    const deniedA = (await deniedRows(firms.a.id)).length;
     await call('', people.staffA);
     await call('', people.ownerB, 'a');
     await call('?limit=0', people.ownerA);
     expect((await viewedRows(firms.a.id)).length).toBe(beforeA);
     expect((await viewedRows(firms.b.id)).length).toBe(beforeB);
+    // M02b: reading the log is not a security-sensitive route, so its 403 writes no row either.
+    expect((await deniedRows(firms.a.id)).length).toBe(deniedA);
   });
 });
 
@@ -651,10 +735,16 @@ describe('the export (Octavia: read-only, authorized export)', () => {
     expect(res.headers['content-type']).toContain('text/csv');
     const lines = csvLines(res.text);
     expect(lines[0]).toBe(
-      'Time,Actor,Actor type,Action,Record type,Record id,IP,Request id,Details',
+      'Time (UTC),Time (America/Chicago),Actor,Actor type,Action,Record type,Record id,Record,IP,Request id,Details',
     );
     const listed = await all('?action=rtest.');
     expect(lines).toHaveLength(listed.length + 1);
+    // R01c: each row's time in UTC and in the firm's zone, the zone named (5 or 6 hours behind).
+    const [utc, central] = (lines.find((l) => l.includes('req-a-1')) ?? '').split(',');
+    expect(central).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} C[SD]T$/);
+    const behind =
+      (Date.parse(utc!) - Date.parse(`${central!.slice(0, 10)}T${central!.slice(11, 19)}Z`)) / HOUR;
+    expect([5, 6]).toContain(Math.round(behind));
     // Firmivra Support is never named, and no other firm's row is there.
     expect(res.text).not.toContain('req-firm-b');
     expect(res.text).not.toContain(USER_AGENT);
@@ -671,6 +761,31 @@ describe('the export (Octavia: read-only, authorized export)', () => {
       count: listed.length,
       capped: false,
     });
+  });
+
+  it('M02b: a refused export writes one access.denied row (a retry adds none), in the firm only', async () => {
+    const before = (await deniedRows(firms.a.id)).length;
+    for (let i = 0; i < 3; i++) {
+      const res = await exportCsv('?action=rtest.', people.staffA);
+      expect([res.status, codeOf(res)]).toEqual([403, 'FORBIDDEN']);
+    }
+    const rows = await deniedRows(firms.a.id);
+    expect(rows).toHaveLength(before + 1);
+    expect(rows.at(-1)).toMatchObject({
+      actorUserId: people.staffA.id,
+      entityType: 'route',
+      entityId: 'GET /business/audit-log/export',
+      metadata: {
+        category: 'export',
+        method: 'GET',
+        route: '/business/audit-log/export',
+        code: 'FORBIDDEN',
+        role: 'STAFF',
+      },
+    });
+    // Never the query the request sent.
+    expect(JSON.stringify(rows.at(-1)?.metadata)).not.toContain('rtest');
+    expect(await deniedRows(firms.b.id)).toHaveLength(0);
   });
 
   it('is for Owner and Admin only, in their own firm', async () => {

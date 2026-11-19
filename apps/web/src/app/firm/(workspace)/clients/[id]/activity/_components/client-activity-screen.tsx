@@ -23,6 +23,7 @@ import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { useFirmTimeZone } from '../../../../intake-forms/_components/expiry';
+import { ClientTabHeader } from '../../_components/client-tab-header';
 
 // MSG-F16: the client's Activity tab, their own timeline (newest first). An entry names what
 // happened, when and by whom, and opens its record; it never shows a message's text or files.
@@ -61,51 +62,56 @@ export function ClientActivityScreen() {
   const items = page.data?.items ?? [];
   const timeZone = useFirmTimeZone();
   return (
-    <Card>
-      <section aria-label="Activity" data-testid="client-activity" className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-heading">Activity</h2>
-          <p className="text-sm text-muted">
-            Everything recorded about this client, newest first: their portal replies, documents and
-            requests, tasks, appointments, invoices, signatures, notes and profile changes. A
-            message from the firm appears when it is sent with Add to Client Timeline.
-          </p>
-        </div>
-        {page.isPending ? (
-          <Skeleton className="h-24 w-full" />
-        ) : page.isError ? (
-          <p role="alert" className="text-sm text-danger">
-            {errorMessage(page.error)}
-          </p>
-        ) : items.length === 0 ? (
-          <EmptyState
-            title={cursor ? 'No more activity' : 'No activity yet'}
-            description="Events for this client show here as they are recorded."
-          />
-        ) : (
-          <ol className="flex flex-col divide-y divide-divider" aria-label="Activity, newest first">
-            {items.map((e) => (
-              <Entry key={e.id} entry={e} timeZone={timeZone} />
-            ))}
-          </ol>
-        )}
-        <div className="flex gap-2">
-          {cursors.length > 0 ? (
-            <Button variant="secondary" onClick={() => setCursors((c) => c.slice(0, -1))}>
-              Newer
-            </Button>
-          ) : null}
-          {page.data?.nextCursor ? (
-            <Button
-              variant="secondary"
-              onClick={() => setCursors((c) => [...c, page.data!.nextCursor!])}
+    <div className="flex flex-col gap-4">
+      <ClientTabHeader
+        title="Activity"
+        description="Everything recorded about this client, newest first: their portal replies, documents and requests, tasks, appointments, invoices, signatures, notes and profile changes. A message from the firm appears when it is sent with Add to Client Timeline."
+      />
+      <Card>
+        <section
+          aria-label="Activity"
+          data-testid="client-activity"
+          className="flex flex-col gap-3"
+        >
+          {page.isPending ? (
+            <Skeleton className="h-24 w-full" />
+          ) : page.isError ? (
+            <p role="alert" className="text-sm text-danger">
+              {errorMessage(page.error)}
+            </p>
+          ) : items.length === 0 ? (
+            <EmptyState
+              title={cursor ? 'No more activity' : 'No activity yet'}
+              description="Events for this client show here as they are recorded."
+            />
+          ) : (
+            <ol
+              className="flex flex-col divide-y divide-divider"
+              aria-label="Activity, newest first"
             >
-              Older
-            </Button>
-          ) : null}
-        </div>
-      </section>
-    </Card>
+              {items.map((e) => (
+                <Entry key={e.id} entry={e} timeZone={timeZone} />
+              ))}
+            </ol>
+          )}
+          <div className="flex gap-2">
+            {cursors.length > 0 ? (
+              <Button variant="secondary" onClick={() => setCursors((c) => c.slice(0, -1))}>
+                Newer
+              </Button>
+            ) : null}
+            {page.data?.nextCursor ? (
+              <Button
+                variant="secondary"
+                onClick={() => setCursors((c) => [...c, page.data!.nextCursor!])}
+              >
+                Older
+              </Button>
+            ) : null}
+          </div>
+        </section>
+      </Card>
+    </div>
   );
 }
 

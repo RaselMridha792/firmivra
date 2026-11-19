@@ -14,6 +14,7 @@ export function Widget<T>({
   link,
   empty,
   isEmpty,
+  denied,
   className = '',
   navy = false,
   action,
@@ -25,6 +26,11 @@ export function Widget<T>({
   /** Shown when `isEmpty(data)`; it says what to do next. */
   empty: string;
   isEmpty: (data: T) => boolean;
+  /**
+   * Dashboard Review Two V5: the module whose view the member lacks, when the API left this
+   * widget's numbers out; the widget says so and offers no link.
+   */
+  denied?: (data: T) => string | undefined;
   className?: string;
   /** The design's filled navy title bar (Upcoming Appointments). */
   navy?: boolean;
@@ -32,6 +38,7 @@ export function Widget<T>({
   action?: ReactNode;
   children: (data: T) => ReactNode;
 }) {
+  const noAccess = query.data !== undefined && denied ? denied(query.data) : undefined;
   return (
     <section
       aria-label={title}
@@ -43,7 +50,7 @@ export function Widget<T>({
       >
         <h2 className="text-xl font-bold">{title}</h2>
         {action}
-        {link ? (
+        {link && !noAccess ? (
           <Link
             href={link.href}
             className={`flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-medium ${navy ? '' : 'text-link'}`}
@@ -67,6 +74,10 @@ export function Widget<T>({
             Try again
           </Button>
         </div>
+      ) : noAccess ? (
+        <p className="text-sm text-muted" data-testid="widget-no-access">
+          You don&apos;t have access to {noAccess}.
+        </p>
       ) : isEmpty(query.data) ? (
         <p className="text-sm text-muted">{empty}</p>
       ) : (

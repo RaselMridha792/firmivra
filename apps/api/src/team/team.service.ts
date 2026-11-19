@@ -164,12 +164,39 @@ export class TeamService {
   ) {}
 
   async list(businessId: string, actor: TeamActor): Promise<TeamMember[]> {
-    const rows = await this.database
-      .forBusiness(businessId)
-      .membership.findMany({ where: { businessId }, select: memberSelect });
+    const db = this.database.forBusiness(businessId);
+    const [rows, carried, profiles] = await Promise.all([
+      db.membership.findMany({ where: { businessId }, select: memberSelect }),
+      // SM08: the active clients each person carries (assigned, not archived, not Inactive).
+      db.client.groupBy({
+        by: ['assignedUserId'],
+        where: {
+          businessId,
+          archivedAt: null,
+          status: { not: 'INACTIVE' },
+          assignedUserId: { not: null },
+        },
+        _count: { _all: true },
+      }),
+      db.staffProfile.findMany({
+        where: { businessId },
+        select: { membershipId: true, maxWorkload: true, acceptsNewClients: true },
+      }),
+    ]);
     const users = await usersOf(rows, this.readUsers(businessId));
+    const clients = new Map(carried.map((c) => [c.assignedUserId, c._count._all]));
+    const profile = new Map(profiles.map((p) => [p.membershipId, p]));
     // Sorted by the name the firm sees (the typed one until the person joins).
-    return rows.map((row) => this.toMember(row, users, actor)).sort(byRoleThenName);
+    return rows
+      .map((row) => ({
+        ...this.toMember(row, users, actor),
+        workload: {
+          activeClients: clients.get(row.userId) ?? 0,
+          maxActiveClients: profile.get(row.id)?.maxWorkload ?? null,
+          acceptsNewClients: profile.get(row.id)?.acceptsNewClients ?? true,
+        },
+      }))
+      .sort(byRoleThenName);
   }
 
   /** Owners only (the route allows OWNER), for ACTIVE members. */

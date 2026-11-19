@@ -87,10 +87,13 @@ export function UnsavedDialog({
   guard,
   onSave,
   saving,
+  saveLabel = 'Save',
 }: {
   guard: ReturnType<typeof useUnsavedGuard>;
   onSave: () => void;
   saving: boolean;
+  /** "Save Draft" where the form keeps a draft (Staff Management's Create Staff, SM18). */
+  saveLabel?: string;
 }) {
   if (!guard.pending) return null;
   return (
@@ -115,7 +118,7 @@ export function UnsavedDialog({
             }}
             data-testid="unsaved-save"
           >
-            Save
+            {saveLabel}
           </Button>
         </>
       }
