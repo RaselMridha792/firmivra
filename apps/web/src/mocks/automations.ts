@@ -1364,8 +1364,9 @@ export function createAutomationsMock({
     const term = q.search?.toLowerCase();
     const tab = (s: AutomationRunDetail['status']) =>
       q.tab === 'all' ||
-      (q.tab === 'success' && (s === 'SUCCESS' || s === 'PARTIAL_SUCCESS')) ||
-      (q.tab === 'failed' && s === 'FAILED') ||
+      // R06, as the API: a partly failed run is under Failed.
+      (q.tab === 'success' && s === 'SUCCESS') ||
+      (q.tab === 'failed' && (s === 'FAILED' || s === 'PARTIAL_SUCCESS')) ||
       (q.tab === 'skipped' && s === 'SKIPPED') ||
       (q.tab === 'pending' && (s === 'PENDING' || s === 'RUNNING'));
     return runs.filter(
@@ -1468,7 +1469,10 @@ export function createAutomationsMock({
         const rows = rules
           .filter(
             (r) =>
-              (query.includeArchived === true || r.detail.status !== 'ARCHIVED') &&
+              // R09, as the API: the Archived filter reaches archived rules.
+              (query.includeArchived === true ||
+                query.status === 'ARCHIVED' ||
+                r.detail.status !== 'ARCHIVED') &&
               (!query.status || r.detail.status === query.status) &&
               (!query.category || r.detail.category === query.category) &&
               (!query.ownerUserId || r.detail.owner?.userId === query.ownerUserId) &&
@@ -1865,8 +1869,8 @@ export function createAutomationsMock({
           all.filter((r) => f(r.status)).length;
         return {
           total: all.length,
-          success: n((s) => s === 'SUCCESS' || s === 'PARTIAL_SUCCESS'),
-          failed: n((s) => s === 'FAILED'),
+          success: n((s) => s === 'SUCCESS'),
+          failed: n((s) => s === 'FAILED' || s === 'PARTIAL_SUCCESS'),
           skipped: n((s) => s === 'SKIPPED'),
           pending: n((s) => s === 'PENDING' || s === 'RUNNING'),
         };

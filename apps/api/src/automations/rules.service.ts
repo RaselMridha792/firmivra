@@ -52,6 +52,15 @@ type Out<S extends z.ZodType> = z.output<S>;
 const DAY = 86_400_000;
 
 /** Rules: the list, the builder's saves (a new version each time), status, copies, dry runs. */
+
+/**
+ * Automations Review Two R02: what the builder's match count, its preview and Test look at: the
+ * last 7 days of events (and every record a schedule finds now). One window for all three, so
+ * they agree. A live rule acts only on events after its version was saved.
+ */
+export const LOOK_BACK_DAYS = 7;
+const lookBack = () => new Date(Date.now() - LOOK_BACK_DAYS * DAY);
+
 @Injectable()
 export class RulesService {
   constructor(
@@ -152,7 +161,8 @@ export class RulesService {
       const search = q.search ? likeEscape(q.search) : undefined;
       const where: Prisma.AutomationRuleWhereInput = {
         businessId,
-        ...(q.includeArchived ? {} : { archivedAt: null }),
+        // Automations Review Two R09: the Archived filter is the archived rules (with Restore).
+        ...(q.includeArchived || q.status === 'ARCHIVED' ? {} : { archivedAt: null }),
         ...(q.status ? { status: q.status } : {}),
         ...(q.category ? { category: q.category } : {}),
         ...(q.ownerUserId ? { ownerUserId: q.ownerUserId } : {}),
@@ -635,7 +645,7 @@ export class RulesService {
           expiresOn: null,
         },
         body.sample,
-        new Date(Date.now() - 7 * DAY),
+        lookBack(),
       );
     });
   }
@@ -660,7 +670,7 @@ export class RulesService {
         settings: { notifyOnFailureUserIds: [], logAll: true, addToCalendar: false },
       } as unknown as Def;
       this.structure(def);
-      return this.read.matchSample(ctx, def, body.sample, new Date(Date.now() - 7 * DAY));
+      return this.read.matchSample(ctx, def, body.sample, lookBack());
     });
   }
 
@@ -680,7 +690,9 @@ export class RulesService {
           })
         : rule.currentVersion;
       if (!v) throw notFound();
-      return this.read.preview(ctx, defOf(viewOf(v)), rule, body.sample, v.createdAt);
+      // R02: the same look-back as the builder's count and preview, so the three agree; a live
+      // rule still acts only on what happens after its version was saved.
+      return this.read.preview(ctx, defOf(viewOf(v)), rule, body.sample, lookBack());
     });
   }
 
