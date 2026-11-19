@@ -65,6 +65,24 @@ const todayIn = (timezone: string, now = new Date()) =>
   }).format(now);
 
 /** Reads and checks for Automations: one shape for every list, detail and dry run. */
+
+/**
+ * Automations Review Two R02: matching records, each once. A record changed twice is two events
+ * (two runs at most, one per occurrence), but one record in a count or a sample.
+ */
+const distinct = <T extends { recordKind: string; recordId: string }>(hits: T[]): T[] => {
+  const seen = new Set<string>();
+  return hits.filter((h) => {
+    const key = `${h.recordKind}:${h.recordId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+/** A record id (a tag, a person, an appointment type) as a condition value. */
+const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class AutomationsReadService {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
@@ -423,7 +441,9 @@ export class AutomationsReadService {
         ...(def.trigger.source ? { source: def.trigger.source } : {}),
       },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
+    const hit = distinct(
+      found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today)),
+    );
     const clientIds = [
       ...new Set(
         hit
@@ -467,9 +487,19 @@ export class AutomationsReadService {
         offsetValue: def.trigger.offsetValue ?? null,
         offsetUnit: def.trigger.offsetUnit ?? null,
       },
-      { businessId, now, today: ctx.today, timezone: ctx.timezone, since },
+      {
+        businessId,
+        now,
+        today: ctx.today,
+        timezone: ctx.timezone,
+        since,
+        // R02: the trigger's source too, as the count and the runtime use it.
+        ...(def.trigger.source ? { source: def.trigger.source } : {}),
+      },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
+    const hit = distinct(
+      found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today)),
+    );
     const clientIds = [
       ...new Set(
         hit
@@ -604,6 +634,41 @@ export class AutomationsReadService {
     return out;
   }
 
+  /**
+   * Automations Review Two R05: the names of the records the rules' conditions name (tags, archived
+   * ones too, so a renamed tag reads as its new name; people; appointment types), by id, in this
+   * firm only. "Applies To" shows them instead of ids.
+   */
+  private async conditionLabels(ctx: AutoCtx, rules: RuleShape[]): Promise<Map<string, string>> {
+    const ids = new Set<string>();
+    for (const r of rules) {
+      const v = r.currentVersion;
+      if (!v) continue;
+      for (const c of defOf(viewOf(v)).conditions)
+        for (const value of Array.isArray(c.value) ? c.value : [c.value])
+          if (typeof value === 'string' && ID.test(value)) ids.add(value);
+    }
+    if (ids.size === 0) return new Map();
+    const list = [...ids];
+    const { tx, businessId } = ctx;
+    const [tags, types, people] = await Promise.all([
+      tx.tag.findMany({
+        where: { businessId, id: { in: list } },
+        select: { id: true, name: true },
+      }),
+      tx.appointmentType.findMany({
+        where: { businessId, id: { in: list } },
+        select: { id: true, name: true },
+      }),
+      memberNames(tx, businessId, list),
+    ]);
+    return new Map<string, string>([
+      ...tags.map((t): [string, string] => [t.id, t.name]),
+      ...types.map((t): [string, string] => [t.id, t.name]),
+      ...people,
+    ]);
+  }
+
   async rows(ctx: AutoCtx, rules: RuleShape[]): Promise<AutomationRuleRow[]> {
     if (rules.length === 0) return [];
     const [attention, last] = await Promise.all([
@@ -620,6 +685,7 @@ export class AutomationsReadService {
       }),
     ]);
     const lastStatus = new Map(last.map((l) => [l.ruleId, l.status]));
+    const labels = await this.conditionLabels(ctx, rules);
     return rules.map((r) => {
       const v = r.currentVersion;
       const def = v ? viewOf(v) : null;
@@ -633,7 +699,7 @@ export class AutomationsReadService {
         owner: r.owner ? { userId: r.owner.userId, name: r.owner.user.name } : null,
         triggerSummary: def ? triggerSummary(def.trigger) : 'Not set up yet',
         appliesTo: def
-          ? appliesTo(def.trigger.event, defOf(def).conditions, def.matchMode)
+          ? appliesTo(def.trigger.event, defOf(def).conditions, def.matchMode, labels)
           : 'All records',
         actionsSummary: def ? actionsSummary(def.actions) : 'None yet',
         currentVersion: v?.version ?? null,
@@ -697,8 +763,9 @@ export class AutomationsReadService {
       })),
       stats: {
         runs: byStatus.reduce((s, b) => s + b._count._all, 0),
-        succeeded: n('SUCCESS') + n('PARTIAL_SUCCESS'),
-        failed: n('FAILED'),
+        // R06: a partly failed run counts as failed, never as succeeded.
+        succeeded: n('SUCCESS'),
+        failed: n('FAILED') + n('PARTIAL_SUCCESS'),
         skipped: n('SKIPPED'),
       },
       activationBlockers: blockers,

@@ -10,6 +10,7 @@ import {
   ConsentStatus,
   SegmentAudience,
   SegmentType,
+  ScanStatus,
 } from '../db-enums.js';
 
 // Communications (R55 contract, for the Communications screens): the overview and its tabs
@@ -216,6 +217,12 @@ export const CommunicationAttachment = z.object({
   fileName: z.string(),
   contentType: z.string(),
   sizeBytes: z.number().int(),
+  /**
+   * The virus check (GuardDuty): PENDING until it answers; CLEAN at once locally. Nothing goes out
+   * while a file is not CLEAN (ATTACHMENT_SCAN_PENDING), and an INFECTED or FAILED one is refused
+   * (ATTACHMENT_BLOCKED): remove it. A file attached before the check existed reads PENDING.
+   */
+  scanStatus: ScanStatus.optional(),
 });
 export type CommunicationAttachment = z.infer<typeof CommunicationAttachment>;
 
@@ -526,6 +533,10 @@ export const SendCheck = z.object({
     'CONSENT_CHECKED',
     'AUDIENCE_CHANGED',
     'ATTACHMENT_NOT_READY',
+    /** An attachment is still being checked for viruses (it goes out once CLEAN). */
+    'ATTACHMENT_SCAN_PENDING',
+    /** An attachment failed the virus check, or could not be checked: remove it. */
+    'ATTACHMENT_BLOCKED',
     'ANNOUNCEMENT_WINDOW_INVALID',
     'PORTAL_DISABLED',
   ]),

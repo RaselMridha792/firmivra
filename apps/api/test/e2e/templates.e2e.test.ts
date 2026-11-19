@@ -16,7 +16,6 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import {
   BulkTemplatesResult,
-  DownloadLink,
   EmailImage,
   ImportTemplateResult,
   InstallStartersResult,
@@ -1998,12 +1997,13 @@ describe('attachments', () => {
       'UPLOAD_EXPIRED',
     );
 
-    const link = DownloadLink.parse(
-      ok(
-        await call('get', `/templates/${t.id}/attachments/${confirmed.id}/download`, people.staffA),
-      ),
+    // The scan gap (Nov 19): no download until the file's virus check is recorded (the scan
+    // column comes with the db PR), so every download waits.
+    expectError(
+      await call('get', `/templates/${t.id}/attachments/${confirmed.id}/download`, people.staffA),
+      409,
+      'SCAN_PENDING',
     );
-    expect(link.url).toContain('?download');
     expectError(
       await call('get', `/templates/${t.id}/attachments/${randomUUID()}/download`, people.ownerA),
       404,

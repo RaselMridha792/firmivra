@@ -144,6 +144,11 @@ export function PreviewPanel({ preview }: { preview: AutomationPreview }) {
         <span className="font-semibold">{preview.triggerPreview}</span> · {preview.matchCount}{' '}
         matching record(s) right now.
       </p>
+      {/* Automations Review Two R02: the builder's count, its preview and Test agree. */}
+      <p className="text-xs text-muted" data-testid="preview-window">
+        Events from the last 7 days count; once live, the rule acts only on what happens after it is
+        activated.
+      </p>
       {preview.sample.length > 0 ? (
         <ul className="rounded-lg border border-divider">
           {preview.sample.map((s) => (
@@ -213,7 +218,8 @@ export function SaveTemplateDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [text, setText] = useState(`${name} template`);
+  // R04: the default name fits the 120-character limit.
+  const [text, setText] = useState(`${name} template`.slice(0, 120));
   const save = useApiMutation(() => api.automations.saveRuleAsTemplate(id, { name: text.trim() }), {
     invalidate: [...AUTOMATIONS_KEY],
   });
@@ -243,9 +249,18 @@ export function SaveTemplateDialog({
         maxLength={120}
         onChange={(e) => setText(e.target.value)}
       />
+      {/* Automations Review Two R04: what a template leaves out, so nothing is a surprise. */}
+      <p className="mt-2 text-xs text-muted" data-testid="template-leaves-out">
+        Choices that name your own records (tags, people, appointment types, message templates) are
+        left out; whoever uses the template chooses their own.
+      </p>
       {save.isError ? (
         <p role="alert" className="mt-2 text-sm text-danger">
-          {errorMessage(save.error, AUTOMATION_ERRORS)}
+          {errorMessage(save.error, {
+            ...AUTOMATION_ERRORS,
+            DUPLICATE_NAME:
+              'Another template, possibly an archived one, uses this name. Choose another.',
+          })}
         </p>
       ) : null}
     </Modal>

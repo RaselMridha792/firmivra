@@ -15,6 +15,7 @@ import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { BookingTypeSelect } from './booking-type-select';
+import { PackageReadiness } from './package-readiness';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
   CATALOG_ERRORS,
@@ -743,6 +744,22 @@ function Builder({
               />
             </div>
           </Panel>
+          {/* R8, R11: what it still needs to be activated and seen, and where to set it up. */}
+          <PackageReadiness
+            input={{
+              name,
+              categoryId,
+              description,
+              services,
+              priced: (panel?.packagePriceCents ?? priceCents) !== null,
+              discountError,
+              status: pkg?.status ?? null,
+              visibleToClients: visible,
+              displayOnWebsite: website,
+              bookingTypeId,
+              packageId: id,
+            }}
+          />
         </aside>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-3">

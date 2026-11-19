@@ -234,6 +234,12 @@ export const cases: CaseModule['cases'] = {
     bodyIds: { targetIds: 'catalogCategory' },
   },
   [`POST ${BASE}/promotions/:id/end`]: { params: { id: 'catalogPromotion' } },
+  // R9/R13, Check a Code: another firm's service is not found (no code is needed for that).
+  [`POST ${BASE}/promotions/check`]: {
+    params: {},
+    body: { code: 'FAKE-NONE', itemType: 'SERVICE' },
+    bodyIds: { itemId: 'catalogService' },
+  },
   [`POST ${BASE}/promotions`]: {
     params: {},
     body: () => ({

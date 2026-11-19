@@ -260,9 +260,7 @@ const NOT_ROUTED: Record<string, string> = {
   offices: 'location photos: as branding',
   'email-images': 'images placed in lead emails: as branding',
   integrations: 'not an S3 key: a Secrets Manager name (firmivra/tenant/…)',
-  communications:
-    'message attachments kept in the message row, bytes checked at upload; no scan record',
-  templates: 'template attachments: as communications',
+  templates: 'template attachments: downloads wait for the scan column (db PR); none until then',
   'template-imports': 'a Word file read once at import, then deleted; no scan record',
 };
 
