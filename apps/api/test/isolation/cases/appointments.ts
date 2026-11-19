@@ -244,6 +244,8 @@ export const cases: CaseModule['cases'] = {
       endsAt: new Date(new Date(at3pm(21)).getTime() + 30 * 60_000).toISOString(),
       method: 'IN_PERSON',
       overrideConflicts: { reason: 'Fake override' },
+      // Review 2 (row 9): filled from bodyIds (a swap sets only a field the body already has).
+      related: { intakeFormId: '' },
     }),
   },
   // Review 2 (Save as Draft): the member's own drafts; every record a draft names is checked.

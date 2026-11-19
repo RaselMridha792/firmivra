@@ -53,6 +53,11 @@ export interface NotifyEventInput {
   /** The producer's stable key: a retried job never writes a second item for the same person. */
   eventKey?: string;
   /**
+   * Appointments Review 2 (B7): the time the notice is for (a reminder job's run): which
+   * configured reminder is due then, for its note on the client's bell item. Now by default.
+   */
+  at?: Date;
+  /**
    * The sender's choices for this occurrence (a document request's switches). Left out: the bell
    * item and the email copy, as always, and no text. `inApp: false` writes no bell item (the email
    * copy then goes once, outside the outbox); `email: false` sends no email copy; `sms: true` adds
@@ -915,7 +920,7 @@ export class Notifier {
         // Appointments Review 2 (B7, B9): a client's bell item of an appointment notice carries
         // the firm's words for the portal (the note, the instructions shown in the portal).
         const portalWords = PORTAL_WORD_EVENTS.has(event)
-          ? await portalNoticeWords(tx, businessId, recordId.toLowerCase(), event)
+          ? await portalNoticeWords(tx, businessId, recordId.toLowerCase(), event, input.at)
           : {};
         const rows = await tx.notification.createManyAndReturn({
           data: to.map((r) => ({
