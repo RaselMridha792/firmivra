@@ -345,7 +345,16 @@ export const AUDIT_EVENTS: Record<string, AuditEvent> = {
     fieldsOf: statusMove,
   },
   'client.tags_changed': { actions: ['client.tags_set'], entity: 'client' },
-  'client.profile_changed': { actions: ['client.profile_updated'], entity: 'client' },
+  // Automations Review Two R01: the profile page, Edit Client (name, email, phone) and the
+  // client's own portal edits; a client update that only moved the assignment or the status is
+  // those events', not this one.
+  'client.profile_changed': {
+    actions: ['client.profile_updated', 'client.updated', 'portal.profile_updated'],
+    entity: 'client',
+    when: (meta) =>
+      Array.isArray(meta['fields']) &&
+      (meta['fields'] as unknown[]).some((f) => f !== 'assignedUserId' && f !== 'status'),
+  },
   'client.archived': { actions: ['client.archived'], entity: 'client' },
   'client.reactivated': { actions: ['client.restored'], entity: 'client' },
   // Leads (AU-F09)

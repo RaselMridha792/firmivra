@@ -237,13 +237,21 @@ export function appliesTo(
   event: string,
   conditions: AutomationCondition[],
   matchMode: string,
+  /**
+   * Automations Review Two R05: the firm's names for the records a condition names (tags,
+   * people, appointment types), by id; an id it lacks reads as "a removed choice", never the id.
+   */
+  labels: ReadonlyMap<string, string> = new Map(),
 ): string {
   if (conditions.length === 0) return 'All records';
   const e = eventOf(event);
   const parts = conditions.map((c) => {
     const f = e?.conditionFields.find((x) => x.field === c.field);
     // AU-F01: a choice reads as its label ("Business"), not its code.
-    const word = (v: unknown) => f?.options.find((o) => o.value === v)?.label ?? String(v);
+    const word = (v: unknown) =>
+      f?.options.find((o) => o.value === v)?.label ??
+      (typeof v === 'string' && labels.has(v) ? labels.get(v)! : undefined) ??
+      (typeof v === 'string' && UUID_ONLY.test(v) ? 'a removed choice' : String(v));
     const value =
       c.value === undefined
         ? ''
@@ -595,10 +603,15 @@ export function loopProblems(
 
 const SECRET = /^(sk_|pk_|rk_|xox[abp]-|ghp_|gho_|AKIA|eyJ)|bearer\s+\S{10,}|[A-Za-z0-9_-]{40,}/i;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+/** A value that is a record id and nothing else. */
+const UUID_ONLY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * A definition for a template: the choices of a firm's own records (a template, a person) are left
- * out, a value that looks like a secret or token is removed, and one that names a record id is refused.
+ * out, and so is a value that looks like a secret or token; a record id typed into an action's
+ * text is refused. Automations Review Two R04: a condition that names one of the firm's records (a
+ * tag, a person, an appointment type) is left out, never refused, so a rule that passed review
+ * saves as a template; whoever uses the template chooses their own.
  */
 export function forTemplate(def: Def): Def {
   const problems: Detail[] = [];
@@ -629,13 +642,17 @@ export function forTemplate(def: Def): Def {
     }
     return { ...a, config };
   });
-  def.conditions.forEach((c, i) => {
+  const conditions = def.conditions.filter((c) => {
     const values = Array.isArray(c.value) ? c.value : [c.value];
-    if (values.some((v) => typeof v === 'string' && UUID.test(v)))
-      problems.push({ path: `conditions.${i}.value`, message: 'A template names no record' });
+    return !values.some((v) => typeof v === 'string' && UUID.test(v));
   });
   if (problems.length > 0) throw invalidDefinition(problems);
-  return { ...def, actions, settings: { ...def.settings, notifyOnFailureUserIds: [] } } as Def;
+  return {
+    ...def,
+    actions,
+    conditions,
+    settings: { ...def.settings, notifyOnFailureUserIds: [] },
+  } as Def;
 }
 
 // ---------- Merge fields ----------
