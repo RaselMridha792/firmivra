@@ -142,7 +142,8 @@ export const columnsOf = (s: Sections) => {
     lateFeePercent: fees.lateFeeType === 'PERCENT' ? fees.lateFeePercent : null,
     lateFeeCents: fees.lateFeeType === 'FIXED' ? fees.lateFeeCents : null,
     tippingEnabled: fees.tippingEnabled,
-    requirePaymentBeforeDue: fees.requirePaymentBeforeDue,
+    // Invoices Review 2 I-D01: payment before the due date is withdrawn. A save no longer writes
+    // it (an older screen may still send it), and nothing reads the stored value.
   };
 };
 

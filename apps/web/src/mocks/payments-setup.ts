@@ -20,6 +20,8 @@ import { mockDelay } from '../lib/mock';
  * `stage` starts the firm at another point (a `PaymentsSetupStage`, the same values the page reads
  * from `paymentsSetupStage()`), to try each state of the page. In apps/web/.env.local set
  * NEXT_PUBLIC_API_MOCK_PAYMENTS_STAGE=IN_REVIEW (for example); anything else starts NOT_CONNECTED.
+ * A spec starts its own tab at a stage with sessionStorage 'firmivra-mock:payments-stage' (read
+ * on the first call), so the other specs keep NOT_CONNECTED.
  */
 const stageSetting = process.env.NEXT_PUBLIC_API_MOCK_PAYMENTS_STAGE;
 
@@ -48,6 +50,16 @@ function setupAt(stage: PaymentsSetupStage): PaymentsSetup {
   };
   return { ...setup, requirementsDue: setupRequirementsDue(setup) };
 }
+
+/** The tab's own stage (a spec's sessionStorage 'firmivra-mock:payments-stage'), if any. */
+const tabStage = (): PaymentsSetupStage | undefined => {
+  try {
+    const asked = sessionStorage.getItem('firmivra-mock:payments-stage');
+    return PaymentsSetupStage.options.find((stage) => stage === asked);
+  } catch {
+    return undefined;
+  }
+};
 
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
@@ -78,8 +90,14 @@ export function createPaymentsSetupMock(
     };
   };
 
+  let started = false;
   const allowed = async (ownerOnly: boolean) => {
     await mockDelay();
+    if (!started) {
+      started = true;
+      const stage = tabStage();
+      if (stage) setup = setupAt(stage);
+    }
     if (options.role === 'STAFF' || (ownerOnly && options.role === 'ADMIN')) {
       throw fail(403, 'FORBIDDEN', 'This action is not permitted');
     }

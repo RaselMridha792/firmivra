@@ -1,6 +1,14 @@
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { CheckCircle, CurrencyDollar, UserPlus, UsersThree, Users } from '@phosphor-icons/react';
+import {
+  CheckCircle,
+  Clock,
+  CurrencyDollar,
+  Prohibit,
+  UserPlus,
+  UsersThree,
+  Users,
+} from '@phosphor-icons/react';
 import { Avatar, AvatarGroup, Badge, Button, KpiCard, PageHeader, Toggle } from './index';
 
 const meta = { title: 'Design System/Display', parameters: { layout: 'padded' } } satisfies Meta;
@@ -24,6 +32,12 @@ export const Badges: Story = {
       </Badge>
       <Badge tone="purple">Business</Badge>
       <Badge>Individual</Badge>
+      <Badge tone="teal" icon={Clock}>
+        Scheduled
+      </Badge>
+      <Badge tone="navy" icon={Prohibit}>
+        Canceled
+      </Badge>
     </div>
   ),
 };
