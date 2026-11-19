@@ -7,7 +7,7 @@ This file maps every row of Octavia's Business Advisory Review Two to the PR tha
 **Where the tests are**
 - API e2e: `apps/api/test/e2e/advisory.e2e.test.ts`, `advisory-portal.e2e.test.ts`, `advisory-reports.e2e.test.ts`, `client-profile.e2e.test.ts`, `scheduling.e2e.test.ts`
 - Isolation cases: `apps/api/test/isolation/cases/advisory.ts`
-- Mock specs: `apps/web/e2e/mock/` `r1-advisory-b1`, `r0-business-advisory`, `r56-advisory-review`, `r55-portal-advisory`, `r55-advisory-resource-preview`
+- Mock specs: `apps/web/e2e/mock/` `r1-advisory-b1`, `r1-advisory-b2`, `r0-business-advisory`, `r56-advisory-review`, `r55-portal-advisory`, `r55-advisory-resource-preview`
 
 | Row | Code status | PR | Test |
 |---|---|---|---|
@@ -27,18 +27,18 @@ This file maps every row of Octavia's Business Advisory Review Two to the PR tha
 | A-14 Portal invitation flow | Her retest | before Review Two | |
 | A-15 Document year and category | Done (her Verified) | before Review Two | Her pass |
 | A-NEW1 Client entity type as a list with Other/Specify | Done | this PR | mock `r1-advisory-b1` "A-NEW1" |
-| A-NEW2 Module-level View History | **GAP**: next batch | | |
+| A-NEW2 Module-level View History | Done | batch B | e2e `advisory` "A-NEW2: the module history…"; mock `r1-advisory-b2` "A-NEW2" |
 | A-X01 EIN status apart from the number | Built, her retest | #1586 | e2e `client-profile` "A-X01"; mock "A-X01" |
 | A-X02 Firm-managed industry list | **GAP**: needs schema (db PR) | | |
 | A-X03 Helper text and assessment fields | Her retest | before Review Two | |
 | A-X04 Recommendation suggestions while typing | Built, her retest | #1586 | mock "A-X04" |
 | A-X05 In-app confirmations | Built, her retest | #1586 | mock "A-X05" |
 | A-X06 Add Business or Personal Profile | Done | this PR | mock `r1-advisory-b1` "A-X06" |
-| A-X07 SMS consent and recurrence | **GAP**: next batch | | |
+| A-X07 SMS consent and recurrence | Done | batch B | e2e `scheduling` "A-X07: refuses a text reminder…"; mock `r1-advisory-b2` "A-X07" (both) |
 | A-X08 Plans Archive & History | Done | this PR | mock `r1-advisory-b1` "A-X08" |
 | A-X09 Financial corrections, audited | Done | this PR | e2e `advisory` "A-X09: corrects a row…"; mock "A-X09"; isolation (`corrects.snapshotId`) |
 | A-X10 Add/Edit Resource | Partial: format and preview done (#1635, B28); the firm's own resources **GAP** (needs schema) | #1635 | e2e `advisory-portal` (B28); mock `r55-advisory-resource-preview` |
-| A-X11 Tasks, progress notes, Cancel Meeting | **GAP**: next batch (progress notes need schema) | | |
+| A-X11 Tasks, progress notes, Cancel Meeting | Partial: Edit Action Item and Cancel Meeting done; progress notes **GAP** (schema in #1652, then batch D) | batch B | e2e `advisory` "A-X11: Edit Action Item…"; mock `r1-advisory-b2` "A-X11" (both) |
 | A-X12 Note audience, client files and history | Built, her retest | #1586, #1629 (B32) | mock "A-X12"; mock `r55-note-share` |
 | A-X13 Recipient and channel before a send | Done | this PR | e2e `advisory` (send-preview); mock "A-X13"; isolation (`send-preview`) |
 | A-X14 Focus categories, Services & Deliverables | **GAP**: next batch | | |
