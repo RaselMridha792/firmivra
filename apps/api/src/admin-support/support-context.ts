@@ -249,6 +249,45 @@ export async function loadTeam(
 }
 
 /** Everything a Support request needs, in the caller's admin scope. */
+/** The SLA clock from Support Settings and its holidays (defaults when nothing is saved). */
+function hoursOf(
+  settings: {
+    opensAt: Date;
+    closesAt: Date;
+    workingDays: number[];
+    timeZone: string;
+    slaMode: string;
+  } | null,
+  holidays: readonly { date: Date }[],
+): SupportHours {
+  const opens = settings ? hhmm(settings.opensAt) : '09:00';
+  const closes = settings ? hhmm(settings.closesAt) : '17:00';
+  const working = new Set((settings?.workingDays ?? [1, 2, 3, 4, 5]).map(dayOfIso));
+  return {
+    timeZone: settings?.timeZone ?? 'America/New_York',
+    days: [0, 1, 2, 3, 4, 5, 6].map((day) => ({
+      day,
+      open: working.has(day),
+      start: opens,
+      end: closes,
+    })),
+    holidays: holidays.map((h) => h.date.toISOString().slice(0, 10)),
+    clock: settings?.slaMode === 'CALENDAR' ? 'CALENDAR' : 'BUSINESS',
+  };
+}
+
+/**
+ * The SLA clock for a write outside a Super Admin's request (SA-FRM-F06: a firm's answer moves its
+ * request back to Open in platform scope): Support Settings' hours and holidays.
+ */
+export async function loadSupportHours(tx: TxClient): Promise<SupportHours> {
+  const [settings, holidays] = await Promise.all([
+    tx.supportSettings.findUnique({ where: { id: 1 } }),
+    tx.supportHoliday.findMany({ orderBy: { date: 'asc' }, select: { date: true } }),
+  ]);
+  return hoursOf(settings, holidays);
+}
+
 export async function loadContext(
   tx: TxClient,
   adminUserId: string,
@@ -265,20 +304,7 @@ export async function loadContext(
   ]);
   const me = team.agents.find((a) => a.id === adminUserId);
   if (!me) throw supportError(403, 'FORBIDDEN', 'Not a support team member');
-  const opens = settings ? hhmm(settings.opensAt) : '09:00';
-  const closes = settings ? hhmm(settings.closesAt) : '17:00';
-  const working = new Set((settings?.workingDays ?? [1, 2, 3, 4, 5]).map(dayOfIso));
-  const hours: SupportHours = {
-    timeZone: settings?.timeZone ?? 'America/New_York',
-    days: [0, 1, 2, 3, 4, 5, 6].map((day) => ({
-      day,
-      open: working.has(day),
-      start: opens,
-      end: closes,
-    })),
-    holidays: holidays.map((h) => h.date.toISOString().slice(0, 10)),
-    clock: settings?.slaMode === 'CALENDAR' ? 'CALENDAR' : 'BUSINESS',
-  };
+  const hours = hoursOf(settings, holidays);
   return {
     now,
     me,

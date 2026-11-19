@@ -1,6 +1,6 @@
 'use client';
 
-import type { FirmApplicationEvent, FirmApplicationRecord } from '@firmivra/types';
+import type { BusinessStatus, FirmApplicationEvent, FirmApplicationRecord } from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import { CircleCheck, Clock3, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -148,8 +148,17 @@ export function Timeline({ application }: { application: FirmApplicationRecord }
   );
 }
 
+/** SA-FRM-Y06: each feature's label by the firm's status; never "After setup" once it is closed. */
+const FEATURE_LABELS: Record<BusinessStatus, string> = {
+  ACTIVE: 'Active',
+  PENDING_SETUP: 'After setup',
+  SUSPENDED: 'Suspended',
+  CLOSED: 'Closed',
+};
+
 /** What an approved firm has switched on in the beta: on once the owner finished setup. */
-export function ActiveFeatures({ active }: { active: boolean }) {
+export function ActiveFeatures({ status }: { status: BusinessStatus }) {
+  const active = status === 'ACTIVE';
   return (
     <ul
       className={`mt-4 flex flex-col gap-1 rounded-control p-3 text-sm ${active ? 'bg-success-soft' : 'bg-canvas'}`}
@@ -166,7 +175,7 @@ export function ActiveFeatures({ active }: { active: boolean }) {
             <span
               className={`rounded-pill px-2 py-0.5 text-xs font-semibold ${active ? 'bg-surface text-success' : 'bg-surface text-warning'}`}
             >
-              {active ? 'Active' : 'After setup'}
+              {FEATURE_LABELS[status]}
             </span>
           </li>
         ),

@@ -43,7 +43,8 @@ export const SUPPORT_UPLOAD_LABEL = 'fv-support-upload-v1';
 const UPLOAD_SECONDS = 900;
 
 const SupportUploadClaim = z.object({
-  pool: z.literal('ADMIN'),
+  /** ADMIN: the Support team's; STAFF: a firm Owner's answer to a request (SA-FRM-F06). */
+  pool: z.enum(['ADMIN', 'STAFF']),
   userId: z.uuid(),
   businessId: z.uuid(),
   /** tenant/{businessId}/support/{uuid}, chosen by the API. */
@@ -86,6 +87,12 @@ export interface StoredFile {
   claim: SupportUploadClaim;
 }
 
+/** What a file is said to be, before upload (the admin form's firmId aside). */
+type FileDeclaration = Pick<
+  z.output<typeof CreateSupportUploadRequest>,
+  'fileName' | 'contentType' | 'sizeBytes' | 'sha256'
+>;
+
 /**
  * Files on Support tickets (R60 on R0's B2): the documents module's three steps, under the firm's
  * own prefix tenant/{businessId}/support/. `ticket` answers where to PUT; the ticket action that
@@ -121,7 +128,25 @@ export class SupportFilesService implements ScanResultHandler, OnModuleInit {
       select: { id: true },
     });
     if (!firm) throw notFound('Firm');
-    const key = `tenant/${firm.id}/support/${randomUUID()}`;
+    return this.presign('ADMIN', this.admin.adminUserId, firm.id, body);
+  }
+
+  /**
+   * SA-FRM-F06: step 1 for a firm Owner's answer to Firmivra's request, under the firm's own
+   * prefix (the firm is the request's tenant, never the body's). The caller checked the request
+   * is one of the firm's.
+   */
+  firmTicket(businessId: string, userId: string, body: FileDeclaration): Promise<UploadTicket> {
+    return this.presign('STAFF', userId, businessId, body);
+  }
+
+  private async presign(
+    pool: SupportUploadClaim['pool'],
+    userId: string,
+    businessId: string,
+    body: FileDeclaration,
+  ): Promise<UploadTicket> {
+    const key = `tenant/${businessId}/support/${randomUUID()}`;
     // At most 10 MB (SUPPORT_ATTACHMENT_LIMITS): always one PUT.
     const put = onlyPut(
       await this.s3(() =>
@@ -134,9 +159,9 @@ export class SupportFilesService implements ScanResultHandler, OnModuleInit {
       ),
     );
     const claim: SupportUploadClaim = {
-      pool: 'ADMIN',
-      userId: this.admin.adminUserId,
-      businessId: firm.id,
+      pool,
+      userId,
+      businessId,
       key,
       fileName: body.fileName,
       contentType: body.contentType,
@@ -153,11 +178,41 @@ export class SupportFilesService implements ScanResultHandler, OnModuleInit {
    * the stored bytes are what was declared. Call before the action's transaction (S3 is outside).
    */
   async check(uploadTokens: readonly string[], businessId: string): Promise<SupportUploadClaim[]> {
+    return this.verify(uploadTokens, businessId, 'ADMIN', this.admin.adminUserId, (keys) =>
+      this.admin.db.supportTicketAttachment.count({ where: { s3Key: { in: keys } } }),
+    );
+  }
+
+  /**
+   * SA-FRM-F06: `check` for a firm Owner's answer: each token is this member's, for this firm
+   * (from the tenant context) and unused, and the stored bytes are what was declared. The used
+   * check reads the firm's own files (its scope sees every file of its tickets but notes').
+   */
+  firmCheck(
+    uploadTokens: readonly string[],
+    businessId: string,
+    userId: string,
+  ): Promise<SupportUploadClaim[]> {
+    return this.verify(uploadTokens, businessId, 'STAFF', userId, (keys) =>
+      this.database
+        .forBusiness(businessId)
+        .supportTicketAttachment.count({ where: { businessId, s3Key: { in: keys } } }),
+    );
+  }
+
+  private async verify(
+    uploadTokens: readonly string[],
+    businessId: string,
+    pool: SupportUploadClaim['pool'],
+    userId: string,
+    usedCount: (keys: string[]) => Promise<number>,
+  ): Promise<SupportUploadClaim[]> {
     const claims: SupportUploadClaim[] = [];
     for (const token of uploadTokens) {
-      const claim = (await this.tokens.open(token, 'ADMIN'))?.value;
+      const claim = (await this.tokens.open(token, pool))?.value;
       if (
-        claim?.userId !== this.admin.adminUserId ||
+        claim?.pool !== pool ||
+        claim.userId !== userId ||
         claim.businessId !== businessId ||
         !KEY.test(claim.key)
       )
@@ -166,11 +221,7 @@ export class SupportFilesService implements ScanResultHandler, OnModuleInit {
       claims.push(claim);
     }
     if (claims.length === 0) return claims;
-    const used = await this.admin.db.supportTicketAttachment.findMany({
-      where: { s3Key: { in: claims.map((c) => c.key) } },
-      select: { id: true },
-    });
-    if (used.length > 0) throw refusal('UPLOAD_EXPIRED');
+    if ((await usedCount(claims.map((c) => c.key))) > 0) throw refusal('UPLOAD_EXPIRED');
     for (const claim of claims) {
       const refused = await this.checkStored(claim);
       if (refused) {
@@ -224,6 +275,20 @@ export class SupportFilesService implements ScanResultHandler, OnModuleInit {
       where: { id: { in: [...ids] }, scanStatus: 'PENDING' },
       data: { scanStatus: 'CLEAN', scannedAt: new Date() },
     });
+  }
+
+  /**
+   * SA-FRM-F06: `afterInsert` for a firm's answer: locally the scanner's own write (platform
+   * scope, as `handle` records a result), only for the firm's PENDING files just added.
+   */
+  async firmAfterInsert(businessId: string, ids: readonly string[]): Promise<void> {
+    if (this.config.scanMode !== 'local' || ids.length === 0) return;
+    await this.database.withScope({ kind: 'platform' }, (tx) =>
+      tx.supportTicketAttachment.updateMany({
+        where: { businessId, id: { in: [...ids] }, scanStatus: 'PENDING' },
+        data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+      }),
+    );
   }
 
   /** A 5-minute link to a CLEAN file whose stored bytes are still the confirmed ones. */
