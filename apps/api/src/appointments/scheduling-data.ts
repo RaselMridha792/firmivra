@@ -30,7 +30,10 @@ export const schedulingSelect = {
     select: { id: true, status: true, form: { select: { title: true } } },
   },
   serviceId: true,
-  // Review 2 (TX-F06): Link to Tax Return, kept as the return's engagement (its newest return).
+  // F06 (R56, Nov 20): the exact tax return the appointment is for.
+  taxReturn: { select: { id: true, taxYear: true, formType: true } },
+  // Review 2 (TX-F06): before F06, Link to Tax Return was kept as the return's engagement (its
+  // newest return): still read for an appointment saved that way.
   engagement: {
     select: {
       taxReturns: {
@@ -253,12 +256,17 @@ export function toRecord(
     attendees: row.attendees.map((a) => ({ id: a.clientId, name: a.client.displayName })),
     equipment: row.equipment.map((e) => ({ id: e.equipment.id, name: e.equipment.name })),
     related: {
-      taxReturn: row.engagement?.taxReturns[0]
+      taxReturn: row.taxReturn
         ? {
-            id: row.engagement.taxReturns[0].id,
-            name: `${row.engagement.taxReturns[0].taxYear} ${row.engagement.taxReturns[0].formType ?? 'Tax'} Return`,
+            id: row.taxReturn.id,
+            name: `${row.taxReturn.taxYear} ${row.taxReturn.formType ?? 'Tax'} Return`,
           }
-        : null,
+        : row.engagement?.taxReturns[0]
+          ? {
+              id: row.engagement.taxReturns[0].id,
+              name: `${row.engagement.taxReturns[0].taxYear} ${row.engagement.taxReturns[0].formType ?? 'Tax'} Return`,
+            }
+          : null,
       bookkeepingEngagement: null,
       invoice: null,
       task: null,

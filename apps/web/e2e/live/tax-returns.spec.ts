@@ -935,15 +935,19 @@ test.describe('owner', () => {
     await expect(federal).toContainText('$2.35', { timeout: 60_000 });
   });
 
-  row('F29-N', 'Tax statuses settings offer Exact or Round to the dollar', async (page) => {
-    await page.goto(app('/settings/tax-statuses'));
-    const rounding = page.getByTestId('amount-rounding').getByLabel('Refunds and amounts due');
-    await expect(rounding).toBeVisible({ timeout: 60_000 });
-    await expect(rounding.locator('option')).toHaveCount(2, { timeout: 30_000 });
-    const options = (await rounding.locator('option').allTextContents()).join(' | ');
-    expect(options).toMatch(/Exact/);
-    expect(options).toMatch(/Round to the dollar/);
-  });
+  row(
+    'F29-N',
+    'Tax statuses settings offer Keep exactly as entered or Round up figures',
+    async (page) => {
+      await page.goto(app('/settings/tax-statuses'));
+      const rounding = page.getByTestId('amount-rounding').getByLabel('Refunds and amounts due');
+      await expect(rounding).toBeVisible({ timeout: 60_000 });
+      await expect(rounding.locator('option')).toHaveCount(2, { timeout: 30_000 });
+      const options = (await rounding.locator('option').allTextContents()).join(' | ');
+      expect(options).toMatch(/Keep exactly as entered/);
+      expect(options).toMatch(/Round up figures/);
+    },
+  );
 
   row('F36', 'Tax statuses: Maps to per label and Where returns appear', async (page) => {
     await page.goto(app('/settings/tax-statuses'));

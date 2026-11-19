@@ -399,6 +399,8 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
             ...(detail.engagement ? { engagementId: detail.engagement.id } : {}),
             // F03c: the return's year, as the workspace's Create Task does.
             period: `Tax year ${detail.taxYear}`,
+            // F03 (R56): and this exact return, with or without its service.
+            taxReturnId: detail.id,
           })}
           className={button}
         >

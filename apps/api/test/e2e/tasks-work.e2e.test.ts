@@ -2039,3 +2039,88 @@ describe('Related To by record type and a custom note (Tasks Review Two T-C10)',
     ]);
   });
 });
+
+describe('a task names its exact tax return (Tax Returns Review Two F03)', () => {
+  /** A return of the client with no service, as Create New Return makes it. */
+  const taxReturn = (firm: 'a' | 'b', clientId: string, taxYear: number) =>
+    inFirm(
+      firm,
+      async (tx) =>
+        (
+          await tx.taxReturn.create({
+            data: {
+              businessId: firms[firm],
+              clientId,
+              taxYear,
+              filingType: 'INDIVIDUAL',
+              formType: '1040',
+            },
+            select: { id: true },
+          })
+        ).id,
+    );
+
+  it('links a return without a service, shows it, refuses another client’s or firm’s, and clears', async () => {
+    const r2024 = await taxReturn('a', clients.c1, 2024);
+    const r2025 = await taxReturn('a', clients.c1, 2025);
+    const t = await create({
+      clientId: clients.c1,
+      title: mark('Fix the 2025 return'),
+      taxReturnId: r2025,
+    });
+    expect(t.taxReturn).toEqual({ id: r2025, name: 'Tax return 2025 (1040)' });
+    expect(t.engagement).toBeNull();
+    expect((await get(t.id)).taxReturn?.id).toBe(r2025);
+    // Another return of the same client: the task names that one instead.
+    expect((await patch(t.id, { taxReturnId: r2024 })).taxReturn?.name).toBe(
+      'Tax return 2024 (1040)',
+    );
+    // Another client's return, or another firm's: not found.
+    const theirs = await taxReturn('a', clients.c2, 2025);
+    expectError(
+      await call('post', '/tasks', people.ownerA, {
+        clientId: clients.c1,
+        title: mark('Wrong return'),
+        taxReturnId: theirs,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    const firmB = await taxReturn('b', clients.cB, 2025);
+    expectError(
+      await call('patch', `/tasks/${t.id}`, people.ownerA, { taxReturnId: firmB }),
+      404,
+      'NOT_FOUND',
+    );
+    expect((await patch(t.id, { taxReturnId: null })).taxReturn).toBeNull();
+  });
+
+  it('a draft keeps the return through publish; another client drops it', async () => {
+    const r = await taxReturn('a', clients.c1, 2023);
+    const saved = ok(
+      await call('post', '/tasks/drafts', people.ownerA, {
+        clientId: clients.c1,
+        taxReturnId: r,
+        title: mark('Draft for the 2023 return'),
+      }),
+      201,
+    ) as { id: string; taxReturn: { id: string } | null };
+    expect(saved.taxReturn?.id).toBe(r);
+    const published = detail(
+      await call('post', `/tasks/drafts/${saved.id}/publish`, people.ownerA, {}),
+    );
+    expect(published.taxReturn?.id).toBe(r);
+    const other = ok(
+      await call('post', '/tasks/drafts', people.ownerA, {
+        clientId: clients.c1,
+        taxReturnId: r,
+        title: mark('Draft moved'),
+      }),
+      201,
+    ) as { id: string };
+    const moved = ok(
+      await call('patch', `/tasks/drafts/${other.id}`, people.ownerA, { clientId: clients.c2 }),
+    ) as { taxReturn: unknown };
+    expect(moved.taxReturn).toBeNull();
+  });
+});

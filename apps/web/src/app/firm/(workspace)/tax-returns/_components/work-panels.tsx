@@ -531,6 +531,8 @@ export function UpcomingTasks({ detail }: { detail: TaxReturnDetail; onNotice: N
     clientId: detail.client.id,
     ...(detail.engagement ? { engagementId: detail.engagement.id } : {}),
     period: `Tax year ${detail.taxYear}`,
+    // Tax Returns Review Two F03 (R56): and this exact return, with or without its service.
+    taxReturnId: detail.id,
   });
   return (
     <Panel

@@ -33,12 +33,14 @@ import type {
   UpdateDetailsBody,
 } from './workspace.input.js';
 import {
+  backToReviewAfterChange,
   blockersOf,
   canMoveTo,
   conflict,
   detailSelect,
   invalid,
   isBackward,
+  type MaterialField,
   returnReach,
   rowSelect,
   toDetail,
@@ -741,6 +743,25 @@ export class TaxReturnWorkspaceService {
         { fields: fields.sort() },
         { businessId },
       );
+      // CR-3 (R56): a change of form type or filing status after approval: back to review.
+      const material: MaterialField[] = [
+        ...(body.formType !== undefined && (body.formType ?? null) !== (r.formType ?? null)
+          ? (['formType'] as const)
+          : []),
+        ...(body.filingStatus !== undefined &&
+        (body.filingStatus ?? null) !== (r.filingStatus ?? null)
+          ? (['filingStatus'] as const)
+          : []),
+      ];
+      if (await backToReviewAfterChange(tx, businessId, r, userId, material)) {
+        await this.audit.logIn(
+          tx,
+          'tax_return.status_changed',
+          { type: 'tax_return', id },
+          { from: r.workflowStatus, to: 'READY_FOR_REVIEW', changed: material },
+          { businessId },
+        );
+      }
     });
     return this.get(tenant, userId, id, false);
   }
