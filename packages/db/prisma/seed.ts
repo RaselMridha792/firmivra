@@ -19,6 +19,7 @@ import {
   SEED_TAX_RETURN_IDS,
   SEED_INTAKE_IDS,
   SEED_PORTAL_TAB_IDS,
+  SEED_ADVISORY_REVIEW2_IDS,
   SEED_NOTIFICATION_IDS,
   SEED_APPOINTMENT_TYPES,
   SEED_CALENDAR_IDS,
@@ -2112,6 +2113,17 @@ async function main() {
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
     seedR39(tx, businesses.lvp),
   );
+  // Business Advisory Review Two (A-X02, A-X10, A-X11): LVP's rows, after its advisory client
+  // (seedR39), which they reuse when it is the sample client's.
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
+    seedAdvisoryReview2(
+      tx,
+      businesses.lvp,
+      SEED_CLIENT_IDS.lvp,
+      SEED_USERS.lvpOwner.id,
+      SEED_ADVISORY_REVIEW2_IDS.lvp,
+    ),
+  );
 
   // The work modules (Tasks, Compliance, Automations, Bookkeeping, Tax Planning), after the rows
   // they point at.
@@ -2799,12 +2811,13 @@ async function main() {
       },
     });
     await seedEsignDraft(tx, businesses.testFirmB);
-    // Business Advisory Review Two (A-X02, A-X10, A-X11): Test Firm B's rows only.
+    // Business Advisory Review Two (A-X02, A-X10, A-X11): Test Firm B's own rows.
     await seedAdvisoryReview2(
       tx,
       businesses.testFirmB,
       SEED_CLIENT_IDS.testFirmB,
       SEED_USERS.firmBOwner.id,
+      SEED_ADVISORY_REVIEW2_IDS.testFirmB,
     );
   });
 

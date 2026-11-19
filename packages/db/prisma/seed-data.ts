@@ -201,20 +201,34 @@ export const SEED_PORTAL_TAB_IDS = {
 } as const;
 
 /**
- * R1 (Business Advisory Review Two, r1_advisory_review2): Test Firm B's own industry list
+ * R1 (Business Advisory Review Two, r1_advisory_review2): per firm, its own industry list
  * (A-X02), two resources of its own, one with an uploaded file (A-X10), and an action item with a
- * progress note (A-X11). Test Firm B only, so re-seeding keeps one of each.
+ * progress note (A-X11), so re-seeding keeps one of each. Local and CI fixtures: no deploy runs
+ * this seed.
  */
 export const SEED_ADVISORY_REVIEW2_IDS = {
-  industryRetail: '00000000-0000-4011-8000-000000000001',
-  industryConstruction: '00000000-0000-4011-8000-000000000002',
-  industryArchived: '00000000-0000-4011-8000-000000000003',
-  advisoryClient: '00000000-0000-4011-8000-000000000004',
-  actionItem: '00000000-0000-4011-8000-000000000005',
-  actionItemNote: '00000000-0000-4011-8000-000000000006',
-  resourceLink: '00000000-0000-4011-8000-000000000007',
-  resourceFile: '00000000-0000-4011-8000-000000000008',
-  resourceWithFile: '00000000-0000-4011-8000-000000000009',
+  lvp: {
+    industryRetail: '00000000-0000-4011-8000-000000000011',
+    industryConstruction: '00000000-0000-4011-8000-000000000012',
+    industryArchived: '00000000-0000-4011-8000-000000000013',
+    advisoryClient: '00000000-0000-4011-8000-000000000014',
+    actionItem: '00000000-0000-4011-8000-000000000015',
+    actionItemNote: '00000000-0000-4011-8000-000000000016',
+    resourceLink: '00000000-0000-4011-8000-000000000017',
+    resourceFile: '00000000-0000-4011-8000-000000000018',
+    resourceWithFile: '00000000-0000-4011-8000-000000000019',
+  },
+  testFirmB: {
+    industryRetail: '00000000-0000-4011-8000-000000000001',
+    industryConstruction: '00000000-0000-4011-8000-000000000002',
+    industryArchived: '00000000-0000-4011-8000-000000000003',
+    advisoryClient: '00000000-0000-4011-8000-000000000004',
+    actionItem: '00000000-0000-4011-8000-000000000005',
+    actionItemNote: '00000000-0000-4011-8000-000000000006',
+    resourceLink: '00000000-0000-4011-8000-000000000007',
+    resourceFile: '00000000-0000-4011-8000-000000000008',
+    resourceWithFile: '00000000-0000-4011-8000-000000000009',
+  },
 } as const;
 
 /** Fixed ids of seeded intakes and the Begin Online lead, so re-seeding keeps one of each. */
