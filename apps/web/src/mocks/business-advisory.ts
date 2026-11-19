@@ -4,6 +4,8 @@ import {
   AddAdvisoryWorkstreamRequest,
   AdvisoryActionItemsQuery,
   AdvisoryActivityQuery,
+  AddAdvisoryActionNoteRequest,
+  type AdvisoryActionNote,
   AdvisoryClientsQuery,
   AdvisoryFinancialsQuery,
   AdvisoryGoalsQuery,
@@ -542,6 +544,8 @@ export function createAdvisoryMock({
   const milestones: AdvisoryMilestone[] = [];
   const recommendations: AdvisoryRecommendationRow[] = [];
   const actions: ActionState[] = [];
+  // A-X11: the action items' progress notes (newest last here).
+  const actionNotes: (AdvisoryActionNote & { actionItemId: string })[] = [];
   const meetings: (AdvisoryMeetingRow & { advisoryClientId: string })[] = [];
   const activity: (AdvisoryActivity & { advisoryClientId: string })[] = [];
   const settings = {
@@ -1002,6 +1006,15 @@ export function createAdvisoryMock({
     act(7, 3, 'Request lender quotes', 'STAFF', ADAM, -5, 'IN_PROGRESS', 'HIGH');
     act(8, 4, 'Map the invoicing process', 'STAFF', SAM, 3, 'IN_PROGRESS');
     act(9, 5, 'Collect two years of tax returns', 'CLIENT', null, 12, 'NOT_STARTED');
+    // A-X11: a progress note on the first item.
+    actionNotes.push({
+      id: uid('a710', 1),
+      actionItemId: uid('a700', 1),
+      body: 'Gathered the last two years of statements for the lender.',
+      status: 'IN_PROGRESS',
+      author: SAM,
+      at: at(-3),
+    });
 
     // Meetings (Appointments tagged Business Advisory).
     const meet = (
@@ -2491,6 +2504,45 @@ export function createAdvisoryMock({
           status === 'DONE' ? 'Action item done' : 'Action item updated',
         );
         return actionRow(a);
+      }),
+
+    // A-X11: progress notes, as the API: newest first, the firm's only.
+    actionNotes: (actionItemId) =>
+      run(() => {
+        const a = actions.find((x) => x.id === actionItemId);
+        if (!a || !visibleIds().has(a.advisoryClientId)) throw notFound();
+        return {
+          items: actionNotes
+            .filter((n) => n.actionItemId === actionItemId)
+            .sort((x, y) => y.at.localeCompare(x.at))
+            .map(({ actionItemId: _a, ...n }) => n),
+        };
+      }),
+    addActionNote: (actionItemId, body) =>
+      run(() => {
+        const req = parseInput(AddAdvisoryActionNoteRequest, body);
+        const a = actions.find((x) => x.id === actionItemId);
+        if (!a || !visibleIds().has(a.advisoryClientId)) throw notFound();
+        if (req.status && req.status !== a.status) {
+          a.status = req.status;
+          a.completedAt = req.status === 'DONE' ? nowIso() : null;
+          a.updatedAt = nowIso();
+        }
+        actionNotes.push({
+          id: id('a710'),
+          actionItemId,
+          body: req.body,
+          status: a.status,
+          author: signedIn,
+          at: nowIso(),
+        });
+        log(a.advisoryClientId, 'advisory.action_item_note_added', 'Progress note added');
+        return {
+          items: actionNotes
+            .filter((n) => n.actionItemId === actionItemId)
+            .sort((x, y) => y.at.localeCompare(x.at))
+            .map(({ actionItemId: _a, ...n }) => n),
+        };
       }),
 
     // ----- Meetings, resources, settings -----

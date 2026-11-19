@@ -495,6 +495,12 @@ export const cases: CaseModule['cases'] = {
       title: 'Fake renamed action',
     },
   },
+  // A-X11: progress notes.
+  [`GET ${BASE}/action-items/:id/notes`]: { params: { id: 'advisoryActionItem' } },
+  [`POST ${BASE}/action-items/:id/notes`]: {
+    params: { id: 'advisoryActionItem' },
+    body: { body: 'Fake progress note' },
+  },
 
   [`POST ${BASE}/resources/:key/send`]: {
     params: {},

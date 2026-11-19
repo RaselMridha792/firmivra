@@ -6,6 +6,8 @@ import {
   AdvisoryActionItemPage,
   AdvisoryActionItemRow,
   AdvisoryActionItemsQuery,
+  AdvisoryActionNoteList,
+  AddAdvisoryActionNoteRequest,
   AdvisoryActivityPage,
   AdvisoryActivityQuery,
   AdvisoryClientDetail,
@@ -342,6 +344,19 @@ export function createAdvisoryClient(request: ApiRequest) {
         method: 'PATCH',
         body: parseInput(UpdateAdvisoryActionItemRequest, body),
       }),
+    /** A-X11: the item's progress notes, newest first. */
+    actionNotes: async (id: string): Promise<AdvisoryActionNoteList> =>
+      request(AdvisoryActionNoteList, `${actionItem(id)}/notes`),
+    /** A-X11: adds a progress note (and, optionally, the item's new status); the notes after it. */
+    addActionNote: async (
+      id: string,
+      body: AddAdvisoryActionNoteRequest,
+    ): Promise<AdvisoryActionNoteList> =>
+      request(
+        AdvisoryActionNoteList,
+        `${actionItem(id)}/notes`,
+        post(parseInput(AddAdvisoryActionNoteRequest, body)),
+      ),
 
     // ----- Meetings, resources, settings -----
     /** The Reports tab: live counts, by status, services, workload; the financial trend with the permission. */

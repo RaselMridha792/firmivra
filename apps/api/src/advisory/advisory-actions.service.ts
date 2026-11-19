@@ -3,6 +3,7 @@ import type { Database, Prisma } from '@firmivra/db';
 import type {
   AdvisoryActionItemPage,
   AdvisoryActionItemRow,
+  AdvisoryActionNoteList,
   AdvisoryRecommendationPage,
   AdvisoryRecommendationRow,
 } from '@firmivra/types';
@@ -11,11 +12,20 @@ import { AuditService } from '../audit/audit.service.js';
 import { likeEscape } from '../clients/clients.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
-import { checkAssignee, notFound, sentFields, toDay } from '../workspaces/common.js';
+import {
+  checkAssignee,
+  conflict,
+  memberNames,
+  memberRef,
+  notFound,
+  sentFields,
+  toDay,
+} from '../workspaces/common.js';
 import { type AdvisoryCtx, AdvisoryReadService } from './advisory-read.service.js';
 import { AdvisoryGoalsService } from './advisory-goals.service.js';
 import type {
   ActionItemsQuery,
+  AddActionNoteBody,
   CreateActionItemBody,
   CreateRecommendationBody,
   RecommendationsQuery,
@@ -371,6 +381,109 @@ export class AdvisoryActionsService {
       return (
         await this.read.actionRows(ctx, [await this.loadAction(ctx, id)])
       )[0] as AdvisoryActionItemRow;
+    });
+  }
+
+  // ---------- Progress notes (A-X11) ----------
+
+  private async noteList(ctx: AdvisoryCtx, id: string): Promise<AdvisoryActionNoteList> {
+    const rows = await ctx.tx.advisoryActionItemNote.findMany({
+      where: { businessId: ctx.businessId, actionItemId: id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 200,
+      select: { id: true, body: true, status: true, authorUserId: true, createdAt: true },
+    });
+    const names = await memberNames(
+      ctx.tx,
+      ctx.businessId,
+      rows.map((r) => r.authorUserId),
+    );
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        body: r.body,
+        status: r.status,
+        author: memberRef(names, r.authorUserId),
+        at: r.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * A-X11 (Business Advisory Review Two, B30): an action item's progress notes, newest first,
+   * for whoever reaches its client. The firm's only: the portal never shows them.
+   */
+  actionNotes(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+  ): Promise<AdvisoryActionNoteList> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      await this.loadAction(ctx, id);
+      return this.noteList(ctx, id);
+    });
+  }
+
+  /**
+   * A-X11: adds a progress note. With `status`, the item moves to it first (as Edit's status,
+   * audited as a change of the item), so the note records the new status; the database checks a
+   * note's status is its item's. Needs "Manage goals and tasks"; an archived client takes none.
+   * Audited without the words.
+   */
+  addActionNote(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof AddActionNoteBody>,
+  ): Promise<AdvisoryActionNoteList> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.manageGoals) throw advErrors.forbidden();
+      const { tx } = ctx;
+      const cur = await this.loadAction(ctx, id);
+      const owner = await tx.advisoryClient.findFirstOrThrow({
+        where: { businessId, id: cur.advisoryClientId },
+        select: { archivedAt: true },
+      });
+      if (owner.archivedAt) throw advErrors.clientArchived();
+      const moved = body.status !== undefined && body.status !== cur.status;
+      const status = body.status ?? cur.status;
+      if (moved) {
+        await tx.advisoryActionItem.update({
+          where: { id },
+          data: {
+            status,
+            completedAt: status === 'DONE' ? (cur.completedAt ?? new Date()) : null,
+          },
+        });
+        await this.audit.logIn(
+          tx,
+          'advisory_action_item.updated',
+          { type: 'advisory_action_item', id },
+          { advisoryClientId: cur.advisoryClientId, fields: ['status'] },
+        );
+      }
+      try {
+        await tx.advisoryActionItemNote.create({
+          data: { businessId, actionItemId: id, body: body.body, status, authorUserId: userId },
+        });
+      } catch (error) {
+        if (error instanceof Error && /a note records the status its item has/.test(error.message))
+          throw conflict(
+            'ITEM_CHANGED',
+            'The action item changed while you wrote the note. Reload it and add the note again.',
+          );
+        throw error;
+      }
+      await this.audit.logIn(
+        tx,
+        'advisory_action_item.note_added',
+        { type: 'advisory_action_item', id },
+        { advisoryClientId: cur.advisoryClientId, status },
+      );
+      if (moved) await this.read.recomputeHealth(ctx, cur.advisoryClientId);
+      return this.noteList(ctx, id);
     });
   }
 }

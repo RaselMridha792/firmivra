@@ -1099,6 +1099,32 @@ export const UpdateAdvisoryActionItemRequest = z
   .refine((o) => Object.keys(o).length > 0, 'Change at least one field');
 export type UpdateAdvisoryActionItemRequest = z.input<typeof UpdateAdvisoryActionItemRequest>;
 
+/**
+ * GET .../action-items/{id}/notes (A-X11, Business Advisory Review Two B30): the item's progress
+ * notes, newest first: what was done, the item's status then, who wrote it and when. The firm's
+ * only (never in the portal); kept, never edited or deleted.
+ */
+export const AdvisoryActionNote = z.object({
+  id: z.uuid(),
+  body: z.string(),
+  status: AdvisoryActionStatus,
+  author: MemberRef.nullable(),
+  at: DateTime,
+});
+export type AdvisoryActionNote = z.infer<typeof AdvisoryActionNote>;
+export const AdvisoryActionNoteList = z.object({ items: z.array(AdvisoryActionNote).max(200) });
+export type AdvisoryActionNoteList = z.infer<typeof AdvisoryActionNoteList>;
+/**
+ * POST .../action-items/{id}/notes: a progress note and, optionally, the item's new status with
+ * it (the note then records the new one). Needs "Manage goals and tasks". 409 ITEM_CHANGED when
+ * the item's status changed while the note was written.
+ */
+export const AddAdvisoryActionNoteRequest = z.strictObject({
+  body: text(2_000, 'many'),
+  status: AdvisoryActionStatus.optional(),
+});
+export type AddAdvisoryActionNoteRequest = z.input<typeof AddAdvisoryActionNoteRequest>;
+
 // ---------- Meetings, resources, settings ----------
 
 /** GET .../meetings: advisory appointments (Appointments tagged Business Advisory), read-only here; scheduling is in Appointments. */

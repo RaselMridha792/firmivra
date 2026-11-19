@@ -4,6 +4,7 @@ import {
   AdvisoryActionItemId,
   type AdvisoryActionItemPage,
   type AdvisoryActionItemRow,
+  type AdvisoryActionNoteList,
   type AdvisoryActivityPage,
   type AdvisoryClientDetail,
   AdvisoryClientId,
@@ -47,6 +48,7 @@ import { AdvisoryGoalsService } from './advisory-goals.service.js';
 import {
   ActionItemsQuery,
   ActivityQuery,
+  AddActionNoteBody,
   AddWorkstreamBody,
   ClientsQuery,
   CreateActionItemBody,
@@ -572,6 +574,29 @@ export class AdvisoryController {
   ): Promise<AdvisoryActionItemRow> {
     const w = who(auth, tenant);
     return this.actions.updateActionItem(w.businessId, w.tenant, w.userId, id, body);
+  }
+
+  /** A-X11: an action item's progress notes. */
+  @Get('action-items/:id/notes')
+  actionNotes(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', actionPipe) id: string,
+  ): Promise<AdvisoryActionNoteList> {
+    const w = who(auth, tenant);
+    return this.actions.actionNotes(w.businessId, w.tenant, w.userId, id);
+  }
+
+  /** A-X11: adds a progress note, optionally with the item's new status. */
+  @Post('action-items/:id/notes')
+  addActionNote(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', actionPipe) id: string,
+    @Body(new ZodValidationPipe(AddActionNoteBody)) body: Out<typeof AddActionNoteBody>,
+  ): Promise<AdvisoryActionNoteList> {
+    const w = who(auth, tenant);
+    return this.actions.addActionNote(w.businessId, w.tenant, w.userId, id, body);
   }
 
   // ----- Meetings, resources, settings -----

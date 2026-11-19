@@ -25,6 +25,7 @@ import {
   SendAdvisoryResourceRequest,
   SetAdvisoryPlanStatusRequest,
   UpdateAdvisoryActionItemRequest,
+  AddAdvisoryActionNoteRequest,
   UpdateAdvisoryClientRequest,
   UpdateAdvisoryGoalRequest,
   UpdateAdvisoryMilestoneRequest,
@@ -85,6 +86,7 @@ export const UpdateRecommendationBody = clean(UpdateAdvisoryRecommendationReques
 export const ActionItemsQuery = clean(AdvisoryActionItemsQuery);
 export const CreateActionItemBody = clean(CreateAdvisoryActionItemRequest);
 export const UpdateActionItemBody = clean(UpdateAdvisoryActionItemRequest);
+export const AddActionNoteBody = clean(AddAdvisoryActionNoteRequest);
 
 export const MeetingsQuery = clean(AdvisoryMeetingsQuery);
 export const ResourcesQuery = clean(AdvisoryResourcesQuery);
