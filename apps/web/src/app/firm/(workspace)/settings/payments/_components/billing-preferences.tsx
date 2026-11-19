@@ -18,13 +18,15 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../../lib/unsaved';
 
 // Settings > Payments' billing sections (Octavia's Invoices & Payments review of Oct 27, IP-F13):
 // Invoice Defaults, Reminders & Automations and Taxes & Fees, on the firm's canonical settings.
 // Every option is off until the firm turns it on; one Save Changes for the three sections.
 
 const KEY = ['payment-preferences'];
-const field = 'min-h-10 rounded-control border border-control-border bg-surface px-3 text-sm';
+const field =
+  'min-h-10 rounded-control border border-control-border bg-surface px-3 text-sm disabled:bg-disabled disabled:text-disabled-text';
 
 type Sections = Omit<PaymentPreferences, 'updatedAt'>;
 
@@ -55,6 +57,7 @@ function Switch({
   checked,
   onChange,
   notActive,
+  notActiveTestId,
 }: {
   label: string;
   hint: string;
@@ -62,6 +65,7 @@ function Switch({
   onChange: (on: boolean) => void;
   /** Saved, but not acted on yet: says so beside the label (as Intake's settings). */
   notActive?: string;
+  notActiveTestId?: string;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 border-t border-divider pt-3">
@@ -76,7 +80,7 @@ function Switch({
         </p>
         <p className="text-xs text-muted">{hint}</p>
         {notActive ? (
-          <p className="text-xs text-muted" data-testid="tip-not-active">
+          <p className="text-xs text-muted" data-testid={notActiveTestId}>
             Not active yet: {notActive}
           </p>
         ) : null}
@@ -96,6 +100,7 @@ function NumberField({
   min,
   max,
   onChange,
+  disabled,
 }: {
   label: string;
   hint?: string;
@@ -103,6 +108,7 @@ function NumberField({
   min: number;
   max: number;
   onChange: (n: number) => void;
+  disabled?: boolean;
 }) {
   return (
     <Labelled label={label} hint={hint}>
@@ -113,6 +119,7 @@ function NumberField({
           min={min}
           max={max}
           value={value}
+          disabled={disabled}
           onChange={(e) => onChange(Number(e.target.value))}
           className={`${field} w-28`}
         />
@@ -127,17 +134,21 @@ function NumberField({
  */
 /**
  * I-N04: the days before the due date a reminder goes out, one to five (0: on the due date), the
- * earliest first. Saved with Save Changes.
+ * earliest first. Saved with Save Changes. `disabled` (reminders off): shown greyed, unchanged.
  */
 function ReminderDays({
   days,
   onChange,
+  disabled = false,
 }: {
   days: readonly number[];
   onChange: (days: number[]) => void;
+  disabled?: boolean;
 }) {
   const id = useId();
-  const [draft, setDraft] = useState('');
+  const [typed, setDraft] = useState('');
+  // A day typed before the switch went off is not offered while it is off.
+  const draft = disabled ? '' : typed;
   const n = Number(draft);
   const full = days.length >= REMINDER_DAYS_LIMITS.maxEntries;
   const problem = !draft
@@ -168,10 +179,12 @@ function ReminderDays({
         {days.map((d) => (
           <li
             key={d}
-            className="flex items-center gap-1 rounded-pill bg-info-soft py-1 pr-1 pl-3 text-sm text-heading"
+            className={`flex items-center gap-1 rounded-pill py-1 pr-1 pl-3 text-sm ${
+              disabled ? 'bg-disabled text-disabled-text' : 'bg-info-soft text-heading'
+            }`}
           >
             {label(d)}
-            {days.length > 1 ? (
+            {days.length > 1 && !disabled ? (
               <button
                 type="button"
                 aria-label={`Remove ${label(d)}`}
@@ -194,7 +207,7 @@ function ReminderDays({
               max={REMINDER_DAYS_LIMITS.maxDays}
               step={1}
               value={draft}
-              disabled={full}
+              disabled={full || disabled}
               aria-invalid={problem !== null}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -211,6 +224,9 @@ function ReminderDays({
           Add day
         </Button>
       </div>
+      {disabled ? (
+        <p className="text-xs text-muted">Turn on Payment reminders to change these days.</p>
+      ) : null}
       {problem ? (
         <p role="alert" className="text-sm text-danger">
           {problem}
@@ -360,6 +376,8 @@ function PreferencesForm({
     invalidate: KEY,
   });
   const dirty = JSON.stringify(form) !== JSON.stringify(start);
+  // Invoices Review 2 R1-2: unsaved changes ask before the page is left (PaymentsScreen's guard).
+  useUnsavedChanges(dirty);
   const check = UpdatePaymentPreferencesRequest.safeParse({ ...form, updatedAt });
   const problem = check.success
     ? null
@@ -441,27 +459,45 @@ function PreferencesForm({
             label="Payment reminders"
             hint="Email the client before an invoice is due."
             checked={r.sendReminders}
-            onChange={(on) => set('reminders', { sendReminders: on })}
+            // Invoices Review 2 I-N04: off, the days show greyed with what is saved, so an edit
+            // made while on never goes with a save while off.
+            onChange={(on) =>
+              set('reminders', {
+                sendReminders: on,
+                ...(on ? {} : { reminderDaysBeforeList: start.reminders.reminderDaysBeforeList }),
+              })
+            }
           />
-          {r.sendReminders ? (
-            <ReminderDays
-              days={r.reminderDaysBeforeList}
-              onChange={(reminderDaysBeforeList) => set('reminders', { reminderDaysBeforeList })}
-            />
-          ) : null}
+          <ReminderDays
+            days={r.reminderDaysBeforeList}
+            disabled={!r.sendReminders}
+            onChange={(reminderDaysBeforeList) => set('reminders', { reminderDaysBeforeList })}
+          />
           <Switch
             label="Overdue notices"
             hint="Email the client when an invoice becomes overdue."
             checked={r.notifyOverdue}
-            onChange={(on) => set('reminders', { notifyOverdue: on })}
+            // I-N04: as the reminder days, greyed with what is saved while off.
+            onChange={(on) =>
+              set('reminders', {
+                notifyOverdue: on,
+                ...(on
+                  ? {}
+                  : {
+                      overdueReminderDays: start.reminders.overdueReminderDays,
+                      overdueReminderMax: start.reminders.overdueReminderMax,
+                    }),
+              })
+            }
           />
-          {r.notifyOverdue ? (
+          <div className="flex flex-col gap-1" data-testid="overdue-schedule">
             <div className="flex flex-wrap gap-4">
               <NumberField
                 label="Repeat every (days, 0 for once)"
                 value={r.overdueReminderDays}
                 min={0}
                 max={90}
+                disabled={!r.notifyOverdue}
                 onChange={(n) => set('reminders', { overdueReminderDays: n })}
               />
               {/* I-N04: the notices stop after this many. */}
@@ -471,10 +507,14 @@ function PreferencesForm({
                 value={r.overdueReminderMax}
                 min={1}
                 max={OVERDUE_REMINDER_MAX_LIMIT}
+                disabled={!r.notifyOverdue}
                 onChange={(n) => set('reminders', { overdueReminderMax: n })}
               />
             </div>
-          ) : null}
+            {r.notifyOverdue ? null : (
+              <p className="text-xs text-muted">Turn on Overdue notices to change these.</p>
+            )}
+          </div>
           <Switch
             label="Automatic receipts"
             hint="Send a receipt after each successful payment, once."
@@ -483,7 +523,10 @@ function PreferencesForm({
           />
           <Switch
             label="Auto-apply payments"
-            hint="A payment that names no invoice pays the client's oldest open invoice."
+            hint="Will apply a client's credit to their oldest open invoices."
+            // Invoices Review 2 I-C02 (the lead's choice a): saved, but nothing reads it yet.
+            notActive="it starts once client credit balances exist"
+            notActiveTestId="auto-apply-not-active"
             checked={r.autoApplyPayments}
             onChange={(on) => set('reminders', { autoApplyPayments: on })}
           />
@@ -588,14 +631,9 @@ function PreferencesForm({
           hint="Lets an invoice offer the client a tip."
           // I-N05: saved, but Pay Now does not charge a tip yet (after Nov 17).
           notActive="clients can't add a tip at Pay Now yet"
+          notActiveTestId="tip-not-active"
           checked={f.tippingEnabled}
           onChange={(on) => set('taxesAndFees', { tippingEnabled: on })}
-        />
-        <Switch
-          label="Payment before the due date"
-          hint="Lets an invoice ask for payment before it is due."
-          checked={f.requirePaymentBeforeDue}
-          onChange={(on) => set('taxesAndFees', { requirePaymentBeforeDue: on })}
         />
       </Card>
 

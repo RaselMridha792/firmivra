@@ -6,7 +6,8 @@ import { conflict, notFound } from './invoice-view.js';
 // firm's own records in its scope. A draft keeps a tax rate or template the firm archived since;
 // a new choice must be live. Attachments are the client's documents the client can see (shared,
 // clean, not trashed or archived), as the database's own rule on invoice_attachments requires.
-// IP-F04: the tip and payment-before-due options only while Settings > Payments turned them on.
+// IP-F04: the tip only while Settings > Payments turned it on. Invoices Review 2 I-D01: the
+// payment-before-due option is withdrawn; the request may still name it, and it is ignored.
 
 export interface DraftExtras {
   taxRateId?: string | null;
@@ -14,7 +15,6 @@ export interface DraftExtras {
   templateId?: string | null;
   documentIds?: string[];
   allowTip?: boolean;
-  requirePaymentBeforeDue?: boolean;
 }
 
 interface Current {
@@ -22,13 +22,11 @@ interface Current {
   taxRateId: string | null;
   templateId: string | null;
   allowTip: boolean;
-  requirePaymentBeforeDue: boolean;
 }
 
 /**
  * 404 for a rate, member, template or file that isn't the firm's (or this client's) to use; 409
- * OPTION_NOT_ENABLED for a tip or payment-before-due option the firm hasn't turned on (a draft
- * keeps one it already has).
+ * OPTION_NOT_ENABLED for a tip the firm hasn't turned on (a draft keeps one it already has).
  */
 export async function checkDraftExtras(
   tx: TxClient,
@@ -36,14 +34,12 @@ export async function checkDraftExtras(
   current: Current,
   body: DraftExtras,
 ): Promise<void> {
-  const tip = body.allowTip === true && !current.allowTip;
-  const beforeDue = body.requirePaymentBeforeDue === true && !current.requirePaymentBeforeDue;
-  if (tip || beforeDue) {
+  if (body.allowTip === true && !current.allowTip) {
     const settings = await tx.paymentSettings.findUnique({
       where: { businessId },
-      select: { tippingEnabled: true, requirePaymentBeforeDue: true },
+      select: { tippingEnabled: true },
     });
-    if ((tip && !settings?.tippingEnabled) || (beforeDue && !settings?.requirePaymentBeforeDue)) {
+    if (!settings?.tippingEnabled) {
       throw conflict('OPTION_NOT_ENABLED', INVOICE_ERRORS.OPTION_NOT_ENABLED);
     }
   }

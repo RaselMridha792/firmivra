@@ -9,7 +9,12 @@ const tones = {
   neutral: 'bg-disabled text-muted',
   /** Business, Manager. */
   purple: 'bg-purple-soft text-purple',
+  /** R55 I-N07: Scheduled (an invoice that opens on a later day), apart from Sent's blue. */
+  teal: 'bg-teal-soft text-teal',
+  /** R55 I-N07: solid, for Canceled: apart from Draft's grey and Overdue's red. */
+  navy: 'bg-navy text-white',
 };
+export type BadgeTone = keyof typeof tones;
 export function Badge({
   children,
   tone = 'neutral',
@@ -17,7 +22,7 @@ export function Badge({
   icon: Glyph,
 }: {
   children: ReactNode;
-  tone?: keyof typeof tones;
+  tone?: BadgeTone;
   /** A coloured dot before the text, as in the Status column. */
   dot?: boolean;
   /** A solid icon before the text (Accepted, Rejected). */

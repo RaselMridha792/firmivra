@@ -101,9 +101,12 @@ export function createPaymentPreferencesMock(
       const { updatedAt, ...sections } = UpdatePaymentPreferencesRequest.parse(body);
       fresh(updatedAt);
       const days = [...sections.invoiceDefaults.customTermDays].sort((a, b) => a - b);
+      // As the API (I-D01): a save never writes payment before the due date (withdrawn).
+      const { requirePaymentBeforeDue } = prefs.taxesAndFees;
       prefs = {
         ...sections,
         invoiceDefaults: { ...sections.invoiceDefaults, customTermDays: days },
+        taxesAndFees: { ...sections.taxesAndFees, requirePaymentBeforeDue },
         updatedAt: new Date().toISOString(),
       };
       return structuredClone(prefs);
@@ -111,7 +114,13 @@ export function createPaymentPreferencesMock(
     reset: async (body) => {
       await guard();
       fresh(ResetPaymentPreferencesRequest.parse(body).updatedAt);
-      prefs = { ...defaults(), updatedAt: new Date().toISOString() };
+      const { requirePaymentBeforeDue } = prefs.taxesAndFees;
+      const reset = defaults();
+      prefs = {
+        ...reset,
+        taxesAndFees: { ...reset.taxesAndFees, requirePaymentBeforeDue },
+        updatedAt: new Date().toISOString(),
+      };
       return structuredClone(prefs);
     },
     taxRates: async () => (await guard(), { items: structuredClone(taxes) }),
