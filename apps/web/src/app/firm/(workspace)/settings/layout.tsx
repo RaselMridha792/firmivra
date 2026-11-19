@@ -30,6 +30,8 @@ const menu: [label: string, href: string][] = [
   ['Dashboard cards', '/settings/dashboard-cards'],
   ['Lead assignment', '/settings/lead-routing'],
   ['Tax statuses', '/settings/tax-statuses'],
+  // SA-FRM-F06: Firmivra's requests for information about the firm's account (Owner only).
+  ['Requests from Firmivra', '/settings/firmivra-requests'],
 ];
 
 /**
@@ -38,6 +40,8 @@ const menu: [label: string, href: string][] = [
  * the other pages.
  */
 const STAFF_MENU = new Set(['/settings/availability', '/settings/tax-statuses']);
+/** Pages for the Owner alone (the API answers 403 to everyone else). */
+const OWNER_MENU = new Set(['/settings/firmivra-requests']);
 
 /** Settings: its own menu next to the page. `/settings` opens Company Profile (settings/route.ts). */
 export default function SettingsLayout({ children }: { children: ReactNode }) {
@@ -52,6 +56,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
       >
         {menu
           .filter(([, href]) => manager || STAFF_MENU.has(href))
+          .filter(([, href]) => role === 'OWNER' || !OWNER_MENU.has(href))
           .map(([label, href]) => {
             const active = isActive(pathname, href);
             return (

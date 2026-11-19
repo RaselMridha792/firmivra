@@ -272,7 +272,7 @@ const WRITES: Record<
   ...teamWrites(),
   ...integrationsWrites(fx),
   ...firmProfileWrites(fx),
-  ...firmAccountWrites(),
+  ...firmAccountWrites(fx),
 };
 
 /** The thread, messages, template and category the communications writes act on (R56). */
