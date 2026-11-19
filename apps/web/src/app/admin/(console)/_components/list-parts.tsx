@@ -1,7 +1,16 @@
 'use client';
 
 import { Card } from '@firmivra/ui';
-import { ArrowRight, ChevronLeft, ChevronRight, Search, type LucideIcon } from 'lucide-react';
+import {
+  ArrowRight,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronsUpDown,
+  Search,
+  type LucideIcon,
+} from 'lucide-react';
 import type { InputHTMLAttributes, ReactNode } from 'react';
 
 export { formatPhone } from '../applications/_components/application-cards';
@@ -89,7 +98,16 @@ export const selectClass =
 
 /** A column: its header text, and whether its cells are centred. */
 /** `className` hides a column below a width, e.g. `hidden 2xl:table-cell`. */
-export type ListColumn = { label: string; center?: boolean; className?: string };
+/**
+ * `sort` makes the header a button (SA-FRM-Y08): `sorted` is how the list is sorted by this column
+ * now, if it is; `onSort` sorts by it (again: the other way round).
+ */
+export type ListColumn = {
+  label: string;
+  center?: boolean;
+  className?: string;
+  sort?: { sorted?: 'ascending' | 'descending'; onSort: () => void };
+};
 
 /** The table's frame: header row on bg-canvas, a divider between cells. `#` is the row number. */
 export function ListTable({ head, children }: { head: ListColumn[]; children: ReactNode }) {
@@ -98,22 +116,43 @@ export function ListTable({ head, children }: { head: ListColumn[]; children: Re
       <table className="w-full min-w-4xl border-collapse text-left text-sm text-text">
         <thead className="bg-canvas text-heading">
           <tr>
-            {head.map(({ label, center, className = '' }) => (
-              <th
-                key={label}
-                scope="col"
-                className={`whitespace-nowrap px-3 py-4 font-medium ${label === '#' ? 'w-12' : ''} ${center ? 'text-center' : ''} ${className}`}
-              >
-                {label === '#' ? (
-                  <>
-                    <span aria-hidden>#</span>
-                    <span className="sr-only">Row</span>
-                  </>
-                ) : (
-                  label
-                )}
-              </th>
-            ))}
+            {head.map(({ label, center, className = '', sort }) => {
+              const Arrow =
+                sort?.sorted === 'ascending'
+                  ? ChevronUp
+                  : sort?.sorted === 'descending'
+                    ? ChevronDown
+                    : ChevronsUpDown;
+              return (
+                <th
+                  key={label}
+                  scope="col"
+                  aria-sort={sort?.sorted}
+                  className={`whitespace-nowrap px-3 py-4 font-medium ${label === '#' ? 'w-12' : ''} ${center ? 'text-center' : ''} ${className}`}
+                >
+                  {label === '#' ? (
+                    <>
+                      <span aria-hidden>#</span>
+                      <span className="sr-only">Row</span>
+                    </>
+                  ) : sort ? (
+                    <button
+                      type="button"
+                      onClick={sort.onSort}
+                      className="inline-flex items-center gap-1 rounded-sm font-medium hover:text-action focus-visible:outline-2 focus-visible:outline-focus"
+                    >
+                      {label}
+                      <Arrow
+                        aria-hidden
+                        className={`size-4 ${sort.sorted ? 'text-action' : 'text-muted'}`}
+                      />
+                    </button>
+                  ) : (
+                    label
+                  )}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody className="divide-y divide-border">{children}</tbody>

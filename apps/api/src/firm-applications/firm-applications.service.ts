@@ -27,8 +27,10 @@ import {
   type FirmApplicationListItem,
   FirmApplicationRecord,
   type FirmApplicationReviewStatus,
+  type FirmAccountEvent,
   type FirmCounts,
   type FirmListItem,
+  type FirmSort,
   type FirmRecord,
   ListFirmApplicationsQuery,
   type ListFirmApplicationsResponse,
@@ -51,6 +53,7 @@ import {
   type NotifyTemplate,
 } from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
+import { FIRM_ACCOUNT_AUDIT, firmAccountCan } from './firm-account.service.js';
 import { FirmKeyJob } from './firm-key-job.js';
 import { openTicketsFor } from '../admin-support/support-context.js';
 import { OWNER_INVITES } from './owner-invites.js';
@@ -76,6 +79,24 @@ export type StoredApplication = z.infer<typeof StoredApplication>;
 type SlugQuery = { where: { slug: { startsWith: string } }; select: { slug: true } };
 type ListQuery = z.output<typeof ListFirmApplicationsQuery>;
 type FirmsQuery = z.output<typeof ListFirmsQuery>;
+
+/**
+ * SA-FRM-Y08: the firms list by name (A to Z, ignoring case) or by approval day (oldest first);
+ * `desc` turns either round. A firm never approved sorts last either way. Ties: newest first.
+ */
+const firmOrder =
+  (sort: FirmSort, order: 'asc' | 'desc') =>
+  (a: FirmListItem, b: FirmListItem): number => {
+    const sign = order === 'desc' ? -1 : 1;
+    if (sort === 'approved' && (a.approvedAt === null) !== (b.approvedAt === null)) {
+      return a.approvedAt === null ? 1 : -1;
+    }
+    const by =
+      sort === 'name'
+        ? a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+        : (a.approvedAt ?? '').localeCompare(b.approvedAt ?? '');
+    return by !== 0 ? sign * by : b.createdAt.localeCompare(a.createdAt);
+  };
 
 /** "This month" on the counts is the calendar month in US Eastern time. */
 const PLATFORM_TIME_ZONE = 'America/New_York';
@@ -472,7 +493,10 @@ export class FirmApplicationsService {
         if (!q.search) return true;
         const term = q.search.toLowerCase();
         return [f.name, f.owner?.name, f.owner?.email].some((v) => v?.toLowerCase().includes(term));
-      });
+      })
+      // SA-FRM-Y08: the plan its application asked for.
+      .filter((f) => !q.plan || f.plan === q.plan);
+    if (q.sort) items.sort(firmOrder(q.sort, q.order ?? 'asc'));
     return {
       items: items.slice((q.page - 1) * q.pageSize, q.page * q.pageSize),
       total: items.length,
@@ -495,15 +519,85 @@ export class FirmApplicationsService {
   }
 
   async getFirm(id: string): Promise<FirmRecord> {
-    const item = (await this.firmItems(id))[0];
-    if (!item) throw notFound();
-    const application = await this.admin.db.firmApplication.findUnique({
-      where: { businessId: id },
-      select: { id: true },
-    });
-    const record = { ...item, application: application ? await this.record(application.id) : null };
+    const record = await this.firmRecord(id);
     await this.audit.log('business.viewed_by_admin', { type: 'business', id });
     return record;
+  }
+
+  /**
+   * The firm page: its list row, application, Account History and the account actions its status
+   * allows (SA-FRM-F02 to F04, Y07, Y10). Also the answer to an account action (not a view).
+   */
+  async firmRecord(id: string): Promise<FirmRecord> {
+    const item = (await this.firmItems(id))[0];
+    if (!item) throw notFound();
+    const [application, firm] = await Promise.all([
+      this.admin.db.firmApplication.findUnique({ where: { businessId: id }, select: { id: true } }),
+      this.admin.db.business.findUnique({
+        where: { id },
+        select: { activatedAt: true, closedAt: true },
+      }),
+    ]);
+    // Read just above (firmItems): the firm's setup and closure times, or none.
+    const times = { activatedAt: firm?.activatedAt ?? null, closedAt: firm?.closedAt ?? null };
+    return {
+      ...item,
+      application: application ? await this.record(application.id) : null,
+      activatedAt: times.activatedAt?.toISOString() ?? null,
+      closedAt: times.closedAt?.toISOString() ?? null,
+      accountHistory: await this.accountHistory(id, times),
+      can: firmAccountCan(item.status),
+    };
+  }
+
+  /**
+   * SA-FRM-F03, F04, Y07, Y10: the account's lifecycle, newest first. Activation is the database's
+   * time; each Suspend, Reactivate and Close is its audit row (who, and the reason). A firm closed
+   * before closures were recorded (or seeded closed) still shows its closure, at the database's
+   * closure time.
+   */
+  private async accountHistory(
+    id: string,
+    firm: { activatedAt: Date | null; closedAt: Date | null },
+  ): Promise<FirmAccountEvent[]> {
+    const rows = await this.admin.db.auditLog.findMany({
+      where: {
+        businessId: null,
+        entityType: 'business',
+        entityId: id,
+        action: { in: Object.values(FIRM_ACCOUNT_AUDIT) },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { action: true, createdAt: true, actorUserId: true, metadata: true },
+    });
+    const admins = await this.adminRefs(rows.map((r) => r.actorUserId));
+    const TYPES: Record<string, FirmAccountEvent['type']> = {
+      [FIRM_ACCOUNT_AUDIT.suspend]: 'SUSPENDED',
+      [FIRM_ACCOUNT_AUDIT.reactivate]: 'REACTIVATED',
+      [FIRM_ACCOUNT_AUDIT.close]: 'CLOSED',
+    };
+    const events = rows.map((r): FirmAccountEvent => {
+      const reason = (r.metadata as { reason?: unknown } | null)?.reason;
+      return {
+        type: TYPES[r.action]!,
+        at: r.createdAt.toISOString(),
+        by: r.actorUserId ? (admins.get(r.actorUserId) ?? null) : null,
+        reason: typeof reason === 'string' ? reason : null,
+      };
+    });
+    if (firm.closedAt && !events.some((e) => e.type === 'CLOSED')) {
+      events.push({ type: 'CLOSED', at: firm.closedAt.toISOString(), by: null, reason: null });
+    }
+    if (firm.activatedAt) {
+      events.push({
+        type: 'ACTIVATED',
+        at: firm.activatedAt.toISOString(),
+        by: null,
+        reason: null,
+      });
+    }
+    // Newest first; a stable sort keeps the audit rows' own order on the same millisecond.
+    return events.sort((a, b) => b.at.localeCompare(a.at));
   }
 
   async dashboard(): Promise<AdminDashboard> {
