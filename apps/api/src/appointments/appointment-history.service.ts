@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { TxClient } from '@firmivra/db';
 import type { AppointmentAction, AppointmentEvent } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
+import { CONFIRMATION_SENT } from './appointment-notices.js';
 import { type AppointmentRow, memberNames } from './calendar-data.js';
 import type { SentNotice } from './scheduling-data.js';
 import {
@@ -73,19 +74,22 @@ export class AppointmentHistory {
         createdAt: { gte: new Date(appointment.createdAt.getTime() - HISTORY_CLOCK_SLACK_MS) },
         entityType: 'appointment',
         entityId: appointment.id,
-        action: 'appointment.reminder_sent',
+        // Review 2 (B8): the confirmation (and its request to confirm) too, not only reminders.
+        action: { in: ['appointment.reminder_sent', CONFIRMATION_SENT] },
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: { createdAt: true, metadata: true },
+      select: { createdAt: true, metadata: true, action: true },
     });
     return rows.flatMap((r) => {
+      const kind =
+        r.action === CONFIRMATION_SENT ? ('CONFIRMATION' as const) : ('REMINDER' as const);
       const m = (r.metadata ?? {}) as { channels?: unknown; delivered?: unknown };
       const channels = Array.isArray(m.channels) ? m.channels : ['EMAIL'];
       return channels
         .filter((c): c is SentNotice['channel'] => c === 'EMAIL' || c === 'SMS' || c === 'PORTAL')
         .map((channel) => ({
           at: r.createdAt.toISOString(),
-          kind: 'REMINDER' as const,
+          kind,
           channel,
           status: m.delivered === true ? ('SENT' as const) : ('FAILED' as const),
         }));
