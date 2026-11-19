@@ -122,6 +122,15 @@ const moved = <T extends { id: string; dependsOn: string }>(
   );
 };
 
+/** Automations Review Two R08: a list with one item moved (each keeps its key and values). */
+const reordered = <T,>(list: T[], from: number, to: number): T[] => {
+  if (to < 0 || to >= list.length) return list;
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item as T);
+  return next;
+};
+
 const blank = (): Form => ({
   name: '',
   category: 'COMPLIANCE_DEADLINES',
@@ -498,7 +507,14 @@ function Builder({
                     timing: 'IMMEDIATE',
                   })
                 }
-                options={catalog.modules.map((m) => ({ value: m.module, label: m.label }))}
+                // Automations Review Two R03: only categories that have events to choose (a
+                // category gets its place back once its events exist).
+                options={catalog.modules
+                  .filter(
+                    (m) =>
+                      m.module === f.module || catalog.events.some((e) => e.module === m.module),
+                  )
+                  .map((m) => ({ value: m.module, label: m.label }))}
               />
               <Select
                 label="Trigger Event *"
@@ -640,7 +656,7 @@ function Builder({
                 return (
                   <div
                     key={c.key}
-                    className="grid items-end gap-2 sm:grid-cols-[1fr_13rem_1fr_auto]"
+                    className="grid items-end gap-2 sm:grid-cols-[1fr_13rem_1fr_auto_auto]"
                   >
                     <Select
                       label={`Condition ${i + 1} field`}
@@ -727,6 +743,28 @@ function Builder({
                         onChange={(e) => setCond(c.key, { value: e.target.value })}
                       />
                     )}
+                    {/* R08: move it; its field, operator and value stay with it, and All/Any
+                        is the rule's, so the meaning never changes. */}
+                    <span className="flex items-center self-end">
+                      <button
+                        type="button"
+                        aria-label={`Move condition ${i + 1} up`}
+                        disabled={i === 0}
+                        onClick={() => set({ conditions: reordered(f.conditions, i, i - 1) })}
+                        className="inline-flex size-10 items-center justify-center rounded-lg text-action hover:bg-canvas disabled:text-muted"
+                      >
+                        <ArrowUp aria-hidden weight="bold" className="size-5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Move condition ${i + 1} down`}
+                        disabled={i === f.conditions.length - 1}
+                        onClick={() => set({ conditions: reordered(f.conditions, i, i + 1) })}
+                        className="inline-flex size-10 items-center justify-center rounded-lg text-action hover:bg-canvas disabled:text-muted"
+                      >
+                        <ArrowDown aria-hidden weight="bold" className="size-5" />
+                      </button>
+                    </span>
                     <button
                       type="button"
                       aria-label={`Delete condition ${i + 1}`}
@@ -791,6 +829,11 @@ function Builder({
                           ? '1 record matches right now.'
                           : `${matchQuery.data.matchCount} records match right now.`}{' '}
                         <span className="font-normal text-muted">A count only; nothing runs.</span>
+                      </p>
+                      {/* Automations Review Two R02: the same window as the preview and Test. */}
+                      <p className="text-xs text-muted" data-testid="match-window">
+                        Events from the last 7 days count; once live, the rule acts only on what
+                        happens after it is activated.
                       </p>
                       {matchQuery.data.sample.length > 0 ? (
                         <ul className="mt-1 list-disc pl-5 text-text">
