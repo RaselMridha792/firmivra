@@ -42,7 +42,8 @@ test('C2-051: Rename, Move, Request e-sign and Archive each work from the Docume
   // Move: into one of the client folders.
   await rowAction(page, 'Engagement_Letter_2025.pdf', 'Move');
   const move = page.getByRole('dialog', { name: 'Move Document' });
-  await move.getByLabel('Folder').selectOption({ label: 'Tax Returns' });
+  // A subfolder is indented under its parent, as Upload lists it.
+  await move.getByLabel('Folder').selectOption({ label: '\u2003Tax Returns' });
   await move.getByRole('button', { name: 'Move' }).click();
   await expect(done).toHaveText('Moved to Tax Returns.');
 
@@ -72,4 +73,42 @@ test('C2-051: Rename, Move, Request e-sign and Archive each work from the Docume
   await expect(done).toHaveText('Driver_License.jpg archived.');
   // As the dialog says, it leaves this list.
   await expect(names.filter({ hasText: 'Driver_License.jpg' })).toHaveCount(0);
+});
+
+// Clients (R61's sweep): an internal upload could never move. Move now offers any folder Upload
+// would, and the firm folders too for an internal file; a client's file stays in client folders.
+test('Move offers an internal file the client folders Upload offers, and the firm folders', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1165, height: 747 });
+  await page.goto(app('/documents'));
+  await expect(page.getByTestId('documents-screen')).toBeVisible({ timeout: 60_000 });
+  await page.getByTestId('filter-client').selectOption({ label: 'Jamie Sample' });
+  const done = page.getByTestId('document-action-done');
+  const move = page.getByRole('dialog', { name: 'Move Document' });
+  const choices = () => move.getByLabel('Folder').locator('option').allInnerTexts();
+
+  // An internal file: client folders and firm folders, and it stays internal.
+  await rowAction(page, 'Preparer_Worksheet.pdf', 'Move');
+  await expect(move).toContainText('Client or firm folders. The file stays internal in either');
+  await expect
+    .poll(choices)
+    .toEqual(expect.arrayContaining(['\u2003Tax Returns (Client)', '\u2003Staff Only (Firm)']));
+  await move.getByLabel('Folder').selectOption({ label: '\u2003Tax Returns (Client)' });
+  await move.getByRole('button', { name: 'Move' }).click();
+  await expect(done).toHaveText('Moved to Tax Returns.');
+
+  // And on to a firm folder.
+  await rowAction(page, 'Preparer_Worksheet.pdf', 'Move');
+  await move.getByLabel('Folder').selectOption({ label: '\u2003Staff Only (Firm)' });
+  await move.getByRole('button', { name: 'Move' }).click();
+  await expect(done).toHaveText('Moved to Staff Only.');
+
+  // A file the client can see: client folders only.
+  await rowAction(page, 'Engagement_Letter_2025.pdf', 'Move');
+  await expect(move).toContainText('Client folders only');
+  await expect.poll(choices).toContain('\u2003Tax Returns');
+  expect((await choices()).some((c) => c.includes('(Firm)') || c.includes('Staff Only'))).toBe(
+    false,
+  );
 });

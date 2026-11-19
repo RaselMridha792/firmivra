@@ -53,6 +53,7 @@ import { sizeText } from '../share/_components/share-parts';
 import { COLORS } from '../../settings/_components/folder-parts';
 import { atText, cleanTag, REVIEW_LOOKS, reviewMoves } from './details-parts';
 import { DocumentViewer } from './document-viewer';
+import { moveFolderChoices } from '../../_components/move-folder-choices';
 
 const ERRORS: Record<string, string> = {
   ...DOCUMENT_ERRORS,
@@ -684,9 +685,8 @@ export function DocumentDetailsScreen({ id }: { id: string }) {
         open={editing}
         doc={d}
         categories={(categories.data ?? []).filter((x) => !x.archivedAt || x.id === d.category?.id)}
-        folders={(folders.data ?? []).filter((f) =>
-          d.direction === 'INTERNAL' ? f.scope === 'FIRM' : f.scope === 'CLIENT',
-        )}
+        // Any folder it could be uploaded into (Clients, R61's sweep), as Move offers.
+        folders={moveFolderChoices(folders.data ?? [], d.direction)}
         team={
           manager
             ? (team.data ?? [])
@@ -878,7 +878,8 @@ function EditDialog(props: {
   open: boolean;
   doc: LibraryDocument;
   categories: { id: string; name: string }[];
-  folders: { id: string; name: string }[];
+  /** The folder choices, as `moveFolderChoices` gives them. */
+  folders: { value: string; label: string }[];
   team: { value: string; label: string }[] | null;
   busy: boolean;
   onClose: () => void;
@@ -961,10 +962,7 @@ function EditForm({
           label="Folder"
           value={v.folderId}
           onChange={(e) => put({ folderId: e.target.value })}
-          options={[
-            { value: '', label: 'No folder' },
-            ...folders.map((f) => ({ value: f.id, label: f.name })),
-          ]}
+          options={[{ value: '', label: 'No folder' }, ...folders]}
         />
         {/* Advisory B34: rolling years; the year the document has is always offered. */}
         <YearSelect
