@@ -7,6 +7,8 @@
 --      ACH was never offered, so the reset changes no behaviour.
 --   6. IP-041: a refund is confirmed by a charge.refunded or a refund.updated event.
 --   7. Leads R2 9: LeadContactKind gains ADDRESS, WEBSITE and OTHER.
+--   8. Intake 1: a submit needs no signature when the firm's Require Signature switch is off
+--      (Rasel's yes, Nov 20); with it on, nothing changes.
 
 -- 1. M20 ---------------------------------------------------------------------------------------
 ALTER TABLE "outbound_messages" ADD COLUMN "timezone" TEXT;
@@ -157,3 +159,87 @@ ALTER TABLE lead_contact_points ADD CONSTRAINT lead_contact_points_shape
           OR (kind::text = 'WEBSITE' AND char_length(btrim(value)) BETWEEN 1 AND 2048))
      AND (label IS NULL OR char_length(btrim(label)) BETWEEN 1 AND 40)
      AND position >= 0);
+
+-- 8. Intake 1 ----------------------------------------------------------------------------------
+-- As r0_intake_agreements, except the signature check (see the note inside).
+CREATE OR REPLACE FUNCTION intake_submissions_rules() RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+DECLARE
+  last_version int;
+  open_drafts int;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.submitted_at IS NOT NULL THEN
+      RAISE EXCEPTION 'intake submissions: a new version starts as a draft; sign it, then submit'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    SELECT coalesce(max(s.version), 0), count(*) FILTER (WHERE s.submitted_at IS NULL)
+      INTO last_version, open_drafts
+      FROM intake_submissions s WHERE s.intake_id = NEW.intake_id;
+    IF open_drafts > 0 THEN
+      RAISE EXCEPTION 'intake submissions: an intake has one draft at a time'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.version <> last_version + 1 THEN
+      RAISE EXCEPTION 'intake submissions: the next version must be %', last_version + 1
+        USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF OLD.submitted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'intake submissions: a submitted version is locked; start the next version'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.id <> OLD.id OR NEW.business_id <> OLD.business_id OR NEW.intake_id <> OLD.intake_id
+     OR NEW.version <> OLD.version OR NEW.created_at <> OLD.created_at THEN
+    RAISE EXCEPTION 'intake submissions: the intake and version cannot change'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.answers IS DISTINCT FROM OLD.answers
+     AND EXISTS (SELECT 1 FROM intake_signatures g WHERE g.submission_id = OLD.id) THEN
+    RAISE EXCEPTION 'intake submissions: signed answers cannot change'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.submitted_at IS NULL THEN
+    RETURN NEW;
+  END IF;
+  NEW.submitted_at := now();
+  -- R55 (Intake 1): with the firm's Require Signature switch off and no signature given, the
+  -- submit needs none. A firm with the switch on (or no settings row: on) still needs it, and a
+  -- signature that is given is always checked as before.
+  IF (coalesce((SELECT s.require_signature FROM intake_settings s
+                WHERE s.business_id = NEW.business_id), true)
+      OR EXISTS (SELECT 1 FROM intake_signatures g0 WHERE g0.submission_id = NEW.id))
+     AND NOT EXISTS (
+       SELECT 1 FROM intake_signatures g
+       WHERE g.submission_id = NEW.id
+         -- Signed in this transaction (signed_at is now(), stored to the millisecond).
+         AND g.signed_at = now()::timestamptz(3)
+         AND g.printed_name = NEW.signer_name
+         AND g.signed_at = NEW.signed_at
+         AND g.ip IS NOT DISTINCT FROM NEW.signer_ip
+         AND g.user_agent IS NOT DISTINCT FROM NEW.signer_user_agent
+         AND EXISTS (
+           SELECT 1 FROM intake_signature_agreements ga
+           JOIN firm_agreement_versions v ON v.id = ga.agreement_version_id
+           JOIN firm_agreements a ON a.id = v.agreement_id
+           WHERE ga.signature_id = g.id AND a.scope = 'ALL_INTAKES')
+         -- Every published, unarchived agreement of the form's service is signed too.
+         AND NOT EXISTS (
+           SELECT 1 FROM intakes i
+           JOIN intake_forms f ON f.id = i.form_id
+           JOIN firm_agreements a ON a.service_id = f.service_id
+           WHERE i.id = NEW.intake_id AND a.scope = 'SERVICE' AND a.archived_at IS NULL
+             AND EXISTS (SELECT 1 FROM firm_agreement_versions v WHERE v.agreement_id = a.id)
+             AND NOT EXISTS (
+               SELECT 1 FROM intake_signature_agreements ga
+               JOIN firm_agreement_versions v ON v.id = ga.agreement_version_id
+               WHERE ga.signature_id = g.id AND v.agreement_id = a.id))) THEN
+    RAISE EXCEPTION 'intake submissions: submitting needs the signature from this transaction (with the firm-wide and the service''s agreements) matching signer_name, signed_at, IP and browser'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
