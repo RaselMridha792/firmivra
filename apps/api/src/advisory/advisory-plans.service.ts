@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import type {
   AdvisoryPlanDetail,
+  AdvisoryPlanSendPreview,
   AdvisoryPlanPage,
   AdvisoryVersionDetail,
   AdvisoryVersionRow,
@@ -664,6 +665,140 @@ export class AdvisoryPlansService {
     });
   }
 
+  /**
+   * What Send delivers (A-X13 previews it): the version, the client-facing text, and what is
+   * missing for it to go. Never sends or audits.
+   */
+  private async compose(ctx: AdvisoryCtx, p: PlanShape, body: Out<typeof SendPlanBody>) {
+    const { tx, businessId } = ctx;
+    const id = p.id;
+    const version = await tx.advisoryPlanVersion.findFirst({
+      where: {
+        businessId,
+        planId: id,
+        ...(body.version !== undefined ? { versionNo: body.version } : {}),
+      },
+      orderBy: { versionNo: 'desc' },
+    });
+    if (body.version !== undefined && !version) throw notFound();
+    const newest = await tx.advisoryPlanVersion.findFirst({
+      where: { businessId, planId: id },
+      orderBy: { versionNo: 'desc' },
+      select: { versionNo: true },
+    });
+    const isOlder = !!version && !!newest && version.versionNo < newest.versionNo;
+    const missing: string[] = [];
+    if (!version) missing.push('Finalize the plan first');
+    else if (changedSince(p, version.content as unknown as Content) && !isOlder)
+      missing.push('The plan changed after it was finalized; finalize it again');
+    const subject = `Your business plan: ${p.name}`.slice(0, 200);
+    if (!version) return { version: null, subject, text: '', missing };
+    const content = version.content as unknown as Content;
+    const [recs, actions] = await Promise.all([
+      tx.advisoryRecommendation.findMany({
+        where: { businessId, planId: id, clientVisible: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      tx.advisoryActionItem.findMany({
+        where: {
+          businessId,
+          planId: id,
+          clientVisible: true,
+          status: { in: ['NOT_STARTED', 'IN_PROGRESS'] },
+        },
+        orderBy: [{ dueOn: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
+      }),
+    ]);
+    const summary = typeof content.strategy.summary === 'string' ? content.strategy.summary : null;
+    const text = [
+      `Your business plan, ${content.planName} (${content.targetYear}), is ready.`,
+      ...(summary ? ['', summary] : []),
+      ...(content.goals.length
+        ? [
+            '',
+            'Goals:',
+            ...content.goals.map(
+              (g) => `- ${g.title}${g.targetDate ? ` (by ${g.targetDate})` : ''}`,
+            ),
+          ]
+        : []),
+      ...(recs.length
+        ? [
+            '',
+            'Recommendations:',
+            ...recs.map((r) => `- ${r.title}${r.impactLabel ? ` (${r.impactLabel})` : ''}`),
+          ]
+        : []),
+      ...(actions.length
+        ? [
+            '',
+            'Next steps:',
+            ...actions.map((a) => `- ${a.title}${a.dueOn ? ` (due ${day(a.dueOn)})` : ''}`),
+          ]
+        : []),
+      ...(body.message ? ['', body.message] : []),
+      '',
+      DISCLAIMER,
+    ].join('\n');
+    return { version, subject, text, missing };
+  }
+
+  /**
+   * A-X13: what Send would deliver and to whom, and each check that would refuse it, in the order
+   * Send checks them. Nothing is sent and nothing is audited.
+   */
+  async sendPreview(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof SendPlanBody>,
+  ): Promise<AdvisoryPlanSendPreview> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.send) throw advErrors.forbidden();
+      const p = await this.load(ctx, id);
+      const problems: AdvisoryPlanSendPreview['problems'] = [];
+      if (p.archivedAt)
+        problems.push({ code: 'PLAN_ARCHIVED', message: 'Restore the plan before sending it' });
+      if (p.advisoryClient.archivedAt)
+        problems.push({ code: 'CLIENT_ARCHIVED', message: 'Restore the advisory client first' });
+      if (p.status === 'AWAITING_CLIENT_APPROVAL')
+        problems.push({
+          code: 'INVALID_STATUS',
+          message: "The plan is waiting for the client's approval in their portal",
+        });
+      const composed = await this.compose(ctx, p, body);
+      if (composed.missing.length > 0)
+        problems.push({ code: 'PLAN_NOT_READY', message: composed.missing.join('. ') });
+      const login = await ctx.tx.clientAccount.findFirst({
+        where: {
+          businessId,
+          clientId: p.advisoryClient.clientId,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+        select: { email: true },
+      });
+      const notes: string[] = [];
+      if (body.channel === 'DOWNLOAD')
+        notes.push('A download goes to no one: you share the file yourself.');
+      else if (!login)
+        notes.push(
+          'The client has no active portal login yet: the message waits in their portal until they sign in, and no email goes out.',
+        );
+      return {
+        channel: body.channel,
+        version: composed.version?.versionNo ?? null,
+        to: { name: p.advisoryClient.client.displayName, email: login?.email ?? null },
+        subject: composed.subject,
+        body: composed.text,
+        eligible: problems.length === 0,
+        problems,
+        notes,
+      };
+    });
+  }
+
   async send(
     businessId: string,
     tenant: TenantContext,
@@ -674,81 +809,21 @@ export class AdvisoryPlansService {
     // Check and compose in one transaction, deliver, then record the delivery on the version.
     const prepared = await this.run(businessId, tenant, userId, async (ctx) => {
       if (!ctx.perms.send) throw advErrors.forbidden();
-      const { tx } = ctx;
       const p = await this.load(ctx, id);
       if (p.archivedAt) throw advErrors.planArchived();
       if (p.advisoryClient.archivedAt) throw advErrors.clientArchived();
       // B10: the version is in the client's portal already, waiting for their approval.
       if (p.status === 'AWAITING_CLIENT_APPROVAL') throw awaitingClient();
-      const version = await tx.advisoryPlanVersion.findFirst({
-        where: {
-          businessId,
-          planId: id,
-          ...(body.version !== undefined ? { versionNo: body.version } : {}),
-        },
-        orderBy: { versionNo: 'desc' },
-      });
-      if (body.version !== undefined && !version) throw notFound();
-      const newest = await tx.advisoryPlanVersion.findFirst({
-        where: { businessId, planId: id },
-        orderBy: { versionNo: 'desc' },
-        select: { versionNo: true },
-      });
-      const isOlder = !!version && !!newest && version.versionNo < newest.versionNo;
-      const missing: string[] = [];
-      if (!version) missing.push('Finalize the plan first');
-      else if (changedSince(p, version.content as unknown as Content) && !isOlder)
-        missing.push('The plan changed after it was finalized; finalize it again');
-      if (missing.length > 0 || !version) throw advErrors.planNotReady(missing);
-      const content = version.content as unknown as Content;
-      const [recs, actions] = await Promise.all([
-        tx.advisoryRecommendation.findMany({
-          where: { businessId, planId: id, clientVisible: true },
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        }),
-        tx.advisoryActionItem.findMany({
-          where: {
-            businessId,
-            planId: id,
-            clientVisible: true,
-            status: { in: ['NOT_STARTED', 'IN_PROGRESS'] },
-          },
-          orderBy: [{ dueOn: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
-        }),
-      ]);
-      const summary =
-        typeof content.strategy.summary === 'string' ? content.strategy.summary : null;
-      const text = [
-        `Your business plan, ${content.planName} (${content.targetYear}), is ready.`,
-        ...(summary ? ['', summary] : []),
-        ...(content.goals.length
-          ? [
-              '',
-              'Goals:',
-              ...content.goals.map(
-                (g) => `- ${g.title}${g.targetDate ? ` (by ${g.targetDate})` : ''}`,
-              ),
-            ]
-          : []),
-        ...(recs.length
-          ? [
-              '',
-              'Recommendations:',
-              ...recs.map((r) => `- ${r.title}${r.impactLabel ? ` (${r.impactLabel})` : ''}`),
-            ]
-          : []),
-        ...(actions.length
-          ? [
-              '',
-              'Next steps:',
-              ...actions.map((a) => `- ${a.title}${a.dueOn ? ` (due ${day(a.dueOn)})` : ''}`),
-            ]
-          : []),
-        ...(body.message ? ['', body.message] : []),
-        '',
-        DISCLAIMER,
-      ].join('\n');
-      return { plan: p, version, text, actor: ctx.actor };
+      const composed = await this.compose(ctx, p, body);
+      if (composed.missing.length > 0 || !composed.version)
+        throw advErrors.planNotReady(composed.missing);
+      return {
+        plan: p,
+        version: composed.version,
+        subject: composed.subject,
+        text: composed.text,
+        actor: ctx.actor,
+      };
     });
     if (body.channel !== 'DOWNLOAD') {
       await this.messages.create(
@@ -756,7 +831,7 @@ export class AdvisoryPlansService {
         prepared.actor,
         prepared.plan.advisoryClient.clientId,
         {
-          subject: `Your business plan: ${prepared.plan.name}`.slice(0, 200),
+          subject: prepared.subject,
           body: prepared.text,
           repliesEnabled: true,
         },

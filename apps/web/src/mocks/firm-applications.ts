@@ -24,6 +24,7 @@ import {
   ListFirmsQuery,
   parseInput,
   RequestFirmInfoRequest,
+  RequestFirmInformationRequest,
   RESERVED_FIRM_SLUGS,
   SaveFirmNotesRequest,
   SubmitFirmApplicationRequest,
@@ -497,6 +498,9 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
     rows.map((r) => [r.id, r.business?.einLast4 ? `fixture-${r.business.einLast4}` : null]),
   );
   let nextId = 100;
+  // SA-FRM-F06: Request Information's tickets (request id to ticket id), numbered from #1100.
+  const requests = new Map<string, string>();
+  let nextTicket = 1;
   const now = () => new Date().toISOString();
 
   const taken = (slug: string) =>
@@ -649,6 +653,8 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         suspend: s === 'ACTIVE' || s === 'PENDING_SETUP',
         reactivate: s === 'SUSPENDED',
         close: s !== 'CLOSED',
+        // SA-FRM-F06: every mock firm has an owner to answer once it is Active.
+        requestInfo: s === 'ACTIVE',
       },
     };
   };
@@ -1044,6 +1050,49 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       const key = parseInput(FirmId, id);
       const f = firms.find((x) => x.firm.id === key);
       if (!f) throw fail(404, 'NOT_FOUND', 'Not found');
+      const app = rows.find((r) => r.id === f.applicationId);
+      return { ...firmItem(f), application: app ? view(app) : null, ...accountOf(f) };
+    },
+
+    requestFirmInformation: async (id, body) => {
+      await mockDelay();
+      // As the API: the body (400), the firm (404), whether it can answer (409), the day (400).
+      const input = parseInput(RequestFirmInformationRequest, body);
+      const key = parseInput(FirmId, id);
+      const f = firms.find((x) => x.firm.id === key);
+      if (!f) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (!accountOf(f).can?.requestInfo) {
+        throw fail(
+          409,
+          'FIRM_CANNOT_ANSWER',
+          'Only an active firm with an active owner can be asked for information',
+        );
+      }
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+        new Date(),
+      );
+      if (input.replyBy && input.replyBy < today) {
+        throw new ApiRequestError(
+          400,
+          'VALIDATION_FAILED',
+          'The request is not valid',
+          undefined,
+          undefined,
+          [{ path: 'replyBy', message: 'Choose today or a later day' }],
+        );
+      }
+      // The same request id again: the same ticket, no second entry.
+      if (
+        !(f.actions ?? []).some((e) => e.ticket && requests.get(input.requestId) === e.ticket.id)
+      ) {
+        const ticket = { id: uuid('0199b6a9', nextTicket), number: 1100 + nextTicket };
+        nextTicket += 1;
+        requests.set(input.requestId, ticket.id);
+        f.actions = [
+          { type: 'INFO_REQUESTED', at: now(), by: ADMIN, reason: input.subject, ticket },
+          ...(f.actions ?? []),
+        ];
+      }
       const app = rows.find((r) => r.id === f.applicationId);
       return { ...firmItem(f), application: app ? view(app) : null, ...accountOf(f) };
     },

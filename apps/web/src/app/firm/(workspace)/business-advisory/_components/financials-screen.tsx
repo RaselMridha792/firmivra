@@ -1,6 +1,6 @@
 'use client';
 
-import type { AdvisoryFinancialPage } from '@firmivra/types';
+import type { AdvisoryFinancialPage, AdvisoryFinancialRow } from '@firmivra/types';
 import {
   Badge,
   Button,
@@ -83,6 +83,8 @@ export function FinancialAnalysis() {
   const [history, setHistory] = useState(false);
   const [page, setPage] = useState(1);
   const [adding, setAdding] = useState(false);
+  // A-X09 (B27): the row a correction corrects.
+  const [correcting, setCorrecting] = useState<Row>();
   const q = useApiQuery([...BA_KEY, 'financials', clientId, source, from, to, history, page], () =>
     api.advisory.financials({
       ...(clientId ? { advisoryClientId: clientId } : {}),
@@ -186,6 +188,23 @@ export function FinancialAnalysis() {
           <span>{dayText(r.asOf)}</span>
           {r.stale ? <Badge tone="danger">Stale</Badge> : null}
         </span>
+      ),
+    },
+    {
+      id: 'correct',
+      label: 'Correction',
+      cell: (r) => (
+        <button
+          type="button"
+          className="text-link hover:underline"
+          onClick={() => setCorrecting(r)}
+        >
+          Correct
+          <span className="sr-only">
+            {' '}
+            {r.client.name}, {r.periodStart} to {r.periodEnd}
+          </span>
+        </button>
       ),
     },
   ];
@@ -332,6 +351,17 @@ export function FinancialAnalysis() {
           }}
         />
       ) : null}
+      {correcting ? (
+        <AddFiguresDialog
+          advisoryClientId={correcting.advisoryClientId}
+          correcting={correcting}
+          onClose={() => setCorrecting(undefined)}
+          onAdded={(name) => {
+            setCorrecting(undefined);
+            say(`Figures corrected for ${name}. The earlier figures are kept.`);
+          }}
+        />
+      ) : null}
     </BaShell>
   );
 }
@@ -347,13 +377,22 @@ const MONEY_FIELDS = [
 ] as const;
 type MoneyKey = (typeof MONEY_FIELDS)[number][0];
 
-/** Add a period's figures for an advisory client; replacing a source's figures needs a reason. */
+/** Dollars for a field, from cents ('' for none). */
+const dollars = (cents: number | null) => (cents === null ? '' : String(cents / 100));
+
+/**
+ * Add a period's figures for an advisory client; replacing a source's figures needs a reason.
+ * A-X09 (B27): with `correcting`, a correction of that row: its client and period, its figures to
+ * change, and a reason; it is a new row, the earlier one is kept, and the change is audited.
+ */
 export function AddFiguresDialog({
   advisoryClientId: preset,
+  correcting,
   onClose,
   onAdded,
 }: {
   advisoryClientId?: string;
+  correcting?: AdvisoryFinancialRow;
   onClose: () => void;
   onAdded: (clientName: string) => void;
 }) {
@@ -362,18 +401,28 @@ export function AddFiguresDialog({
     api.advisory.clients({ pageSize: 100 }),
   );
   const [clientId, setClientId] = useState(preset ?? '');
-  const [start, setStart] = useState(() => `${new Date().getFullYear() - 1}-01-01`);
-  const [end, setEnd] = useState(() => `${new Date().getFullYear() - 1}-12-31`);
-  const [amounts, setAmounts] = useState<Record<MoneyKey, string>>({
-    revenue: '',
-    expenses: '',
-    netProfit: '',
-    cashFlow: '',
-    debt: '',
-    budgetRevenue: '',
-    budgetExpenses: '',
-  });
-  const [headcount, setHeadcount] = useState('');
+  const [start, setStart] = useState(
+    () => correcting?.periodStart ?? `${new Date().getFullYear() - 1}-01-01`,
+  );
+  const [end, setEnd] = useState(
+    () => correcting?.periodEnd ?? `${new Date().getFullYear() - 1}-12-31`,
+  );
+  const [amounts, setAmounts] = useState<Record<MoneyKey, string>>(() => ({
+    revenue: dollars(correcting?.revenueCents ?? null),
+    expenses: dollars(correcting?.expensesCents ?? null),
+    // Worked out again from revenue and expenses when both are given.
+    netProfit:
+      correcting && (correcting.revenueCents === null || correcting.expensesCents === null)
+        ? dollars(correcting.netProfitCents)
+        : '',
+    cashFlow: dollars(correcting?.cashFlowCents ?? null),
+    debt: dollars(correcting?.debtCents ?? null),
+    budgetRevenue: dollars(correcting?.budgetRevenueCents ?? null),
+    budgetExpenses: dollars(correcting?.budgetExpensesCents ?? null),
+  }));
+  const [headcount, setHeadcount] = useState(() =>
+    correcting?.headcount != null ? String(correcting.headcount) : '',
+  );
   const [source, setSource] = useState('MANUAL');
   const [asOf, setAsOf] = useState(today);
   const [reason, setReason] = useState('');
@@ -406,7 +455,11 @@ export function AddFiguresDialog({
         ...put('budgetRevenueCents', cents.budgetRevenue),
         ...put('budgetExpensesCents', cents.budgetExpenses),
         ...(headcount.trim() ? { headcount: Math.round(Number(headcount)) } : {}),
-        ...(reason.trim() ? { override: { reason: reason.trim() } } : {}),
+        ...(correcting
+          ? { corrects: { snapshotId: correcting.id, reason: reason.trim() } }
+          : reason.trim()
+            ? { override: { reason: reason.trim() } }
+            : {}),
       });
       await qc.invalidateQueries({ queryKey: [...BA_KEY] });
       onAdded(clients.data?.items.find((c) => c.id === clientId)?.client.name ?? 'the client');
@@ -420,8 +473,12 @@ export function AddFiguresDialog({
   return (
     <Modal
       open
-      title="Add Financial Figures"
-      subtitle="One period for one client. Later figures for the same period replace these; both are kept."
+      title={correcting ? 'Correct Financial Figures' : 'Add Financial Figures'}
+      subtitle={
+        correcting
+          ? "The corrected figures become this period's; the earlier ones are kept (Show corrections), and the change is in the activity log."
+          : 'One period for one client. Later figures for the same period replace these; both are kept.'
+      }
       onClose={onClose}
       footer={
         <>
@@ -429,10 +486,12 @@ export function AddFiguresDialog({
             Cancel
           </Button>
           <Button
-            disabled={!clientId || !start || !end || !asOf || saving}
+            disabled={
+              !clientId || !start || !end || !asOf || saving || (!!correcting && !reason.trim())
+            }
             onClick={() => void save()}
           >
-            Add Figures
+            {correcting ? 'Save Correction' : 'Add Figures'}
           </Button>
         </>
       }
@@ -442,6 +501,7 @@ export function AddFiguresDialog({
         <Select
           label="Advisory client"
           required
+          disabled={!!correcting}
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
           options={[
@@ -457,6 +517,7 @@ export function AddFiguresDialog({
             label="Period start"
             type="date"
             required
+            disabled={!!correcting}
             value={start}
             onChange={(e) => setStart(e.target.value)}
           />
@@ -464,6 +525,7 @@ export function AddFiguresDialog({
             label="Period end"
             type="date"
             required
+            disabled={!!correcting}
             value={end}
             onChange={(e) => setEnd(e.target.value)}
           />
@@ -497,15 +559,20 @@ export function AddFiguresDialog({
           />
         </div>
         <Textarea
-          label="Override reason (only when replacing figures from a source)"
+          label={
+            correcting
+              ? 'Correction reason *'
+              : 'Override reason (only when replacing figures from a source)'
+          }
           rows={2}
           maxLength={500}
           value={reason}
           onChange={(e) => setReason(e.target.value)}
         />
         <p className="text-xs text-muted">
-          A manual change to figures from bookkeeping, payroll or a bank is kept with its reason and
-          who made it.
+          {correcting
+            ? 'Say what was wrong. The reason shows on the corrected row.'
+            : 'A manual change to figures from bookkeeping, payroll or a bank is kept with its reason and who made it.'}
         </p>
       </div>
     </Modal>

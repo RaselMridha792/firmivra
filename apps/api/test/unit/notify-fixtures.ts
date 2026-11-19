@@ -32,6 +32,15 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'staff.phone-code': { code: '482913' },
   'staff.mfa-reset': { name: 'Fake Member' },
   'platform.mfa-enrolled': { name: 'Fake Member' },
+  'platform.firm-info-request': {
+    name: 'Jordan Sample',
+    firmName: 'Sample Tax Partners LLC',
+    reference: '#1004',
+    subject: 'Your business licence',
+    message: 'Please send <b>your</b> current licence.\nThanks.',
+    replyBy: '2026-12-01',
+    link: 'https://app.example.test/settings/firmivra-requests/0199c0a0-0a00-7000-8000-000000000001',
+  },
   'client.signup-sms-code': { code: '482913' },
   'client.already-registered': {
     signInLink: 'https://portal.example.test/sample/sign-in',

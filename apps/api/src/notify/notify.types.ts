@@ -38,6 +38,22 @@ export interface NotifyTemplates {
    * several firms.
    */
   'platform.mfa-enrolled': { name: string };
+  /**
+   * SA-FRM-F06: Firmivra asks the firm's owner for information (a Support ticket). The subject
+   * and message are the Super Admin's own words; the link opens the request in the firm's
+   * Settings > Requests from Firmivra, where the owner answers after signing in.
+   */
+  'platform.firm-info-request': {
+    name: string;
+    firmName: string;
+    /** "#1004", as the ticket is numbered. */
+    reference: string;
+    subject: string;
+    message: string;
+    /** YYYY-MM-DD, or null for no date. */
+    replyBy: string | null;
+    link: string;
+  };
 
   // ----- Client portal (R3) -----
   /** The 6-digit code that verifies a sign-up's email. */
@@ -388,6 +404,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'staff.phone-code': 'sms',
   'staff.mfa-reset': 'email',
   'platform.mfa-enrolled': 'email',
+  'platform.firm-info-request': 'email',
   'client.signup-email-code': 'email',
   'client.signup-sms-code': 'sms',
   'client.already-registered': 'email',
@@ -455,6 +472,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'staff.phone-code': 'firm',
   'staff.mfa-reset': 'firm',
   'platform.mfa-enrolled': 'platform',
+  'platform.firm-info-request': 'platform',
   'client.signup-email-code': 'firm',
   'client.signup-sms-code': 'firm',
   'client.already-registered': 'firm',
@@ -519,6 +537,8 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'staff.phone-code',
   'staff.mfa-reset',
   'platform.mfa-enrolled',
+  // SA-FRM-F06: Firmivra's request to the owner about their own firm's account.
+  'platform.firm-info-request',
   'client.signup-email-code',
   'client.signup-sms-code',
   'client.already-registered',
@@ -560,6 +580,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'staff.phone-code': 'ACCOUNT',
   'staff.mfa-reset': 'ACCOUNT',
   'platform.mfa-enrolled': 'ACCOUNT',
+  'platform.firm-info-request': 'ACCOUNT',
   'client.signup-email-code': 'ACCOUNT',
   'client.signup-sms-code': 'ACCOUNT',
   'client.already-registered': 'ACCOUNT',
