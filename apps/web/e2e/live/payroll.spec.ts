@@ -392,23 +392,31 @@ test('F02 (red) portal shows the request with its due date on its own line', asy
 test('UX02 (green) portal: the client uploads its own file and downloads it', async ({
   browser,
 }) => {
+  // With the run's request sent, the file answers it (the request's own Upload, so F02 red can
+  // check the staff side names the request); otherwise a plain Payroll upload.
+  const forRequest = await sentRequest(browser);
   const { ctx, page } = await asClient(browser);
   try {
     await page.goto(portal('/documents'));
     if ((await page.getByRole('button', { name: `Download ${PORTAL_FILE}` }).count()) === 0) {
-      await page.getByRole('button', { name: 'Upload Documents' }).first().click();
       const dialog = page.getByRole('dialog', { name: 'Upload Documents' });
-      await dialog
-        .getByRole('button', { name: /Upload more documents for my business services/ })
-        .click();
-      const service = dialog.getByLabel('Service');
-      const payroll = await service
-        .locator('option')
-        .evaluateAll(
-          (os) => os.find((o) => /Payroll/.test(o.textContent ?? ''))?.getAttribute('value') ?? '',
-        );
-      expect(payroll, 'the portal offers the Payroll service').not.toBe('');
-      await service.selectOption(payroll);
+      if (forRequest) {
+        await requestRow(page).getByRole('button', { name: 'Upload', exact: true }).click();
+      } else {
+        await page.getByRole('button', { name: 'Upload Documents' }).first().click();
+        await dialog
+          .getByRole('button', { name: /Upload more documents for my business services/ })
+          .click();
+        const service = dialog.getByLabel('Service');
+        const payroll = await service
+          .locator('option')
+          .evaluateAll(
+            (os) =>
+              os.find((o) => /Payroll/.test(o.textContent ?? ''))?.getAttribute('value') ?? '',
+          );
+        expect(payroll, 'the portal offers the Payroll service').not.toBe('');
+        await service.selectOption(payroll);
+      }
       await dialog.locator('input[type=file]').setInputFiles({
         name: PORTAL_FILE,
         mimeType: 'application/pdf',

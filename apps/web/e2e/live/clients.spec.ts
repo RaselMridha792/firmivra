@@ -22,7 +22,12 @@ import { app, as, expectNoSideScroll, hasLogin, portal, settled, shot } from './
  * simulator email (success+live-check-<stamp>-<n>@simulator.amazonses.com), as do its responsible
  * party and the run's lead. The run reuses one catalog service, "LIVE-CHECK Clients" (restored if
  * archived, archived again by cleanup) and one draft service, "LIVE-CHECK Clients Draft" (deleted by
- * cleanup), and the one fixed tag "LIVE-CHECK" (tags have no delete). "zz cleanup" archives every
+ * cleanup), the one fixed tag "LIVE-CHECK" (tags have no delete), and for the upload (Test Firm B
+ * has no document types or folders of its own) one document type "LIVE-CHECK" (restored if
+ * archived, archived again by cleanup: types have no delete) and one client folder "LIVE-CHECK"
+ * (kept: a folder that holds a file, trashed or not, cannot be deleted). Zeta's started service
+ * comes from a draft invoice (I-N01's pending request, which Start Service begins), never sent and
+ * deleted at once (a deleted draft is archived). "zz cleanup" archives every
  * client of the run (clients have no delete), trashes its files, cancels its document requests,
  * revokes its portal invitations, archives the intake form it sent, cancels or leaves completed its
  * lead appointment (booked already started, so N8-18 can complete it), archives the lead and the
@@ -66,6 +71,9 @@ const SERVICE = 'LIVE-CHECK Clients';
 const DRAFT = 'LIVE-CHECK Clients Draft';
 const CATEGORY = 'LIVE-CHECK';
 const TAG = 'LIVE-CHECK';
+/** The run's document type and client folder for the upload (reused by each run). */
+const DOC_TYPE = 'LIVE-CHECK';
+const FOLDER = 'LIVE-CHECK';
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 const PDF = Buffer.from(
   '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
@@ -100,6 +108,12 @@ interface Ctx {
   epsilon: string;
   zeta: string;
   engagementId: string;
+  /** Zeta's service, pending then started (N8-17's work start: Zeta becomes Active). */
+  startedId: string;
+  /** The draft invoice that made Zeta's pending service (deleted at once; cleanup again). */
+  invoiceId: string;
+  docTypeId: string;
+  folderId: string;
   leadId: string;
   typeId: string;
   apptId: string;
@@ -129,6 +143,10 @@ const blankCtx = (): Ctx => ({
   epsilon: '',
   zeta: '',
   engagementId: '',
+  startedId: '',
+  invoiceId: '',
+  docTypeId: '',
+  folderId: '',
   leadId: '',
   typeId: '',
   apptId: '',
@@ -183,20 +201,36 @@ interface Api {
   dispose(): Promise<void>;
 }
 
-/** Refreshes the role's saved session when its access token has expired, as the app does. */
-async function freshSession(browser: Browser, role: Role): Promise<void> {
+/**
+ * Refreshes the role's saved session when its access token has expired, as the app does. `firm`
+ * (the default) also requires the firm session to be live; false only needs who the person is.
+ */
+async function freshSession(browser: Browser, role: Role, firm = true): Promise<void> {
   if (!existsSync(statePath(role))) {
     throw new Error(`no saved ${role} session: run the setup project once (without -g)`);
   }
   const ctx = await browser.newContext({ storageState: statePath(role) });
   try {
     const url = (p: string) => `${appUrl}/api/v1/${p}`;
-    if ((await ctx.request.get(url('me'))).status() !== 401) return;
+    // A firm route, not /me: only a firm route checks the staff session (SM4), so a session the
+    // firm ended, or one past its 8-hour limit, answers 401 here while /me still answers 200.
+    const probe = () => ctx.request.get(url(firm ? 'business/clients?limit=10' : 'me'));
+    if ((await probe()).status() !== 401) return;
     const r = await ctx.request.post(url('auth/refresh'), {
       headers: { origin: appUrl },
       data: {},
     });
     if (!r.ok()) throw new Error(`${role} session refresh failed (${r.status()}): sign in again`);
+    const again = await probe();
+    if (firm && again.status() === 401) {
+      const code = String(
+        ((await again.json().catch(() => null)) as { error?: { code?: string } } | null)?.error
+          ?.code ?? '401',
+      );
+      throw new Error(
+        `${role} session ended (${code}): sign the role in again (harness, not a product finding)`,
+      );
+    }
     const cookies = (await ctx.storageState()).cookies;
     const saved = JSON.parse(readFileSync(statePath(role), 'utf8')) as Record<string, unknown>;
     writeFileSync(statePath(role), JSON.stringify({ ...saved, cookies }, null, 2));
@@ -206,8 +240,8 @@ async function freshSession(browser: Browser, role: Role): Promise<void> {
 }
 
 /** The role's API through a browser context (setup and cleanup only); a 401 refreshes once. */
-async function roleApi(browser: Browser, role: Role): Promise<Api> {
-  await freshSession(browser, role);
+async function roleApi(browser: Browser, role: Role, firm = true): Promise<Api> {
+  await freshSession(browser, role, firm);
   const ctx = await browser.newContext({ storageState: statePath(role) });
   const url = (p: string) => `${appUrl}/api/v1/${p}`;
   const headers = { origin: appUrl };
@@ -343,9 +377,50 @@ async function ensureService(api: Api, name: string, live: boolean): Promise<str
 }
 
 /**
+ * The upload's document type and client folder (Test Firm B has none, and Upload Document needs
+ * both): ours by name, the type restored when an earlier cleanup archived it, else made once.
+ */
+async function ensureDocumentSetup(api: Api): Promise<{ typeId: string; folderId: string }> {
+  const types = itemsOf<{ id: string; name: string; archivedAt: string | null }>(
+    await ok(await api.get('business/document-categories'), 'document types'),
+  );
+  const type = types.find((x) => x.name === DOC_TYPE);
+  if (type?.archivedAt)
+    await ok(
+      await api.patch(`business/document-categories/${type.id}`, { archived: false }),
+      `restore document type ${DOC_TYPE}`,
+    );
+  const typeId =
+    type?.id ??
+    ((await ok(await api.post('business/document-categories', { name: DOC_TYPE }), 'document type'))
+      .id as string);
+  const folders = itemsOf<{ id: string; name: string; scope: string; parentId: string | null }>(
+    await ok(await api.get('business/document-folders'), 'document folders'),
+  );
+  const folder = folders.find((f) => f.name === FOLDER && f.scope === 'CLIENT' && !f.parentId);
+  const folderId =
+    folder?.id ??
+    ((
+      await ok(
+        await api.post('business/document-folders', {
+          name: FOLDER,
+          scope: 'CLIENT',
+          // Internal: no client uploads, nothing shown to clients by default, no staff notices.
+          allowClientUploads: false,
+          notifyStaffOnUpload: false,
+          defaultClientAccess: 'NONE',
+        }),
+        'document folder',
+      )
+    ).id as string);
+  return { typeId, folderId };
+}
+
+/**
  * Finds the run's records, or makes them (saved after each, so a restarted worker resumes): who
  * is who, the reused service and draft service, the fixed tag, six clients, Alpha's engagement
- * (started), and for P4-7 a lead of the Owner's with an appointment whose staff member is Staff.
+ * (enrolled), Zeta's (pending, then started), the upload's document type and folder, and for P4-7
+ * a lead of the Owner's with an appointment whose staff member is Staff.
  */
 async function fixture(browser: Browser): Promise<Ctx> {
   let c = blankCtx();
@@ -354,19 +429,32 @@ async function fixture(browser: Browser): Promise<Ctx> {
     if (old.tag === runTag) c = old;
     else register(old);
   }
-  if (c.ownerId && c.zeta && c.engagementId && c.leadId && (c.apptId || !c.staffId)) return c;
+  if (
+    c.ownerId &&
+    c.zeta &&
+    c.engagementId &&
+    c.startedId &&
+    c.folderId &&
+    c.leadId &&
+    (c.apptId || !c.staffId)
+  )
+    return c;
   const api = await roleApi(browser, 'owner');
   try {
     if (!c.ownerId) {
       for (const run of readRegistry().filter((r) => r.tag !== runTag && !r.cleaned)) {
         const left: string[] = [];
-        await cleanRun(api, run, [], left, false);
+        const swept: string[] = [];
+        await cleanRun(api, run, swept, left, false);
+        const files = swept.filter((x) => x.startsWith('file '));
+        if (files.length) console.log(`EARLIER RUN ${run.tag} files: ${files.join('; ')}`);
         if (!left.length) register({ ...run, cleaned: true });
         else console.log(`EARLIER RUN ${run.tag} left: ${left.join('; ')}`);
       }
       c.ownerId = (await ok(await api.get('me'), 'me')).user.id as string;
       if (hasLogin('staff')) {
-        const s = await roleApi(browser, 'staff');
+        // Only who Staff is (/me): the Staff rows check their own firm session.
+        const s = await roleApi(browser, 'staff', false);
         c.staffId = (await ok(await s.get('me'), 'staff me')).user.id as string;
         await s.dispose();
       }
@@ -417,6 +505,7 @@ async function fixture(browser: Browser): Promise<Ctx> {
     await make('epsilon', individual(N.epsilon, 6, owner));
     await make('zeta', individual(N.zeta, 7, owner));
     if (!c.engagementId) {
+      // Alpha's enrolled service (Enroll: an active service; the client stays New by design).
       const e = await ok(
         await api.post(`business/clients/${c.alpha}/engagements`, {
           serviceId: c.serviceId,
@@ -426,10 +515,48 @@ async function fixture(browser: Browser): Promise<Ctx> {
       );
       c.engagementId = e.id as string;
       saveCtx(c);
-      // Start Service: Alpha becomes an Active client (N8-17's work start).
-      const s = await api.post(`business/engagements/${c.engagementId}/activate`);
+    }
+    if (!c.startedId) {
+      // N8-17's work start is Start Service on a pending (requested) service (enrolling leaves
+      // the client New: api clients/client-activation.ts). The firm's way to a pending one is a
+      // draft invoice for the service (I-N01): made with no email and deleted at once (a deleted
+      // draft is archived), never sent. Zeta's started service makes Zeta an Active client.
+      const inv = await ok(
+        await api.post('business/invoices', {
+          clientId: c.zeta,
+          serviceId: c.serviceId,
+          lines: [{ description: `${runTag} fixture line (synthetic)`, unitAmountCents: 100 }],
+          dueOn: firmDay(30),
+          emailClient: false,
+        }),
+        "draft invoice for Zeta's pending service",
+      );
+      c.invoiceId = inv.id as string;
+      saveCtx(c);
+      const del = await api.delete(`business/invoices/${c.invoiceId}`);
+      if (!del.ok()) console.log(`delete the fixture draft invoice: ${del.status()}`);
+      let startedId = (inv.service?.id as string | undefined) ?? '';
+      if (!startedId) {
+        const pending = itemsOf<{ id: string }>(
+          await ok(
+            await api.get(`business/clients/${c.zeta}/engagements?status=PENDING`),
+            "Zeta's pending services",
+          ),
+        );
+        startedId = pending[0]?.id ?? '';
+      }
+      if (!startedId) throw new Error('the draft invoice made no pending service for Zeta');
+      c.startedId = startedId;
+      saveCtx(c);
+      const s = await api.post(`business/engagements/${c.startedId}/activate`);
       if (!s.ok())
-        console.log(`start Alpha's service: ${s.status()} ${(await s.text()).slice(0, 200)}`);
+        console.log(`start Zeta's service: ${s.status()} ${(await s.text()).slice(0, 200)}`);
+    }
+    if (!c.folderId) {
+      const d = await ensureDocumentSetup(api);
+      c.docTypeId = d.typeId;
+      c.folderId = d.folderId;
+      saveCtx(c);
     }
     if (!c.leadId) {
       if (!SIMULATOR.test(email(8))) throw new Error('lead email is not a simulator address');
@@ -469,11 +596,14 @@ async function fixture(browser: Browser): Promise<Ctx> {
       // (a recent past weekday, as appointments.spec.ts books P4's): the API completes only a
       // started appointment (N8-18), and nothing is sent for a past one. No confirmation either
       // (sendConfirmation false); the lead's address is a simulator one all the same.
-      const slots: [string, string][] = [
-        ['10:30', '11:00'],
-        ['13:30', '14:00'],
-        ['15:00', '15:30'],
-      ];
+      // Every half hour of a working day on the last few weekdays: completed lead appointments of
+      // earlier runs stay booked (a completed one is never cancelled), and the Appointments check
+      // books past weekdays too, so a fixed slot or two is soon taken (a hard conflict).
+      const hhmm = (m: number) =>
+        `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      const slots: [string, string][] = [];
+      for (let m = 9 * 60; m + 30 <= 17 * 60; m += 30) slots.push([hhmm(m), hhmm(m + 30)]);
+      const days = [...new Set([1, 2, 3, 4, 5, 6, 7].map((d) => pastWeekday(d)))];
       const body = (day: string, s: [string, string], override = false) => ({
         idempotencyKey: randomUUID(),
         contact: { kind: 'LEAD', id: c.leadId },
@@ -489,29 +619,31 @@ async function fixture(browser: Browser): Promise<Ctx> {
         details: `${runTag} lead appointment (synthetic)`,
         ...(override ? { overrideConflicts: { reason: `${runTag} live check fixture` } } : {}),
       });
+      const book = async (day: string, s: [string, string], override = false) => {
+        const r = await api.post('business/appointments/schedule', body(day, s, override));
+        if (!r.ok()) return `${r.status()} ${(await r.text()).slice(0, 300)}`;
+        const made = await r.json();
+        c.apptId = (made.id ?? made.appointment?.id ?? made.items?.[0]?.id) as string;
+        return '';
+      };
       let last = '';
-      outer: for (const d of [1, 2, 3]) {
+      outer: for (const day of days) {
         for (const s of slots) {
-          const r = await api.post('business/appointments/schedule', body(pastWeekday(d), s));
-          if (r.ok()) {
-            const made = await r.json();
-            c.apptId = (made.id ?? made.appointment?.id ?? made.items?.[0]?.id) as string;
-            break outer;
-          }
-          last = `${r.status()} ${(await r.text()).slice(0, 200)}`;
+          last = await book(day, s);
+          if (c.apptId) break outer;
         }
       }
-      if (!c.apptId) {
-        const r = await api.post(
-          'business/appointments/schedule',
-          // Outside Staff's hours: the Owner books it anyway, with a reason.
-          body(pastWeekday(1), slots[0]!, true),
-        );
-        if (r.ok()) {
-          const made = await r.json();
-          c.apptId = (made.id ?? made.appointment?.id ?? made.items?.[0]?.id) as string;
-        } else console.log(`lead appointment not booked: ${last}; override ${r.status()}`);
+      // Outside Staff's hours (a soft conflict): the Owner books it anyway, with a reason.
+      for (const s of [
+        ['07:00', '07:30'],
+        ['07:30', '08:00'],
+        ['18:00', '18:30'],
+        ['18:30', '19:00'],
+      ] as [string, string][]) {
+        if (c.apptId) break;
+        last = `${last}; override ${await book(days[0]!, s, true)}`;
       }
+      if (!c.apptId) console.log(`lead appointment not booked: ${last.slice(-700)}`);
       saveCtx(c);
     }
     return c;
@@ -604,8 +736,23 @@ const assignedOnProfile = (page: Page) =>
     .getByTestId('client-overview')
     .locator('dt', { hasText: /^Assigned to$/ })
     .locator('xpath=following-sibling::dd[1]');
-/** The member's name as cards shorten it ("QA Perf (fake)" shows as "Q. Perf (fake)"). */
-const tail = (name: string) => name.split(' ').slice(1).join(' ') || name;
+/**
+ * The member's name as the list shortens it: first initial and last word ("QA Perf Staff B" shows
+ * as "Q. B"; list-parts.ts shortName).
+ */
+const tail = (name: string) => {
+  const words = name.trim().split(/\s+/);
+  return words.length > 1 ? `${words[0]!.charAt(0)}. ${words.at(-1)!}` : name;
+};
+/**
+ * Firm Sign's state on a page behind its gate: true when it is off for the firm (Test Firm B's
+ * today; Firm Sign is switched on by the platform, never here). Waits for the gate or `on`.
+ */
+async function firmSignOff(page: Page, on: Locator): Promise<boolean> {
+  const off = page.getByText('Firm Sign is off', { exact: true });
+  await expect(on.or(off).first()).toBeVisible({ timeout: 60_000 });
+  return off.isVisible().catch(() => false);
+}
 
 async function addDialog(page: Page): Promise<Locator> {
   await page.getByTestId('add-client').click();
@@ -734,6 +881,22 @@ async function uploadForClient(page: Page, clientId: string, file: string) {
   await form
     .locator('input[type=file]')
     .setInputFiles({ name: file, mimeType: 'application/pdf', buffer: PDF });
+  // Upload Files: the type and folder for all the files come first (both required), the run's own.
+  await form
+    .getByLabel('Document Type *', { exact: true })
+    .first()
+    .selectOption({ label: DOC_TYPE });
+  await form.getByLabel('Folder *', { exact: true }).first().selectOption({ label: FOLDER });
+  const keepInternal = async () => {
+    for (const label of [
+      'Make visible to client in portal',
+      'Notify client that a document has been uploaded',
+    ]) {
+      const box = form.getByLabel(label).first();
+      if ((await box.count()) && (await box.isChecked())) await box.uncheck();
+    }
+  };
+  await keepInternal();
   await page.getByRole('button', { name: /^Next: Document Details/ }).click();
   for (const label of ['Document Type *', 'Service *']) {
     const sel = form.getByLabel(label, { exact: true }).first();
@@ -742,21 +905,17 @@ async function uploadForClient(page: Page, clientId: string, file: string) {
   }
   await page.getByRole('button', { name: /^Next: Organize & Assign/ }).click();
   const folder = form.getByLabel('Folder *', { exact: true }).first();
-  if ((await folder.count()) && !(await folder.inputValue())) await pickFirst(folder);
-  for (const label of [
-    'Make visible to client in portal',
-    'Notify client that a document has been uploaded',
-  ]) {
-    const box = form.getByLabel(label).first();
-    if ((await box.count()) && (await box.isChecked())) await box.uncheck();
-  }
+  if ((await folder.count()) && !(await folder.inputValue()))
+    await folder.selectOption({ label: FOLDER });
+  await keepInternal();
   await page.getByRole('button', { name: /^Next: Review & Upload/ }).click();
   await expect(form).toContainText(file);
   await expect(form).toContainText(N.alpha);
   await page.getByRole('button', { name: 'Upload Document', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Back to Documents' })).toBeVisible({
-    timeout: 60_000,
-  });
+  // The file's own status in the review table ("Back to Documents" is always in the header).
+  const status = form.getByRole('row').filter({ hasText: file });
+  await expect(status.getByText(/^(Uploaded|Failed)$/)).toBeVisible({ timeout: 120_000 });
+  await expect(status, 'the upload finished').toContainText('Uploaded');
   // Locate the file (a read for the later tests; every check is on the page).
   const res = await page.request.get(
     app(`/api/v1/business/documents?clientId=${clientId}&search=${encodeURIComponent(STAMP)}`),
@@ -767,6 +926,26 @@ async function uploadForClient(page: Page, clientId: string, file: string) {
   const doc = docs.find((d) => (d.fileName ?? d.name ?? '').includes(STAMP));
   expect(doc, "the uploaded file is in the client's documents").toBeTruthy();
   remember({ docId: doc!.id, docName: doc!.fileName ?? doc!.name ?? file });
+}
+
+/**
+ * The run's file's Download on the profile (the shown copy: the phone cards are hidden at this
+ * width), once its virus scan is clean: Download waits for it, and the list does not refresh.
+ */
+async function cleanDownload(page: Page): Promise<Locator> {
+  const button = page
+    .getByTestId('client-documents-list')
+    .getByTestId('document-download')
+    .filter({ visible: true })
+    .first();
+  await expect(async () => {
+    if (!(await button.isEnabled().catch(() => false))) {
+      await page.reload();
+      await settled(page);
+    }
+    await expect(button).toBeEnabled({ timeout: 10_000 });
+  }).toPass({ timeout: 150_000, intervals: [5_000] });
+  return button;
 }
 
 /** The vertical overflow of an element (a strip with no vertical scrollbar has none). */
@@ -844,7 +1023,7 @@ async function expectRefused(page: Page, secrets: string[]) {
       .getByTestId('page-not-found')
       .or(
         page.getByText(
-          /not found|no access|can.t find|couldn.t find|doesn.t exist|not available|permission/i,
+          /not found|no access|can.t find|couldn.t (find|be found)|could not be found|doesn.t exist|not available|permission/i,
         ),
       )
       .first(),
@@ -1056,7 +1235,8 @@ test.describe('Clients (Owner)', () => {
       await expect(entry(page, N.alpha)).toHaveCount(1);
     }
     await page.getByLabel('Status', { exact: true }).selectOption({ label: 'Active' });
-    await expect(page).toHaveURL(/status=|clientStatus=|tab=/);
+    // The list's address keeps the status as `stage` (lib/clients-place.ts).
+    await expect(page).toHaveURL(/[?&]stage=ACTIVE(&|$)/);
     await page
       .getByRole('button', { name: /^Reset/ })
       .first()
@@ -1103,10 +1283,16 @@ test.describe('Clients (Owner)', () => {
     await openClient(page, c.alpha, '/signatures');
     await expect(tabHeader(page).getByRole('heading', { level: 2 })).toHaveText('Signatures');
     await expect(page).toHaveURL(new RegExp(`/clients/${c.alpha}/signatures`));
-    await expect(tabHeader(page).getByRole('link', { name: 'Send for signature' })).toHaveAttribute(
-      'href',
-      new RegExp(c.alpha),
-    );
+    const send = tabHeader(page).getByRole('link', { name: 'Send for signature' });
+    if (await firmSignOff(page, send)) {
+      // By design Send for signature shows only while Firm Sign is on (client-signatures.tsx).
+      await expect(send).toHaveCount(0);
+      note(
+        info,
+        'partial',
+        'Firm Sign is off for Test Firm B: the tab keeps the client; "Send for signature" with this client shows only while Firm Sign is on',
+      );
+    } else await expect(send).toHaveAttribute('href', new RegExp(c.alpha));
     await page.reload();
     await expect(title(page)).toHaveText(N.alpha, { timeout: 60_000 });
     await shot(page, TAB, 'C2-014', info);
@@ -1176,23 +1362,31 @@ test.describe('Clients (Owner)', () => {
     await expect(page).toHaveURL(new RegExp(`/documents/upload\\?clientId=${c.alpha}`), {
       timeout: 60_000,
     });
+    // The row: Upload Document opens with this client already chosen.
+    await expect(page.getByTestId('upload-document')).toContainText(N.alpha, { timeout: 60_000 });
     const file = `${STAMP}-alpha.pdf`;
     await expectSendable(page, c.alpha, 'upload (no notice: sharing and notify off)');
     await uploadForClient(page, c.alpha, file);
     await openClient(page, c.alpha, '/documents');
-    const list = page.getByTestId('client-documents-list');
-    await expect(list.getByText(file).first()).toBeVisible({ timeout: 60_000 });
+    // The list holds phone cards (hidden at this width) and the table: the one shown counts.
+    const listed = page
+      .getByTestId('client-documents-list')
+      .getByText(file)
+      .filter({ visible: true })
+      .first();
+    await expect(listed).toBeVisible({ timeout: 60_000 });
     await page.reload();
-    await expect(page.getByTestId('client-documents-list').getByText(file).first()).toBeVisible({
-      timeout: 60_000,
-    });
+    await expect(listed).toBeVisible({ timeout: 60_000 });
     await shot(page, TAB, 'C2-012-file', info);
     // Request a document: the notice goes to Alpha's own (simulator) address.
     const titleText = `${runTag} W-2 request`;
     await page.getByTestId('request-document-open').click();
     const form = page.getByRole('dialog', { name: 'Request a document' });
+    // The form shows once Alpha's active services have loaded (none would say so instead).
     const service = form.getByTestId('request-service');
-    if ((await service.count()) && !(await service.inputValue())) await pickFirst(service);
+    await expect(service).toBeVisible({ timeout: 30_000 });
+    if (!(await service.inputValue())) await pickFirst(service);
+    await expect(service).not.toHaveValue('');
     await form.getByTestId('request-document-title').fill(titleText);
     await expectSendable(page, c.alpha, 'document request');
     await form.getByTestId('request-submit').click();
@@ -1221,10 +1415,8 @@ test.describe('Clients (Owner)', () => {
     test.skip(!readCtx().docName, 'no file (the §2 Documents upload failed)');
     await openClient(page, c.alpha, '/documents');
     // Alpha has the run's one file.
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.getByTestId('client-documents-list').getByTestId('document-download').first().click(),
-    ]);
+    const button = await cleanDownload(page);
+    const [download] = await Promise.all([page.waitForEvent('download'), button.click()]);
     expect(download.suggestedFilename()).toContain(STAMP);
   });
 
@@ -1233,10 +1425,8 @@ test.describe('Clients (Owner)', () => {
   }, info) => {
     test.skip(!readCtx().docName, 'no file (the §2 Documents upload failed)');
     await openClient(page, c.alpha, '/documents');
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.getByTestId('client-documents-list').getByTestId('document-download').first().click(),
-    ]);
+    const button = await cleanDownload(page);
+    const [download] = await Promise.all([page.waitForEvent('download'), button.click()]);
     const path = await download.path();
     expect(readFileSync(path).equals(PDF), 'the bytes match the uploaded PDF').toBe(true);
     note(info, 'NOT LIVE', "the portal copy's bytes: needs a portal login of a run client");
@@ -1263,8 +1453,12 @@ test.describe('Clients (Owner)', () => {
   }, info) => {
     await openClient(page, c.alpha, '/documents');
     const button = page.getByRole('button', { name: 'Request a document', exact: true });
-    const files = page.getByTestId('client-documents-list');
-    await expect(files).toBeVisible();
+    // The files, or the empty list's words when the client has none.
+    const files = page
+      .getByTestId('client-documents-list')
+      .or(main(page).getByText('No documents for this client yet.', { exact: true }))
+      .first();
+    await expect(files).toBeVisible({ timeout: 60_000 });
     const b = await button.boundingBox();
     const f = await files.boundingBox();
     expect(b && f, 'the button and the files are on the page').toBeTruthy();
@@ -2094,18 +2288,30 @@ test.describe('Clients (Owner)', () => {
     await searchFor(page, `${STAMP} Gamma Holdings`);
     await expect(entry(page, N.gamma)).toHaveCount(1);
     await searchFor(page, STAMP);
+    // Sort by (G12) is the list's own choice: it is not in the address (clients-screen.tsx).
     await page.getByLabel('Sort by').selectOption('NAME_ASC');
-    await expect(page).toHaveURL(/sort=NAME_ASC/);
     await settled(page);
-    const names = (await entries(page).getByTestId('client-link').allInnerTexts()).map((s) =>
-      s.trim(),
-    );
-    expect(names, 'Name A to Z').toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    const azOrder = async () => {
+      const names = (await entries(page).getByTestId('client-link').allInnerTexts()).map((s) =>
+        s.trim(),
+      );
+      return (
+        names.length > 1 &&
+        names.join('|') === [...names].sort((a, b) => a.localeCompare(b)).join('|')
+      );
+    };
+    await expect.poll(azOrder, { message: 'Name A to Z', timeout: 30_000 }).toBe(true);
     await entries(page).first().getByTestId('client-link').click();
     await expect(title(page)).toContainText(STAMP, { timeout: 60_000 });
     await page.goBack();
-    await expect(page).toHaveURL(/sort=NAME_ASC/);
+    await expect(title(page)).toHaveText('Clients', { timeout: 60_000 });
+    await expect(searchBox(page)).toHaveValue(STAMP);
+    await settled(page);
     await shot(page, TAB, 'S6-sort', info);
+    await expect(page.getByLabel('Sort by'), 'Name A to Z is kept after Back').toHaveValue(
+      'NAME_ASC',
+    );
+    await expect.poll(azOrder, { message: 'Name A to Z after Back' }).toBe(true);
   });
 
   test('§6 Full Add and Edit coverage a (likely company match) owner: a business with a likely matching name pauses with the match', async ({
@@ -2444,10 +2650,17 @@ test.describe('Clients (Owner)', () => {
     await page.goto(app('/documents'));
     const cards = page.getByTestId('stat-cards');
     await expect(cards).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId('folders-panel')).toBeVisible({ timeout: 60_000 });
     await shot(page, TAB, 'V-009', info);
     const first = await cards.locator('> *').first().boundingBox();
-    const folders = await page.getByText('Folders', { exact: true }).first().boundingBox();
-    const table = await page.getByTestId('documents-table').boundingBox();
+    const folders = await page.getByTestId('folders-panel').boundingBox();
+    // The table's region (the second column of the panels): the table itself shows only once a
+    // client is chosen ("Select a client to view their documents.").
+    const table = await page
+      .getByTestId('documents-columns')
+      .locator(':scope > *')
+      .nth(1)
+      .boundingBox();
     expect(first && folders && table, 'cards, Folders and the table are on the page').toBeTruthy();
     const tolerance = 24; // px: her alignment rule names no number
     expect(
@@ -2604,25 +2817,27 @@ test.describe('Clients (Owner)', () => {
     });
     await act(renamed, 'Move');
     const move = page.getByRole('dialog', { name: 'Move Document' });
-    const folder = await pickFirst(move.getByLabel('Folder'), [
-      await move
-        .getByLabel('Folder')
-        .locator('option:checked')
-        .innerText()
-        .catch(() => ''),
-    ]);
+    // The folders load after the dialog opens (the field is disabled until then). Move offers
+    // the folders of the file's kind only: an internal file's are the firm folders, and Test Firm
+    // B has none, so "No folder" (out of its client folder) is then the one destination.
+    const folderField = move.getByLabel('Folder');
+    await expect(folderField).toBeEnabled();
+    const target = (await pickFirst(folderField)).trim();
     await move.getByRole('button', { name: 'Move' }).click();
-    // The option may be indented under its parent folder; the message names it.
-    await expect(done).toContainText(`Moved to ${folder.replace(/^[\s-]+/, '')}`);
+    await expect(done).toHaveText(target ? `Moved to ${target}.` : 'Moved out of its folder.');
     await shot(page, TAB, 'C2-051-moved', info);
     await act(renamed, 'Request e-sign');
     await expect(page).not.toHaveURL(/\/documents(\?|$)/, { timeout: 60_000 });
-    await expect(page.getByLabel('Client', { exact: true }).locator('option:checked')).toHaveText(
-      N.alpha,
-      {
-        timeout: 60_000,
-      },
-    );
+    await expect(page).toHaveURL(new RegExp(`/firm-sign/new\\?clientId=${c.alpha}&documentId=`));
+    const clientField = page.getByLabel('Client', { exact: true });
+    const chosen = clientField.locator('option:checked');
+    if (await firmSignOff(page, clientField))
+      note(
+        info,
+        'partial',
+        'Firm Sign is off for Test Firm B: Request e-sign opens Firm Sign with the client and file in its address; the form itself shows only while Firm Sign is on',
+      );
+    else await expect(chosen).toHaveText(N.alpha, { timeout: 60_000 });
     await shot(page, TAB, 'C2-051-esign', info);
     await open();
     await act(renamed, 'Archive');
@@ -2813,10 +3028,13 @@ test.describe('Clients (Owner)', () => {
     await kpi(page, 'New Clients').click();
     await settled(page);
     expect(await listTotal(page)).toBe(count);
-    await searchFor(page, STAMP);
+    // One client at a time: the run's New clients can fill more than the first page.
+    await searchFor(page, `${STAMP} Beta`);
     await expect(entry(page, N.beta)).toHaveCount(1);
-    await expect(entry(page, N.alpha)).toHaveCount(0);
     await shot(page, TAB, 'N8-13', info);
+    await searchFor(page, `${STAMP} Zeta`);
+    await expect(summaryLine(page).or(emptyLine(page))).toBeVisible({ timeout: 30_000 });
+    await expect(entry(page, N.zeta), 'Zeta (its service started) is not New').toHaveCount(0);
   });
 
   test('N8-15 Balances reconcile owner: Balances Due equals its list, and every client listed owes something', async ({
@@ -2839,10 +3057,13 @@ test.describe('Clients (Owner)', () => {
   test('N8-17 Accept and work-start triggers owner: a started service makes the client Active; a client with none stays New', async ({
     page,
   }, info) => {
-    await openClients(page, `?search=${STAMP}`);
-    await expect(entry(page, N.alpha)).toContainText('Active');
-    await expect(entry(page, N.beta)).toContainText('New');
+    // One client at a time: the run's clients can fill more than the first page.
+    // Zeta's service was started (Start Service on its pending request, in the fixture).
+    await openClients(page, `?search=${encodeURIComponent(`${STAMP} Zeta`)}`);
+    await expect(entry(page, N.zeta)).toContainText('Active');
     await shot(page, TAB, 'N8-17', info);
+    await searchFor(page, `${STAMP} Beta`);
+    await expect(entry(page, N.beta)).toContainText('New Client');
   });
 
   test("N8-21 Published template and preview owner: the intake forms library opens (her scoped pass; the forms are the Intake Forms check's)", async ({
@@ -2861,10 +3082,20 @@ test.describe('Clients (Owner)', () => {
   }, info) => {
     await page.goto(app(`/intake-forms/send?clientId=${c.beta}`));
     await expect(page.getByTestId('send-summary')).toContainText(N.beta, { timeout: 60_000 });
-    await expect(
-      page.locator('select').filter({ has: page.locator('option', { hasText: 'Select a form' }) }),
-    ).toBeVisible();
+    await expect(main(page)).toContainText('No active service is needed.');
+    // The form choice, or (no published form in Test Firm B) the words that say so.
+    const choice = page
+      .locator('select')
+      .filter({ has: page.locator('option', { hasText: 'Select a form' }) });
+    const none = main(page).getByText(/^No published forms yet\./);
+    await expect(choice.or(none).first()).toBeVisible();
     await shot(page, TAB, 'N8-22', info);
+    if (await none.isVisible().catch(() => false))
+      note(
+        info,
+        'partial',
+        'Test Firm B has no published intake form now: the page opens for the client with no service needed; choosing a form is not shown',
+      );
     note(
       info,
       'note',
@@ -2951,7 +3182,8 @@ test.describe('Clients (Owner)', () => {
     page,
   }, info) => {
     await openClients(page);
-    await page.getByLabel('Status', { exact: true }).selectOption({ label: 'New' });
+    // The stage's label is the design's "New Client" (list-parts.ts STAGES).
+    await page.getByLabel('Status', { exact: true }).selectOption({ label: 'New Client' });
     await settled(page);
     const svc = page.getByLabel('Service', { exact: true });
     const chosen = await pickFirst(svc);
@@ -3134,7 +3366,7 @@ test.describe('Clients (Owner)', () => {
     await settled(page);
     await expect(entry(page, N.gamma)).toHaveCount(1);
     await expect(entry(page, N.alpha)).toHaveCount(0);
-    await page.getByLabel('Status', { exact: true }).selectOption({ label: 'New' });
+    await page.getByLabel('Status', { exact: true }).selectOption({ label: 'New Client' });
     await settled(page);
     await expect(entry(page, N.gamma)).toHaveCount(1);
     await page.reload();
@@ -3200,6 +3432,15 @@ test.describe('Clients (Owner)', () => {
       sizes.add(await h2.evaluate((el) => getComputedStyle(el).fontSize));
       if (t.primary) {
         const primary = header.getByRole(t.primary.role, { name: t.primary.name, exact: true });
+        if (t.path === '/signatures' && (await firmSignOff(page, primary))) {
+          // Send for signature shows only while Firm Sign is on (client-signatures.tsx).
+          note(
+            info,
+            'partial',
+            'Firm Sign is off for Test Firm B: Signatures has no primary action',
+          );
+          continue;
+        }
         await expect(primary).toBeVisible();
         const row = (await header.boundingBox())!;
         const box = (await primary.boundingBox())!;
@@ -3379,9 +3620,10 @@ test.describe('Clients (Owner, lead appointment)', () => {
       timeout: 60_000,
     });
     await expect(page.getByTestId('detail-notes')).toContainText(`${runTag} outcome notes`);
+    // A closed appointment keeps its close actions, switched off (calendar detail-screen.tsx).
     await expect(
       page.getByTestId('detail-close').getByRole('button', { name: 'Mark Completed' }),
-    ).toHaveCount(0);
+    ).toBeDisabled();
     await shot(page, TAB, 'N8-19', info);
   });
 });
@@ -3675,8 +3917,11 @@ async function cleanRun(api: Api, c: Ctx, done: string[], left: string[], final:
   }
   for (const id of ids) {
     const safe = await recordSafe(api, id);
-    const docs = await api.get(`business/documents?clientId=${id}&archived=include`);
-    if (docs.ok()) {
+    // The client's own list (archived files too; trashed ones are never listed): the library
+    // list takes no `archived`.
+    const docs = await api.get(`business/clients/${id}/documents?archived=include&limit=100`);
+    if (!docs.ok()) left.push(`client ${id}: files list ${docs.status()}`);
+    else {
       for (const d of itemsOf<{ id: string; fileName?: string; name?: string }>(
         await docs.json(),
       )) {
@@ -3687,8 +3932,9 @@ async function cleanRun(api: Api, c: Ctx, done: string[], left: string[], final:
         );
       }
     }
-    const reqs = await api.get(`business/document-requests?clientId=${id}`);
-    if (reqs.ok()) {
+    const reqs = await api.get(`business/clients/${id}/document-requests`);
+    if (!reqs.ok()) left.push(`client ${id}: requests list ${reqs.status()}`);
+    else {
       for (const q of itemsOf<{ id: string; title?: string; status?: string }>(await reqs.json())) {
         if (!tagged(q.title) || ['CANCELLED', 'COMPLETED'].includes(q.status ?? '')) continue;
         // A cancellation may notify the client: only when every address is a simulator one.
@@ -3732,6 +3978,13 @@ async function cleanRun(api: Api, c: Ctx, done: string[], left: string[], final:
     const r = await api.post('business/leads/bulk', { action: 'ARCHIVE', ids: [c.leadId] });
     (r.ok() || r.status() === 409 ? done : left).push(`lead ${c.leadId} archive (${r.status()})`);
   }
+  if (c.invoiceId) {
+    // The fixture's draft (deleted at once already; a deleted draft is archived).
+    const r = await api.delete(`business/invoices/${c.invoiceId}`);
+    (r.ok() || r.status() === 404 || r.status() === 409 ? done : left).push(
+      `fixture draft invoice delete (${r.status()})`,
+    );
+  }
   if (c.typeId) {
     const r = await api.post(`business/appointment-types/${c.typeId}/archive`);
     (r.ok() || r.status() === 409 || r.status() === 404 ? done : left).push(
@@ -3760,6 +4013,16 @@ async function cleanRun(api: Api, c: Ctx, done: string[], left: string[], final:
       (r.ok() || r.status() === 409 ? done : left).push(
         `service ${SERVICE}: archive ${r.status()}`,
       );
+    }
+    // The reused document type: archived (restored by the next run; types have no delete). The
+    // client folder stays for reuse (it holds the run's trashed file, so it cannot be deleted).
+    const types = await api.get('business/document-categories');
+    for (const t of types.ok()
+      ? itemsOf<{ id: string; name: string; archivedAt: string | null }>(await types.json())
+      : []) {
+      if (t.name !== DOC_TYPE || t.archivedAt) continue;
+      const r = await api.patch(`business/document-categories/${t.id}`, { archived: true });
+      (r.ok() ? done : left).push(`document type ${DOC_TYPE}: archive ${r.status()}`);
     }
   }
   const after = await api.get(
@@ -3797,6 +4060,7 @@ test.describe('Clients cleanup', () => {
     }
     done.push(`tag "${TAG}" kept: the one fixed tag every run reuses (tags have no delete)`);
     done.push(`category "${CATEGORY}" kept for reuse`);
+    done.push(`client folder "${FOLDER}" kept for reuse (it holds the runs' trashed files)`);
     console.log(`CLEANUP done:\n${done.join('\n')}\nCLEANUP left:\n${left.join('\n')}`);
     info.annotations.push({ type: 'left-behind', description: left.join('; ') || 'none' });
   });

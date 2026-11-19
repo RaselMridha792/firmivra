@@ -515,12 +515,16 @@ test.describe('owner', () => {
     await page.goto(app(`/clients/${CLIENT_ID}/documents`));
     const screen = page.getByTestId('client-documents-screen');
     await expect(screen).toBeVisible({ timeout: 60_000 });
+    // Since P4-7 (#1617) the tab's one primary action is Request a document; Upload Document is
+    // in More Actions (E8: Documents' own upload with this client chosen).
+    await screen.getByRole('button', { name: /More Actions/ }).click();
     await expect(
-      screen
-        .getByRole('link', { name: /Upload/ })
-        .or(screen.getByRole('button', { name: /Upload/ }))
+      page
+        .getByRole('menuitem', { name: /Upload Document/ })
+        .or(page.getByRole('link', { name: /Upload Document/ }))
         .first(),
     ).toBeVisible();
+    await page.keyboard.press('Escape');
     await expect(
       screen
         .getByRole('link', { name: /Request/ })
@@ -1075,7 +1079,10 @@ test.describe('owner', () => {
     await resolve.getByLabel("Reason (kept in the return's history)").fill('W-2 matches (fake)');
     await ok.click();
     await expect(resolve).toBeHidden();
-    await expect(panel.getByTestId('issue').first()).toContainText('Resolved by');
+    // Open issues are listed first: find this one by its note.
+    await expect(
+      panel.getByTestId('issue').filter({ hasText: 'W-2 box 1 mismatch (fake)' }).first(),
+    ).toContainText('Resolved by');
     await page.reload();
     await expect(page.getByTestId('validation-issues').getByTestId('issues-blocking')).toHaveCount(
       0,

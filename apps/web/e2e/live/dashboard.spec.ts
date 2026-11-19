@@ -570,7 +570,10 @@ async function todayEntries(page: Page, withBusy = true): Promise<number> {
     timeout: 60_000,
   });
   await settled(page);
-  return (await links.count()) + (withBusy ? await busy.count() : 0);
+  // Appointments Today counts the day's scheduled appointments: the Today list also shows the
+  // canceled, completed and no-show ones, each with its badge, so those are left out here.
+  const scheduled = links.filter({ hasNotText: /\b(Canceled|Completed|No-Show)\b/ });
+  return (await scheduled.count()) + (withBusy ? await busy.count() : 0);
 }
 
 /** Opens a card or link from the dashboard, checks the page, comes back on Back to Dashboard. */

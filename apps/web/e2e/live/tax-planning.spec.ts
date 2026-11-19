@@ -1700,6 +1700,9 @@ test.describe('Tax Planning (Owner)', () => {
     const docs = page.getByTestId('step-docs');
     await expect(docs).toBeVisible();
     const select = docs.getByLabel('Client document', { exact: true });
+    // Until the client's documents load, the empty option reads "This client has no documents"
+    // too: read the options only once the page's requests have finished.
+    await page.waitForLoadState('networkidle').catch(() => {});
     const options = (await select.locator('option').allTextContents()).slice(1);
     await shot(page, TAB, 'C14-documents', info);
     if (!options.length) {

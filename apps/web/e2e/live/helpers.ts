@@ -87,10 +87,31 @@ export async function shot(page: Page, tab: string, row: string, info: TestInfo)
 
 /** The page does not scroll sideways (Octavia's 390 px and 1165 px checks). */
 export async function expectNoSideScroll(page: Page) {
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  const { overflow, widest } = await page.evaluate(() => {
+    const doc = document.documentElement;
+    const width = doc.clientWidth;
+    // The deepest elements that reach past the right edge name what to fix (text only, trimmed);
+    // one inside a box that scrolls or clips sideways (a tab strip) does not widen the page.
+    const clipped = (el: HTMLElement) => {
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        if (/auto|scroll|hidden|clip/.test(getComputedStyle(p).overflowX)) return true;
+      }
+      return false;
+    };
+    const out = [...document.querySelectorAll<HTMLElement>('body *')]
+      .filter((el) => el.getBoundingClientRect().right > width + 1 && !clipped(el))
+      .filter((el) => ![...el.children].some((c) => c.getBoundingClientRect().right > width + 1))
+      .slice(0, 3)
+      .map((el) => {
+        const id = el.getAttribute('data-testid');
+        const text = (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 40);
+        return `${el.tagName.toLowerCase()}${id ? `[${id}]` : ''} right ${Math.round(el.getBoundingClientRect().right)} "${text}"`;
+      });
+    return { overflow: doc.scrollWidth - width, widest: out.join('; ') };
+  });
+  expect(overflow, `page scrolls sideways (${widest || 'no single element'})`).toBeLessThanOrEqual(
+    1,
   );
-  expect(overflow, 'page scrolls sideways').toBeLessThanOrEqual(1);
 }
 
 /** Waits until the workspace or portal shell has loaded and no spinner or error toast remains. */

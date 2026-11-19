@@ -41,10 +41,14 @@ async function signInFresh(browser: Browser): Promise<Page> {
   return page;
 }
 
-/** The session's own answer to GET /me, from inside that browser. */
+/**
+ * The session's own answer to a firm route (GET /business), from inside that browser. Sessions are
+ * per firm: the tenant guard checks them on firm routes only, so GET /me (no firm) never would.
+ * A session's first firm request starts its row, and a start over the limit ends the oldest.
+ */
 const meStatus = (page: Page) =>
   page.evaluate(async () => {
-    const r = await fetch('/api/v1/me', { credentials: 'include' });
+    const r = await fetch('/api/v1/business', { credentials: 'include' });
     const body = (await r.json().catch(() => ({}))) as { error?: { code?: string } };
     return { status: r.status, code: body.error?.code ?? null };
   });

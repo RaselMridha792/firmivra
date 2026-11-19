@@ -401,7 +401,7 @@ test.describe('firm side as Owner', () => {
     await shot(page, TAB, 'CP-F2-06', info);
   });
 
-  test('CP-F2-07 Portal Content & Visibility: eight areas; a change survives reload', async ({
+  test('CP-F2-07 Portal Content & Visibility: every area; a change survives reload', async ({
     page,
   }, info) => {
     // The harness portal client (the login): every area on, and the client's own portal agrees.
@@ -409,7 +409,8 @@ test.describe('firm side as Owner', () => {
     await open(page, manage(me.id, 'content'), info);
     const vis = page.getByTestId('portal-visibility');
     const switches = vis.getByRole('switch');
-    await expect(switches).toHaveCount(8);
+    // Eight areas, and Business Documents & Resources since CP-5a (#1628).
+    await expect(switches).toHaveCount(9);
     const client = await apiAs('client');
     const tabs = (await (await client.get(portalApi('me/tabs'))).json()) as {
       tabs: Record<string, boolean>;
@@ -855,7 +856,11 @@ test.describe('firm side as Staff', () => {
     page,
   }, info) => {
     await open(page, app('/client-portal'), info);
-    await expect(page.getByTestId('portal-client-row')).toHaveCount(0);
+    // The Clients run assigns its own LIVE-CHECK clients to this Staff login while it runs: only
+    // those may show. Every other Test Firm B client stays out of the Staff list.
+    await expect(
+      page.getByTestId('portal-client-row').filter({ hasNotText: 'LIVE-CHECK' }),
+    ).toHaveCount(0);
     await expectNoSideScroll(page);
     await shot(page, TAB, 'CP-ROLE-01-list', info);
     await page.goto(manage(C1));

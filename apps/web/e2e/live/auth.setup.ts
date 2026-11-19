@@ -26,13 +26,27 @@ const roles: Role[] = ['owner', 'admin', 'staff', 'client'];
 async function stillSignedIn(role: Role): Promise<boolean> {
   const path = statePath(role);
   if (!existsSync(path)) return false;
-  const ctx = await request.newContext({ storageState: path });
+  const base = role === 'client' ? portalUrl : appUrl;
+  const ctx = await request.newContext({ storageState: path, extraHTTPHeaders: { origin: base } });
+  // A firm route, not GET /me: staff sessions are per firm and only firm routes check them, so a
+  // session the firm ended (idle 15 minutes, SEC-4) still answers /me while its token lasts.
+  const check = () =>
+    role === 'client'
+      ? ctx.get(`${portalUrl}/api/v1/portal/${firmSlug}/me/tabs`)
+      : ctx.get(`${appUrl}/api/v1/business`);
   try {
-    const res =
+    if ((await check()).ok()) return true;
+    // Only the access token may have expired: refresh the saved session rather than sign in again.
+    // A new sign-in past a member's session limit ends the oldest session (SM12), which is the one
+    // the other lanes are using (the Owner's limit is 1 and only another member may raise it).
+    const refreshed = await ctx.post(
       role === 'client'
-        ? await ctx.get(`${portalUrl}/api/v1/portal/${firmSlug}/me/tabs`)
-        : await ctx.get(`${appUrl}/api/v1/me`);
-    return res.ok();
+        ? `${portalUrl}/api/v1/portal/${firmSlug}/auth/refresh`
+        : `${appUrl}/api/v1/auth/refresh`,
+    );
+    if (!refreshed.ok() || !(await check()).ok()) return false;
+    await ctx.storageState({ path });
+    return true;
   } finally {
     await ctx.dispose();
   }

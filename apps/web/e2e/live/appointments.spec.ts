@@ -388,7 +388,9 @@ test.describe('Appointments (Owner)', () => {
       await expect(saved.or(problem)).toBeVisible({ timeout: 30_000 });
       if (await problem.isVisible())
         throw new Error(`${label}: the screen said ${(await problem.textContent())?.trim()}`);
-      await expect(saved).toHaveText('Settings saved.');
+      // "Settings saved." can go as soon as the types list refreshes after the save (the form
+      // remounts): the reload below is what shows the value was kept.
+      await page.waitForLoadState('networkidle').catch(() => {});
       await page.reload();
       await openType(page, c.t1.name);
       await expect(windowSel.locator('option:checked')).toHaveText(label);
