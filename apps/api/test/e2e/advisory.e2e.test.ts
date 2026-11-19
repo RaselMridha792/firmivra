@@ -1735,6 +1735,65 @@ describe('recommendations and action items', () => {
     expect((await advClient(shared.a1)).kpis.openTasks).toEqual({ open: 2, overdue: 1 });
     expect(JSON.stringify(await auditFor(shared.a1))).not.toMatch(/loan packet|vendor quotes/);
   });
+
+  it('A-X11: Edit Action Item saves the whole form, clearing what was emptied', async () => {
+    const planId = AdvisoryPlanPage.parse(
+      ok(await call('get', `/plans?advisoryClientId=${shared.a1}`, ownerA)),
+    ).items[0]?.id;
+    const goalId = AdvisoryGoalPage.parse(
+      ok(await call('get', `/goals?advisoryClientId=${shared.a1}`, ownerA)),
+    ).items[0]?.id;
+    const item = AdvisoryActionItemRow.parse(
+      ok(
+        await call('post', '/action-items', ownerA, {
+          advisoryClientId: shared.a1,
+          title: mark('Call the bank'),
+          details: 'Ask about the credit line',
+          ...(planId ? { planId } : {}),
+          ...(goalId ? { goalId } : {}),
+          assigneeUserId: staffA.id,
+          dueOn: day(20),
+          priority: 'HIGH',
+        }),
+        201,
+      ),
+    );
+    expect(item).toMatchObject({
+      planId: planId ?? null,
+      goalId: goalId ?? null,
+      details: 'Ask about the credit line',
+    });
+    const title = mark('Call the bank about the line');
+    const edited = AdvisoryActionItemRow.parse(
+      ok(
+        await call('patch', `/action-items/${item.id}`, ownerA, {
+          title,
+          details: '',
+          assigneeKind: 'STAFF',
+          assigneeUserId: adminA.id,
+          dueOn: null,
+          priority: 'LOW',
+          clientVisible: true,
+          planId: null,
+          goalId: null,
+        }),
+      ),
+    );
+    expect(edited).toMatchObject({
+      title,
+      details: null,
+      assigneeKind: 'STAFF',
+      assignee: { userId: adminA.id },
+      dueOn: null,
+      priority: 'LOW',
+      clientVisible: true,
+      planId: null,
+      goalId: null,
+      status: 'NOT_STARTED',
+    });
+    // Leaves the client's open tasks as they were for the tests after this one.
+    ok(await call('patch', `/action-items/${item.id}`, ownerA, { status: 'CANCELLED' }));
+  });
 });
 
 describe('financial analysis and the Business Health Score', () => {

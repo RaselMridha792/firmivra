@@ -296,6 +296,39 @@ const db = () => (store ??= seed());
 export const mockAppointmentType = (typeId: string): AppointmentType | undefined =>
   copy(db().types.find((t) => t.id === typeId));
 
+/**
+ * Business Advisory A-X11 (mock only): an upcoming advisory meeting of the advisory mock made an
+ * appointment of this store, so Cancel Meeting on an advisory client's Meetings tab cancels it
+ * here, as the API's advisory meetings are appointments. A copy of a seeded client appointment at
+ * the meeting's time and client name; an id already here is left as it is.
+ */
+export function mockAdoptAdvisoryMeeting(m: {
+  id: string;
+  clientName: string;
+  startsAt: string;
+  endsAt: string;
+}): void {
+  const s = db();
+  if (s.appointments.some((a) => a.id === m.id)) return;
+  const template = s.appointments.find((a) => a.client && a.status === 'SCHEDULED');
+  if (!template?.client) return;
+  s.appointments.push({
+    ...copy(template),
+    id: m.id,
+    client: { ...template.client, name: m.clientName },
+    startsAt: m.startsAt,
+    endsAt: m.endsAt,
+    status: 'SCHEDULED',
+    rescheduleCount: 0,
+    cancelledAt: null,
+    cancelReason: null,
+  });
+}
+
+/** Business Advisory A-X11 (mock only): an appointment's status in this store, if it is here. */
+export const mockAppointmentStatus = (id: string): Appointment['status'] | undefined =>
+  db().appointments.find((a) => a.id === id)?.status;
+
 /** Free starts on a 15-minute grid for one member, within hours, outside blocks and appointments. */
 function freeStarts(
   s: Store,

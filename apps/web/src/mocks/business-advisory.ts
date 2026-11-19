@@ -69,7 +69,7 @@ import {
   type MemberRef,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
-import { mockMe } from './appointments';
+import { mockAdoptAdvisoryMeeting, mockAppointmentStatus, mockMe } from './appointments';
 import { clientFixtures } from './clients';
 import {
   registerServiceClient,
@@ -1037,6 +1037,15 @@ export function createAdvisoryMock({
       video = true,
     ) => {
       const cl = C(c);
+      // A-X11: an upcoming one is an appointment of the appointments mock too, so Cancel Meeting
+      // cancels it there.
+      if (offset >= 0)
+        mockAdoptAdvisoryMeeting({
+          id: uid('a800', n),
+          clientName: cl.client.name,
+          startsAt: at(offset, hour),
+          endsAt: at(offset, hour + 1),
+        });
       meetings.push({
         appointmentId: uid('a800', n),
         startsAt: at(offset, hour),
@@ -2604,6 +2613,8 @@ export function createAdvisoryMock({
           .filter(
             (m) =>
               ids.has(m.advisoryClientId) &&
+              // As the API: a canceled appointment is no advisory meeting.
+              mockAppointmentStatus(m.appointmentId) !== 'CANCELLED' &&
               (!query.advisoryClientId || m.advisoryClientId === query.advisoryClientId) &&
               (query.when === 'all' ||
                 (query.when === 'upcoming' ? m.startsAt >= now : m.startsAt < now)),
