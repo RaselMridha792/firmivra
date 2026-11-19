@@ -1,6 +1,7 @@
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
+  CopyObjectCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
@@ -123,6 +124,17 @@ export interface DocumentStorage {
    */
   read(key: string): Promise<Uint8Array | null>;
   remove(key: string): Promise<void>;
+  /**
+   * SM17: a copy within the bucket (a draft's file onto its new member), with the type and, as
+   * metadata, the SHA-256 the confirm checked (so `head` finds it as for a multipart upload).
+   * Tags are not copied (the copy is scanned as a new object). Optional: a test double may leave
+   * it out.
+   */
+  copy?(
+    fromKey: string,
+    toKey: string,
+    file: { contentType: string; sha256: string },
+  ): Promise<void>;
   /** A GET that saves the object as an attachment named `fileName`. */
   presignDownload(file: { key: string; fileName: string; contentType: string }): Promise<string>;
 }
@@ -419,6 +431,25 @@ export class S3DocumentStorage implements DocumentStorage {
 
   async remove(key: string): Promise<void> {
     await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  async copy(
+    fromKey: string,
+    toKey: string,
+    file: { contentType: string; sha256: string },
+  ): Promise<void> {
+    await this.s3.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        Key: toKey,
+        // Keys are [A-Za-z0-9/._-] only (the tables' checks), so nothing needs escaping.
+        CopySource: `${this.bucket}/${fromKey}`,
+        ContentType: file.contentType,
+        MetadataDirective: 'REPLACE',
+        Metadata: { [SHA256_METADATA]: file.sha256 },
+        TaggingDirective: 'REPLACE',
+      }),
+    );
   }
 
   presignDownload(file: { key: string; fileName: string; contentType: string }): Promise<string> {

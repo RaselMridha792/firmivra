@@ -1,6 +1,7 @@
 import {
   ConfirmStaffDocumentUploadRequest,
   CreateStaffDocumentUploadRequest,
+  CreateStaffDraftUploadRequest,
   CreateStaffRequest,
   LockStaffRequest,
   SaveStaffDraftRequest,
@@ -15,6 +16,7 @@ import {
   StaffCompensationInput,
   StaffCursorQuery,
   StaffDocumentId,
+  StaffDraftAttachmentId,
   StaffDraftId,
   StaffId,
   StaffImportPreviewRequest,
@@ -49,6 +51,7 @@ export const StaffIdParam = StaffId;
 export const StaffListQ = clean(StaffListQuery);
 export const UsersQ = clean(UsersQuery);
 export const StaffDraftIdParam = StaffDraftId;
+export const StaffDraftAttachmentIdParam = StaffDraftAttachmentId;
 export const CreateStaffBody = clean(CreateStaffRequest);
 export const UpdateStaffBody = clean(UpdateStaffRequest);
 export const LockStaffBody = clean(LockStaffRequest);
@@ -64,6 +67,8 @@ export const StaffCursorQ = clean(StaffCursorQuery);
 export const StaffDocumentIdParam = StaffDocumentId;
 export const CreateStaffDocumentUploadBody = clean(CreateStaffDocumentUploadRequest);
 export const ConfirmStaffDocumentUploadBody = clean(ConfirmStaffDocumentUploadRequest);
+/** SM17: Save under Remove, step 1. */
+export const CreateStaffDraftUploadBody = clean(CreateStaffDraftUploadRequest);
 export const UpdateStaffDocumentBody = clean(UpdateStaffDocumentRequest);
 export const StaffImportPreviewBody = clean(StaffImportPreviewRequest);
 export const StaffImportBody = clean(StaffImportRequest);

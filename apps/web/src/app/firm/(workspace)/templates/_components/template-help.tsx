@@ -67,6 +67,11 @@ const HELP = {
     topic: 'Version history',
     text: 'Each save keeps a version, with who saved it and when. Restore brings an earlier version back; what was already sent stays as it was.',
   },
+  uses: {
+    topic: 'Where it was used',
+    // Y04/Y09: the use log: each send records the version that went out, by whom and when.
+    text: 'Each time a campaign, a message or an automation sends this template, the version that went out is recorded, with who sent it and when. Editing, archiving or restoring the template never changes what was already sent.',
+  },
   import: {
     topic: 'Importing a template',
     // Y08: the limits, stated: 50,000 characters of content, a .docx of at most 10 MB.
@@ -100,7 +105,7 @@ const HELP = {
   },
   categoryTools: {
     topic: 'Managing categories',
-    text: 'Choose a kind, then add, rename, reorder or archive its categories. Merge moves every template of one category into another and archives the first. Template names and content stay as they are.',
+    text: 'Choose a kind, then add, rename, reorder or archive its categories. Merge moves every template of one category into another and archives the first. A category that still has templates is archived only after they move (Merge does both). Template names and content stay as they are.',
   },
 } as const;
 

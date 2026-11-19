@@ -492,7 +492,68 @@ describe('MSG-F11, F15: templates, merge fields and the review', () => {
     expect(missing.status).toBe(404);
   });
 
-  it('an email from a template carries the firm’s footer and disclaimer once; a portal message does not (Y10)', async () => {
+  it('a send records the template’s use once: its version, by whom (Y04, Y09)', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const inA = <T>(work: (tx: TxClient) => Promise<T>) =>
+      runInScope(owner, { kind: 'business', businessId: ids.firmA }, work);
+    try {
+      const templateId = (
+        await inA((tx) =>
+          tx.messageTemplate.create({
+            data: {
+              businessId: ids.firmA,
+              kind: 'PORTAL_MESSAGE',
+              name: `Fake used template ${run}`,
+              body: 'Hello',
+              status: 'ACTIVE',
+              version: 3,
+              ownerUserId: people.ownerA.id,
+            },
+          }),
+        )
+      ).id;
+      const d = await draft({
+        channel: 'PORTAL',
+        subject: 'Used',
+        body: `Used ${run}`,
+        templateId,
+        clientIds: [ids.one],
+      });
+      const uses = () =>
+        inA((tx) =>
+          tx.messageTemplateUse.findMany({
+            where: { templateId },
+            select: {
+              version: true,
+              purpose: true,
+              entityType: true,
+              entityId: true,
+              usedByUserId: true,
+            },
+          }),
+        );
+      expect(await uses()).toEqual([]);
+      for (let i = 0; i < 2; i++)
+        ok(
+          await call('post', `/outbound-messages/${d.id}/send`, people.ownerA, {
+            version: d.updatedAt,
+          }),
+        );
+      expect(await uses()).toEqual([
+        {
+          version: 3,
+          purpose: 'message',
+          entityType: 'outbound_message',
+          entityId: d.id,
+          usedByUserId: people.ownerA.id,
+        },
+      ]);
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it('an email from a template carries the firm’s footer and disclaimer once; an email written from scratch does not (Y10)', async () => {
     const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
     const inA = <T>(work: (tx: TxClient) => Promise<T>) =>
       runInScope(owner, { kind: 'business', businessId: ids.firmA }, work);

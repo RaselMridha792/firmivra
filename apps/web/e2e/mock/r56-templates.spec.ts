@@ -118,7 +118,7 @@ test('Library: categories, filters, favorite, preview and bulk tag', async ({ pa
     'Jamie',
   );
   await page.getByLabel('Send a test to').fill('me@example.test');
-  await page.getByRole('button', { name: 'Test Send' }).click();
+  await page.getByRole('button', { name: 'Test Send', exact: true }).click();
   await expect(page.getByText('Test sent. The template was not changed.')).toBeVisible();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
