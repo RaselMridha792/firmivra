@@ -580,6 +580,67 @@ export const SavePromotionRequest = z
   });
 export type SavePromotionRequest = z.input<typeof SavePromotionRequest>;
 
+/**
+ * Services & Pricing Review Two R9/R13 (decided Nov 19): "Check a Code", staff only. Whether a
+ * promo code applies to one of the firm's services or packages today, and if not, the one exact
+ * reason. Nothing is ordered, charged or counted; codes are not yet redeemed at payment.
+ * 404 for another firm's or an unknown item.
+ */
+export const CheckPromotionCodeRequest = z.strictObject({
+  code: z
+    .string()
+    .trim()
+    .min(1, 'Enter the code')
+    .max(30, 'Use at most 30 characters')
+    .transform((code) => code.toUpperCase()),
+  itemType: z.enum(['SERVICE', 'PACKAGE']),
+  itemId: z.uuid(),
+});
+export type CheckPromotionCodeRequest = z.input<typeof CheckPromotionCodeRequest>;
+
+/**
+ * The answer, in the order it is decided: no promotion has the code; it is not live (a draft or
+ * ended); it has not started; it has expired; it is for other categories, services or packages;
+ * it does not stack with a promotion that already applies to the item by itself (one without a
+ * code). Otherwise it applies.
+ */
+export const PromotionCheckResult = z.enum([
+  'APPLIES',
+  'UNKNOWN_CODE',
+  'NOT_ACTIVE',
+  'NOT_STARTED',
+  'EXPIRED',
+  'WRONG_CATEGORY',
+  'WRONG_SERVICE',
+  'WRONG_PACKAGE',
+  'DOES_NOT_STACK',
+]);
+export type PromotionCheckResult = z.infer<typeof PromotionCheckResult>;
+
+export const PromotionCodeCheck = z.object({
+  result: PromotionCheckResult,
+  /** The promotion with the code; null for UNKNOWN_CODE. */
+  promotion: z
+    .object({
+      id: z.uuid(),
+      name: z.string(),
+      startsOn: CalendarDate.nullable(),
+      endsOn: CalendarDate.nullable(),
+      /** Who may use it; the check has no client, so it is shown, not decided. */
+      eligibility: z.enum(['ALL_CLIENTS', 'NEW_CLIENTS', 'EXISTING_CLIENTS']),
+    })
+    .nullable(),
+  /** The item's current price; null when it is quoted. */
+  priceCents: z.number().int().nullable(),
+  /** APPLIES: the amount off that price, never more than it; null while the price is a quote. */
+  discountCents: z.number().int().nullable(),
+  /** DOES_NOT_STACK: the promotion that already applies and does not combine. */
+  conflict: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  /** WRONG_*: what the code is for, by name. */
+  scope: z.array(z.string()),
+});
+export type PromotionCodeCheck = z.infer<typeof PromotionCodeCheck>;
+
 export const CatalogErrorCode = z.enum([
   /** 409: the name is used by another service or package; resend with allowDuplicateName. */
   'DUPLICATE_NAME',
