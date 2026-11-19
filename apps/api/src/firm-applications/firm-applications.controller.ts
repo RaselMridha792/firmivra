@@ -5,6 +5,8 @@ import {
   type AdminDashboard,
   type AdminGrowth,
   AdminGrowthQuery,
+  AdminSearchQuery,
+  type AdminSearchResult,
   ApproveFirmApplicationRequest,
   AssignFirmReviewerRequest,
   DeclineFirmApplicationRequest,
@@ -244,6 +246,20 @@ export class AdminFirmsController {
   }
 }
 
+/** SA-DSH-F01: the header search on every Super Admin page (firms and applications only). */
+@Controller('admin/search')
+export class AdminSearchController {
+  constructor(private readonly applications: FirmApplicationsService) {}
+
+  @Get()
+  @Roles('SUPER_ADMIN')
+  search(
+    @Query(new ZodValidationPipe(AdminSearchQuery)) query: z.output<typeof AdminSearchQuery>,
+  ): Promise<AdminSearchResult> {
+    return this.applications.search(query);
+  }
+}
+
 /** The Super Admin dashboard's counts (F04a). */
 @Controller('admin/dashboard')
 export class AdminDashboardController {
@@ -275,6 +291,7 @@ export class AdminDashboardController {
     ApplyRespondController,
     AdminFirmApplicationsController,
     AdminFirmsController,
+    AdminSearchController,
     AdminDashboardController,
   ],
   providers: [

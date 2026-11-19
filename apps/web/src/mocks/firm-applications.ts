@@ -1,6 +1,7 @@
 import {
   AdminGrowthQuery,
   type AdminRef,
+  AdminSearchQuery,
   ApiRequestError,
   CreateApplicationResponseUploadRequest,
   OpenApplicationResponseRequest,
@@ -993,6 +994,77 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         renewalsThisWeek: (await adminSubscriptions.subscriptions({ status: 'RENEWING_THIS_WEEK' }))
           .total,
         monthlyRevenueCents: null,
+      };
+    },
+
+    /**
+     * SA-DSH-F01, as the API: firms and applications (never people) by name, owner or applicant,
+     * email, an exact id or a status word; newest first, `limit` of each with the totals.
+     */
+    search: async (query) => {
+      await mockDelay();
+      const q = parseInput(AdminSearchQuery, query);
+      const lower = q.q.trim().toLowerCase();
+      const word = lower.replace(/\s+/g, ' ');
+      const firmWords: Record<string, string[]> = {
+        active: ['ACTIVE'],
+        pending: ['PENDING_SETUP'],
+        'pending setup': ['PENDING_SETUP'],
+        suspended: ['SUSPENDED'],
+        closed: ['CLOSED'],
+        inactive: ['SUSPENDED', 'CLOSED'],
+      };
+      const appWords: Record<string, string[]> = {
+        pending: ['PENDING_REVIEW'],
+        'pending review': ['PENDING_REVIEW'],
+        'in review': ['IN_REVIEW'],
+        'awaiting information': ['INFO_REQUESTED'],
+        'awaiting info': ['INFO_REQUESTED'],
+        'info requested': ['INFO_REQUESTED'],
+        approved: ['APPROVED'],
+        declined: ['DECLINED'],
+      };
+      const has = (...values: (string | null | undefined)[]) =>
+        values.some((v) => v?.toLowerCase().includes(lower));
+      const foundFirms = firms
+        .map(firmItem)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .filter(
+          (f) =>
+            f.id === lower ||
+            (firmWords[word]?.includes(f.status) ?? false) ||
+            has(f.name, f.owner?.name, f.owner?.email),
+        );
+      const foundApplications = [...rows]
+        .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
+        .filter(
+          (r) =>
+            r.id === lower ||
+            (appWords[word]?.includes(r.status) ?? false) ||
+            has(r.legalName, r.dbaName, r.contactName, r.contactEmail),
+        );
+      return {
+        firms: {
+          total: foundFirms.length,
+          items: foundFirms.slice(0, q.limit).map((f) => ({
+            id: f.id,
+            name: f.name,
+            status: f.status,
+            ownerName: f.owner?.name ?? null,
+            ownerEmail: f.owner?.email ?? null,
+          })),
+        },
+        applications: {
+          total: foundApplications.length,
+          items: foundApplications.slice(0, q.limit).map((r) => ({
+            id: r.id,
+            legalName: r.legalName,
+            status: r.status,
+            contactName: r.contactName,
+            contactEmail: r.contactEmail,
+            submittedAt: r.submittedAt,
+          })),
+        },
       };
     },
 

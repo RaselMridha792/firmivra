@@ -4,6 +4,8 @@ import {
   AdminDashboard,
   AdminGrowth,
   AdminGrowthQuery,
+  AdminSearchQuery,
+  AdminSearchResult,
   ApplicationResponseRequestView,
   ApplicationResponseSession,
   CreateApplicationResponseUploadRequest,
@@ -175,6 +177,9 @@ export function createFirmApplicationsClient(request: ApiRequest) {
 
     /** The Super Admin dashboard's counts. */
     dashboard: async (): Promise<AdminDashboard> => request(AdminDashboard, '/admin/dashboard'),
+    /** SA-DSH-F01: the header search: firms and applications (never people). */
+    search: async (query: AdminSearchQuery): Promise<AdminSearchResult> =>
+      request(AdminSearchResult, `/admin/search${toQuery(parseInput(AdminSearchQuery, query))}`),
     /** SA-DSH-F06: Platform Growth for a range of US Eastern days. */
     growth: async (query: AdminGrowthQuery): Promise<AdminGrowth> =>
       request(

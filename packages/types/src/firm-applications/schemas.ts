@@ -801,6 +801,49 @@ export const AdminDashboard = z.object({
 });
 export type AdminDashboard = z.infer<typeof AdminDashboard>;
 
+// ---------- Header search (SA-DSH-F01) ----------
+
+/**
+ * GET /admin/search: firms and applications, never people (her rule: no employee or user search).
+ * `q` (2 to 100 characters) matches a firm's name, its owner's name and email, an application's
+ * legal and DBA names, its applicant's name and email, either's id exactly, and status words:
+ * firms "active", "pending" (setup), "suspended", "closed", "inactive"; applications "pending",
+ * "in review", "awaiting information", "approved", "declined". Newest first; `limit` per type.
+ */
+export const AdminSearchQuery = z.strictObject({
+  q: SearchText.pipe(z.string().min(2, 'Type at least 2 characters')),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(5),
+});
+export type AdminSearchQuery = z.input<typeof AdminSearchQuery>;
+
+export const AdminSearchFirm = z.object({
+  id: FirmId,
+  name: z.string(),
+  status: BusinessStatus,
+  ownerName: z.string().nullable(),
+  ownerEmail: z.string().nullable(),
+});
+export type AdminSearchFirm = z.infer<typeof AdminSearchFirm>;
+
+export const AdminSearchApplication = z.object({
+  id: FirmApplicationId,
+  legalName: z.string(),
+  status: FirmApplicationReviewStatus,
+  contactName: z.string(),
+  contactEmail: z.string(),
+  submittedAt: DateTime,
+});
+export type AdminSearchApplication = z.infer<typeof AdminSearchApplication>;
+
+export const AdminSearchResult = z.object({
+  firms: z.object({ total: z.number().int().min(0), items: z.array(AdminSearchFirm) }),
+  applications: z.object({
+    total: z.number().int().min(0),
+    items: z.array(AdminSearchApplication),
+  }),
+});
+export type AdminSearchResult = z.infer<typeof AdminSearchResult>;
+
 // ---------- Platform Growth (SA-DSH-F06) ----------
 
 /** The longest range Platform Growth draws: two years and a day (Last Year plus this year). */
