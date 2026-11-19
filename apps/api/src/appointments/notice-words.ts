@@ -12,7 +12,8 @@ export const REMINDER_EARLY_MINUTES = 1;
  * note of the reminder of its channel now due (the one closest to the start whose time has come,
  * within REMINDER_EARLY_MINUTES: the job sends a reminder up to a minute early), else none, so the
  * generic reminder goes out. The client instructions go only when the appointment shows them in
- * that channel (email, or a text for A7's text reminder). Internal notes are never read here.
+ * that channel (email, a text for A7's text reminder, or the portal's bell item). Internal notes
+ * are never read here.
  */
 export async function noticeWords(
   tx: TxClient,
@@ -21,7 +22,7 @@ export async function noticeWords(
   template: string,
   now: Date = new Date(),
   /** A7: the channel the notice goes out on (its reminder's note and its instructions). */
-  channel: 'EMAIL' | 'SMS' = 'EMAIL',
+  channel: 'EMAIL' | 'SMS' | 'PORTAL' = 'EMAIL',
 ): Promise<{ message: string | null; instructions: string | null; confirmAsk: boolean }> {
   const a = await tx.appointment.findFirst({
     where: { businessId, id: appointmentId },
@@ -33,13 +34,19 @@ export async function noticeWords(
       clientInstructions: true,
       instructionsInEmail: true,
       instructionsInSms: true,
+      instructionsInPortal: true,
       confirmationMessage: true,
       type: { select: { confirmationMessage: true } },
       reminders: { where: { channel }, select: { offsetMinutes: true, note: true } },
     },
   });
   if (!a) return { message: null, instructions: null, confirmAsk: false };
-  const shown = channel === 'SMS' ? a.instructionsInSms : a.instructionsInEmail;
+  const shown =
+    channel === 'SMS'
+      ? a.instructionsInSms
+      : channel === 'PORTAL'
+        ? a.instructionsInPortal
+        : a.instructionsInEmail;
   const instructions = shown ? a.clientInstructions : null;
   // Review 2 (row 8): the firm booked it and the client has not confirmed it yet.
   const confirmAsk =
@@ -62,6 +69,40 @@ export async function noticeWords(
     return { message: due?.note ?? null, instructions, confirmAsk };
   }
   return { message: null, instructions, confirmAsk };
+}
+
+// eslint-disable-next-line no-control-regex -- control and format characters never reach a bell
+const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/**
+ * Review 2 (B7, B9): the firm's words on the client's portal bell item of an appointment notice:
+ * a booking's confirmation message, or the note of the Portal reminder now due (else the Email
+ * reminder's, whose bell item it shares), and the instructions when the appointment shows them in
+ * the portal. Each one line of at most 500 characters; none is left out.
+ */
+export async function portalNoticeWords(
+  tx: TxClient,
+  businessId: string,
+  appointmentId: string,
+  template: string,
+  now: Date = new Date(),
+): Promise<{ note?: string; instructions?: string }> {
+  const portal = await noticeWords(tx, businessId, appointmentId, template, now, 'PORTAL');
+  const note =
+    portal.message ??
+    (template === 'appointment.reminder'
+      ? (await noticeWords(tx, businessId, appointmentId, template, now, 'EMAIL')).message
+      : null);
+  const line = (value: string | null) => {
+    const one = value?.replace(UNSAFE, ' ').replace(/\s+/g, ' ').trim();
+    return one ? Array.from(one).slice(0, 500).join('') : undefined;
+  };
+  const words: { note?: string; instructions?: string } = {};
+  const n = line(note);
+  const i = line(portal.instructions);
+  if (n) words.note = n;
+  if (i) words.instructions = i;
+  return words;
 }
 
 /** P4-1: the lead's own notices: the booking's confirmation and its reminder, by email only. */

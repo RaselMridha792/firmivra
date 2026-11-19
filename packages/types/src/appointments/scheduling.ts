@@ -65,6 +65,13 @@ export const AppointmentContact = z.object({
    * they are offered Convert to New client when completing it; absent on other answers.
    */
   leadReach: z.boolean().optional(),
+  /**
+   * Review 2 (B9), a CLIENT in the contact search: the client has an active portal login, and
+   * agreed to appointment texts (their primary login's SMS choice for Appointments). Schedule
+   * Appointment starts its "Show client instructions in" from them. Absent on other answers.
+   */
+  portal: z.boolean().optional(),
+  textOptIn: z.boolean().optional(),
 });
 export type AppointmentContact = z.infer<typeof AppointmentContact>;
 

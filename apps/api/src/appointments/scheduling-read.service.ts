@@ -13,6 +13,7 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { PreferenceSource } from '../notify/preferences.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { reachesLead } from './appointment-party.js';
 import { DAY, zonedDate, zonedInstant } from './calendar.js';
@@ -335,7 +336,7 @@ export class SchedulingReadService {
     actor: FirmActor,
     q: ContactQ,
   ): Promise<{ items: AppointmentContact[] }> {
-    const items = await this.inFirm(businessId, async (tx) => {
+    const found = await this.inFirm(businessId, async (tx) => {
       const search = q.search.trim();
       if (!search) return [];
       const term = { contains: search, mode: 'insensitive' as const };
@@ -362,27 +363,47 @@ export class SchedulingReadService {
           phone: true,
           accountType: true,
           profile: { select: { businessName: true } },
+          // Review 2 (B9): the portal logins, for Show client instructions in.
+          accounts: {
+            where: { status: 'ACTIVE' },
+            orderBy: [{ portalRole: 'asc' }, { id: 'asc' }],
+            select: { id: true, portalRole: true },
+          },
         },
       });
-      return rows.map((c): AppointmentContact => ({
-        kind: 'CLIENT',
-        id: c.id,
-        name: c.displayName,
-        businessName:
-          c.profile?.businessName ?? (c.accountType === 'BUSINESS' ? c.displayName : null),
-        email: c.email,
-        phone: c.phone,
-        clientType: c.accountType,
+      return rows.map((c) => ({
+        contact: {
+          kind: 'CLIENT',
+          id: c.id,
+          name: c.displayName,
+          businessName:
+            c.profile?.businessName ?? (c.accountType === 'BUSINESS' ? c.displayName : null),
+          email: c.email,
+          phone: c.phone,
+          clientType: c.accountType,
+          portal: c.accounts.length > 0,
+        } satisfies AppointmentContact,
+        primary: c.accounts.find((a) => a.portalRole === 'PRIMARY')?.id ?? null,
       }));
     });
+    // Review 2 (B9): agreed to appointment texts: the primary login's SMS choice (and its texts
+    // not stopped), as a Text reminder asks.
+    const preferences = new PreferenceSource(this.database);
+    const contacts: AppointmentContact[] = [];
+    for (const { contact, primary } of found) {
+      const textOptIn = primary
+        ? await preferences.allows(businessId, { clientAccountId: primary }, 'APPOINTMENTS', 'sms')
+        : false;
+      contacts.push({ ...contact, textOptIn });
+    }
     await this.audit.log(
       'appointment_contacts.searched',
       { type: 'client' },
       {
-        count: items.length,
+        count: contacts.length,
       },
     );
-    return { items };
+    return { items: contacts };
   }
 
   async record(businessId: string, actor: FirmActor, id: string): Promise<AppointmentRecord> {

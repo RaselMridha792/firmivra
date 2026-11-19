@@ -745,6 +745,9 @@ describe('contacts', () => {
       email: `jamie-${run}@sample.test`,
       phone: '555-0101',
       clientType: 'INDIVIDUAL',
+      // Review 2 (B9): no portal login, so no texts either.
+      portal: false,
+      textOptIn: false,
     });
     expect((await find('555-0101')).map((c) => c.id)).toEqual([ids.c1]);
     expect((await find(`riley-${run}@`)).map((c) => c.id)).toEqual([ids.c2]);
@@ -787,6 +790,59 @@ describe('contacts', () => {
     );
     expect((await find(`CL-${number}`)).map((c) => c.id)).toEqual([ids.c3]);
     expect((await find(String(number))).map((c) => c.id)).toContain(ids.c3);
+  });
+});
+
+describe('contacts (Review 2, B9): portal and texts', () => {
+  it('a client with an active portal login is marked portal; textOptIn follows its Appointments SMS choice', async () => {
+    const find = async (q: string) =>
+      exact(
+        ContactSearchResult,
+        await call('get', `/appointments/contacts?search=${encodeURIComponent(q)}`, people.ownerA),
+      ).items;
+    const login = { id: randomUUID(), email: `b9-${run}@client.test` };
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      await runInScope(owner, { kind: 'platform' }, (tx) =>
+        tx.user.create({
+          data: {
+            id: login.id,
+            cognitoSub: login.id,
+            pool: 'CLIENT',
+            email: login.email,
+            name: 'Fake B9 login',
+          },
+        }),
+      );
+    } finally {
+      await owner.$disconnect();
+    }
+    const client = await asOwner(ids.firmA, async (tx) => {
+      const c = await tx.client.create({
+        data: { businessId: ids.firmA, displayName: `B9 Portal ${run} (fake)` },
+        select: { id: true },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId: ids.firmA,
+          userId: login.id,
+          clientId: c.id,
+          email: login.email,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      return c.id;
+    });
+    const [before] = await find(`B9 Portal ${run}`);
+    expect(before).toMatchObject({ id: client, portal: true, textOptIn: false });
+    await asOwner(ids.firmA, (tx) =>
+      tx.notificationPreference.create({
+        data: { businessId: ids.firmA, userId: login.id, category: 'APPOINTMENTS', sms: true },
+      }),
+    );
+    const [after] = await find(`B9 Portal ${run}`);
+    expect(after).toMatchObject({ id: client, portal: true, textOptIn: true });
   });
 });
 

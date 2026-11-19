@@ -837,7 +837,17 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
             t.toLowerCase().includes(search),
           )
         ) {
-          seen.set(r.contact.id, copy(r.contact));
+          seen.set(r.contact.id, {
+            ...copy(r.contact),
+            // Review 2 (B9), as the API's search: whether the client has a portal login and
+            // agreed to appointment texts. Synthetic: Bruno has no portal; Avery takes texts.
+            ...(r.contact.kind === 'CLIENT'
+              ? {
+                  portal: r.contact.name !== 'Bruno Sandoval',
+                  textOptIn: r.contact.name === 'Avery Lawson',
+                }
+              : {}),
+          });
         }
       }
       return [...seen.values()].slice(0, q.limit);

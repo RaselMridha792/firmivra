@@ -13,7 +13,7 @@ import { mergeValues } from '../communications/merge-values.js';
 import { fill } from '../templates/merge-fields.js';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { minutesOf, timeOfDayFromDb, zonedInstant } from '../appointments/calendar.js';
-import { leadNotice, noticeWords } from '../appointments/notice-words.js';
+import { leadNotice, noticeWords, portalNoticeWords } from '../appointments/notice-words.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
@@ -138,6 +138,13 @@ export class NotificationInputError extends Error {
     this.name = 'NotificationInputError';
   }
 }
+
+/** Appointments Review 2 (B7, B9): the notices whose client bell item carries the firm's words. */
+const PORTAL_WORD_EVENTS: ReadonlySet<string> = new Set([
+  'appointment.booked',
+  'appointment.changed',
+  'appointment.reminder',
+]);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // eslint-disable-next-line no-control-regex -- control and format characters never reach a bell
@@ -905,6 +912,11 @@ export class Notifier {
           reached.direct = to.map((r) => ({ id: null, recipient: r, values: record.values }));
           return [];
         }
+        // Appointments Review 2 (B7, B9): a client's bell item of an appointment notice carries
+        // the firm's words for the portal (the note, the instructions shown in the portal).
+        const portalWords = PORTAL_WORD_EVENTS.has(event)
+          ? await portalNoticeWords(tx, businessId, recordId.toLowerCase(), event)
+          : {};
         const rows = await tx.notification.createManyAndReturn({
           data: to.map((r) => ({
             businessId,
@@ -913,7 +925,10 @@ export class Notifier {
             type: storedType(event),
             entityType: def.kind,
             entityId: recordId.toLowerCase(),
-            payload: r.side === 'staff' ? { ...record.values, client: clientName } : record.values,
+            payload:
+              r.side === 'staff'
+                ? { ...record.values, client: clientName }
+                : { ...record.values, ...portalWords },
             ...(input.eventKey ? { eventKey: input.eventKey } : {}),
           })),
           skipDuplicates: true,

@@ -87,7 +87,14 @@ const appointment =
   (p, side) => {
     const when = dateTime(text(p, 'startsAt'), text(p, 'timeZone'));
     const line = [text(p, 'title') ?? 'Appointment', when].filter(Boolean).join(', ');
-    return { title, body: side === 'staff' ? forClient(p, line) : line };
+    if (side === 'staff') return { title, body: forClient(p, line) };
+    // Appointments Review 2 (B7, B9): the client's item carries the firm's note and the
+    // instructions shown in the portal, when the notice has them.
+    const instructions = text(p, 'instructions');
+    const words = [text(p, 'note'), instructions ? `Instructions: ${instructions}` : null]
+      .filter(Boolean)
+      .join(' ');
+    return { title, body: words ? `${line}. ${words}` : line };
   };
 
 const TEXT: Record<NotificationEvent, Writer> = {

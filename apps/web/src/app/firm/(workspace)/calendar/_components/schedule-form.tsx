@@ -1027,6 +1027,27 @@ function FormBody({
       },
     });
   };
+  // Review 2 (B9): a new appointment's "Show client instructions in" starts from its client: Email
+  // when they have an email, Portal when they have a portal login, Text only when they agreed to
+  // appointment texts (and the firm sends texts); a lead has no portal and gets no texts. Once
+  // changed by hand (or when editing), a contact chosen later leaves them.
+  const instructionsTouchedRef = useRef(!!record);
+  const chooseContact = (c: AppointmentContact) => {
+    setForm((f) => ({
+      ...f,
+      contact: c,
+      ...(instructionsTouchedRef.current
+        ? {}
+        : {
+            instructionsIn: {
+              email: !!c.email,
+              portal: c.kind === 'CLIENT' && (c.portal ?? true),
+              sms: c.kind === 'CLIENT' && !!c.textOptIn && o.smsEnabled,
+            },
+          }),
+    }));
+    setNote('');
+  };
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
     setNote('');
@@ -1425,7 +1446,7 @@ function FormBody({
                         <li key={`${c.kind}-${c.id}`}>
                           <button
                             type="button"
-                            onClick={() => set('contact', c)}
+                            onClick={() => chooseContact(c)}
                             className="flex w-full flex-col items-start rounded-control px-2 py-1.5 text-left text-sm hover:bg-canvas"
                           >
                             <span className="font-semibold text-heading">{c.name}</span>
@@ -1835,9 +1856,10 @@ function FormBody({
                 key={k}
                 label={label}
                 checked={form.instructionsIn[k]}
-                onChange={(e) =>
-                  set('instructionsIn', { ...form.instructionsIn, [k]: e.target.checked })
-                }
+                onChange={(e) => {
+                  instructionsTouchedRef.current = true;
+                  set('instructionsIn', { ...form.instructionsIn, [k]: e.target.checked });
+                }}
                 className="min-h-8 text-sm"
               />
             ))}
