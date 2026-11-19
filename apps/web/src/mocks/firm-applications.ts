@@ -10,6 +10,8 @@ import {
   AssignFirmReviewerRequest,
   type BusinessSummary,
   DeclineFirmApplicationRequest,
+  type FirmAccountEvent,
+  FirmAccountActionRequest,
   type FirmApplicationCheck,
   type FirmApplicationEvent,
   FirmApplicationId,
@@ -17,6 +19,7 @@ import {
   type FirmApplicationsClient,
   FirmId,
   type FirmListItem,
+  type FirmRecord,
   ListFirmApplicationsQuery,
   ListFirmsQuery,
   parseInput,
@@ -341,6 +344,10 @@ interface MockFirm {
   createdAt: string;
   applicationId: string | null;
   owner: FirmListItem['owner'];
+  /** SA-FRM-F03, F04, Y10: when setup finished and when it closed; its account actions, newest first. */
+  activatedAt?: string | null;
+  closedAt?: string | null;
+  actions?: FirmAccountEvent[];
 }
 
 const fail = (status: number, code: string, message: string) =>
@@ -465,6 +472,24 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
           createdAt: hoursAgo(60 * DAY),
           applicationId: null,
           owner: { name: 'Sam Former', email: 'sam@old-example.example.test', phone: null },
+          activatedAt: hoursAgo(59 * DAY),
+          actions: [
+            {
+              type: 'SUSPENDED',
+              at: hoursAgo(5 * DAY),
+              by: ADMIN,
+              reason: 'Fake: three invoices unpaid',
+            },
+          ],
+        },
+        // SA-FRM-Y06, Y07: closed before closures were recorded: only its closure time.
+        {
+          firm: firm(9, 'Lakeside Closed Example', 'lakeside-closed', 'CLOSED'),
+          createdAt: hoursAgo(120 * DAY),
+          applicationId: null,
+          owner: { name: 'Lee Lakeside', email: 'lee@lakeside.example.test', phone: null },
+          activatedAt: hoursAgo(118 * DAY),
+          closedAt: hoursAgo(20 * DAY),
         },
       ];
   /** Stands in for the API's keyed EIN hash: fixtures by their last 4, new applications by the EIN. */
@@ -602,6 +627,31 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
     status: 'SENT' as const,
     expiresAt: new Date(Date.now() + WEEK_MS).toISOString(),
   });
+  /** SA-FRM-F02 to F04, Y07, Y10: the firm page's account fields, as the API builds them. */
+  const accountOf = (
+    f: MockFirm,
+  ): Pick<FirmRecord, 'activatedAt' | 'closedAt' | 'accountHistory' | 'can'> => {
+    const app = rows.find((r) => r.id === f.applicationId);
+    const activatedAt =
+      f.activatedAt ??
+      app?.history.find((e) => e.type === 'FIRM_ACTIVATED')?.at ??
+      (f.firm.status === 'ACTIVE' ? f.createdAt : null);
+    const events: FirmAccountEvent[] = [...(f.actions ?? [])];
+    if (f.closedAt && !events.some((e) => e.type === 'CLOSED'))
+      events.push({ type: 'CLOSED', at: f.closedAt, by: null, reason: null });
+    if (activatedAt) events.push({ type: 'ACTIVATED', at: activatedAt, by: null, reason: null });
+    const s = f.firm.status;
+    return {
+      activatedAt,
+      closedAt: f.closedAt ?? null,
+      accountHistory: events.sort((a, b) => b.at.localeCompare(a.at)),
+      can: {
+        suspend: s === 'ACTIVE' || s === 'PENDING_SETUP',
+        reactivate: s === 'SUSPENDED',
+        close: s !== 'CLOSED',
+      },
+    };
+  };
   const firmItem = (f: MockFirm): FirmListItem => {
     const app = rows.find((r) => r.id === f.applicationId);
     const admin = app?.primaryAdmin;
@@ -946,7 +996,21 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         .filter(
           (f) => inStatus(f.status) && matches(q.search, f.name, f.owner?.name, f.owner?.email),
         )
+        .filter((f) => !q.plan || f.plan === q.plan)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      // SA-FRM-Y08, as the API: by name (ignoring case) or approval day; never approved last.
+      if (q.sort) {
+        const sign = q.order === 'desc' ? -1 : 1;
+        found.sort((a, b) => {
+          if (q.sort === 'approved' && (a.approvedAt === null) !== (b.approvedAt === null))
+            return a.approvedAt === null ? 1 : -1;
+          const by =
+            q.sort === 'name'
+              ? a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+              : (a.approvedAt ?? '').localeCompare(b.approvedAt ?? '');
+          return by !== 0 ? sign * by : b.createdAt.localeCompare(a.createdAt);
+        });
+      }
       return page(found, q);
     },
 
@@ -968,7 +1032,42 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       const f = firms.find((x) => x.firm.id === key);
       if (!f) throw fail(404, 'NOT_FOUND', 'Not found');
       const app = rows.find((r) => r.id === f.applicationId);
-      return { ...firmItem(f), application: app ? view(app) : null };
+      return { ...firmItem(f), application: app ? view(app) : null, ...accountOf(f) };
+    },
+
+    firmAction: async (id, action, body) => {
+      await mockDelay();
+      // As the API: the reason (400), then the firm (404), then its status (409).
+      const { reason } = parseInput(FirmAccountActionRequest, body);
+      const key = parseInput(FirmId, id);
+      const f = firms.find((x) => x.firm.id === key);
+      if (!f) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (!accountOf(f).can?.[action]) {
+        throw fail(
+          409,
+          'FIRM_STATUS_CHANGED',
+          "This firm's status has changed. Reload the page to see it.",
+        );
+      }
+      const activatedAt = accountOf(f).activatedAt ?? null;
+      const status: BusinessSummary['status'] =
+        action === 'suspend'
+          ? 'SUSPENDED'
+          : action === 'close'
+            ? 'CLOSED'
+            : activatedAt
+              ? 'ACTIVE'
+              : 'PENDING_SETUP';
+      const at = now();
+      f.firm = { ...f.firm, status };
+      f.activatedAt = activatedAt;
+      if (status === 'CLOSED') f.closedAt = at;
+      const type = ({ suspend: 'SUSPENDED', reactivate: 'REACTIVATED', close: 'CLOSED' } as const)[
+        action
+      ];
+      f.actions = [{ type, at, by: ADMIN, reason }, ...(f.actions ?? [])];
+      const app = rows.find((r) => r.id === f.applicationId);
+      return { ...firmItem(f), application: app ? view(app) : null, ...accountOf(f) };
     },
 
     dashboard: async () => {

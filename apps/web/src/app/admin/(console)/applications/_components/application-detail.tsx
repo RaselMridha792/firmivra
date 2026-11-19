@@ -27,7 +27,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
@@ -93,12 +93,15 @@ export function ApplicationRecord({
   application,
   onStale,
   back = { href: '/applications', label: 'Back to Applications' },
+  actions,
 }: {
   application: FirmApplicationRecord;
   /** Reloads the application after someone else changed it. */
   onStale: () => void;
   /** Where "Back" goes: the applications list, or the firms list on a firm's page. */
   back?: { href: string; label: string };
+  /** SA-FRM-F02: on a firm's page, the firm's Actions menu at the header's right. */
+  actions?: ReactNode;
 }) {
   const [action, setAction] = useState<Action | null>(null);
   const [notice, setNotice] = useState('');
@@ -421,6 +424,7 @@ export function ApplicationRecord({
           </div>
         ) : null}
         {/* SA-APP-F12: no shortcut into a firm's private workspace from the Super Admin console. */}
+        {actions}
       </header>
       {resend.isSuccess ? (
         <p role="status" data-testid="owner-invite-resent" className="text-sm text-success">
@@ -445,7 +449,7 @@ export function ApplicationRecord({
           <>
             <Card className="!p-4">
               <CardHeading icon={Database}>Active Features (Beta)</CardHeading>
-              <ActiveFeatures active={firm.status === 'ACTIVE'} />
+              <ActiveFeatures status={firm.status} />
             </Card>
             {historyCard}
             {notesCard}
