@@ -1445,6 +1445,7 @@ describe('connection health, one state for the label, the checks and the advice 
     suggestions: string[];
     lastSuccessAt: string | null;
     lastAttemptAt: string | null;
+    checkedAt: string | null;
   };
   const DAY_MS = 86_400_000;
   const make = (
