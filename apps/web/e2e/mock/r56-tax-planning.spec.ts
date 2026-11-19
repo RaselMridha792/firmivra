@@ -111,9 +111,10 @@ test('Plan: create it, enter figures, override an estimate, finalize it', async 
   await page.getByLabel(`Wages & Salary ${year - 1}`).fill('90000');
   // C06: each figure keeps its source and as-of date; Add takes an additional item.
   await page.getByLabel('Wages & Salary source').selectOption('Tax return');
-  await page.getByLabel('Additional item').fill('Home office costs');
+  // C06 (audit, Nov 20): the name is kept exactly as typed, capitals and punctuation too.
+  await page.getByLabel('Additional item').fill('Home office costs (2024)');
   await page.getByRole('button', { name: 'Add Item' }).click();
-  await page.getByLabel(`Home office costs ${year}`).fill('1200');
+  await page.getByLabel(`Home office costs (2024) ${year}`).fill('1200');
   await page.getByLabel(`Wages & Salary ${year}`).fill('95000');
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await page.waitForURL(/\/edit\/goals$/);

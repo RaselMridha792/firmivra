@@ -640,6 +640,27 @@ describe('plans', () => {
     // C06 (test gap): the as-of date is kept, read back with the plan.
     const reread = await plan(id);
     expect(reread.inputs?.find((i) => i.key === 'custom_home_office_costs')?.asOf).toBe(asOf);
+    // C06 (audit, Nov 20): a named item keeps its name exactly as typed (capitals, punctuation),
+    // read back with the plan; one saved without a name is still labelled from its key.
+    const named = TaxPlanDetail.parse(
+      ok(
+        await saveInputs(id, [
+          {
+            ...money('custom_home_office_costs_2024', 90_000),
+            textValue: 'Home office costs (2024)',
+            source: 'Client estimate',
+            asOf,
+          },
+        ]),
+      ),
+    );
+    expect(named.inputs?.find((i) => i.key === 'custom_home_office_costs_2024')).toMatchObject({
+      label: 'Home office costs (2024)',
+      amountCents: 90_000,
+    });
+    expect(
+      (await plan(id)).inputs?.find((i) => i.key === 'custom_home_office_costs_2024')?.label,
+    ).toBe('Home office costs (2024)');
     expectError(await saveInputs(id, [money('custom_', 1_000)]), 400, 'VALIDATION_FAILED');
   });
 });

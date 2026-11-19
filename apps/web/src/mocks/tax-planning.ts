@@ -1248,11 +1248,13 @@ export function createTaxPlanningMock({
           ...keep,
           ...input.inputs.map((n): PlanInput => ({
             key: n.key,
-            // C06: an additional item is labelled from its key, as the API does.
+            // C06, as the API: an additional item keeps the name typed (its text value), else is
+            // labelled from its key.
             label:
               INPUT_CATALOG.find((c) => c.key === n.key)?.label ??
               (n.key.startsWith('custom_')
-                ? n.key
+                ? n.textValue?.trim() ||
+                  n.key
                     .slice(7)
                     .replace(/_+/g, ' ')
                     .replace(/^./, (c) => c.toUpperCase())

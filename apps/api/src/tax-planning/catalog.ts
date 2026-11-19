@@ -32,12 +32,16 @@ export const INPUT_KEYS = new Map(INPUT_CATALOG.map((i) => [i.key, i]));
 
 /**
  * C06 (Review 2): the firm's own additional figures, beyond the catalog: an amount under a key
- * `custom_<name>` ("custom_home_office_costs"), labelled from its name ("Home office costs"). No
- * estimate model reads them; they are kept, shown and versioned with the plan's other figures.
+ * `custom_<name>` ("custom_home_office_costs"). Its label is the name exactly as the firm typed it
+ * ("Home office costs (2024)"), kept in the figure's text value (an amount item has no other
+ * text); an older figure without one is labelled from its key. No estimate model reads them; they
+ * are kept, shown and versioned with the plan's other figures.
  */
 export const CUSTOM_INPUT = /^custom_[a-z0-9_]{1,52}$/;
 export function inputDef(
   key: string,
+  /** A custom figure's name as typed (its text value). */
+  name?: string | null,
 ): { key: string; label: string; type: 'MONEY' | 'TEXT'; group: string } | undefined {
   const known = INPUT_KEYS.get(key);
   if (known) return known;
@@ -45,7 +49,7 @@ export function inputDef(
   const words = key.slice('custom_'.length).replace(/_+/g, ' ').trim();
   return {
     key,
-    label: words.charAt(0).toUpperCase() + words.slice(1),
+    label: name?.trim() || words.charAt(0).toUpperCase() + words.slice(1),
     type: 'MONEY',
     group: 'Additional items',
   };
