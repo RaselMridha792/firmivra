@@ -2120,7 +2120,7 @@ describe('Review 2 (row 9): Send Intake Form Before Appointment', () => {
     const made = await inFirm('a', async (tx) => {
       const businessId = firms.a;
       const books = await tx.service.create({
-        data: { businessId, kind: 'BOOKKEEPING', name: `Books ${run}`, status: 'ACTIVE' },
+        data: { businessId, kind: 'BOOKKEEPING', name: `Row 9 books ${run}`, status: 'ACTIVE' },
         select: { id: true },
       });
       const form = (title: string, serviceId: string, status: 'PUBLISHED' | 'DRAFT') =>
@@ -2139,12 +2139,12 @@ describe('Review 2 (row 9): Send Intake Form Before Appointment', () => {
       const booksForm = await form('Books Intake (fake)', books.id, 'PUBLISHED');
       // The type's own required form, on a service of its own: no other test changes it.
       const typeService = await tx.service.create({
-        data: { businessId, kind: 'OTHER', name: `Type form ${run}`, status: 'ACTIVE' },
+        data: { businessId, kind: 'OTHER', name: `Row 9 type form ${run}`, status: 'ACTIVE' },
         select: { id: true },
       });
       const typeForm = await form('Type Intake (fake)', typeService.id, 'PUBLISHED');
       const draftService = await tx.service.create({
-        data: { businessId, kind: 'PAYROLL', name: `Payroll ${run}`, status: 'ACTIVE' },
+        data: { businessId, kind: 'PAYROLL', name: `Row 9 payroll ${run}`, status: 'ACTIVE' },
         select: { id: true },
       });
       const draft = await form('Payroll Intake draft (fake)', draftService.id, 'DRAFT');
