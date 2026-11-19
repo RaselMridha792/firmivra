@@ -95,3 +95,60 @@ test('A-X11: Cancel Meeting on the client’s Meetings tab asks for a reason, th
   // The appointment is canceled, so it is no upcoming meeting any more.
   await expect(upcoming.getByText('Strategy Review')).toHaveCount(0, { timeout: 60_000 });
 });
+
+test('A-X07: Recurrence takes every n weeks, the weekdays and an end date, and says so before saving', async ({
+  page,
+}) => {
+  // The mock's bookings are at a fixed -04:00 offset.
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  const recurrence = page.getByTestId('recurrence');
+  const summary = page.getByTestId('appointment-summary');
+  await recurrence.getByLabel('Repeat').selectOption('WEEKLY');
+  await recurrence.getByLabel('Every').selectOption('2');
+  const days = recurrence.getByTestId('repeat-weekdays');
+  await days.getByLabel('Mon').check();
+  await days.getByLabel('Wed').check();
+  await recurrence.getByLabel('Occurrences').selectOption('6');
+  await expect(summary).toContainText('Every 2 weeks on Mon, Wed, 6 times');
+  // Ends on a date: the date is needed, and the summary names it.
+  await recurrence.getByLabel('Ends').selectOption('UNTIL');
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  await expect(recurrence.getByText('Choose the date the series ends.')).toBeVisible();
+  await recurrence.getByLabel('End date').fill('2026-12-31');
+  await expect(summary).toContainText('Every 2 weeks on Mon, Wed, until Dec 31, 2026');
+  // Monthly: every n months, no weekdays.
+  await recurrence.getByLabel('Repeat').selectOption('MONTHLY');
+  await expect(recurrence.getByTestId('repeat-weekdays')).toHaveCount(0);
+  await expect(summary).toContainText('Every 2 months, until Dec 31, 2026');
+});
+
+test('A-X07: a client whose texts are stopped gets no text reminder, and the form says why', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  const pick = async (first: string, full: RegExp) => {
+    await page.goto(app('/calendar/new'));
+    await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+    await page.getByLabel('Client / Lead *').fill(first);
+    await page.getByTestId('contact-results').getByRole('button', { name: full }).click();
+  };
+  const reminders = page.getByTestId('client-reminders');
+  const sms = reminders.getByLabel('SMS Reminder', { exact: true });
+
+  // The mock's Grace Pruitt replied STOP.
+  await pick('Grace', /Grace Pruitt/);
+  await expect(reminders.getByTestId('sms-stopped')).toHaveText(
+    'No text reminder: they stopped texts (a STOP reply or an unsubscribe).',
+  );
+  await expect(sms).toBeDisabled();
+  await expect(sms).not.toBeChecked();
+
+  // Another client gets the text reminder as before.
+  await pick('Clara', /Clara Voss/);
+  await expect(reminders.getByTestId('sms-stopped')).toHaveCount(0);
+  await expect(sms).toBeEnabled();
+});

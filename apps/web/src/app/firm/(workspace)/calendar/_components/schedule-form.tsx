@@ -2,6 +2,7 @@
 
 import {
   type AppointmentContact,
+  AppointmentRecurrence,
   type AppointmentRecord,
   type AppointmentDraft,
   type MeetingMethod,
@@ -11,6 +12,7 @@ import {
   ScheduleAppointmentRequest,
   type SchedulingOptions,
   type ServiceKind,
+  TEXTS_STOPPED_LABELS,
 } from '@firmivra/types';
 import { Button, Callout, Checkbox, Input, Select, Skeleton, Textarea, Toggle } from '@firmivra/ui';
 import {
@@ -62,6 +64,42 @@ const TIME_ZONES: [string, string][] = [
 
 /** Every half hour from 6 AM to 9 PM. */
 const REPEAT_LABEL = { DAILY: 'Every day', WEEKLY: 'Every week', MONTHLY: 'Every month' } as const;
+/** A-X07 (B22): "every n days / weeks / months". */
+const REPEAT_UNIT = { DAILY: 'day', WEEKLY: 'week', MONTHLY: 'month' } as const;
+/** 0 = Sunday, as the contract's weekdays. */
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** The repeat in words: "Every 2 weeks on Mon, Wed, 6 times", "Every month, until Mar 31, 2027". */
+function repeatText(f: {
+  repeat: 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY';
+  interval: number;
+  weekdays: number[];
+  ends: 'COUNT' | 'UNTIL';
+  count: number;
+  until: string;
+}): string {
+  if (f.repeat === 'NONE') return 'Does not repeat';
+  const every =
+    f.interval === 1 ? REPEAT_LABEL[f.repeat] : `Every ${f.interval} ${REPEAT_UNIT[f.repeat]}s`;
+  const on =
+    f.repeat === 'WEEKLY' && f.weekdays.length
+      ? ` on ${[...f.weekdays]
+          .sort((a, b) => a - b)
+          .map((d) => WEEKDAY_SHORT[d])
+          .join(', ')}`
+      : '';
+  const end =
+    f.ends === 'COUNT'
+      ? `, ${f.count} times`
+      : f.until
+        ? `, until ${new Date(`${f.until}T12:00:00`).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          })}`
+        : '';
+  return `${every}${on}${end}`;
+}
 
 /** `HH:MM` as the form shows it: 2:45 PM. */
 const clockLabel = (value: string) => {
@@ -216,7 +254,37 @@ interface Form {
   moreReminders: MoreReminder[];
   sendConfirmation: boolean;
   repeat: 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY';
+  /** A-X07 (B22): every n days, weeks or months (1 to 12). */
+  interval: number;
+  /** A-X07: weekly, the days of the week (0 = Sunday); none is the first appointment's day. */
+  weekdays: number[];
+  /** A-X07: the series ends after `count` appointments or on `until`. */
+  ends: 'COUNT' | 'UNTIL';
   count: number;
+  until: string;
+}
+
+type Repeat = Pick<Form, 'repeat' | 'interval' | 'weekdays' | 'ends' | 'count' | 'until'>;
+const NO_REPEAT: Repeat = {
+  repeat: 'NONE',
+  interval: 1,
+  weekdays: [],
+  ends: 'COUNT',
+  count: 4,
+  until: '',
+};
+
+/** A record's or draft's recurrence as the form holds it (A-X07). */
+function repeatOf(r: ReturnType<typeof AppointmentRecurrence.parse> | null | undefined): Repeat {
+  if (!r || r.frequency === 'NONE') return NO_REPEAT;
+  return {
+    repeat: r.frequency === 'CUSTOM' ? 'WEEKLY' : r.frequency,
+    interval: r.interval,
+    weekdays: r.weekdays ?? [],
+    ends: r.until ? 'UNTIL' : 'COUNT',
+    count: r.count ?? 4,
+    until: r.until ?? '',
+  };
 }
 
 /** A new form; `at` is the date and hour picked on the calendar (`?date=&time=`). */
@@ -261,8 +329,7 @@ function blank(o: SchedulingOptions, at?: { date: string; time: string }): Form 
     },
     moreReminders: [],
     sendConfirmation: false,
-    repeat: 'NONE',
-    count: 4,
+    ...NO_REPEAT,
   };
 }
 
@@ -298,8 +365,7 @@ function fromRecord(r: AppointmentRecord, o: SchedulingOptions): Form {
     confirmationMessage: r.confirmationMessage ?? '',
     reminders,
     moreReminders,
-    repeat: (r.recurrence?.frequency === 'CUSTOM' ? 'WEEKLY' : r.recurrence?.frequency) ?? 'NONE',
-    count: r.recurrence?.count ?? 4,
+    ...repeatOf(r.recurrence),
   };
 }
 
@@ -363,6 +429,8 @@ function fromDraft(d: Record<string, unknown>, base: Form): Form {
     moreReminders,
     sendConfirmation:
       typeof d['sendConfirmation'] === 'boolean' ? d['sendConfirmation'] : base.sendConfirmation,
+    // A-X07: the draft's repeat, when it kept one the contract reads.
+    ...repeatOf(AppointmentRecurrence.safeParse(d['recurrence']).data),
   };
 }
 
@@ -848,6 +916,10 @@ function FormBody({
   const [form, setForm] = useState<Form>(() => kept ?? start);
   // Review 2 (TX-F06): Link to Tax Return, one of the client's returns that has its service.
   const linkClientId = form.contact?.kind === 'CLIENT' ? form.contact.id : null;
+  // A-X07 (Business Advisory Review Two, B21): a client whose texts are stopped gets no text
+  // reminder; the SMS row says why. Texts need the firm's SMS too.
+  const textsStopped = form.contact?.kind === 'CLIENT' ? (form.contact.textsStopped ?? null) : null;
+  const smsOk = o.smsEnabled && !textsStopped;
   const clientReturns = useApiQuery(
     ['tax-returns', 'for-appointment', linkClientId ?? ''],
     async () => (linkClientId ? api.taxReturns.listForClient(linkClientId) : []),
@@ -1106,7 +1178,7 @@ function FormBody({
     confirmationMessage: form.confirmationMessage.trim() || null,
     reminders: [
       ...(['EMAIL', 'SMS', 'PORTAL'] as const)
-        .filter((ch) => form.reminders[ch].on)
+        .filter((ch) => form.reminders[ch].on && (ch !== 'SMS' || smsOk))
         .map((ch) => ({
           channel: ch,
           amount: form.reminders[ch].amount,
@@ -1115,7 +1187,7 @@ function FormBody({
         })),
       ...form.moreReminders
         .filter((r) =>
-          r.channel === 'SMS' ? o.smsEnabled : r.channel === 'PORTAL' ? o.portalEnabled : true,
+          r.channel === 'SMS' ? smsOk : r.channel === 'PORTAL' ? o.portalEnabled : true,
         )
         .map(({ channel, amount, unit, note }) => ({
           channel,
@@ -1132,9 +1204,19 @@ function FormBody({
       )
       .slice(0, MAX_REMINDERS),
     sendConfirmation: form.sendConfirmation,
+    // A-X07 (B22): every n days, weeks or months, on weekdays, ending after n or on a date.
     ...(form.repeat === 'NONE'
       ? {}
-      : { recurrence: { frequency: form.repeat, interval: 1, count: form.count } }),
+      : {
+          recurrence: {
+            frequency: form.repeat,
+            interval: form.interval,
+            ...(form.repeat === 'WEEKLY' && form.weekdays.length
+              ? { weekdays: [...form.weekdays].sort((a, b) => a - b) }
+              : {}),
+            ...(form.ends === 'UNTIL' ? { until: form.until } : { count: form.count }),
+          },
+        }),
   });
 
   const check = () => {
@@ -1149,6 +1231,11 @@ function FormBody({
     if (!form.typeId) found.typeId = 'Choose an appointment type.';
     if (!form.allDay && minutes <= 0) found.end = 'End time must be after the start.';
     if (!form.staffUserIds.length) found.staff = 'Choose a staff member.';
+    if (form.repeat !== 'NONE' && form.ends === 'UNTIL') {
+      if (!form.until) found.until = 'Choose the date the series ends.';
+      else if (form.until < form.date)
+        found.until = 'The end date is before the first appointment.';
+    }
     if (!found.contact && !found.typeId) {
       const result = ScheduleAppointmentRequest.safeParse({ idempotencyKey: key, ...fields() });
       if (!result.success) {
@@ -1279,7 +1366,9 @@ function FormBody({
     : minutes > 0
       ? `${Math.floor(minutes / 60) ? `${Math.floor(minutes / 60)} hour${minutes >= 120 ? 's' : ''} ` : ''}${minutes % 60 ? `${minutes % 60} min` : ''}`.trim()
       : '—';
-  const onReminders = (['EMAIL', 'SMS', 'PORTAL'] as const).filter((c) => form.reminders[c].on);
+  const onReminders = (['EMAIL', 'SMS', 'PORTAL'] as const).filter(
+    (c) => form.reminders[c].on && (c !== 'SMS' || smsOk),
+  );
   const firstReminder = onReminders[0] ? form.reminders[onReminders[0]] : null;
   const sameTiming = onReminders.every(
     (c) =>
@@ -1887,7 +1976,7 @@ function FormBody({
             {(
               [
                 ['EMAIL', 'Email Reminder', true],
-                ['SMS', 'SMS Reminder', o.smsEnabled],
+                ['SMS', 'SMS Reminder', smsOk],
                 ['PORTAL', 'Portal Notification', o.portalEnabled],
               ] as [ReminderChannel, string, boolean][]
             ).map(([ch, label, ok]) => (
@@ -1895,7 +1984,8 @@ function FormBody({
                 <Checkbox
                   label={label}
                   disabled={!ok}
-                  checked={form.reminders[ch].on}
+                  // A channel that can't be used (A-X07: the client's texts stopped) sends nothing.
+                  checked={form.reminders[ch].on && ok}
                   onChange={(e) =>
                     setReminders({
                       ...form.reminders,
@@ -1938,6 +2028,11 @@ function FormBody({
                     })
                   }
                 />
+                {ch === 'SMS' && textsStopped && o.smsEnabled ? (
+                  <p className="col-span-3 text-xs text-warning" data-testid="sms-stopped">
+                    No text reminder: {TEXTS_STOPPED_LABELS[textsStopped]}.
+                  </p>
+                ) : null}
                 {ok && form.reminders[ch].on ? (
                   <Input
                     label={`${label} note`}
@@ -1973,7 +2068,7 @@ function FormBody({
                       className="py-1! pr-7! pl-2! text-sm!"
                       options={[
                         { value: 'EMAIL', label: 'Email' },
-                        ...(o.smsEnabled ? [{ value: 'SMS', label: 'SMS' }] : []),
+                        ...(smsOk ? [{ value: 'SMS', label: 'SMS' }] : []),
                         ...(o.portalEnabled ? [{ value: 'PORTAL', label: 'Portal' }] : []),
                       ]}
                       value={r.channel}
@@ -2091,15 +2186,78 @@ function FormBody({
               onChange={(e) => set('repeat', e.target.value as Form['repeat'])}
             />
             {form.repeat === 'NONE' ? null : (
-              <Select
-                label="Occurrences"
-                options={[2, 3, 4, 6, 8, 12, 26, 52].map((n) => ({
-                  value: String(n),
-                  label: `${n} times`,
-                }))}
-                value={String(form.count)}
-                onChange={(e) => set('count', Number(e.target.value))}
-              />
+              <>
+                {/* A-X07 (B22): every n days / weeks / months, the weekdays, and the end. */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Select
+                    label="Every"
+                    className="pr-7! pl-2! text-sm!"
+                    options={Array.from({ length: 12 }, (_, i) => i + 1).map((n) => ({
+                      value: String(n),
+                      label: `${n} ${REPEAT_UNIT[form.repeat as keyof typeof REPEAT_UNIT]}${n === 1 ? '' : 's'}`,
+                    }))}
+                    value={String(form.interval)}
+                    onChange={(e) => set('interval', Number(e.target.value))}
+                  />
+                  <Select
+                    label="Ends"
+                    className="pr-7! pl-2! text-sm!"
+                    options={[
+                      { value: 'COUNT', label: 'After' },
+                      { value: 'UNTIL', label: 'On date' },
+                    ]}
+                    value={form.ends}
+                    onChange={(e) => set('ends', e.target.value as Form['ends'])}
+                  />
+                </div>
+                {form.repeat === 'WEEKLY' ? (
+                  <fieldset className="flex flex-col gap-1" data-testid="repeat-weekdays">
+                    <legend className="text-xs font-semibold text-heading">
+                      On (none: the first appointment&rsquo;s day)
+                    </legend>
+                    <div className="flex flex-wrap gap-x-2">
+                      {WEEKDAY_SHORT.map((day, i) => (
+                        <Checkbox
+                          key={day}
+                          label={day}
+                          className="min-h-8 text-xs"
+                          checked={form.weekdays.includes(i)}
+                          onChange={(e) =>
+                            set(
+                              'weekdays',
+                              e.target.checked
+                                ? [...form.weekdays, i]
+                                : form.weekdays.filter((d) => d !== i),
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                  </fieldset>
+                ) : null}
+                {form.ends === 'COUNT' ? (
+                  <Select
+                    label="Occurrences"
+                    options={[...new Set([2, 3, 4, 6, 8, 12, 26, 52, form.count])]
+                      .sort((a, b) => a - b)
+                      .map((n) => ({
+                        value: String(n),
+                        label: `${n} times`,
+                      }))}
+                    value={String(form.count)}
+                    onChange={(e) => set('count', Number(e.target.value))}
+                  />
+                ) : (
+                  <Input
+                    label="End date"
+                    type="date"
+                    min={form.date}
+                    value={form.until}
+                    onChange={(e) => set('until', e.target.value)}
+                    error={errors.until}
+                  />
+                )}
+              </>
             )}
           </Section>
         </div>
@@ -2215,12 +2373,7 @@ function FormBody({
                 ],
                 ['Duration', duration],
                 // Review 2 (Appointments B4): the repeat and how many, before saving.
-                [
-                  'Repeats',
-                  form.repeat === 'NONE'
-                    ? 'Does not repeat'
-                    : `${REPEAT_LABEL[form.repeat]}, ${form.count} times`,
-                ],
+                ['Repeats', repeatText(form)],
                 [
                   'Location',
                   form.method === 'IN_PERSON' ? (

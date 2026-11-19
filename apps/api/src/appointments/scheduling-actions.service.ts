@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
-import type {
-  AppointmentDraft,
-  AppointmentRecord,
-  RemindersSent,
-  ReminderChannel,
+import {
+  type AppointmentDraft,
+  type AppointmentRecord,
+  type RemindersSent,
+  type ReminderChannel,
+  TextsStoppedReason,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -174,7 +175,10 @@ export class SchedulingActionsService {
     return { sent, skipped };
   }
 
-  /** Text reminders need the firm's SMS sender and a phone number on the client (400). */
+  /**
+   * Text reminders need the firm's SMS sender and a phone number on the client (400), and (A-X07,
+   * B21) a client whose texts are not stopped (400 SMS_STOPPED, with the reason).
+   */
   private async requireSms(tx: TxClient, businessId: string, clientId: string): Promise<void> {
     const settings = await tx.messageSettings.findUnique({
       where: { businessId },
@@ -185,6 +189,12 @@ export class SchedulingActionsService {
       select: { phone: true },
     });
     if (!settings?.smsEnabled || !client?.phone) throw errors.smsUnavailable();
+    const consent = await tx.communicationConsent.findFirst({
+      where: { businessId, clientId, channel: 'SMS' },
+      select: { status: true },
+    });
+    const stopped = TextsStoppedReason.safeParse(consent?.status);
+    if (stopped.success) throw errors.smsStopped(stopped.data);
   }
 
   // ---------- Notes ----------

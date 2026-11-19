@@ -1,14 +1,15 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type {
-  AgendaPage,
-  AgendaQuery,
-  AppointmentContact,
-  AppointmentRecord,
-  AppointmentsSummary,
-  AppointmentsSummaryQuery,
-  ContactSearchQuery,
-  SchedulingOptions,
+import {
+  type AgendaPage,
+  type AgendaQuery,
+  type AppointmentContact,
+  type AppointmentRecord,
+  type AppointmentsSummary,
+  type AppointmentsSummaryQuery,
+  type ContactSearchQuery,
+  type SchedulingOptions,
+  TextsStoppedReason,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -54,6 +55,38 @@ const CLIENT_NUMBER = /^(?:cl-?)?(\d{1,9})$/i;
  * Busy, and get 404 for anything else about those. Every read is audited with counts and ids
  * only, never the search text.
  */
+
+/**
+ * A-X07 (B21): the clients among `clientIds` whose texts are stopped at this firm
+ * (communication_consents, SMS), and why.
+ */
+async function textsStoppedOf(
+  tx: TxClient,
+  businessId: string,
+  clientIds: readonly string[],
+): Promise<Map<string, TextsStoppedReason>> {
+  if (clientIds.length === 0) return new Map();
+  const rows = await tx.communicationConsent.findMany({
+    where: {
+      businessId,
+      channel: 'SMS',
+      clientId: { in: [...clientIds] },
+      status: { in: [...TextsStoppedReason.options] },
+    },
+    select: { clientId: true, status: true },
+  });
+  return new Map(
+    rows.flatMap((r) => {
+      const reason = TextsStoppedReason.safeParse(r.status);
+      return r.clientId && reason.success ? [[r.clientId, reason.data] as const] : [];
+    }),
+  );
+}
+const withTextsStopped = (stopped: Map<string, TextsStoppedReason>, clientId: string) => {
+  const reason = stopped.get(clientId);
+  return reason ? { textsStopped: reason } : {};
+};
+
 @Injectable()
 export class SchedulingReadService {
   constructor(
@@ -338,6 +371,11 @@ export class SchedulingReadService {
           profile: { select: { businessName: true } },
         },
       });
+      const stopped = await textsStoppedOf(
+        tx,
+        businessId,
+        rows.map((c) => c.id),
+      );
       return rows.map((c): AppointmentContact => ({
         kind: 'CLIENT',
         id: c.id,
@@ -347,6 +385,7 @@ export class SchedulingReadService {
         email: c.email,
         phone: c.phone,
         clientType: c.accountType,
+        ...withTextsStopped(stopped, c.id),
       }));
     });
     await this.audit.log(
@@ -370,8 +409,16 @@ export class SchedulingReadService {
         await this.history.sentNotices(tx, businessId, row),
       );
       // P4-2: whether this member may convert the lead (Convert to New client when completing).
-      return record.contact.kind === 'LEAD' && row.lead
-        ? { ...record, contact: { ...record.contact, leadReach: reachesLead(actor, row.lead) } }
+      if (record.contact.kind === 'LEAD' && row.lead)
+        return {
+          ...record,
+          contact: { ...record.contact, leadReach: reachesLead(actor, row.lead) },
+        };
+      // A-X07: a client whose texts are stopped, so Edit offers no text reminder.
+      const clientId = record.contact.kind === 'CLIENT' ? record.contact.id : null;
+      const stopped = clientId ? await textsStoppedOf(tx, businessId, [clientId]) : new Map();
+      return clientId && stopped.has(clientId)
+        ? { ...record, contact: { ...record.contact, ...withTextsStopped(stopped, clientId) } }
         : record;
     });
     await this.audit.log('appointment.viewed', { type: 'appointment', id });

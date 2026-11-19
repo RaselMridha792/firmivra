@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type { AppointmentRecord, MemberRef } from '@firmivra/types';
+import { type AppointmentRecord, type MemberRef, TextsStoppedReason } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
@@ -328,6 +328,7 @@ export class SchedulingWriteService {
       body.reminders,
       party.phone,
       !party.clientId,
+      party.clientId,
     );
 
     await lockForBooking(tx, businessId, staff.userId, party.clientId, attendees);
@@ -1271,7 +1272,10 @@ export class SchedulingWriteService {
     return detailsAfterStaffChange(this.links, tx, businessId, current, staffUserId);
   }
 
-  /** Reminders as rows: offsets in range, no repeats, and SMS only when it can be sent. */
+  /**
+   * Reminders as rows: offsets in range, no repeats, and SMS only when it can be sent: the firm
+   * sends texts, the contact has a phone, and (A-X07, B21) the client's texts are not stopped.
+   */
   private async remindersFor(
     tx: TxClient,
     businessId: string,
@@ -1279,6 +1283,7 @@ export class SchedulingWriteService {
     phone: string | null,
     /** P4-1: a lead's own appointment: its lead gets email only, never a text. */
     forLead = false,
+    clientId: string | null = null,
   ): Promise<{ channel: Reminder['channel']; offsetMinutes: number; note: string | null }[]> {
     const rows = new Map<
       string,
@@ -1306,6 +1311,14 @@ export class SchedulingWriteService {
         select: { smsEnabled: true },
       });
       if (!settings?.smsEnabled || !phone) throw errors.smsUnavailable();
+      const consent = clientId
+        ? await tx.communicationConsent.findFirst({
+            where: { businessId, clientId, channel: 'SMS' },
+            select: { status: true },
+          })
+        : null;
+      const stopped = TextsStoppedReason.safeParse(consent?.status);
+      if (stopped.success) throw errors.smsStopped(stopped.data);
     }
     return list;
   }
@@ -1330,6 +1343,7 @@ export class SchedulingWriteService {
       reminders,
       client?.phone ?? null,
       !current.clientId,
+      current.clientId,
     );
     const key = (r: { channel: string; offsetMinutes: number; note: string | null }) =>
       `${r.channel}:${r.offsetMinutes}:${r.note ?? ''}`;
