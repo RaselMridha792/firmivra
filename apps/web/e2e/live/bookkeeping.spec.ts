@@ -39,6 +39,17 @@ async function ok(res: Awaited<ReturnType<APIRequestContext['get']>>, what: stri
   return res.json();
 }
 
+/** A created record's answer: only its id is used, and it is checked, not assumed. */
+async function created(
+  res: Awaited<ReturnType<APIRequestContext['get']>>,
+  what: string,
+): Promise<{ id: string }> {
+  const body: unknown = await ok(res, what);
+  const id = typeof body === 'object' && body !== null ? (body as { id?: unknown }).id : undefined;
+  if (typeof id !== 'string') throw new Error(`${what}: the answer has no id`);
+  return { id };
+}
+
 /**
  * The run's two clients (and its Bookkeeping service), made once per project and reused after a
  * worker restart. Each id is written down as soon as it exists, so cleanup finds a half-made one.
@@ -63,16 +74,16 @@ async function fixture(info: TestInfo): Promise<Fixture> {
   const api = await apiAs('owner');
   try {
     // Its own category too: Test Firm B's categories come and go with other runs.
-    const category = await ok(
+    const category = await created(
       await api.post('business/catalog/categories', {
         data: { name: `${runTag} BK cat`, status: 'ACTIVE' },
       }),
       'catalog category',
     );
-    const categoryId = category.id as string;
+    const categoryId = category.id;
     draft.categoryId = categoryId;
     save();
-    const service = await ok(
+    const service = await created(
       await api.post('business/catalog/services', {
         data: {
           name: `${runTag} BK Service`,
@@ -92,7 +103,7 @@ async function fixture(info: TestInfo): Promise<Fixture> {
     const stamp = runTag.replace(/\D/g, '');
     const make = async (suffix: string) => {
       const name = `${runTag} BK ${suffix}`;
-      const client = await ok(
+      const client = await created(
         await api.post('business/clients', {
           data: {
             accountType: 'BUSINESS',
@@ -104,13 +115,13 @@ async function fixture(info: TestInfo): Promise<Fixture> {
       );
       draft.clientIds.push(client.id);
       save();
-      const bk = await ok(
+      const bk = await created(
         await api.post('business/bookkeeping/clients', {
           data: { clientId: client.id, catalogServiceId: service.id },
         }),
         'enroll in bookkeeping',
       );
-      return { clientId: client.id as string, bkId: bk.id as string, name };
+      return { clientId: client.id, bkId: bk.id, name };
     };
     const a = await make('Alpha');
     draft.a = a;
@@ -130,7 +141,7 @@ async function fixture(info: TestInfo): Promise<Fixture> {
       }),
       'due B',
     );
-    const account = await ok(
+    const account = await created(
       await api.post(`business/bookkeeping/clients/${a.bkId}/accounts`, {
         data: { name: 'LIVE-CHECK Checking', type: 'BANK' },
       }),
@@ -143,7 +154,7 @@ async function fixture(info: TestInfo): Promise<Fixture> {
       }),
       'second account',
     );
-    const period = await ok(
+    const period = await created(
       await api.post(`business/bookkeeping/clients/${a.bkId}/periods`, {
         data: { periodStart: '2026-10-01', periodEnd: '2026-10-31' },
       }),

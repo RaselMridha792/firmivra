@@ -1155,7 +1155,7 @@ test.describe('Tax Planning (Owner)', () => {
     for (const [item, amount] of [
       ['Home office costs live', '1200'],
       ['Vehicle costs live', '300'],
-    ]) {
+    ] as const) {
       await field('Additional item').fill(item);
       await page.getByRole('button', { name: 'Add Item' }).click();
       await field(`${item} ${PLAN_YEAR}`).fill(amount);
