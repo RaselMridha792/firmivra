@@ -1488,13 +1488,28 @@ describe('connection health, one state for the label, the checks and the advice 
     ) as Health;
   const checkOf = (h: Health, key: string) => h.checks.find((c) => c.key === key)!;
 
-  it('never calls a connection working before a check or a sync, and says what to do in each state', async () => {
+  it('never calls a connection working before a connection test, and says what to do in each state', async () => {
     const now = Date.now();
     const unknown = await health(await make('xero', {}));
     expect([unknown.state, unknown.ok]).toEqual(['UNKNOWN', false]);
-    expect(unknown.summary).toMatch(/No check has run yet/);
+    expect(unknown.summary).toMatch(/No connection test has run yet/);
     expect(unknown.checks.map((c) => c.state)).not.toContain('OK');
     expect(unknown.suggestions).toEqual(['Run a connection test to check it.']);
+    expect(unknown.checkedAt).toBeNull();
+
+    // I-R2-01 (R61 sweep): a finished sync shows data syncing, nothing more; the rest stays
+    // unknown and the page's "Last checked" stays empty until a test runs.
+    const synced = await health(
+      await make('square', {}, [{ status: 'SUCCEEDED', at: new Date(now - 60_000) }]),
+    );
+    expect([synced.state, synced.checkedAt]).toEqual(['UNKNOWN', null]);
+    expect(checkOf(synced, 'DATA_SYNC').state).toBe('OK');
+    expect(synced.checks.filter((c) => c.key !== 'DATA_SYNC').map((c) => c.state)).toEqual([
+      'UNKNOWN',
+      'UNKNOWN',
+      'UNKNOWN',
+      'UNKNOWN',
+    ]);
 
     const failing = await health(
       await make('hubspot', { status: 'NEEDS_ATTENTION', statusReason: 'sync_failed' }, [
