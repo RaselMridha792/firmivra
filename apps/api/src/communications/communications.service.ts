@@ -23,6 +23,7 @@ import type {
 import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
+import { recordTemplateUse } from '../templates/template-use.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { sanitize, stripTags } from '../templates/html.js';
@@ -1785,6 +1786,17 @@ export class CommunicationsService {
       ...(announce && !c.publishStartsAt ? { publishStartsAt: now } : {}),
     });
     await this.record(ctx, c, audience);
+    // Templates Review Two Y04/Y09: the template's use, with the version the content came from.
+    if (c.templateId)
+      await recordTemplateUse(ctx.tx, {
+        businessId: ctx.businessId,
+        templateId: c.templateId,
+        version: c.templateVersion,
+        purpose: 'COMMUNICATION',
+        entityType: 'communication',
+        entityId: c.id,
+        usedByUserId: ctx.userId,
+      });
     // An announcement is published at once: there is no provider to wait for.
     if (announce)
       saved = await ctx.tx.communication.update({

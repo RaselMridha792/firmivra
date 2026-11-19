@@ -28,6 +28,7 @@ import {
 import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
+import { recordTemplateUse } from '../templates/template-use.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { legacyFirmRole } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';
@@ -1240,6 +1241,8 @@ export class OutboundMessagesService {
     id: string,
     version: string | null,
     confirmUnresolved = false,
+    /** Y04/Y09: an automation's send records its template use as the automation's. */
+    usePurpose: 'MESSAGE' | 'AUTOMATION' = 'MESSAGE',
     /** M19: every channel it goes on, one message each; left out, the draft's own. */
     channels?: readonly Channel[],
   ): Promise<OutboundSendResult> {
@@ -1249,8 +1252,19 @@ export class OutboundMessagesService {
       if (row.status !== 'DRAFT' && row.status !== 'SCHEDULED') return [];
       if (version !== null && row.updatedAt.toISOString() !== version) throw stale();
       const ids = await this.takeAll(tx, businessId, actor, row, channels, confirmUnresolved);
-      for (const each of ids)
+      for (const each of ids) {
         await tx.outboundMessage.update({ where: { id: each }, data: { status: 'SENDING' } });
+        // Y04/Y09: each message sent records its template's use (M19: each channel's copy too).
+        if (row.templateId)
+          await recordTemplateUse(tx, {
+            businessId,
+            templateId: row.templateId,
+            purpose: usePurpose,
+            entityType: 'outbound_message',
+            entityId: each,
+            usedByUserId: actor.userId,
+          });
+      }
       return ids;
     });
     await this.auditCopies(id, started);
@@ -1530,7 +1544,7 @@ export class OutboundMessagesService {
     return this.inFirm(businessId, async (tx) => {
       const rows = await tx.outboundMessage.findMany({
         where: { businessId, kind: 'DIRECT', status: 'SCHEDULED', scheduledFor: { lte: now } },
-        select: { id: true, createdByUserId: true },
+        select: { id: true, createdByUserId: true, templateId: true },
         take: 20,
       });
       const due: { id: string; authorUserId: string }[] = [];
@@ -1539,7 +1553,17 @@ export class OutboundMessagesService {
           where: { businessId, id: r.id, status: 'SCHEDULED' },
           data: { status: 'SENDING' },
         });
-        if (moved.count === 1) due.push({ id: r.id, authorUserId: r.createdByUserId });
+        if (moved.count !== 1) continue;
+        due.push({ id: r.id, authorUserId: r.createdByUserId });
+        if (r.templateId)
+          await recordTemplateUse(tx, {
+            businessId,
+            templateId: r.templateId,
+            purpose: 'MESSAGE',
+            entityType: 'outbound_message',
+            entityId: r.id,
+            usedByUserId: r.createdByUserId,
+          });
       }
       return due;
     });

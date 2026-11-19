@@ -3,6 +3,7 @@ import { HttpException, Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import { zonedDate, zonedInstant } from '../appointments/calendar.js';
 import { AuditService } from '../audit/audit.service.js';
+import { recordTemplateUse } from '../templates/template-use.js';
 import { legacyFirmRole, requestContext, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
@@ -606,6 +607,7 @@ export class AutomationEngine {
               };
             let subject = text('subject');
             let body = text('body');
+            let used: { id: string; version: number } | null = null;
             if (typeof cfg.templateId === 'string') {
               const t = await this.inFirm(businessId, (tx) =>
                 tx.messageTemplate.findFirst({
@@ -615,7 +617,7 @@ export class AutomationEngine {
                     status: 'ACTIVE',
                     includeInAutomations: true,
                   },
-                  select: { subject: true, body: true },
+                  select: { id: true, version: true, subject: true, body: true },
                 }),
               );
               if (!t)
@@ -627,12 +629,28 @@ export class AutomationEngine {
                 };
               subject ??= t.subject ? fill(t.subject, values) : undefined;
               body ??= fill(t.body, values);
+              used = { id: t.id, version: t.version };
             }
             const thread = await this.messages.create(businessId, actor, run.clientId as string, {
               subject: (subject ?? `A message from ${values['firm.name']}`).slice(0, 200),
               body: (body ?? '').slice(0, 10_000) || 'Hello',
               repliesEnabled: true,
             });
+            // Templates Review Two Y04/Y09: the template's use, by the automation.
+            if (used) {
+              const template = used;
+              await this.inFirm(businessId, (tx) =>
+                recordTemplateUse(tx, {
+                  businessId,
+                  templateId: template.id,
+                  version: template.version,
+                  purpose: 'AUTOMATION',
+                  entityType: 'message_thread',
+                  entityId: thread.id,
+                  usedByUserId: actor.userId,
+                }),
+              );
+            }
             return { ok: true, kind: 'message_thread', id: thread.id, detail: 'Message sent' };
           }
           // AU-F25 Send client email: Messages' own outbound email (OutboundMessagesService), so
@@ -693,7 +711,15 @@ export class AutomationEngine {
                 detail: `Messages can't email this client (${reason.toLowerCase().replace(/_/g, ' ')})`,
               };
             }
-            const sent = await this.outbound.send(businessId, actor, draft.id, draft.updatedAt);
+            // Y04/Y09: Messages records the template's use, as the automation's.
+            const sent = await this.outbound.send(
+              businessId,
+              actor,
+              draft.id,
+              draft.updatedAt,
+              false,
+              'AUTOMATION',
+            );
             if (sent.status === 'FAILED')
               return {
                 ok: false,

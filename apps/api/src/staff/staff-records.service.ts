@@ -12,6 +12,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { notFound } from '../workspaces/common.js';
 import type { SaveStaffDraftBody, StaffCompensationBody } from './staff-input.js';
+import { draftFilesOf, StaffDraftFilesService } from './staff-draft-files.service.js';
 import { StaffWriteService } from './staff-write.service.js';
 import {
   assertActsOn,
@@ -56,6 +57,7 @@ export class StaffRecordsService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly write: StaffWriteService,
+    private readonly files: StaffDraftFilesService,
   ) {}
 
   // ---------- Notes ----------
@@ -213,7 +215,8 @@ export class StaffRecordsService {
         select: draftSelect,
       });
       if (!row) throw notFound();
-      return toDraft(row);
+      // SM17: with the files kept with it.
+      return { ...toDraft(row), attachments: await draftFilesOf(tx, businessId, draftId) };
     });
   }
 
@@ -261,6 +264,8 @@ export class StaffRecordsService {
 
   async deleteDraft(actor: StaffActor, draftId: string): Promise<OkResponse> {
     const { businessId } = actor;
+    // SM17: its files, read first; their stored copies go once the draft is deleted.
+    const files = await this.files.filesOf(actor, draftId);
     await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       const by = await requireManager(tx, actor);
       const { count } = await tx.staffDraft.deleteMany({
@@ -275,6 +280,7 @@ export class StaffRecordsService {
         { businessId },
       );
     });
+    await this.files.dropAll(businessId, files);
     return { ok: true };
   }
 }

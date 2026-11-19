@@ -135,6 +135,7 @@ export class OutboundMessagesController {
       id,
       body.version,
       body.confirmUnresolved === true,
+      'MESSAGE',
       body.channels,
     );
   }

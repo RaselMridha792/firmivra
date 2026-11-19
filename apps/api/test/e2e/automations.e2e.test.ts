@@ -3265,6 +3265,51 @@ describe('Invite to book, lead follow-up and approval requests (AU-F27)', () => 
     return (await runDetail(page.items.find((r) => r.recordId === recordId)!.id)).actions[0]!;
   };
 
+  it('a portal message from a template records the template’s use, by the automation (Y04, Y09)', async () => {
+    const live = await createRule(
+      clientCreated([
+        { id: 'msg', type: 'SEND_CLIENT_MESSAGE', config: { templateId: ids.template } },
+      ]),
+      { name: mark('Templated') },
+    );
+    ok(await activate(live.id));
+    const id = await inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: {
+              businessId: firms.a,
+              displayName: `Templated ${run} (fake)`,
+              email: `templated-${run}@client.test`,
+            },
+            select: { id: true },
+          })
+        ).id,
+    );
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    const step = await stepOfRecord(live.id, id);
+    expect(step).toMatchObject({ status: 'SUCCESS', result: { kind: 'message_thread' } });
+    const thread = await inFirm('a', (tx) =>
+      tx.messageThread.findFirstOrThrow({ where: { clientId: id }, select: { id: true } }),
+    );
+    const uses = await inFirm('a', (tx) =>
+      tx.messageTemplateUse.findMany({
+        where: { templateId: ids.template, entityId: thread.id },
+        select: { version: true, purpose: true, entityType: true },
+      }),
+    );
+    const template = await inFirm('a', (tx) =>
+      tx.messageTemplate.findFirstOrThrow({
+        where: { id: ids.template },
+        select: { version: true },
+      }),
+    );
+    expect(uses).toEqual([
+      { version: template.version, purpose: 'automation', entityType: 'message_thread' },
+    ]);
+  });
+
   it('invites the client to book in the portal and books nothing', async () => {
     const live = await createRule(
       clientCreated([

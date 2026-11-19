@@ -449,11 +449,30 @@ export const StaffDraftData = z.strictObject({
 });
 export type StaffDraftData = z.input<typeof StaffDraftData>;
 
+/**
+ * SM17 (Staff Management Review 2, decision 2a): a file saved with a draft (Save under Remove in
+ * Create Staff's Staff Documents), kept with its type until the account is created, when the
+ * scan-clean ones become the new member's documents. Its creator's alone, as the draft.
+ */
+export const StaffDraftAttachment = z.object({
+  id: z.uuid(),
+  type: StaffDocumentType,
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int(),
+  /** Only a CLEAN file moves to the member. */
+  scanStatus: ScanStatus,
+  createdAt: DateTime,
+});
+export type StaffDraftAttachment = z.infer<typeof StaffDraftAttachment>;
+
 export const StaffDraft = z.object({
   id: z.uuid(),
   /** 1 Account Information, 2 Role & Permissions, 3 Access & Security, 4 Additional Details. */
   step: z.number().int().min(1).max(4),
   data: z.record(z.string(), z.unknown()),
+  /** SM17: the files saved with it (on GET of one draft; the list leaves them out). */
+  attachments: z.array(StaffDraftAttachment).optional(),
   createdBy: z.string().nullable(),
   createdAt: DateTime,
   updatedAt: DateTime,
@@ -707,6 +726,17 @@ export const ConfirmStaffDocumentUploadRequest = z.strictObject({
   uploadToken: z.string().min(1).max(8192),
 });
 export type ConfirmStaffDocumentUploadRequest = z.input<typeof ConfirmStaffDocumentUploadRequest>;
+
+/**
+ * SM17: Save under Remove, step 1: where to PUT the file for the draft (UploadTicket). Then confirm
+ * with the token (ConfirmStaffDocumentUploadRequest). At most STAFF_DRAFT_FILE_LIMIT files.
+ */
+export const CreateStaffDraftUploadRequest = CreateStaffDocumentUploadRequest.omit({
+  replacesId: true,
+});
+export type CreateStaffDraftUploadRequest = z.input<typeof CreateStaffDraftUploadRequest>;
+export const STAFF_DRAFT_FILE_LIMIT = 20;
+export const StaffDraftAttachmentId = z.uuid();
 
 /** Reclassify. */
 export const UpdateStaffDocumentRequest = z.strictObject({ type: StaffDocumentType });

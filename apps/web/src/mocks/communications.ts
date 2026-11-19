@@ -1307,6 +1307,7 @@ export function createCommunicationsMock({
           mergeFields: r.d.mergeFields,
           automationCount: 0,
           lastUsedAt: null,
+          recentUses: [],
           createdAt: at,
           etag: `e${next++}`,
           linkedTemplate: null,

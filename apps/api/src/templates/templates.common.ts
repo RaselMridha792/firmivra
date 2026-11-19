@@ -28,6 +28,11 @@ export const templateErrors = {
       'AUTOMATION_IN_USE',
       `${count} active automation${count === 1 ? ' uses' : 's use'} this template. Confirm to change or archive it.`,
     ),
+  categoryInUse: (count: number) =>
+    code(
+      'CATEGORY_IN_USE',
+      `${count} template${count === 1 ? ' is' : 's are'} in this category. Move them, or merge the category into another, before archiving it.`,
+    ),
   categoryNotAllowed: () =>
     code('CATEGORY_NOT_ALLOWED', 'Choose a category of this kind of template that is not archived'),
   notAutomationEligible: () =>
