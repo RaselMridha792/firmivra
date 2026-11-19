@@ -105,7 +105,10 @@ export function statusChange(
   data: Record<string, unknown>,
 ): Record<string, unknown> {
   const { status, confirmationNumber, ...rest } = data;
-  const { fields, changes } = auditChanges(current, rest, { fields: Object.keys(rest) });
+  const { fields, changes } = auditChanges(current, rest, {
+    fields: Object.keys(rest),
+    quote: ['description'],
+  });
   const number =
     confirmationNumber === undefined || (confirmationNumber ?? null) === current.confirmationNumber
       ? undefined

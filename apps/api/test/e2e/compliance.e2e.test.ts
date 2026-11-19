@@ -2938,6 +2938,17 @@ describe('recurring definitions', () => {
     }
   });
 
+  it('Audit Log R03: a changed description is logged old to new, not just "changed"', async () => {
+    const r = await mk();
+    const patch = (body: object) =>
+      call('patch', `/compliance/recurrences/${r.id}`, people.ownerA, body);
+    expect((await patch({ description: 'Fake first words' })).status).toBe(200);
+    expect((await patch({ description: 'Fake second words' })).status).toBe(200);
+    const rows = await auditMetadata(r.id, 'compliance.recurrence.updated');
+    const last = rows.at(-1)?.['changes'] as Record<string, unknown>;
+    expect(last['description']).toEqual({ from: 'Fake first words', to: 'Fake second words' });
+  });
+
   it('edits a definition, checking the whole of it', async () => {
     const r = await mk();
     const patch = (body: object, who: Who = people.ownerA) =>
