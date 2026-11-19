@@ -1750,9 +1750,16 @@ describe('send reminder', () => {
       AppointmentRecord,
       await call('get', `/appointments/${r.id}/record`, people.staffA),
     );
-    expect(record.notices).toHaveLength(1);
+    // Newest first: the reminder, then the booking's confirmation (and its request to confirm).
+    expect(record.notices).toHaveLength(2);
     expect(record.notices[0]).toMatchObject({ kind: 'REMINDER', channel: 'EMAIL', status: 'SENT' });
+    expect(record.notices[1]).toMatchObject({
+      kind: 'CONFIRMATION',
+      channel: 'EMAIL',
+      status: 'SENT',
+    });
     expect(record.notices[0]!.recipient).not.toContain('Jamie');
+    expect(record.notices[1]!.recipient).not.toContain('Jamie');
   });
 
   it("carries the firm's own words and the instructions the appointment shows in email (Review 2, B7, B9)", async () => {
@@ -1822,6 +1829,7 @@ describe('send reminder', () => {
         .notices,
     ).toMatchObject([
       { kind: 'REMINDER', channel: 'PORTAL', status: 'FAILED', recipient: 'Client portal' },
+      { kind: 'CONFIRMATION', channel: 'EMAIL', status: 'SENT' },
     ]);
     await call('post', `/appointments/${r.id}/cancel`, people.ownerA, {});
     expect(

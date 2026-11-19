@@ -221,8 +221,8 @@ function recipientFor(
 /**
  * The detail record. What the database does not keep yet is empty, not invented: related items
  * (no link columns) and a recurrence that cannot be read back from a series with a rule the
- * screens do not know. Review 2 (B8): the notices are the automatic reminders that went out and
- * the reminders sent by hand (`sent`), newest first.
+ * screens do not know. Review 2 (B8): the notices are the automatic reminders that went out, the
+ * reminders sent by hand and the booking's confirmation (`sent`), newest first.
  */
 export function toRecord(
   row: SchedulingRow,
