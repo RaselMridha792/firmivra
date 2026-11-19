@@ -16,6 +16,7 @@ import {
   TemplateCategoriesQuery as CategoriesQueryContract,
   TestSendTemplateRequest as TestSendContract,
   TemplateStructureOptionsQuery as StructureOptionsContract,
+  TemplateTagsQuery as TagsContract,
   SetLinkedTemplateRequest as SetLinkedContract,
   UpdateMessageTemplateRequest as UpdateContract,
   UpdateTemplateCategoryRequest as UpdateCategoryContract,
@@ -43,6 +44,7 @@ export const BulkBody = clean(BulkContract);
 export const PreviewBody = clean(PreviewContract);
 export const TestSendBody = clean(TestSendContract);
 export const StructureOptionsQ = clean(StructureOptionsContract);
+export const TagsQ = clean(TagsContract);
 export const SetLinkedBody = clean(SetLinkedContract);
 export const ImportBody = clean(ImportContract);
 export const StartImportBody = clean(StartImportContract);

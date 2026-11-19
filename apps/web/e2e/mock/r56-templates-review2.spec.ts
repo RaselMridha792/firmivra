@@ -2,7 +2,8 @@ import { expect, test } from '@playwright/test';
 
 // R56, Templates Review Two (the rows still open after the check; F: checks, not in the repo):
 // Y06 a template's description, Y07 and Y08 Help in every area with the import limits, P03 the
-// composer's Campaign templates for an email, P04 why an announcement is not for automations.
+// composer's Campaign templates for an email, P04 why an announcement is not for automations,
+// Y04/Y09 the latest uses of a template, Y05 a category with templates is not archived.
 // Mock mode (playwright.mock.config.ts) as the Owner; a reload resets the mock. Synthetic data.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = `http://app.localhost:${port}`;
@@ -107,4 +108,39 @@ test('P03: an email draft offers the Campaign templates too, asked of the server
   await expect(page.getByTestId('template-list')).toContainText(
     'Monthly Tax & Business Newsletter',
   );
+});
+
+test('Y04, Y09: a used template lists its latest uses: the version, what for, who and when', async ({
+  page,
+}) => {
+  await page.goto(`${base}/library/sms`);
+  await page
+    .getByTestId('library-table')
+    .getByRole('link', { name: 'Appointment Reminder Text' })
+    .first()
+    .click();
+  const uses = page.getByTestId('recent-uses');
+  await expect(uses).toContainText('Used 88 times', { timeout: 60_000 });
+  const rows = uses.getByRole('listitem');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.first()).toContainText('Version 1 · Communication');
+  await expect(rows.nth(2)).toContainText('Automation');
+});
+
+test('Y05: a category that still has templates is not archived, and says how to move them', async ({
+  page,
+}) => {
+  await page.goto(base);
+  await page
+    .getByTestId('tools')
+    .getByRole('button', { name: /Template Categories/ })
+    .click();
+  const dialog = page.getByTestId('categories-dialog');
+  await dialog.getByLabel('Kind of template').selectOption({ label: 'Email' });
+  const row = dialog.getByRole('listitem').filter({ hasText: 'Tax Season' }).first();
+  await row.getByRole('button', { name: 'Archive' }).click();
+  await expect(page.getByRole('dialog')).toContainText(
+    'This category still has templates. Move them, or merge it into another category, before archiving it.',
+  );
+  await expect(row.getByRole('button', { name: 'Archive' })).toBeVisible();
 });

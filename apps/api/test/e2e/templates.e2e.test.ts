@@ -24,6 +24,7 @@ import {
   MergeFieldList,
   MessageTemplateDetail as DetailShape,
   MessageTemplatePage,
+  TemplateTagList,
   OkResponse,
   RenderedTemplate,
   StarterTemplatesStatus,
@@ -1673,11 +1674,43 @@ describe('categories', () => {
         ok(await call('post', `/template-categories/${a.id}/restore`, people.ownerA)),
       ).archivedAt,
     ).toBeNull();
+    // Y05: a category that still has templates is not archived; once they leave, it is.
+    expectError(
+      await call('post', `/template-categories/${b.id}/archive`, people.adminA),
+      409,
+      'CATEGORY_IN_USE',
+    );
+    expect((await getT(t.id)).category?.id).toBe(b.id);
+    detail(await call('post', `/templates/${t.id}/archive`, people.ownerA, {}));
     expect(
       TemplateCategory.parse(
         ok(await call('post', `/template-categories/${b.id}/archive`, people.adminA)),
       ).archivedAt,
     ).not.toBeNull();
+  });
+
+  it('lists every tag the caller can see, and search finds part of a tag in any case (Y05)', async () => {
+    const u = randomUUID().slice(0, 6);
+    const tag = `YearEnd${u}`;
+    // Staff see their own templates and the team's, never an Owner's private one.
+    const kept = await make({ tags: [tag, `zeta${u}`] }, people.staffA);
+    await make({ access: 'PRIVATE', tags: [`private${u}`] }, people.ownerA);
+    const gone = await make({ tags: [`gone${u}`] }, people.staffA);
+    detail(await call('post', `/templates/${gone.id}/archive`, people.ownerA, {}));
+    const sms = await make({ kind: 'SMS', body: 'x', tags: [`text${u}`] }, people.staffA);
+    const tags = async (q = '') =>
+      TemplateTagList.parse(
+        ok(await call('get', `/templates/tags${q}`, people.staffA)),
+      ).items.filter((t) => t.endsWith(u));
+    expect(await tags('?kind=EMAIL')).toEqual([tag, `zeta${u}`]);
+    // Another person's private template, and an archived one, give no tag.
+    expect((await tags()).sort()).toEqual([tag, `text${u}`, `zeta${u}`].sort());
+    const search = encodeURIComponent(`earend${u}`.toLowerCase());
+    const found = MessageTemplatePage.parse(
+      ok(await call('get', `/templates?search=${search}`, people.staffA)),
+    ).items.map((i) => i.id);
+    expect(found).toContain(kept.id);
+    expect(found).not.toContain(sms.id);
   });
 });
 

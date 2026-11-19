@@ -1900,6 +1900,61 @@ describe('test send, templates and files', () => {
     expect(saved.body).toContain(`src="${image.url}"`);
   });
 
+  it('a send records the template’s use: the version, by whom, when; an archive keeps it and what went out (Y04, Y09)', async () => {
+    const src = await draft();
+    await edit(src.id, { subject: 'Used', body: '<p>Used body</p>' });
+    const t = MessageTemplateDetail.parse(
+      ok(
+        await call('post', `/${src.id}/save-as-template`, ownerA, {
+          name: mark('Used'),
+          activate: true,
+        }),
+        201,
+      ),
+    );
+    const templateOf = async () =>
+      MessageTemplateDetail.parse(
+        ok(
+          await request(app.getHttpServer())
+            .get(`/api/v1/business/templates/${t.id}`)
+            .set('x-business-id', firms.a)
+            .set('x-forwarded-for', viewer())
+            .set('authorization', `Bearer ${await tokenFor(ownerA.email)}`),
+        ),
+      );
+    expect((await templateOf()).recentUses).toEqual([]);
+    const d = await draft({ templateId: t.id, name: mark('From template') });
+    ok(await audienceOf(d.id, { clientIds: [people2.p2] }));
+    const fresh = await getDetail(d.id);
+    // A draft from it is not a use; the send is, once however many times it is asked.
+    expect((await templateOf()).useCount).toBe(0);
+    const k = key();
+    for (let i = 0; i < 2; i++)
+      ok(await call('post', `/${d.id}/send`, ownerA, { idempotencyKey: k, etag: fresh.etag }));
+    const used = await templateOf();
+    expect(used.useCount).toBe(1);
+    expect(used.recentUses).toEqual([
+      {
+        version: t.version,
+        purpose: 'COMMUNICATION',
+        usedBy: { userId: ownerA.id, name: expect.any(String) as string },
+        usedAt: expect.any(String) as string,
+      },
+    ]);
+    expect(used.lastUsedAt).toBe(used.recentUses[0]?.usedAt);
+    // Archiving the template changes neither the use nor what went out.
+    ok(
+      await request(app.getHttpServer())
+        .post(`/api/v1/business/templates/${t.id}/archive`)
+        .set('x-business-id', firms.a)
+        .set('x-forwarded-for', viewer())
+        .set('authorization', `Bearer ${await tokenFor(ownerA.email)}`)
+        .send({}),
+    );
+    expect((await templateOf()).recentUses).toEqual(used.recentUses);
+    expect((await getDetail(d.id)).body).toBe(fresh.body);
+  });
+
   it('an archived template can no longer be used (TP-F13)', async () => {
     const d = await draft();
     await edit(d.id, { subject: 'Kept', body: '<p>Kept body</p>' });

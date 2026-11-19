@@ -225,6 +225,12 @@ export class TemplateCategoriesService {
       const cur = await tx.templateCategory.findFirst({ where: { businessId, id } });
       if (!cur) throw notFound();
       const changed = (cur.archivedAt !== null) !== archive;
+      if (changed && archive) {
+        const inUse = await tx.messageTemplate.count({
+          where: { businessId, categoryId: id, status: { not: 'ARCHIVED' } },
+        });
+        if (inUse > 0) throw templateErrors.categoryInUse(inUse);
+      }
       if (changed) {
         await tx.templateCategory.update({
           where: { id },

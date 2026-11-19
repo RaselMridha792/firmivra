@@ -142,6 +142,13 @@ const fromDetail = (d: MessageTemplateDetail): Form => ({
   structure: draftOf(d.kind, d),
 });
 
+/** Y04/Y09: what a use was for, in the editor's Recent Uses. */
+const USE_PURPOSE = {
+  COMMUNICATION: 'Communication',
+  MESSAGE: 'Message',
+  AUTOMATION: 'Automation',
+} as const;
+
 /** /templates/new and /templates/[id]/edit. */
 export function TemplateEditorScreen({ id, kindSlug }: { id?: string; kindSlug?: string }) {
   // A new template has nothing to load: null, since a query may not answer undefined (the
@@ -889,6 +896,32 @@ function Editor({
                 ) : (
                   <span className="text-xs text-muted">Current</span>
                 )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {saved && saved.recentUses.length > 0 ? (
+        <section className={card} aria-label="Recent uses" data-testid="recent-uses">
+          <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+            Recent Uses <TemplateHelp area="uses" />
+          </h2>
+          <p className="mb-1 text-sm text-muted">
+            Used {saved.useCount} time{saved.useCount === 1 ? '' : 's'}; the latest are below.
+          </p>
+          <ul>
+            {saved.recentUses.map((u, i) => (
+              <li
+                key={`${u.usedAt}-${i}`}
+                className="flex flex-wrap items-center justify-between gap-2 border-t border-divider py-1.5 text-sm first:border-t-0"
+              >
+                <span className="text-heading">
+                  Version {u.version} · {USE_PURPOSE[u.purpose]}
+                </span>
+                <span className="text-xs text-muted">
+                  {dayText(u.usedAt)} · {u.usedBy?.name ?? 'Automation'}
+                </span>
               </li>
             ))}
           </ul>
