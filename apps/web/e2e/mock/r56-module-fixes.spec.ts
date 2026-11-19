@@ -90,6 +90,18 @@ test('BK-D03: a custom Report Due period filters the list, start no later than e
   await expect(page).toHaveURL(/due=CUSTOM&dueFrom=2026-12-10&dueTo=2027-03-31/);
 });
 
+// Bookkeeping Review 2, C04: the Overdue clock has a named start, and no number is adopted.
+test('C04: Overdue after names its clock: days past a close or report due date', async ({
+  page,
+}) => {
+  await page.goto(`${app}/bookkeeping/settings`);
+  const field = page.getByLabel('Overdue after (days past the due date)');
+  await expect(field).toBeVisible({ timeout: 60_000 });
+  await expect(field).toHaveAccessibleDescription(
+    /The clock starts on the due date of a month-end close or a report\..*Overdue outranks every other status\./,
+  );
+});
+
 test('BK-D04: Missing Documents counts days since the request was sent, no number assumed', async ({
   page,
 }) => {
