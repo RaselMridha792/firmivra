@@ -145,6 +145,8 @@ export function PackageBuilder() {
   const submit = (activate: boolean) => {
     setChecked(true);
     if (problems.length) {
+      // The form's own checks still mark each field (aria-invalid, its message) beside the summary.
+      void form.trigger();
       focusFirst(problems);
       return;
     }
