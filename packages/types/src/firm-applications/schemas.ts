@@ -742,10 +742,21 @@ export const FirmListItem = BusinessSummary.extend({
 });
 export type FirmListItem = z.infer<typeof FirmListItem>;
 
-/** GET /admin/firms. Search matches the firm name, owner name and owner email. Newest first. */
+/** SA-FRM-Y08: the columns the firms list sorts by (firm name; the day Firmivra approved it). */
+export const FirmSort = z.enum(['name', 'approved']);
+export type FirmSort = z.infer<typeof FirmSort>;
+
+/**
+ * GET /admin/firms. Search matches the firm name, owner name and owner email. Newest first, or by
+ * `sort` (SA-FRM-Y08): `order` asc is A to Z or oldest first; a firm never approved (created by
+ * hand) sorts after the approved ones either way. `plan`: the plan its application asked for.
+ */
 export const ListFirmsQuery = z.strictObject({
   status: FirmStatusFilter.optional(),
   search: SearchText.optional(),
+  plan: FirmPlan.optional(),
+  sort: FirmSort.optional(),
+  order: z.enum(['asc', 'desc']).optional().default('asc'),
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });
@@ -768,8 +779,52 @@ export type FirmCounts = z.infer<typeof FirmCounts>;
  * (null for a firm created without one, such as the beta firm); notes are saved on the application.
  * An application whose form could not be read has `formReadable` false, as on its review page.
  */
-export const FirmRecord = FirmListItem.extend({ application: FirmApplicationRecord.nullable() });
+/**
+ * One entry of a firm's Account History (SA-FRM-F03, F04, Y07, Y10). ACTIVATED: the owner finished
+ * setup. SUSPENDED, REACTIVATED and CLOSED: a Super Admin's account action, with its reason; a firm
+ * closed before closures were recorded shows CLOSED at its closure time with no one and no reason.
+ */
+export const FirmAccountEvent = z.object({
+  type: z.enum(['ACTIVATED', 'SUSPENDED', 'REACTIVATED', 'CLOSED']),
+  at: DateTime,
+  /** The Super Admin who acted; null for activation and for older closures. */
+  by: AdminRef.nullable(),
+  reason: z.string().nullable(),
+});
+export type FirmAccountEvent = z.infer<typeof FirmAccountEvent>;
+
+export const FirmRecord = FirmListItem.extend({
+  application: FirmApplicationRecord.nullable(),
+  /** When the owner finished setup (the firm's first Active); null before. */
+  activatedAt: DateTime.nullable().optional(),
+  /** SA-FRM-F03: when the firm was closed (UTC, set by the database); null unless Closed. */
+  closedAt: DateTime.nullable().optional(),
+  /** SA-FRM-F03, F04, Y07, Y10: the account's lifecycle, newest first. */
+  accountHistory: z.array(FirmAccountEvent).optional(),
+  /**
+   * SA-FRM-F02: what the Actions menu offers for the firm's status now (the API refuses the rest
+   * with 409 FIRM_STATUS_CHANGED). Suspend: Active or Pending Setup. Reactivate: Suspended.
+   * Close: any status but Closed.
+   */
+  can: z.object({ suspend: z.boolean(), reactivate: z.boolean(), close: z.boolean() }).optional(),
+});
 export type FirmRecord = z.infer<typeof FirmRecord>;
+
+/**
+ * POST /admin/firms/{id}/suspend, /reactivate and /close (SA-FRM-F03, F04, Y10): the account
+ * actions, Super Admin only. The reason is kept in the firm's Account History and the audit log;
+ * it is never sent to the firm. Suspend: from Active or Pending Setup; the firm's people are
+ * refused (403 BUSINESS_INACTIVE) until it is reactivated. Reactivate: from Suspended, back to
+ * Active (or Pending Setup if the owner never finished setup). Close: from any status but Closed;
+ * final, and the database records the closure time. 409 FIRM_STATUS_CHANGED when the firm is no
+ * longer in a status the action starts from; 404 for an unknown firm. Answers the firm page.
+ */
+export const FirmAccountActionRequest = z.strictObject({
+  reason: text(1000, 'many', 'Enter the reason'),
+});
+export type FirmAccountActionRequest = z.input<typeof FirmAccountActionRequest>;
+export const FIRM_ACCOUNT_ACTIONS = ['suspend', 'reactivate', 'close'] as const;
+export type FirmAccountAction = (typeof FIRM_ACCOUNT_ACTIONS)[number];
 
 // ---------- Dashboard (Super Admin) ----------
 /** GET /admin/dashboard: the stat cards and "Tasks Requiring Attention". */

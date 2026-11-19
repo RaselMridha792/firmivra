@@ -15,6 +15,8 @@ import {
   ApproveFirmApplicationRequest,
   AssignFirmReviewerRequest,
   DeclineFirmApplicationRequest,
+  FirmAccountActionRequest,
+  type FirmAccountAction,
   FirmApplicationCounts,
   FirmApplicationFileLink,
   FirmApplicationId,
@@ -170,6 +172,19 @@ export function createFirmApplicationsClient(request: ApiRequest) {
     firmCounts: async (): Promise<FirmCounts> => request(FirmCounts, `${FIRMS}/counts`),
     getFirm: async (id: string): Promise<FirmRecord> =>
       request(FirmRecord, `${FIRMS}/${parseInput(FirmId, id)}`),
+    /**
+     * SA-FRM-F03, F04, Y10: Suspend, Reactivate or Close the firm's account, with a reason. Answers
+     * the firm page. 409 FIRM_STATUS_CHANGED when its status no longer allows the action.
+     */
+    firmAction: async (
+      id: string,
+      action: FirmAccountAction,
+      body: FirmAccountActionRequest,
+    ): Promise<FirmRecord> =>
+      request(FirmRecord, `${FIRMS}/${parseInput(FirmId, id)}/${action}`, {
+        method: 'POST',
+        body: parseInput(FirmAccountActionRequest, body),
+      }),
 
     /** The Super Admin dashboard's counts. */
     dashboard: async (): Promise<AdminDashboard> => request(AdminDashboard, '/admin/dashboard'),
