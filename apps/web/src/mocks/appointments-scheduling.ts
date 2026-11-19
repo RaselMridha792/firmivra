@@ -379,6 +379,25 @@ function TYPES() {
   }));
 }
 
+/**
+ * Review 2 (row 9): the firm's published intake forms, each its service's default (synthetic). Send
+ * Intake Form Before Appointment picks the Related Service's, else the type's required form.
+ */
+function INTAKE_FORMS() {
+  return (
+    [
+      ['Individual Tax Organizer', 1],
+      ['Bookkeeping Onboarding', 2],
+      ['Payroll Setup Questionnaire', 3],
+    ] as const
+  ).map(([name, service], i) => ({
+    id: uuid('0e30', i + 1),
+    name,
+    serviceId: uuid('0e20', service),
+    serviceDefault: true,
+  }));
+}
+
 function SERVICES() {
   return (
     [
@@ -785,8 +804,10 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         types: TYPES().map((t) => ({
           ...t,
           methods: s.typeConfigs.get(t.id)?.methods ?? DEFAULT_METHODS,
+          requiredIntakeFormId: s.typeConfigs.get(t.id)?.requiredIntakeFormId ?? null,
         })),
         services: SERVICES(),
+        intakeForms: INTAKE_FORMS(),
         staff: staffList,
         offices: [
           { id: uuid('0f10', 1), name: 'Main Office' },
@@ -816,7 +837,17 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
             t.toLowerCase().includes(search),
           )
         ) {
-          seen.set(r.contact.id, copy(r.contact));
+          seen.set(r.contact.id, {
+            ...copy(r.contact),
+            // Review 2 (B9), as the API's search: whether the client has a portal login and
+            // agreed to appointment texts. Synthetic: Bruno has no portal; Avery takes texts.
+            ...(r.contact.kind === 'CLIENT'
+              ? {
+                  portal: r.contact.name !== 'Bruno Sandoval',
+                  textOptIn: r.contact.name === 'Avery Lawson',
+                }
+              : {}),
+          });
         }
       }
       return [...seen.values()].slice(0, q.limit);
@@ -855,6 +886,17 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       }
       if (input.generateVideoLink && input.method !== 'VIDEO')
         throw fail(400, 'VALIDATION_FAILED', 'Video links are for Zoom / Video');
+      // Review 2 (row 9): the form Send Intake Form Before Appointment chose, as the API: one of
+      // the firm's published forms (404), for a client (a lead has no portal: 400).
+      const chosenForm = input.related?.intakeFormId;
+      if (chosenForm && !INTAKE_FORMS().some((f) => f.id === chosenForm))
+        throw fail(404, 'NOT_FOUND', 'Not found');
+      if (chosenForm && input.contact.kind !== 'CLIENT')
+        throw fail(
+          400,
+          'VALIDATION_FAILED',
+          "A lead has no portal: send the lead's form by email from Intake",
+        );
       // Review 2 (Save as Draft): the draft goes with the booking.
       if (input.draftId) {
         if (!s.drafts.some((d) => d.id === input.draftId))
@@ -986,6 +1028,18 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         createdAt,
         version: 'v1',
       };
+      // A9 / Review 2 (row 9): the chosen form, none when it chose none, else the type's.
+      const formId =
+        chosenForm === undefined ? s.typeConfigs.get(type.id)?.requiredIntakeFormId : chosenForm;
+      if (formId && contact.kind === 'CLIENT') {
+        const sent = {
+          id: uuid('0e40', s.next++),
+          name: INTAKE_FORMS().find((f) => f.id === formId)?.name ?? 'Intake form',
+          completed: false,
+        };
+        appointmentIntakes().set(r.id, sent);
+        r.related.intakeForm = sent;
+      }
       s.records.push(r);
       s.idempotent.set(input.idempotencyKey, r.id);
       if (leadOnly) {
@@ -1004,6 +1058,12 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
     updateDetails: async (id, body) => {
       await mockDelay();
       const input = parseInput(UpdateAppointmentDetailsRequest, body);
+      if (input.related?.intakeFormId)
+        throw fail(
+          400,
+          'VALIDATION_FAILED',
+          "An intake form goes with a new appointment. Send one from the appointment's page.",
+        );
       const r = find(id);
       if (input.version !== r.version)
         throw fail(409, 'SAVE_CONFLICT', 'Someone saved this appointment first');

@@ -225,9 +225,15 @@ export class SchedulingWriteService {
     if (body.sendConfirmation) {
       await this.notices.send('appointment.booked', businessId, created.firstId);
     }
-    // A9: the type's required intake form goes to the client (the first of a series only; the
-    // others would find it open), and the record then shows it.
-    const form = await this.intakes.sendForAppointment(businessId, created.firstId, actor.userId);
+    // A9: the intake form goes to the client (the first of a series only; the others would find
+    // it open), and the record then shows it. Review 2 (row 9): the one the form chose, none when
+    // it chose none (null), else the type's required form.
+    const form = await this.intakes.sendForAppointment(
+      businessId,
+      created.firstId,
+      actor.userId,
+      body.related?.intakeFormId,
+    );
     if (form && 'intakeId' in form) {
       return this.inFirm(businessId, (tx) => this.recordIn(tx, businessId, actor, created.firstId));
     }
@@ -301,7 +307,7 @@ export class SchedulingWriteService {
     const kind = kindOf(body.method);
     if (!typeMethods(type).includes(kind)) throw errors.methodNotOffered('method');
     const otherVideoPlatform = platformFor(kind, body.otherVideoPlatform, type.otherVideoPlatform);
-    this.requireSupported(body.related, body.recurrence);
+    this.requireSupported(body.related, body.recurrence, 'create');
     const timeZone = await this.zoneFor(tx, businessId, body.timezone);
     const first = { start: Date.parse(body.startsAt), end: Date.parse(body.endsAt) };
     this.requireLength(first, body.allDay);
@@ -386,6 +392,11 @@ export class SchedulingWriteService {
     const engagementId = taxReturnId
       ? await this.returnEngagement(tx, businessId, party.clientId!, taxReturnId)
       : null;
+    // Review 2 (row 9): Send Intake Form Before Appointment names one of the firm's published
+    // forms, checked before anything is booked; it goes to the client's portal after the booking.
+    if (body.related?.intakeFormId) {
+      await this.requireIntakeForm(tx, businessId, body.related.intakeFormId, party.clientId);
+    }
     // C12 (Tax Planning Review 2): a planning discussion of one of the client's open plans.
     const taxPlanId = body.taxPlanId ?? null;
     if (taxPlanId && party.clientId) {
@@ -1060,18 +1071,53 @@ export class SchedulingWriteService {
 
   /**
    * What the form can send but the database cannot keep yet: refused, never dropped silently.
-   * Review 2 (TX-F06): Link to Tax Return is kept (as the return's engagement).
+   * Review 2 (TX-F06): Link to Tax Return is kept (as the return's engagement). Review 2 (row 9):
+   * an intake form is sent with a new appointment only (Edit: 400).
    */
-  private requireSupported(related: Schedule['related'], recurrence: Schedule['recurrence']): void {
-    const { taxReturnId: _kept, ...rest } = related ?? {};
+  private requireSupported(
+    related: Schedule['related'],
+    recurrence: Schedule['recurrence'],
+    on: 'create' | 'edit' = 'edit',
+  ): void {
+    const { taxReturnId: _kept, intakeFormId, ...rest } = related ?? {};
     if (Object.values(rest).some((v) => v !== null && v !== undefined)) {
+      throw errors.unsupported('Related items (invoice, task, documents) cannot be saved yet.');
+    }
+    if (intakeFormId && on === 'edit') {
       throw errors.unsupported(
-        'Related items (invoice, task, intake form, documents) cannot be saved yet.',
+        "An intake form goes with a new appointment. Send one from the appointment's page.",
       );
     }
     if (recurrence?.frequency === 'CUSTOM') {
       throw errors.unsupported(
         'Custom repeats are not available yet. Choose daily, weekly or monthly.',
+      );
+    }
+  }
+
+  /**
+   * Review 2 (row 9): the intake form chosen on a new appointment. One of the firm's live forms
+   * (404 otherwise) with a published version, for a client (a lead has no portal): 400 at
+   * `related.intakeFormId` otherwise.
+   */
+  private async requireIntakeForm(
+    tx: TxClient,
+    businessId: string,
+    templateId: string,
+    clientId: string | null,
+  ): Promise<void> {
+    const t = await tx.intakeTemplate.findFirst({
+      where: { businessId, id: templateId, archivedAt: null },
+      select: { forms: { where: { status: 'PUBLISHED' }, take: 1, select: { id: true } } },
+    });
+    if (!t) throw errors.notFound();
+    if (t.forms.length === 0) {
+      throw errors.invalidField('related.intakeFormId', 'Publish this form before sending it');
+    }
+    if (!clientId) {
+      throw errors.invalidField(
+        'related.intakeFormId',
+        "A lead has no portal: send the lead's form by email from Intake",
       );
     }
   }

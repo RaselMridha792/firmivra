@@ -679,6 +679,7 @@ describe('options', () => {
       color: '#2563eb',
       serviceId: ids.serviceA,
       methods: ['VIDEO', 'IN_PERSON', 'PHONE'],
+      requiredIntakeFormId: null,
     });
     expect(o.types.find((t) => t.id === ids.typeA2)?.methods).toEqual(['VIDEO']);
     expect(o.types.map((t) => t.id)).not.toContain(ids.typeB);
@@ -744,6 +745,9 @@ describe('contacts', () => {
       email: `jamie-${run}@sample.test`,
       phone: '555-0101',
       clientType: 'INDIVIDUAL',
+      // Review 2 (B9): no portal login, so no texts either.
+      portal: false,
+      textOptIn: false,
     });
     expect((await find('555-0101')).map((c) => c.id)).toEqual([ids.c1]);
     expect((await find(`riley-${run}@`)).map((c) => c.id)).toEqual([ids.c2]);
@@ -786,6 +790,59 @@ describe('contacts', () => {
     );
     expect((await find(`CL-${number}`)).map((c) => c.id)).toEqual([ids.c3]);
     expect((await find(String(number))).map((c) => c.id)).toContain(ids.c3);
+  });
+});
+
+describe('contacts (Review 2, B9): portal and texts', () => {
+  it('a client with an active portal login is marked portal; textOptIn follows its Appointments SMS choice', async () => {
+    const find = async (q: string) =>
+      exact(
+        ContactSearchResult,
+        await call('get', `/appointments/contacts?search=${encodeURIComponent(q)}`, people.ownerA),
+      ).items;
+    const login = { id: randomUUID(), email: `b9-${run}@client.test` };
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      await runInScope(owner, { kind: 'platform' }, (tx) =>
+        tx.user.create({
+          data: {
+            id: login.id,
+            cognitoSub: login.id,
+            pool: 'CLIENT',
+            email: login.email,
+            name: 'Fake B9 login',
+          },
+        }),
+      );
+    } finally {
+      await owner.$disconnect();
+    }
+    const client = await asOwner(ids.firmA, async (tx) => {
+      const c = await tx.client.create({
+        data: { businessId: ids.firmA, displayName: `B9 Portal ${run} (fake)` },
+        select: { id: true },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId: ids.firmA,
+          userId: login.id,
+          clientId: c.id,
+          email: login.email,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      return c.id;
+    });
+    const [before] = await find(`B9 Portal ${run}`);
+    expect(before).toMatchObject({ id: client, portal: true, textOptIn: false });
+    await asOwner(ids.firmA, (tx) =>
+      tx.notificationPreference.create({
+        data: { businessId: ids.firmA, userId: login.id, category: 'APPOINTMENTS', sms: true },
+      }),
+    );
+    const [after] = await find(`B9 Portal ${run}`);
+    expect(after).toMatchObject({ id: client, portal: true, textOptIn: true });
   });
 });
 
@@ -1160,8 +1217,9 @@ describe('schedule', () => {
     await refused({ contact: { kind: 'CONTACT', name: 'New Person', email: 'new@sample.test' } });
     await refused({ staffUserIds: [people.staffA.id, people.staffA2.id] });
     await refused({ method: 'OTHER' });
-    // Review 2 (TX-F06): Link to Tax Return is kept now; the other related items still are not.
-    await refused({ related: { intakeFormId: randomUUID() } });
+    // Review 2 (TX-F06, row 9): Link to Tax Return and the intake form are kept now; the other
+    // related items still are not.
+    await refused({ related: { taskId: randomUUID() } });
     await refused({ recurrence: { frequency: 'CUSTOM', interval: 1, count: 3 } });
     await refused({ color: '#123456' });
     await refused({ timezone: 'Not/AZone' });

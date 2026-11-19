@@ -236,11 +236,19 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/appointments/schedule': {
     params: {},
     // C12 (Tax Planning Review 2): a discussion of the client's plan.
-    bodyIds: { ...bookingIds, taxPlanId: 'taxPlan', draftId: 'appointmentDraftToBook' },
+    // Review 2 (row 9): the intake form Send Intake Form Before Appointment chose.
+    bodyIds: {
+      ...bookingIds,
+      taxPlanId: 'taxPlan',
+      draftId: 'appointmentDraftToBook',
+      'related.intakeFormId': 'intakeTemplate',
+    },
     body: () => ({
       idempotencyKey: randomUUID(),
       contact: { kind: 'CLIENT', id: '' },
-      related: { taxReturnId: '' },
+      // Filled from bodyIds (a swap sets only a field the body already has): F06's return and
+      // Review 2 row 9's intake form.
+      related: { taxReturnId: '', intakeFormId: '' },
       startsAt: at3pm(21),
       endsAt: new Date(new Date(at3pm(21)).getTime() + 30 * 60_000).toISOString(),
       method: 'IN_PERSON',

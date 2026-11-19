@@ -344,14 +344,17 @@ export class IntakeSendService {
    * longer scheduled, or whatever the send itself refuses (no active portal login, the form
    * already open for the client, a form no longer published). The booking stands either way: a
    * form not sent is audited on the appointment with its reason code only. Null when the type asks
-   * for no form.
+   * for no form. Review 2 (row 9): `chosen` is the form Schedule Appointment chose (its Send Intake
+   * Form Before Appointment): that one instead of the type's, and null sends none.
    */
   async sendForAppointment(
     businessId: string,
     appointmentId: string,
     /** The member who booked it; null when the client booked it in the portal. */
     bookedByUserId: string | null,
+    chosen?: string | null,
   ): Promise<{ intakeId: string } | { skipped: AppointmentFormSkip } | null> {
+    if (chosen === null) return null;
     let plan: { skipped: AppointmentFormSkip } | { formId: string; clientId: string } | null;
     try {
       plan = await this.inBusiness(businessId, async (tx) => {
@@ -364,7 +367,7 @@ export class IntakeSendService {
             _count: { select: { intakes: true } },
           },
         });
-        const formId = a?.type?.requiredIntakeTemplateId;
+        const formId = chosen ?? a?.type?.requiredIntakeTemplateId;
         if (!a || !formId) return null;
         if (!a.clientId) return { skipped: 'LEAD_APPOINTMENT' as const };
         if (a.status !== 'SCHEDULED') return { skipped: 'NOT_SCHEDULED' as const };

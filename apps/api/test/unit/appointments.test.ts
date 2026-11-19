@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 import {
   addDays,
+  bookingSpan,
   changeableUntil,
+  DAY,
   dayRanges,
   freeStarts,
   gridStarts,
@@ -175,6 +177,45 @@ describe('free slots', () => {
     // 09:00 is not after notBefore; 09:30 and 09:45 overlap 09:45-10:00; back to back is fine,
     // and 09:15-09:45 runs across the join of the two ranges.
     expect(free).toEqual(['09:15', '10:00']);
+  });
+  it("a client booking keeps to the type's Minimum Notice and Booking Window (Review 2 row 2)", () => {
+    const now = at('2026-10-12T08:05:00Z');
+    const rules = {
+      minNoticeMinutes: 0,
+      maxAdvanceDays: null,
+      maxWindowHours: null,
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+    };
+    expect(bookingSpan(null, now)).toEqual({ notBefore: now });
+    expect(bookingSpan(rules, now)).toEqual({ notBefore: now });
+    // Hours win over days when both are set.
+    expect(bookingSpan({ ...rules, maxAdvanceDays: 3, maxWindowHours: 2 }, now)).toEqual({
+      notBefore: now,
+      notAfter: now + 2 * HOUR,
+    });
+    expect(bookingSpan({ ...rules, maxAdvanceDays: 3 }, now).notAfter).toBe(now + 3 * DAY);
+    const hours = [{ weekday: 1, startsAt: '09:00', endsAt: '12:00' }];
+    const times = (span: ReturnType<typeof bookingSpan>) =>
+      gridStarts({ ...query, ...span }, hours).map((s) =>
+        new Date(s.start).toISOString().slice(11, 16),
+      );
+    // Two hours' notice at 08:05: from 10:15. A two-hour window: up to 10:05.
+    expect(times(bookingSpan({ ...rules, minNoticeMinutes: 120 }, now))).toEqual([
+      '10:15',
+      '10:30',
+      '10:45',
+      '11:00',
+      '11:15',
+      '11:30',
+    ]);
+    expect(times(bookingSpan({ ...rules, maxWindowHours: 2 }, now))).toEqual([
+      '09:00',
+      '09:15',
+      '09:30',
+      '09:45',
+      '10:00',
+    ]);
   });
 });
 
