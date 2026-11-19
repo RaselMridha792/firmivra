@@ -444,6 +444,164 @@ describe('Convert Lead to Client (POST :id/convert-to-client)', () => {
     expect(done.inviteSent).toBe(false);
   });
 
+  describe('Review Two 17: the campaign of a lead goes with it to the client', () => {
+    const owner = () => createPrismaClient(testDatabaseUrls('test_api').owner);
+    const inFirm = async <T>(
+      fn: (tx: Parameters<Parameters<typeof runInScope>[2]>[0]) => Promise<T>,
+    ) => {
+      const db = owner();
+      try {
+        return (await runInScope(db, { kind: 'business', businessId: ids.firmA }, fn)) as T;
+      } finally {
+        await db.$disconnect();
+      }
+    };
+    const campaign = (name: string, status: 'DRAFT' | 'SENT', leadId: string) =>
+      inFirm(async (tx) => {
+        const c = await tx.communication.create({
+          data: {
+            businessId: ids.firmA,
+            channel: 'EMAIL',
+            name,
+            status,
+            subject: 'Hello',
+            body: 'Hello there',
+            createdByUserId: people.ownerA.id,
+          },
+        });
+        return c.id;
+      }).then(async (id) => {
+        // The audience of a campaign that went out cannot change: the entry goes in while it is a draft.
+        await inFirm(async (tx) => {
+          await tx.communicationAudienceEntry.create({
+            data: { businessId: ids.firmA, communicationId: id, kind: 'LEAD', leadId },
+          });
+          if (status === 'SENT') {
+            await tx.communication.update({
+              where: { businessId_id: { businessId: ids.firmA, id } },
+              data: { status: 'SENDING', startedAt: new Date() },
+            });
+            await tx.communication.update({
+              where: { businessId_id: { businessId: ids.firmA, id } },
+              data: {
+                status: 'SENT',
+                sentAt: new Date(),
+                selectedCount: 1,
+                autoExcludedCount: 0,
+                manualExcludedCount: 0,
+                finalCount: 1,
+              },
+            });
+          }
+        });
+        return id;
+      });
+
+    it('puts the source campaign on the client and moves the campaign audience, sending nothing', async () => {
+      outbox.length = 0;
+      const lead = await newLead();
+      const draft = await campaign(`Draft ${run}`, 'DRAFT', lead.id);
+      const sent = await campaign(`Sent ${run}`, 'SENT', lead.id);
+      const done = Converted.parse(
+        ok(await call('post', `/${lead.id}/convert-to-client`, people.ownerA, body(lead))),
+      );
+      expect(done.carried.campaigns).toBe(1);
+      const rows = await inFirm(async (tx) => ({
+        client: await tx.client.findUniqueOrThrow({
+          where: { businessId_id: { businessId: ids.firmA, id: done.clientId } },
+          select: { source: true, sourceDetail: true },
+        }),
+        draft: await tx.communicationAudienceEntry.findMany({
+          where: { communicationId: draft },
+          select: { kind: true, clientId: true, leadId: true },
+        }),
+        sent: await tx.communicationAudienceEntry.findMany({
+          where: { communicationId: sent },
+          select: { kind: true, clientId: true, leadId: true },
+        }),
+        recipients: await tx.communicationRecipient.count({
+          where: { communicationId: { in: [draft, sent] } },
+        }),
+      }));
+      expect(rows.client).toEqual({ source: 'FACEBOOK_AD', sourceDetail: 'Spring campaign' });
+      // The draft's audience now has the client where the lead was.
+      expect(rows.draft).toEqual([{ kind: 'CLIENT', clientId: done.clientId, leadId: null }]);
+      // A campaign that already went out keeps its history as sent.
+      expect(rows.sent).toEqual([{ kind: 'LEAD', clientId: null, leadId: lead.id }]);
+      // Nothing was sent by converting.
+      expect(rows.recipients).toBe(0);
+      expect(outbox.map((m) => m.template)).toEqual(['client.portal-invite']);
+    });
+
+    it('keeps a campaign the existing client already has, and fills one it lacks', async () => {
+      const [keep, blank] = await inFirm(async (tx) => [
+        (
+          await tx.client.create({
+            data: {
+              businessId: ids.firmA,
+              displayName: 'Has campaign',
+              email: `has-${run}@example.test`,
+              source: 'REFERRAL',
+              sourceDetail: 'Own campaign',
+            },
+          })
+        ).id,
+        (
+          await tx.client.create({
+            data: {
+              businessId: ids.firmA,
+              displayName: 'No campaign',
+              email: `no-${run}@example.test`,
+            },
+          })
+        ).id,
+      ]);
+      const read = (id: string) =>
+        inFirm((tx) =>
+          tx.client.findUniqueOrThrow({
+            where: { businessId_id: { businessId: ids.firmA, id } },
+            select: { source: true, sourceDetail: true },
+          }),
+        );
+      const a = await newLead({ allowDuplicate: true });
+      await call('post', `/${a.id}/convert-to-client`, people.ownerA, body(a, { clientId: keep }));
+      expect(await read(keep)).toEqual({ source: 'REFERRAL', sourceDetail: 'Own campaign' });
+      const b = await newLead({ allowDuplicate: true });
+      ok(
+        await call(
+          'post',
+          `/${b.id}/convert-to-client`,
+          people.ownerA,
+          body(b, { clientId: blank }),
+        ),
+      );
+      expect(await read(blank)).toEqual({ source: 'FACEBOOK_AD', sourceDetail: 'Spring campaign' });
+    });
+
+    it('leaves the campaign where it is when "Source / campaign attribution" and communications are off', async () => {
+      const lead = await newLead();
+      const draft = await campaign(`Off ${run}`, 'DRAFT', lead.id);
+      const done = Converted.parse(
+        ok(
+          await call(
+            'post',
+            `/${lead.id}/convert-to-client`,
+            people.ownerA,
+            body(lead, { carryOver: { attribution: false, communications: false } }),
+          ),
+        ),
+      );
+      expect(done.carried.campaigns).toBe(0);
+      const entries = await inFirm((tx) =>
+        tx.communicationAudienceEntry.findMany({
+          where: { communicationId: draft },
+          select: { kind: true },
+        }),
+      );
+      expect(entries).toEqual([{ kind: 'LEAD' }]);
+    });
+  });
+
   it('checks references, Staff reach, the grid and the input', async () => {
     const lead = await newLead({ assignedUserId: people.staffA.id });
     const other = await newLead({ assignedUserId: people.ownerA.id });
