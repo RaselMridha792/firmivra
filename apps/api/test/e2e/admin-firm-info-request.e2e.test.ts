@@ -136,6 +136,10 @@ const ask = (over: Record<string, unknown> = {}, id = firm.id) =>
     message: 'Fake: please send your current business licence.',
     ...over,
   });
+/** What Ticket Detail shows as the request's own message: the text and its answer-by line. */
+const REQUEST_TEXT = expect.stringMatching(
+  /^Fake: please send your current business licence\.\n\nPlease answer by /,
+) as unknown as string;
 const easternDay = (offsetDays: number) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
     new Date(Date.now() + offsetDays * 86_400_000),
@@ -309,7 +313,8 @@ describe('SA-FRM-F06: Request Information', () => {
     ).toBe(404);
     const t = await ticketOf(ticketId);
     expect(t.status).toBe('WAITING_ON_CUSTOMER');
-    expect(t.messages).toEqual([]);
+    // Ticket Detail shows the request itself as its first message; no answer was added.
+    expect(t.messages.map((m) => m.body)).toEqual([REQUEST_TEXT]);
     expect(FirmivraRequestList.parse((await member('get', '', other)).body).items).toEqual([]);
   });
 
@@ -334,7 +339,7 @@ describe('SA-FRM-F06: Request Information', () => {
 
     const t = await ticketOf(ticketId);
     expect(t.status).toBe('OPEN');
-    expect(t.messages.map((m) => m.body)).toEqual(['Here is our licence.']);
+    expect(t.messages.map((m) => m.body)).toEqual([REQUEST_TEXT, 'Here is our licence.']);
     expect(t.activity.map((a) => a.type)).toEqual(
       expect.arrayContaining(['CLIENT_REPLY', 'STATUS_CHANGED']),
     );
