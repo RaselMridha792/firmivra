@@ -6,6 +6,7 @@ import {
   PublicLink,
   publicButtonCode,
   publicEmbedCode,
+  publicIframeCode,
   publicItemUrl,
 } from '../../src/index.js';
 
@@ -93,5 +94,54 @@ describe('PublicLink', () => {
     expect(PublicLink.parse(link)).toEqual(link);
     expect(() => PublicLink.parse({ ...link, state: 'GONE' })).toThrow();
     expect(() => PublicLink.parse({ ...link, kind: 'INVOICE' })).toThrow();
+  });
+});
+
+describe('publicIframeCode (Appointments D3)', () => {
+  const url = `https://portal.example.test/lvp/book/${ID}`;
+
+  it('is a lazy iframe of the booking page with a title and a minimum height', () => {
+    const code = publicIframeCode(url, 'Book Tax Consultation');
+    expect(code).toMatch(
+      /^<iframe id="firmivra-[A-Za-z0-9_-]+" src="https:\/\/portal\.example\.test\/lvp\/book\//,
+    );
+    expect(code).toContain('title="Book Tax Consultation"');
+    expect(code).toContain('style="width:100%;border:0;min-height:480px"');
+    expect(code).toContain('loading="lazy"');
+    expect(code).toContain(`src="${url}"`);
+  });
+
+  it("sets the height only from the booking page's origin and this frame's window", () => {
+    const code = publicIframeCode(url, 'Book');
+    const script = code.slice(code.indexOf('<script>') + 8, code.indexOf('</script>'));
+    expect(script).toContain('"https://portal.example.test"');
+    expect(script).toContain('e.origin!==o');
+    expect(script).toContain('e.source!==f.contentWindow');
+    expect(script).toContain('firmivra:height');
+    expect(() => new Function(script)).not.toThrow();
+  });
+
+  it('escapes every value: a title and a url cannot break out of the attribute or the script', () => {
+    const nasty = 'https://portal.example.test/lvp/book/1"><script>alert(1)</script>?a=1&b=2';
+    const code = publicIframeCode(nasty, 'Q&A "intro" <b></script>');
+    expect(code).toContain('title="Q&amp;A &quot;intro&quot; &lt;b&gt;&lt;/script&gt;"');
+    expect(code).not.toContain('alert(1)</script>');
+    expect(code.match(/<script>/g)).toHaveLength(1);
+    expect(code.match(/<\/script>/g)).toHaveLength(1);
+    expect(code).not.toContain('<b>');
+  });
+});
+
+describe('PublicLink.buttonCode', () => {
+  it('is optional, so a link without it still parses', () => {
+    const link = {
+      kind: 'APPOINTMENT_TYPE' as const,
+      itemId: ID,
+      url: `https://portal.example.test/lvp/book/${ID}`,
+      embedCode: 'x',
+      state: 'LIVE' as const,
+    };
+    expect(PublicLink.safeParse(link).success).toBe(true);
+    expect(PublicLink.safeParse({ ...link, buttonCode: '<a></a>' }).success).toBe(true);
   });
 });

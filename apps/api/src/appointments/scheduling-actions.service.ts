@@ -214,7 +214,13 @@ export class SchedulingActionsService {
         );
         const updated = await findSchedulingRow(tx, businessId, actor, id);
         if (!updated) throw errors.notFound();
-        return toRecord(updated, timeZone, await this.history.events(tx, businessId, updated));
+        // Review 2 (B8): with the notices sent, as the record read lists them.
+        return toRecord(
+          updated,
+          timeZone,
+          await this.history.events(tx, businessId, updated),
+          await this.history.sentNotices(tx, businessId, updated),
+        );
       }),
     );
   }

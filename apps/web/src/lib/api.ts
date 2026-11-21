@@ -480,7 +480,7 @@ export const api = {
   /** Appointments (R12): the signed-in client's own, per firm (portal). */
   myAppointments: (firmSlug: string) =>
     dev && mocked('myAppointments')
-      ? myAppointmentsMock(firmSlug)
+      ? failable('myAppointments', myAppointmentsMock(firmSlug))
       : createMyAppointmentsClient(request, firmSlug),
   /** Appointments A3 (R55): the signed-in client's waitlist for earlier times. */
   myWaitlist: (firmSlug: string) =>

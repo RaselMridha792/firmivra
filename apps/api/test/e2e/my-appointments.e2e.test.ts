@@ -869,9 +869,11 @@ describe('audit', () => {
     const forIt = rows.filter((r) => r.entityId === mine.id);
     expect(forIt.map((r) => [r.action, r.actorUserId])).toEqual([
       ['appointment.booked', people.clientB.id],
+      // Review 2 (B8): the confirmation it sent, for the notice history.
+      ['appointment.confirmation_sent', people.clientB.id],
       ['appointment.cancelled', people.clientB.id],
     ]);
-    expect(forIt[1]?.metadata).toEqual({
+    expect(forIt[2]?.metadata).toEqual({
       by: 'CLIENT',
       clientId: ids.cB,
       from: {

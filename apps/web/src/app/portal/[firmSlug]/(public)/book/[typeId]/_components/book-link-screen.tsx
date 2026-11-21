@@ -17,6 +17,7 @@ import { usePortal } from '../../../../layout';
 import { ButtonLink } from '../../../_components/button-link';
 import { FirmContactLinks } from '../../../_components/firm-contact';
 import { type Benefit, SignUpFrame, StepHeading } from '../../../sign-up/_components/sign-up-frame';
+import { FrameBridge } from './frame-bridge';
 
 const BENEFITS: Benefit[] = [
   [CalendarCheck, 'This appointment', 'The link opens booking on the appointment you chose.'],
@@ -71,6 +72,7 @@ export function BookLinkScreen({ typeId, packageId }: { typeId: string; packageI
       benefits={BENEFITS}
     >
       <div data-testid="booking-link" className="grid gap-5">
+        <FrameBridge />
         {type.isPending || (live && (me.isPending || status === 'ACTIVE')) ? (
           <>
             <StepHeading title="Book an Appointment">
