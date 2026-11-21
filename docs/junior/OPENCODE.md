@@ -82,6 +82,20 @@ pnpm --filter @firmivra/web exec playwright test -c playwright.mock.config.ts e2
 ```
 CI runs lint, typecheck, unit and API tests on your PR, but **not** the mock Playwright specs. Put your mock spec pass counts in the PR body.
 
+## 5b. Check every row by hand in the browser (required)
+Before a PR is "ready", open the site with `pnpm dev` and click through every row yourself, following the client's steps:
+1. Do exactly what she did and read every message on the screen.
+2. Reload the page and check the change stayed.
+3. Press Back and check the page still holds its place.
+
+Then check the corners:
+- as a Staff user, not just the Owner;
+- with empty data, a long name and a wrong value;
+- at phone width (390 px in browser devtools): no sideways scroll;
+- the emails in Mailpit at http://localhost:8025.
+
+Add a **Manual check** section to the PR: the steps you clicked for each row, what you saw, and screenshots or a short recording. After the merge, look at the same steps on the dev site too.
+
 ## 6. Picking a model (to save free-tier limits)
 - **Plan, backend (API, permissions, isolation), multi-file fixes:** use the strongest model you have.
 - **Small UI text or styling, test updates, renames:** a fast "flash" model is enough.
