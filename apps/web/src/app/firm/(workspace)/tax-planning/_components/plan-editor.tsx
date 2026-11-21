@@ -855,7 +855,14 @@ function StepFinancial({ plan, onNotice, onSaved, onNext, onBack }: StepProps) {
             asOf: m?.asOf ? `${m.asOf}T12:00:00.000Z` : null,
           };
           return [
-            c.type === 'MONEY' ? { ...base, amountCents: dollars(v) } : { ...base, textValue: v },
+            c.type === 'MONEY'
+              ? {
+                  ...base,
+                  amountCents: dollars(v),
+                  // C06: an additional item keeps its name exactly as typed.
+                  ...(c.key.startsWith('custom_') ? { textValue: c.label } : {}),
+                }
+              : { ...base, textValue: v },
           ];
         }),
       );
