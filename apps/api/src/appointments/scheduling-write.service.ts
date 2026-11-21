@@ -180,10 +180,13 @@ export class SchedulingWriteService {
   ): Promise<AppointmentRecord> {
     const row = await findSchedulingRow(tx, businessId, actor, id);
     if (!row) throw errors.notFound();
+    // Review 2 (B8): with the notices sent by hand and the booking's confirmation, as the record
+    // read lists them, so an answer never drops them from the screen.
     return toRecord(
       row,
       await firmTimeZone(tx, businessId),
       await this.history.events(tx, businessId, row),
+      await this.history.sentNotices(tx, businessId, row),
     );
   }
 

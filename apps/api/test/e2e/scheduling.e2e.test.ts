@@ -2036,12 +2036,13 @@ describe('notes', () => {
     );
     expect(two.internalNotes?.split('\n\n')).toHaveLength(3);
     const first = await scheduled();
-    expect(
-      exact(
-        AppointmentRecord,
-        await call('post', `/appointments/${first.id}/notes`, people.ownerA, { text: 'Only' }),
-      ).internalNotes,
-    ).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} · Fake R58 ownerA: Only$/);
+    const only = exact(
+      AppointmentRecord,
+      await call('post', `/appointments/${first.id}/notes`, people.ownerA, { text: 'Only' }),
+    );
+    expect(only.internalNotes).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} · Fake R58 ownerA: Only$/);
+    // Review 2 (B8): the answer keeps the notices sent (here the booking's confirmation).
+    expect(only.notices).toMatchObject([{ kind: 'CONFIRMATION', channel: 'EMAIL' }]);
     const audit = await asOwner(ids.firmA, (tx) =>
       tx.auditLog.findMany({
         where: { businessId: ids.firmA, action: 'appointment.note_added', entityId: r.id },
