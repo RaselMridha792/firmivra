@@ -2289,17 +2289,20 @@ describe('appointment audit and notices', () => {
     const mine = rows.filter((r) => r.entityId === a.id);
     expect(mine.map((r) => r.action)).toEqual([
       'appointment.booked',
+      // Review 2 (B8): the confirmation it sent, for the notice history.
+      'appointment.confirmation_sent',
       'appointment.rescheduled',
       'appointment.cancelled',
       'appointment.viewed',
     ]);
-    expect(mine[1]?.metadata).toEqual({
+    expect(mine[1]?.metadata).toMatchObject({ channels: ['EMAIL'], delivered: true });
+    expect(mine[2]?.metadata).toEqual({
       by: 'STAFF',
       clientId: ids.c1,
       from: { startsAt: at(17, '09:00'), endsAt: at(17, '09:30'), staffUserId: people.staffA.id },
       to: { startsAt: at(17, '10:00'), endsAt: at(17, '10:30'), staffUserId: people.staffA.id },
     });
-    expect(mine[2]?.metadata).toMatchObject({ to: null, reasonGiven: true });
+    expect(mine[3]?.metadata).toMatchObject({ to: null, reasonGiven: true });
     expect(mine.every((r) => r.actorUserId === people.ownerA.id)).toBe(true);
     expect(
       rows.some((r) => r.action === 'appointments.listed' && r.actorUserId === people.staffA.id),

@@ -879,7 +879,8 @@ describe('schedule', () => {
       clientInstructions: 'Join from the link',
       seriesId: null,
       recurrence: null,
-      notices: [],
+      // Review 2 (B8): the confirmation it sent, as a fresh read below shows it.
+      notices: [{ kind: 'CONFIRMATION', channel: 'EMAIL', status: 'SENT' }],
     });
     expect(record.reminders).toEqual([
       { channel: 'EMAIL', amount: 1, unit: 'DAYS' },
@@ -1808,9 +1809,16 @@ describe('send reminder', () => {
       AppointmentRecord,
       await call('get', `/appointments/${r.id}/record`, people.staffA),
     );
-    expect(record.notices).toHaveLength(1);
+    // Newest first: the reminder, then the booking's confirmation (and its request to confirm).
+    expect(record.notices).toHaveLength(2);
     expect(record.notices[0]).toMatchObject({ kind: 'REMINDER', channel: 'EMAIL', status: 'SENT' });
+    expect(record.notices[1]).toMatchObject({
+      kind: 'CONFIRMATION',
+      channel: 'EMAIL',
+      status: 'SENT',
+    });
     expect(record.notices[0]!.recipient).not.toContain('Jamie');
+    expect(record.notices[1]!.recipient).not.toContain('Jamie');
   });
 
   it("carries the firm's own words and the instructions the appointment shows in email (Review 2, B7, B9)", async () => {
@@ -1880,6 +1888,7 @@ describe('send reminder', () => {
         .notices,
     ).toMatchObject([
       { kind: 'REMINDER', channel: 'PORTAL', status: 'FAILED', recipient: 'Client portal' },
+      { kind: 'CONFIRMATION', channel: 'EMAIL', status: 'SENT' },
     ]);
     await call('post', `/appointments/${r.id}/cancel`, people.ownerA, {});
     expect(
@@ -2027,12 +2036,13 @@ describe('notes', () => {
     );
     expect(two.internalNotes?.split('\n\n')).toHaveLength(3);
     const first = await scheduled();
-    expect(
-      exact(
-        AppointmentRecord,
-        await call('post', `/appointments/${first.id}/notes`, people.ownerA, { text: 'Only' }),
-      ).internalNotes,
-    ).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} · Fake R58 ownerA: Only$/);
+    const only = exact(
+      AppointmentRecord,
+      await call('post', `/appointments/${first.id}/notes`, people.ownerA, { text: 'Only' }),
+    );
+    expect(only.internalNotes).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} · Fake R58 ownerA: Only$/);
+    // Review 2 (B8): the answer keeps the notices sent (here the booking's confirmation).
+    expect(only.notices).toMatchObject([{ kind: 'CONFIRMATION', channel: 'EMAIL' }]);
     const audit = await asOwner(ids.firmA, (tx) =>
       tx.auditLog.findMany({
         where: { businessId: ids.firmA, action: 'appointment.note_added', entityId: r.id },

@@ -180,10 +180,13 @@ export class SchedulingWriteService {
   ): Promise<AppointmentRecord> {
     const row = await findSchedulingRow(tx, businessId, actor, id);
     if (!row) throw errors.notFound();
+    // Review 2 (B8): with the notices sent by hand and the booking's confirmation, as the record
+    // read lists them, so an answer never drops them from the screen.
     return toRecord(
       row,
       await firmTimeZone(tx, businessId),
       await this.history.events(tx, businessId, row),
+      await this.history.sentNotices(tx, businessId, row),
     );
   }
 
@@ -227,14 +230,15 @@ export class SchedulingWriteService {
     }
     // A9: the intake form goes to the client (the first of a series only; the others would find
     // it open), and the record then shows it. Review 2 (row 9): the one the form chose, none when
-    // it chose none (null), else the type's required form.
+    // it chose none (null), else the type's required form. Review 2 (B8): the record shows the
+    // confirmation in its notices too, as a fresh read does.
     const form = await this.intakes.sendForAppointment(
       businessId,
       created.firstId,
       actor.userId,
       body.related?.intakeFormId,
     );
-    if (form && 'intakeId' in form) {
+    if (body.sendConfirmation || (form && 'intakeId' in form)) {
       return this.inFirm(businessId, (tx) => this.recordIn(tx, businessId, actor, created.firstId));
     }
     return created.record;

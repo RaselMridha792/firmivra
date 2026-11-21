@@ -512,6 +512,10 @@ function TypeSettings({ type, manages }: { type: AppointmentType; manages: boole
   const config = useApiQuery([...TYPES_KEY, 'config', type.id], () =>
     api.scheduling.typeConfig(type.id),
   );
+  // D4 (R56): "Settings saved." is kept here, not in the form. A save that changes a value
+  // reloads the settings, which draws the form again (it is keyed by them) and used to drop the
+  // message as soon as the reload came back, so it could flash by unseen.
+  const [saved, setSaved] = useState('');
   if (config.isPending) return <Skeleton className="h-64" />;
   if (!config.data)
     return <p className="rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>;
@@ -521,6 +525,8 @@ function TypeSettings({ type, manages }: { type: AppointmentType; manages: boole
       type={type}
       config={config.data}
       manages={manages}
+      saved={saved}
+      onSaved={setSaved}
     />
   );
 }
@@ -529,10 +535,15 @@ function SettingsForm({
   type,
   config: c,
   manages,
+  saved,
+  onSaved,
 }: {
   type: AppointmentType;
   config: AppointmentTypeConfig;
   manages: boolean;
+  /** "Settings saved." after a save, kept by TypeSettings across the redraw. */
+  saved: string;
+  onSaved: (text: string) => void;
 }) {
   const [description, setDescription] = useState(c.description ?? '');
   // Review 2 (B7): the scheduled/confirmation notice's words for this type's new appointments.
@@ -559,7 +570,6 @@ function SettingsForm({
   const formChoices = (forms.data ?? []).filter(
     (f) => f.id === c.requiredIntakeFormId || !c.serviceId || f.service?.id === c.serviceId,
   );
-  const [saved, setSaved] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<SettingField, string>>>({});
   const save = useApiMutation(
     async () => {
@@ -578,7 +588,7 @@ function SettingsForm({
         defaultReminders: remindersFromRows(reminders),
         requiredIntakeFormId: intakeForm || null,
       });
-      setSaved('Settings saved.');
+      onSaved('Settings saved.');
     },
     { invalidate: TYPES_KEY },
   );
@@ -591,6 +601,8 @@ function SettingsForm({
       className="flex flex-col gap-3"
       onSubmit={(e) => {
         e.preventDefault();
+        // A new attempt: the last save's message goes until this one is saved.
+        onSaved('');
         if (!methods.length) return;
         const form = e.currentTarget;
         // Review 2 (P1 row 1): an Other Video Meeting names its platform.
