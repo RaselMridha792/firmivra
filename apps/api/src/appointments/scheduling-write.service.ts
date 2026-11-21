@@ -10,7 +10,7 @@ import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
 import { endsInCalendar } from './appointments.service.js';
-import { usableTimeZone } from './calendar.js';
+import { addDays, usableTimeZone, zonedDate, zonedInstant } from './calendar.js';
 import { activeMember, type FirmActor, firmTimeZone } from './calendar-data.js';
 import { lockAppointment, lockEquipment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import {
@@ -539,11 +539,89 @@ export class SchedulingWriteService {
 
   // ---------- Edit Existing ----------
 
+  /**
+   * Edit Existing. Review 2 (R2): with a scope, the same change reaches the series' other
+   * scheduled occurrences (FOLLOWING: those after this one; SERIES: every one not yet started),
+   * each through the same checks as this one, its own version read now; a new start or end moves
+   * each by the same amount. This one first: a refusal there changes nothing. A later occurrence
+   * that is refused (a conflict) stops the run there with its error; the ones before it keep the
+   * change, as if edited one by one.
+   */
   async updateDetails(
     businessId: string,
     actor: FirmActor,
     id: string,
     body: Details,
+  ): Promise<AppointmentRecord> {
+    const { scope = 'THIS', ...details } = body;
+    if (scope === 'THIS') return this.updateOne(businessId, actor, id, details);
+    if (details.recurrence !== undefined) {
+      throw errors.unsupported(
+        'Change how it repeats on this appointment alone (This appointment).',
+      );
+    }
+    const before = await this.inFirm(businessId, (tx) =>
+      tx.appointment.findFirst({
+        where: { businessId, id },
+        select: { seriesId: true, startsAt: true, endsAt: true },
+      }),
+    );
+    const record = await this.updateOne(businessId, actor, id, details);
+    if (!before?.seriesId) return record;
+    const seriesId = before.seriesId;
+    const others = await this.inFirm(businessId, (tx) =>
+      tx.appointment.findMany({
+        where: {
+          businessId,
+          seriesId,
+          status: 'SCHEDULED',
+          id: { not: id },
+          startsAt: { gt: scope === 'FOLLOWING' ? before.startsAt : new Date() },
+        },
+        orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, startsAt: true, endsAt: true, updatedAt: true },
+      }),
+    );
+    // A new time moves each by the same calendar days and time of day in the firm's zone, so a
+    // series that crosses a daylight saving change keeps its wall-clock time (10:30 stays 10:30).
+    const timeZone = await this.inFirm(businessId, (tx) => firmTimeZone(tx, businessId));
+    const minuteOf = (instant: number) =>
+      Math.round((instant - zonedInstant(timeZone, zonedDate(timeZone, instant), 0)) / MINUTE);
+    const dayNumber = (instant: number) => Date.parse(`${zonedDate(timeZone, instant)}T00:00:00Z`);
+    const shiftOf = (from: number, to: number) => ({
+      days: Math.round((dayNumber(to) - dayNumber(from)) / 86_400_000),
+      minutes: minuteOf(to) - minuteOf(from),
+    });
+    const moved = (instant: number, by: { days: number; minutes: number }) =>
+      new Date(
+        zonedInstant(
+          timeZone,
+          addDays(zonedDate(timeZone, instant), by.days),
+          minuteOf(instant) + by.minutes,
+        ),
+      ).toISOString();
+    const moveStart = details.startsAt
+      ? shiftOf(before.startsAt.getTime(), Date.parse(details.startsAt))
+      : null;
+    const moveEnd = details.endsAt
+      ? shiftOf(before.endsAt.getTime(), Date.parse(details.endsAt))
+      : null;
+    for (const o of others) {
+      await this.updateOne(businessId, actor, o.id, {
+        ...details,
+        version: versionOf(o.updatedAt),
+        ...(moveStart ? { startsAt: moved(o.startsAt.getTime(), moveStart) } : {}),
+        ...(moveEnd ? { endsAt: moved(o.endsAt.getTime(), moveEnd) } : {}),
+      });
+    }
+    return record;
+  }
+
+  private async updateOne(
+    businessId: string,
+    actor: FirmActor,
+    id: string,
+    body: Omit<Details, 'scope'>,
   ): Promise<AppointmentRecord> {
     const checked: Checked = { actor };
     const outcome = await this.write(
