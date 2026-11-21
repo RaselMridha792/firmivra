@@ -364,7 +364,7 @@ test.describe('Appointments (Owner)', () => {
     await shot(page, TAB, '1-methods', info);
   });
 
-  test('2 Booking window: 2, 6 and 12 hours and the day choices save and stay after reload, apart from Minimum Notice', async ({
+  test('2 + D4 Booking window: 2, 6 and 12 hours and the day choices save and stay after reload, apart from Minimum Notice; the save says Settings saved.', async ({
     page,
   }, info) => {
     test.skip(info.project.name !== 'w1165');
@@ -388,12 +388,32 @@ test.describe('Appointments (Owner)', () => {
     await notice.selectOption({ label: '2 hours' });
     for (const label of ['2 hours ahead', '6 hours ahead', '12 hours ahead', '5 days ahead']) {
       await windowSel.selectOption({ label });
+      // D4: how long the save takes (it once took more than 20 s), and its message.
+      const t0 = Date.now();
+      const answer = page
+        .waitForResponse(
+          (res) =>
+            res.request().method() !== 'GET' &&
+            /appointment-types\/[^/]+(\/config)?$/.test(res.url()),
+          { timeout: 60_000 },
+        )
+        .then((res) => ({ status: res.status(), ms: Date.now() - t0 }))
+        .catch(() => null);
       await page.getByRole('button', { name: 'Save Settings' }).click();
       const saved = page.getByTestId('type-settings-saved');
       const problem = page.getByTestId('type-settings-error');
       await expect(saved.or(problem)).toBeVisible({ timeout: 30_000 });
+      const shownAfter = Date.now() - t0;
+      // Read at once: the message goes when the types list refreshes (the form remounts).
+      const said = oneLine(await saved.textContent({ timeout: 1_000 }).catch(() => ''));
       if (await problem.isVisible())
         throw new Error(`${label}: the screen said ${(await problem.textContent())?.trim()}`);
+      const res = await answer;
+      info.annotations.push({
+        type: `D4 ${label}`,
+        description: `save answered ${res ? `${res.status} in ${res.ms} ms` : 'not seen'}; "${said}" shown after ${shownAfter} ms`,
+      });
+      expect(said).toBe('Settings saved.');
       // "Settings saved." can go as soon as the types list refreshes after the save (the form
       // remounts): the reload below is what shows the value was kept.
       await page.waitForLoadState('networkidle').catch(() => {});
@@ -3026,12 +3046,35 @@ test.describe('Review Two verification (her steps)', () => {
           timeout: 30_000,
         });
         await shot(pp, TAB, 'D1-past-window', info);
-        // A time the page does not offer, sent anyway, is refused and the refusal says why.
+        // Times the same staff would take for FX Client Meeting (no window, no notice), sent anyway
+        // for FX Public Consultation, are refused: only its window and notice stand in the way.
+        const open = types.items.find((t) => t.name === 'FX Client Meeting');
+        const freeOf = async (from: string, to: string) =>
+          open
+            ? (
+                (await ok(
+                  await pp.request.get(`${base}/slots?typeId=${open.id}&from=${from}&to=${to}`, {
+                    headers,
+                  }),
+                  'open slots',
+                )) as { slots: { startsAt: string }[] }
+              ).slots.map((s) => s.startsAt)
+            : [];
+        const soonFree = (await freeOf(dayIn(r.tz, 0), dayIn(r.tz, 1))).find(
+          (s) => Date.parse(s) > Date.now() + 20 * 60_000 && Date.parse(s) < now + 2 * HOUR,
+        );
+        const farFree = (await freeOf(dayIn(r.tz, 2), dayIn(r.tz, 3))).find(
+          (s) => Date.parse(s) > now + 13 * HOUR,
+        );
         const tooSoon = new Date(Math.ceil((now + 45 * 60_000) / (15 * 60_000)) * 15 * 60_000);
         const cases: [string, string][] = [
-          ['inside the Minimum Notice', tooSoon.toISOString()],
-          ['past the Booking Window', instant(r.tz, dayIn(r.tz, 2), '10:00')],
+          ['inside the Minimum Notice', soonFree ?? tooSoon.toISOString()],
+          ['past the Booking Window', farFree ?? instant(r.tz, dayIn(r.tz, 2), '10:00')],
         ];
+        info.annotations.push({
+          type: 'D1-probes',
+          description: `notice: ${soonFree ? 'a time FX Client Meeting offers' : 'next quarter hour + 45 min'}; window: ${farFree ? 'a time FX Client Meeting offers' : 'day + 2, 10:00 AM'}`,
+        });
         for (const [what, startsAt] of cases) {
           const res = await pp.request.post(base, { headers, data: { typeId: type.id, startsAt } });
           const body = await res.text();
@@ -3040,8 +3083,11 @@ test.describe('Review Two verification (her steps)', () => {
             description: `${res.status()} ${body.slice(0, 300)}`,
           });
           if (res.ok()) keepR2('appointments', (JSON.parse(body) as { id: string }).id);
-          expect(res.ok(), `a booking ${what} is refused`).toBe(false);
-          expect(body, `the refusal for a booking ${what} says why`).toMatch(/"message":"[^"]+"/);
+          // The product's words (main 04dcc7b12): 409 SLOT_UNAVAILABLE "This time is not
+          // available"; the portal shows it as "That time is no longer free. Please pick another one."
+          expect(res.status(), `a booking ${what} is refused`).toBe(409);
+          expect(body).toContain('"code":"SLOT_UNAVAILABLE"');
+          expect(body).toContain('This time is not available');
         }
       } finally {
         await portalCtx.close();
@@ -3089,7 +3135,8 @@ test.describe('Review Two verification (her steps)', () => {
             category: 'TAX_PLANNING',
             serviceId: s.id,
             description: 'LIVE-CHECK synthetic form',
-            isTemplate: false,
+            // Its service's default form (a new service has none yet).
+            isTemplate: true,
             startFrom: { kind: 'SCRATCH' },
             sections: [
               {
@@ -3159,8 +3206,12 @@ test.describe('Review Two verification (her steps)', () => {
         start: slot.start,
       });
       await page.getByLabel('Related Service').selectOption({ label: picked.name });
+      // Her step: the service picks its own form, not the type's.
       const send = page.getByLabel('Send Intake Form Before Appointment');
-      if (await send.isEnabled()) await send.check();
+      await expect(send).toBeChecked();
+      await expect(
+        page.getByLabel('Intake form', { exact: true }).locator('option:checked'),
+      ).toContainText(picked.form.name);
       await noConfirmation(page);
       await submit(page, 'Schedule Appointment', /\/calendar\/[0-9a-f-]{36}$/, 'row 9');
       const id = idFromUrl(page);
@@ -3201,37 +3252,31 @@ test.describe('Review Two verification (her steps)', () => {
       await shot(page, TAB, 'P9-completed-on-appointment', info);
     });
 
-    test('D2 Related Items: the five boxes wait for a client, then open where the client has the data', async ({
+    test('D2 Related Items: no greyed-out box is left; Send Intake Form Before Appointment waits for a client, then works', async ({
       page,
     }, info) => {
       test.skip(info.project.name !== 'w1165');
       const pc = await portalClient();
-      const boxes = [
+      // Not built yet, so not shown (main 04dcc7b12; her answer on them is pending).
+      const unbuilt = [
         'Link to Task',
         'Link to Bookkeeping Client',
-        'Send Intake Form Before Appointment',
         'Link to Invoice',
         'Require Documents Before Appointment',
       ];
       await freshForm(page);
       const related = page.getByTestId('related-items');
-      await expect(related).toContainText(
-        'Choose these on the appointment once the client is set.',
-      );
-      for (const b of boxes) await expect(related.getByLabel(b)).toBeDisabled();
-      // The harness portal client: published intake forms exist, and row 9 sent it one.
+      await expect(related).toBeVisible({ timeout: 60_000 });
+      for (const b of unbuilt) await expect(related.getByLabel(b)).toHaveCount(0);
+      const send = related.getByLabel('Send Intake Form Before Appointment');
+      await expect(send).toBeDisabled();
+      await expect(related).toContainText('Choose a client first: the form goes to their portal.');
       await pickContact(page, pc.name);
-      const open: Record<string, boolean> = {};
-      for (const b of boxes) open[b] = await related.getByLabel(b).isEnabled();
-      info.annotations.push({ type: 'D2-enabled', description: JSON.stringify(open) });
-      await shot(page, TAB, 'D2-related-items', info);
-      expect(open['Send Intake Form Before Appointment'], 'published intake forms exist').toBe(
-        true,
+      await expect(send).toBeEnabled();
+      await expect(related).toContainText(
+        "Sent to the client's portal when you schedule. The Related Service's default form comes first, then the appointment type's.",
       );
-      expect(
-        boxes.filter((b) => !open[b]),
-        'boxes still greyed out (each needs its data: a task, a bookkeeping client, an invoice, a document request)',
-      ).toEqual([]);
+      await shot(page, TAB, 'D2-related-items', info);
     });
 
     test('B7 + B9 Notices, settings side: a confirmation message and a note on each reminder (two by Email) are kept; the starting channels follow the client', async ({
@@ -3303,8 +3348,150 @@ test.describe('Review Two verification (her steps)', () => {
       await expect(ch.getByLabel(/^Text/)).not.toBeChecked();
     });
 
-    test('B7 + B9 Notices, delivered content: each reminder note and the instructions in the Email, Portal and Text received', () => {
-      test.skip(true, 'BLOCKED-TOLD: needs the test inbox');
+    test('B7 + B9 Notices, delivered: the confirmation message and instructions in the booking email and portal notice, and each reminder note (Email and Portal) at its time', async ({
+      page,
+      browser,
+    }, info) => {
+      test.skip(info.project.name !== 'w1165');
+      test.skip(!hasLogin('inbox'), 'no inbox login in this run');
+      test.setTimeout(40 * 60_000);
+      const c = ctx();
+      const r = r2();
+      const api = await pageApi(page);
+      const keepAlive = () => api.get('business');
+      const client = await inboxClient(api);
+      info.annotations.push({ type: 'inbox-clear', description: await inboxRun(['clear']) });
+      // A start whose 1-hour reminders fall due 6 to 21 minutes from now (as P7).
+      const quarter = 15 * 60_000;
+      let day = '';
+      let start = '';
+      for (
+        let t = Math.ceil((Date.now() + 66 * 60_000) / quarter) * quarter;
+        t < Date.now() + 5 * HOUR;
+        t += quarter
+      ) {
+        const iso = new Date(t).toISOString();
+        const hm = hhmmIn(r.tz, iso);
+        if (hm < '06:00' || hm > '20:30') continue;
+        const w = { staff: [r.owner.id], clientId: client.id };
+        if (await bookable(api, w, iso, new Date(t + 30 * 60_000).toISOString())) {
+          day = ymdIn(r.tz, iso);
+          start = hm;
+          break;
+        }
+      }
+      if (!start) throw new Error('no free start inside the form times in the next 5 hours');
+      const startIso = instant(r.tz, day, start);
+      const due = Date.parse(startIso) - HOUR;
+      const words = {
+        confirmation: `${r.tag} B7 confirmation: we look forward to seeing you.`,
+        instructions: `${r.tag} B9 bring your photo ID.`,
+        emailNote: `${r.tag} B7 Email note: your documents list is attached in the portal.`,
+        portalNote: `${r.tag} B7 Portal note: check your portal before you come.`,
+      };
+      await fillNew(page, {
+        contact: client.name,
+        type: c.t1.name,
+        staff: r.owner.name,
+        day,
+        start,
+      });
+      // B9: the client has an email and a portal login, and no texts: Email and Portal, no Text.
+      const ch = page.getByTestId('instructions-in');
+      await expect(ch.getByLabel('Email')).toBeChecked();
+      await expect(ch.getByLabel('Portal')).toBeChecked();
+      await expect(ch.getByLabel(/^Text/)).not.toBeChecked();
+      await page.getByLabel('Client Instructions (visible to client)').fill(words.instructions);
+      await page.getByLabel('Confirmation message (optional)').fill(words.confirmation);
+      const card = page.getByTestId('client-reminders');
+      for (const [label, note] of [
+        ['Email Reminder', words.emailNote],
+        ['Portal Notification', words.portalNote],
+      ] as const) {
+        const on = card.getByLabel(label, { exact: true });
+        if (!(await on.isChecked())) await on.check();
+        await card.getByLabel(`${label} amount`).selectOption('1');
+        await card.getByLabel(`${label} unit`).selectOption('HOURS');
+        await card.getByLabel(`${label} note`).fill(note);
+      }
+      await page.getByLabel('Send Confirmation Message Immediately').check();
+      await submit(page, 'Schedule Appointment', /\/calendar\/[0-9a-f-]{36}$/, 'B7 B9 inbox');
+      const id = idFromUrl(page);
+      keepR2('appointments', id);
+      const what = c.t1.name;
+      const when = whenInMail(startIso, r.tz);
+      // The booking email: the firm's confirmation words and the instructions.
+      const booked = await waitMail(
+        'Your appointment with .* is booked',
+        Date.now() + 5 * 60_000,
+        keepAlive,
+      );
+      info.annotations.push({ type: 'B7-email-booked', description: mailNote(booked) });
+      expect(booked, 'the booking email reached the client').toHaveLength(1);
+      const b = booked[0]?.text ?? '';
+      for (const x of [what, when, words.confirmation, `Instructions: ${words.instructions}`])
+        expect(b).toContain(x);
+      // The notice history after the booking (the confirmation was asked to be listed: B8).
+      await page.reload();
+      const notices = page.getByTestId('detail-reminders');
+      await expect(notices).not.toContainText('Loading…', { timeout: 60_000 });
+      info.annotations.push({
+        type: 'B8-history-after-confirmation',
+        description: oneLine(await notices.textContent()),
+      });
+      // The portal notices, as the client sees them.
+      const portalCtx = await browser.newContext(as('inbox'));
+      try {
+        const pp = await portalCtx.newPage();
+        await pp.goto(portal('/appointments'));
+        await settled(pp);
+        const list = `${portalUrl}/api/v1/${portalApi('me/notifications?limit=50')}`;
+        type Bell = { title: string; body?: string | null; target?: { kind: string; id: string } };
+        const bells = async () =>
+          (
+            (await ok(await pp.request.get(list, { headers: { origin: portalUrl } }), 'bell')) as {
+              items?: Bell[];
+            }
+          ).items?.filter((n) => n.target?.id === id) ?? [];
+        const bellText = async (title: string) => {
+          let found = '';
+          await expect
+            .poll(
+              async () => {
+                found = oneLine((await bells()).find((n) => n.title === title)?.body ?? '');
+                return found;
+              },
+              { timeout: 120_000, intervals: [10_000] },
+            )
+            .not.toBe('');
+          return found;
+        };
+        const bookedBell = await bellText('Appointment booked');
+        info.annotations.push({ type: 'B7-portal-booked', description: bookedBell });
+        expect(bookedBell).toContain(words.confirmation);
+        expect(bookedBell).toContain(`Instructions: ${words.instructions}`);
+        // The reminders at their time: the Email carries its note, the portal notice its own.
+        const sent = await waitMail('^Reminder: your appointment', due + 15 * 60_000, keepAlive);
+        info.annotations.push({ type: 'B7-email-reminder', description: mailNote(sent) });
+        expect(
+          sent,
+          'the automatic reminder email arrived by 15 minutes after its time',
+        ).toHaveLength(1);
+        const e = sent[0]?.text ?? '';
+        for (const x of [what, when, words.emailNote, `Instructions: ${words.instructions}`])
+          expect(e).toContain(x);
+        expect(e).not.toContain(words.portalNote);
+        const reminderBell = await bellText('Appointment reminder');
+        info.annotations.push({ type: 'B7-portal-reminder', description: reminderBell });
+        expect(reminderBell).toContain(words.portalNote);
+        expect(reminderBell).toContain(`Instructions: ${words.instructions}`);
+        await pp.goto(portal('/notifications'));
+        await settled(pp);
+        await expect(pp.locator('main')).toContainText(words.portalNote, { timeout: 60_000 });
+        await shot(pp, TAB, 'B7-portal-notices', info);
+      } finally {
+        await portalCtx.close();
+      }
     });
 
     for (const p of P10_ROLES) {
