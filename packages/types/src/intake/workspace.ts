@@ -439,6 +439,14 @@ export const SendIntakeFormResult = z.object({
     portalNotice: z.boolean().default(false),
     /** Why the email was not sent (yet), in words for the member; null when it was. */
     reason: z.string().nullable().default(null),
+    /**
+     * Review Two 19b: when the mail service accepted the email, and its reference for it (the
+     * first 8 characters of the provider's message id). Both null when it was not accepted, or
+     * the send went through a path that keeps no provider answer. Accepted is not delivered:
+     * delivered and bounced need the mail service's event feed, which is not connected.
+     */
+    acceptedAt: DateTime.nullable().default(null),
+    providerRef: z.string().nullable().default(null),
   }),
 });
 export type SendIntakeFormResult = z.infer<typeof SendIntakeFormResult>;
@@ -525,6 +533,9 @@ export const AssignedFormRecord = AssignedFormRow.extend({
     .object({
       status: z.enum(['SENT', 'RETRYING', 'FAILED']),
       reason: z.string().nullable(),
+      /** As a send's `delivery` says (19b). */
+      acceptedAt: DateTime.nullable().default(null),
+      providerRef: z.string().nullable().default(null),
     })
     .optional(),
 });
@@ -865,3 +876,57 @@ export const IntakeWorkspaceErrorCode = z.enum([
   'NOTES_UNAVAILABLE',
 ]);
 export type IntakeWorkspaceErrorCode = z.infer<typeof IntakeWorkspaceErrorCode>;
+
+// ---------- Records check (Intake Forms Review Two 18c) ----------
+
+/**
+ * GET /business/intake-forms/records-check (Owner and Admin, read-only): the firm's own form
+ * templates, their versions and the forms assigned from each, counted from the database so the
+ * library cards and the assigned-form counts can be reconciled. Ids and counts only: no form
+ * content, no client name. `issues` lists, in words, every record whose identity does not hold
+ * together (a version number missing from a template's run, a version with no template, an
+ * assigned form on a version that does not exist). An empty list means none was found.
+ */
+export const IntakeRecordsCheck = z.object({
+  /** The time of the check (the counts are live). */
+  checkedAt: DateTime,
+  totals: z.object({
+    templates: z.number().int(),
+    liveTemplates: z.number().int(),
+    archivedTemplates: z.number().int(),
+    versions: z.number().int(),
+    /** Assigned forms, every status including drafts and archived ones. */
+    assignedForms: z.number().int(),
+    /** Assigned forms whose status is Archived. */
+    archivedAssignedForms: z.number().int(),
+    /** Always 0: no template, version or assigned form can be deleted; the database refuses. */
+    deleted: z.number().int(),
+    /** Whether the per-template assigned counts add up to `assignedForms`. */
+    reconciled: z.boolean(),
+  }),
+  templates: z.array(
+    z.object({
+      id: z.uuid(),
+      name: z.string(),
+      archived: z.boolean(),
+      versions: z.array(
+        z.object({
+          id: z.uuid(),
+          version: z.number().int(),
+          status: z.string(),
+          assigned: z.number().int(),
+          submitted: z.number().int(),
+          archivedAssigned: z.number().int(),
+        }),
+      ),
+      assigned: z.number().int(),
+      submitted: z.number().int(),
+      /** Assigned forms whose status is Archived. */
+      archivedAssigned: z.number().int(),
+    }),
+  ),
+  /** Versions with no template (should be none). */
+  versionsWithoutTemplate: z.number().int(),
+  issues: z.array(z.string()),
+});
+export type IntakeRecordsCheck = z.infer<typeof IntakeRecordsCheck>;

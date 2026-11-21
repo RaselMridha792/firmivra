@@ -15,7 +15,15 @@ export function nudgeNotice(
   done: string,
 ): NudgeNotice {
   const d = record.delivery;
-  if (!d || d.status === 'SENT') return { message: done, tone: 'success' };
+  if (!d || d.status === 'SENT') {
+    const ref = d?.providerRef ? ` Mail service reference: ${d.providerRef}.` : '';
+    return {
+      message: d?.acceptedAt
+        ? `${done} Accepted by the mail service; not confirmed delivered.${ref}`
+        : done,
+      tone: 'success',
+    };
+  }
   if (d.status === 'RETRYING') {
     return { message: d.reason ?? `${done} The email is being tried again.`, tone: 'success' };
   }

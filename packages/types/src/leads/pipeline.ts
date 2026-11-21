@@ -706,6 +706,8 @@ export const ConvertLeadToClientResult = z.object({
   engagementIds: z.array(z.uuid()),
   inviteSent: z.boolean(),
   carried: z.object({
+    /** Campaigns still being prepared that now have the client where the lead was (Review Two 17). */
+    campaigns: z.number().int().default(0),
     notes: z.number().int(),
     communications: z.number().int(),
     appointments: z.number().int(),

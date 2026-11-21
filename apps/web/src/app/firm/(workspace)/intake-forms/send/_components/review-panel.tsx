@@ -75,6 +75,11 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** The time the mail service took the email, in the member's own time zone. */
+function acceptedTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 /** After Send Form: the delivery result, with the way to the sent form and back to the list. */
 function SentResult({
   result,
@@ -112,6 +117,19 @@ function SentResult({
             Client portal notice:{' '}
             <span className="font-semibold">{delivery.portalNotice ? 'Sent' : 'Not sent'}</span>
           </p>
+        ) : null}
+        {byEmail && sent ? (
+          <>
+            <p data-testid="send-accepted">
+              Accepted by the mail service
+              {delivery.acceptedAt ? ` at ${acceptedTime(delivery.acceptedAt)}` : ''}
+              {delivery.providerRef ? `. Mail service reference: ${delivery.providerRef}` : ''}
+            </p>
+            <p data-testid="send-delivered">
+              Delivered: not confirmed yet. The mail service has not reported delivery, so this is
+              not proof the email reached the inbox.
+            </p>
+          </>
         ) : null}
         {delivery.reason ? <p>{delivery.reason}</p> : null}
         <p>

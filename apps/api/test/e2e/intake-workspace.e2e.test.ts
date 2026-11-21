@@ -17,6 +17,7 @@ import {
   IntakeFormDetail,
   IntakeFormLibrarySummary,
   IntakeFormList,
+  IntakeRecordsCheck,
   IntakeSettings,
   IntakeSettingsChangeList,
   INTAKE_FORMS,
@@ -1307,6 +1308,48 @@ describe('the public link (I3)', () => {
       404,
       'NOT_FOUND',
     );
+  });
+});
+
+describe('the records check (Review Two 18c)', () => {
+  it('counts templates, versions and assigned forms so they reconcile with the database', async () => {
+    const check = IntakeRecordsCheck.parse(
+      ok(await call('get', '/intake-forms/records-check', ownerA)),
+    );
+    const stored = await asOwner({ kind: 'business', businessId: firms.a }, async (tx) => ({
+      templates: await tx.intakeTemplate.count({ where: { businessId: firms.a } }),
+      versions: await tx.intakeForm.count({ where: { businessId: firms.a } }),
+      intakes: await tx.intake.count({ where: { businessId: firms.a } }),
+      archived: await tx.intake.count({ where: { businessId: firms.a, status: 'ARCHIVED' } }),
+    }));
+    expect(check.totals).toMatchObject({
+      templates: stored.templates,
+      versions: stored.versions,
+      assignedForms: stored.intakes,
+      archivedAssignedForms: stored.archived,
+      deleted: 0,
+      reconciled: true,
+    });
+    expect(check.totals.archivedAssignedForms).toBeGreaterThan(0);
+    expect(check.totals.liveTemplates + check.totals.archivedTemplates).toBe(
+      check.totals.templates,
+    );
+    const mine = check.templates.find((t) => t.id === ids.template)!;
+    expect(mine.versions.map((v) => v.version)).toEqual([1]);
+    expect(mine.assigned).toBe(mine.versions.reduce((n, v) => n + v.assigned, 0));
+    // Every record's identity holds together in the fixture.
+    expect(check.issues).toEqual([]);
+    // Counts and ids only: no client address in the answer.
+    expect(JSON.stringify(check)).not.toContain('@');
+  });
+
+  it('is for the Owner and Admin only, and another firm sees only its own', async () => {
+    expectError(await call('get', '/intake-forms/records-check', people.staffA), 403, 'FORBIDDEN');
+    const theirs = IntakeRecordsCheck.parse(
+      ok(await call('get', '/intake-forms/records-check', ownerB, undefined, 'b')),
+    );
+    expect(theirs.totals).toMatchObject({ assignedForms: 0, versions: 0, reconciled: true });
+    expect(theirs.templates.map((t) => t.id)).not.toContain(ids.template);
   });
 });
 
