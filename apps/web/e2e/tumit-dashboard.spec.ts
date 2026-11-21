@@ -19,7 +19,7 @@ test('Super Admin dashboard opens with the signed-in shell and fits a 375 px scr
   );
   await expect(page.locator('nav[aria-label="Main"] a[href="/applications"]')).toBeVisible();
   await expect(
-    page.getByRole('searchbox', { name: 'Search firms, applications, users' }),
+    page.getByRole('searchbox', { name: 'Search firms and applications' }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Notifications' })).toBeVisible();
 

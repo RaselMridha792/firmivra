@@ -81,9 +81,10 @@ export function Header({
 
   return (
     <header
-      // Super Admin (search): the header sits on the canvas as in its mockup; elsewhere a white bar.
-      // Phones get tighter gaps so the controls fit a 320 px screen.
-      className={`flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 md:px-6 ${search && !start ? 'bg-canvas' : 'border-b border-border bg-surface'}`}
+      // Super Admin (search): the header sits on the canvas as in its mockup, also with its own
+      // search form in `start` (SA-DSH-F01); elsewhere a white bar. Phones get tighter gaps so the
+      // controls fit a 320 px screen.
+      className={`flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 md:px-6 ${search ? 'bg-canvas' : 'border-b border-border bg-surface'}`}
     >
       <button
         type="button"

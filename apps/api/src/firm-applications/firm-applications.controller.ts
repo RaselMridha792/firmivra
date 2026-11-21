@@ -3,6 +3,10 @@ import { Throttle } from '@nestjs/throttler';
 import type { z } from 'zod';
 import {
   type AdminDashboard,
+  type AdminGrowth,
+  AdminGrowthQuery,
+  AdminSearchQuery,
+  type AdminSearchResult,
   ApproveFirmApplicationRequest,
   AssignFirmReviewerRequest,
   DeclineFirmApplicationRequest,
@@ -49,6 +53,7 @@ import {
   ResponsePasses,
   ResponseUploadTokens,
 } from './apply-respond.service.js';
+import { DashboardGrowthService } from './dashboard-growth.js';
 import { EIN_HASH_KEY, loadEinHashKey } from './ein-hash.js';
 import { AdminSupportModule } from '../admin-support/admin-support.module.js';
 import { FirmAccountService } from './firm-account.service.js';
@@ -308,10 +313,36 @@ export class AdminFirmsController {
 
 type AccountActionBody = z.output<typeof FirmAccountActionRequest>;
 
+/** SA-DSH-F01: the header search on every Super Admin page (firms and applications only). */
+@Controller('admin/search')
+export class AdminSearchController {
+  constructor(private readonly applications: FirmApplicationsService) {}
+
+  @Get()
+  @Roles('SUPER_ADMIN')
+  search(
+    @Query(new ZodValidationPipe(AdminSearchQuery)) query: z.output<typeof AdminSearchQuery>,
+  ): Promise<AdminSearchResult> {
+    return this.applications.search(query);
+  }
+}
+
 /** The Super Admin dashboard's counts (F04a). */
 @Controller('admin/dashboard')
 export class AdminDashboardController {
-  constructor(private readonly applications: FirmApplicationsService) {}
+  constructor(
+    private readonly applications: FirmApplicationsService,
+    private readonly growthService: DashboardGrowthService,
+  ) {}
+
+  /** SA-DSH-F06: Platform Growth for a range of US Eastern days (up to two years). */
+  @Get('growth')
+  @Roles('SUPER_ADMIN')
+  growth(
+    @Query(new ZodValidationPipe(AdminGrowthQuery)) query: z.output<typeof AdminGrowthQuery>,
+  ): Promise<AdminGrowth> {
+    return this.growthService.growth(query);
+  }
 
   @Get()
   @Roles('SUPER_ADMIN')
@@ -328,11 +359,13 @@ export class AdminDashboardController {
     ApplyRespondController,
     AdminFirmApplicationsController,
     AdminFirmsController,
+    AdminSearchController,
     AdminDashboardController,
   ],
   providers: [
     AdminPrisma,
     FirmApplicationsService,
+    DashboardGrowthService,
     FirmAccountService,
     FirmInfoRequestService,
     FirmApplicationSubmitService,

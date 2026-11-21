@@ -2,6 +2,10 @@ import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { UploadPutTicket } from '../documents/schemas.js';
 import {
   AdminDashboard,
+  AdminGrowth,
+  AdminGrowthQuery,
+  AdminSearchQuery,
+  AdminSearchResult,
   ApplicationResponseRequestView,
   ApplicationResponseSession,
   CreateApplicationResponseUploadRequest,
@@ -201,6 +205,15 @@ export function createFirmApplicationsClient(request: ApiRequest) {
 
     /** The Super Admin dashboard's counts. */
     dashboard: async (): Promise<AdminDashboard> => request(AdminDashboard, '/admin/dashboard'),
+    /** SA-DSH-F01: the header search: firms and applications (never people). */
+    search: async (query: AdminSearchQuery): Promise<AdminSearchResult> =>
+      request(AdminSearchResult, `/admin/search${toQuery(parseInput(AdminSearchQuery, query))}`),
+    /** SA-DSH-F06: Platform Growth for a range of US Eastern days. */
+    growth: async (query: AdminGrowthQuery): Promise<AdminGrowth> =>
+      request(
+        AdminGrowth,
+        `/admin/dashboard/growth${toQuery(parseInput(AdminGrowthQuery, query))}`,
+      ),
     /** Storage, email and portal checks for the System Status card. */
     systemStatus: async (): Promise<AdminSystemStatus> =>
       request(AdminSystemStatus, '/admin/system-status'),
