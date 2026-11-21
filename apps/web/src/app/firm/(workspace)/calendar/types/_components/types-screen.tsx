@@ -345,50 +345,99 @@ export function TypesScreen({
 }
 
 /**
- * Review 2 (row 3): the type's booking link and its website button, from the API
- * (`api.appointmentTypes.publicLink`), in the shared Copy link / embed block. The block says
- * when the link takes no bookings (archived, or clients can't book the type online).
+ * Review 2 (row 3, D3): the type's booking link and its website code, from the API
+ * (`api.appointmentTypes.publicLink`), in the shared Copy link / embed block. The code is the
+ * inline booking frame; with `withButton`, the button that opens the page in a new tab follows
+ * as a second choice. The block says when the link takes no bookings (archived, or clients can't
+ * book the type online).
  */
-function BookingLinkBlock({ type }: { type: AppointmentType }) {
+function BookingLinkBlock({
+  type,
+  withButton = false,
+}: {
+  type: AppointmentType;
+  withButton?: boolean;
+}) {
   const link = useApiQuery([...TYPES_KEY, 'public-link', type.id], () =>
     api.appointmentTypes.publicLink(type.id),
   );
   return (
-    <PublicLinkSection
-      kind="APPOINTMENT_TYPE"
-      link={link.data}
-      emptyText={
-        link.isError
-          ? 'The booking link is not available right now. Try again in a moment.'
-          : link.isPending
-            ? 'Loading the booking link…'
-            : undefined
-      }
-    />
+    <>
+      <PublicLinkSection
+        kind="APPOINTMENT_TYPE"
+        link={link.data}
+        embedHelp="Paste it into a page of your website where the booking should show. It grows to fit the booking page."
+        emptyText={
+          link.isError
+            ? 'The booking link is not available right now. Try again in a moment.'
+            : link.isPending
+              ? 'Loading the booking link…'
+              : undefined
+        }
+      />
+      {withButton && link.data?.buttonCode ? <ButtonCode code={link.data.buttonCode} /> : null}
+    </>
+  );
+}
+
+/** The second choice: a button that opens the booking page in a new tab, with its own Copy. */
+function ButtonCode({ code }: { code: string }) {
+  const [status, setStatus] = useState('');
+  return (
+    <section
+      data-testid="embed-button-code"
+      className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-divider bg-surface p-4"
+    >
+      <label htmlFor="embed-button-code-text" className="text-sm font-semibold text-heading">
+        Or a button that opens the booking page in a new tab
+      </label>
+      <div className="flex min-w-0 gap-2 max-sm:flex-col sm:items-start">
+        <textarea
+          id="embed-button-code-text"
+          readOnly
+          rows={4}
+          value={code}
+          onFocus={(e) => e.currentTarget.select()}
+          className="min-w-0 flex-1 resize-none rounded-control border border-border bg-subtle px-3 py-2 font-mono text-xs text-text focus:outline-none focus:ring-2 focus:ring-action/25"
+        />
+        <Button
+          variant="secondary"
+          className="shrink-0 sm:min-w-48"
+          onClick={() => {
+            navigator.clipboard.writeText(code).then(
+              () => setStatus('Button code copied.'),
+              () => setStatus('Copying was blocked. Select the text and press Ctrl+C.'),
+            );
+          }}
+        >
+          Copy Button Code
+        </Button>
+      </div>
+      <p role="status" className={status ? 'text-sm text-text' : 'sr-only'}>
+        {status}
+      </p>
+    </section>
   );
 }
 
 /**
- * Copy Embed Code: the code is a button that opens the type's booking page, and the dialog says
- * why it is not an embedded page.
+ * Copy Embed Code: the code is the inline booking frame, with the button as a second choice. The
+ * dialog says the firm's website address must be listed by Firmivra for the frame to show.
  */
 function EmbedDialog({ type, onClose }: { type: AppointmentType; onClose: () => void }) {
   return (
     <Modal open title={`Embed Code for ${type.name}`} onClose={onClose}>
       <div data-testid="type-embed-dialog" className="flex flex-col gap-4">
         <p className="text-sm text-text">
-          Put a Book button on your website: paste the embed code where the button should show. It
-          opens booking for {type.name} in your client portal, in a new tab.
+          Show booking for {type.name} inside a page of your website: paste the embed code where it
+          should appear. Your client signs in to your client portal in a new tab, then books.
         </p>
-        <p data-testid="embed-why-button" className="rounded-lg bg-subtle p-3 text-sm text-text">
-          <span className="font-semibold text-heading">
-            Why a button and not an embedded page:{' '}
-          </span>
-          booking needs your client to sign in to your portal, and browsers don&apos;t let the
-          portal&apos;s secure sign-in work inside another website&apos;s frame. The button opens
-          the booking page itself instead.
+        <p data-testid="embed-allowed-note" className="rounded-lg bg-subtle p-3 text-sm text-text">
+          <span className="font-semibold text-heading">Your website must be listed first: </span>
+          the frame shows only on websites Firmivra has listed for your firm. Ask Firmivra to list
+          your website&apos;s address, or use the button below, which works on any website.
         </p>
-        <BookingLinkBlock type={type} />
+        <BookingLinkBlock type={type} withButton />
       </div>
     </Modal>
   );

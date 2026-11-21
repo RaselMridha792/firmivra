@@ -30,12 +30,15 @@ export const PublicLink = z.object({
   url: z.url(),
   /**
    * The code for the firm's website: a styled button that opens the link in a new tab
-   * (`publicButtonCode`; `publicEmbedCode` is the same with the default colour). No iframe is
-   * offered: CloudFront's security headers send X-Frame-Options SAMEORIGIN, so another site
-   * can't show the portal in a frame (an inline embed comes back once framing is enabled), and
-   * browsers keep the portal's sign-in cookies out of another site's frame anyway.
+   * (`publicButtonCode`; `publicEmbedCode` is the same with the default colour). An appointment
+   * type's is instead the inline booking frame (`publicIframeCode`, Appointments D3), shown by
+   * the firm's own website only when Firmivra lists its address (EMBED_ALLOWED_ORIGINS); its
+   * button is then `buttonCode`. Browsers keep the portal's sign-in cookies out of another
+   * site's frame, so the frame's sign-in links open in a new tab.
    */
   embedCode: z.string(),
+  /** The button as a second choice, when `embedCode` is a frame (an appointment type). */
+  buttonCode: z.string().optional(),
   state: PublicLinkState,
 });
 export type PublicLink = z.infer<typeof PublicLink>;
@@ -98,10 +101,29 @@ export function publicButtonCode(url: string, label: string, color?: string | nu
   return `<a href="${attribute(url)}" target="_blank" rel="noopener" style="${attribute(style)}">${attribute(label)}</a>`;
 }
 
+/** Text for a JavaScript string inside a `<script>`: JSON, with `<` escaped so it can't close the tag. */
+const scriptString = (value: string) => JSON.stringify(value).replace(/</g, '\\u003c');
+
 /**
- * The website code of a public page that a frame can't show (every public page today: see
+ * Appointments D3: the inline booking frame for the firm's website. An `<iframe>` of the booking
+ * page with a minimum height, and a small script that grows it to the page's own height. The page
+ * posts `{ type: 'firmivra:height', height }` from inside the frame; the script takes a message
+ * only from the booking page's origin and only from this frame's window. The frame shows only on
+ * websites Firmivra lists (EMBED_ALLOWED_ORIGINS, the page's frame-ancestors).
+ */
+export function publicIframeCode(url: string, title: string): string {
+  const id = `firmivra-${(url.split('/').pop() ?? '').replace(/[^A-Za-z0-9_-]/g, '') || 'booking'}`;
+  const origin = new URL(url).origin;
+  const style = 'width:100%;border:0;min-height:480px';
+  const script = `(function(){var f=document.getElementById(${scriptString(id)}),o=${scriptString(origin)};window.addEventListener("message",function(e){if(e.origin!==o||!f||e.source!==f.contentWindow)return;var d=e.data;if(d&&d.type==="firmivra:height"&&typeof d.height==="number"&&d.height>0)f.style.height=Math.ceil(Math.min(d.height,20000))+"px"})})();`;
+  return `<iframe id="${attribute(id)}" src="${attribute(url)}" title="${attribute(title)}" style="${attribute(style)}" loading="lazy"></iframe>
+<script>${script}</script>`;
+}
+
+/**
+ * The website code of a public page that a frame can't show (an intake form and a package: see
  * `PublicLink.embedCode`): `publicButtonCode` in the portal's default colour, labelled with the
- * item's name. INTAKE-ACCESS-02 replaced its iframe; the iframe returns with framing enabled.
+ * item's name. An appointment type's frame is `publicIframeCode`.
  */
 export function publicEmbedCode(url: string, title: string): string {
   return publicButtonCode(url, title);
