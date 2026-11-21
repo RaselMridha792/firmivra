@@ -1,5 +1,7 @@
 import { ApiRequestError } from '@firmivra/types';
 import {
+  type MutationOptions,
+  type QueryClient,
   type QueryKey,
   useMutation,
   type UseMutationResult,
@@ -34,16 +36,35 @@ export function useApiQuery<T>(key: QueryKey, fn: () => Promise<T>): UseQueryRes
  *     { invalidate: ['tax-statuses'] });
  *   create.mutate({ name }); then create.isPending, create.error (show with errorMessage).
  */
-export function useApiMutation<TInput, TResult>(
+export interface ApiMutationOptions<TInput, TResult> {
+  invalidate?: QueryKey;
+  /**
+   * Runs on success before the refetch, also when the component that called `mutate` is gone by
+   * then (a `mutate(input, { onSuccess })` callback is dropped once its component unmounts, and
+   * the refetch can unmount it): for a message the parent shows, when the change removes what
+   * was clicked (Appointments Review 2 row 8: Confirm in the portal).
+   */
+  onSuccess?: (result: TResult, input: TInput) => void;
+}
+
+/** useApiMutation's options for TanStack Query (exported for its unit test). */
+export function apiMutationOptions<TInput, TResult>(
+  client: QueryClient,
   fn: (input: TInput) => Promise<TResult>,
-  options: { invalidate?: QueryKey } = {},
-): UseMutationResult<TResult, Error, TInput> {
-  const client = useQueryClient();
-  const { invalidate } = options;
-  return useMutation({
+  { invalidate, onSuccess }: ApiMutationOptions<TInput, TResult> = {},
+): MutationOptions<TResult, Error, TInput> {
+  return {
     mutationFn: fn,
-    onSuccess: async () => {
+    onSuccess: async (result, input) => {
+      onSuccess?.(result, input);
       if (invalidate) await client.invalidateQueries({ queryKey: invalidate });
     },
-  });
+  };
+}
+
+export function useApiMutation<TInput, TResult>(
+  fn: (input: TInput) => Promise<TResult>,
+  options: ApiMutationOptions<TInput, TResult> = {},
+): UseMutationResult<TResult, Error, TInput> {
+  return useMutation(apiMutationOptions(useQueryClient(), fn, options));
 }

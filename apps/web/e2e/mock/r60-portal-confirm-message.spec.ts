@@ -2,9 +2,11 @@ import { expect, test } from '@playwright/test';
 
 // R60, Appointments Review 2 rows 8 / P8 (R61's live FAIL): after the client confirms, the
 // reloaded list no longer asks, so the prompt goes away; "Your appointment is confirmed." must
-// still show. The list reload is slowed (mock `myAppointments.list@slow`, 1.5 s), as on dev, so
-// the prompt unmounts while the reload finishes. Cancel removes its row the same way. Mock mode,
-// signed in as the portal's active client. Synthetic data only.
+// still show. The list reload is slowed (mock `myAppointments.list@slow`, 1.5 s), as on dev.
+// Cancel removes its row the same way. On dev the message was lost when the reload unmounted
+// the prompt before its `mutate` callback ran; that order depends on timing, so the mock does
+// not always hit it: src/lib/query.test.ts shows the callback dropped and the fix's onSuccess
+// kept. Mock mode, signed in as the portal's active client. Synthetic data only.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const portal = (path: string) => `http://portal.localhost:${port}${path}`;
 
