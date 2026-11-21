@@ -1,4 +1,4 @@
-import { type MembershipRole, roleCan } from '@firmivra/types';
+import { roleCan } from '@firmivra/types';
 
 export type RowAction =
   'view' | 'edit' | 'reschedule' | 'remind' | 'complete' | 'cancel' | 'client' | 'lead';
@@ -10,11 +10,12 @@ export type RowAction =
  * Lead to one that may view leads. Each page still checks its own permission.
  */
 export function rowActions(
-  role: MembershipRole | undefined,
+  can: (
+    module: Parameters<typeof roleCan>[1],
+    capability: Parameters<typeof roleCan>[2],
+  ) => boolean,
   a: { client: unknown; lead: unknown },
 ): RowAction[] {
-  const can = (module: Parameters<typeof roleCan>[1], capability: Parameters<typeof roleCan>[2]) =>
-    role ? roleCan(role, module, capability) : false;
   const changing: RowAction[] = can('APPOINTMENTS', 'EDIT')
     ? ['edit', 'reschedule', 'remind', 'complete', 'cancel']
     : [];

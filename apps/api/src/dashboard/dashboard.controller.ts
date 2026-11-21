@@ -16,6 +16,7 @@ import {
   type DashboardCardPreview,
   type DashboardCardSettings,
   type DashboardCardTemplate,
+  type DashboardPermissions,
   type DashboardSummary,
   DashboardSummaryQuery,
   OrderDashboardCardsRequest,
@@ -46,7 +47,10 @@ import { DashboardService } from './dashboard.service.js';
 @Access('DASHBOARD')
 @Roles(...FIRM_STAFF)
 export class DashboardController {
-  constructor(private readonly dashboard: DashboardService) {}
+  constructor(
+    private readonly dashboard: DashboardService,
+    private readonly cards: DashboardCardsService,
+  ) {}
 
   /** The global period, the Client Pipeline's and Revenue Overview's (C1, C2), each with Custom days. */
   @Get('summary')
@@ -57,6 +61,15 @@ export class DashboardController {
     query: z.output<typeof DashboardSummaryQuery>,
   ): Promise<DashboardSummary> {
     return this.dashboard.summary(tenant, actorOf(auth, tenant), query);
+  }
+
+  /** V5: what the signed-in member may do in each module, for the dashboard's actions. */
+  @Get('permissions')
+  permissions(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<DashboardPermissions> {
+    return this.cards.myGrants(tenant, auth.userId);
   }
 }
 

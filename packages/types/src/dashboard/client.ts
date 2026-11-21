@@ -9,7 +9,7 @@ import {
   PreviewDashboardCardRequest,
   UpdateDashboardCardRequest,
 } from './cards.js';
-import { DashboardSummary, DashboardSummaryQuery } from './schemas.js';
+import { DashboardPermissions, DashboardSummary, DashboardSummaryQuery } from './schemas.js';
 
 const CARDS = '/business/settings/dashboard-cards';
 const card = (id: string) => `${CARDS}/${parseInput(DashboardCardId, id)}`;
@@ -25,6 +25,9 @@ export function createDashboardClient(request: ApiRequest) {
         DashboardSummary,
         `/business/dashboard/summary${toQuery(parseInput(DashboardSummaryQuery, query))}`,
       ),
+    /** V5: what the signed-in member may do in each module (their grants, not the role's default). */
+    permissions: async (): Promise<DashboardPermissions> =>
+      request(DashboardPermissions, '/business/dashboard/permissions'),
     /** D4: Settings > Dashboard Cards (Owner and Admin). */
     cards: {
       list: async (): Promise<DashboardCardSettings> => request(DashboardCardSettings, CARDS),

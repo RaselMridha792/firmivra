@@ -15,7 +15,7 @@ import {
   AUTOMATION_ERRORS,
   MODULE_ICON,
   card,
-  dayText,
+  DayText,
   outlined,
   subtle,
 } from './automations-shared';
@@ -73,7 +73,7 @@ export function TemplatesScreen() {
     },
     { id: 'trigger', label: 'Trigger', cell: (t) => t.triggerSummary },
     { id: 'actions', label: 'Actions', cell: (t) => t.actionsSummary },
-    { id: 'updated', label: 'Updated', cell: (t) => dayText(t.updatedAt) },
+    { id: 'updated', label: 'Updated', cell: (t) => <DayText iso={t.updatedAt} /> },
   ];
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="automation-templates">

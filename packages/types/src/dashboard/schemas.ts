@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TaskPriority } from '../db-enums.js';
+import { PermissionCapability, PermissionModule, TaskPriority } from '../db-enums.js';
 import { DASHBOARD_CARD_SLOTS, DashboardServiceCard } from './cards.js';
 
 // The firm dashboard (R30): one read, GET /api/v1/business/dashboard/summary, for Owner, Admin and
@@ -258,3 +258,14 @@ export const DashboardSummary = z.object({
   taxSeason: z.object({ start: Day, end: Day, inSeason: z.boolean() }).nullable(),
 });
 export type DashboardSummary = z.infer<typeof DashboardSummary>;
+
+/**
+ * GET /business/dashboard/permissions (Dashboard Review 2, V5): what the signed-in member may do in
+ * each module, as the server decides it: their own change first, then their custom role's grid,
+ * then their role's (an Owner may do everything). The dashboard's buttons and menus follow it, so a
+ * member whose permissions differ from their role's default is shown only what the API will allow.
+ */
+export const DashboardPermissions = z.object({
+  grants: z.record(PermissionModule, z.array(PermissionCapability)),
+});
+export type DashboardPermissions = z.infer<typeof DashboardPermissions>;
