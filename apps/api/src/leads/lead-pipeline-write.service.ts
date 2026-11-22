@@ -51,7 +51,10 @@ function birthDate(value: string | null | undefined): Date | null | undefined {
   return new Date(`${value}T00:00:00Z`);
 }
 
-/** R2 9: replaces a lead's other phones and emails with `list`, in its order. */
+/**
+ * R2 9: replaces a lead's other contact details (phones, emails, addresses, websites and other
+ * details) with `list`, in its order.
+ */
 async function setOtherContacts(
   tx: TxClient,
   businessId: string,

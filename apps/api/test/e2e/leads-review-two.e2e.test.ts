@@ -340,6 +340,51 @@ describe('Leads Review Two, L1', () => {
     ).toEqual([]);
   });
 
+  it('R2 9: an address, a website and another detail are kept beside the phones and emails', async () => {
+    const lead = await newLead({
+      otherContacts: [
+        { kind: 'ADDRESS', value: ' 12 Mock Lane, Springfield ', label: 'Office' },
+        { kind: 'WEBSITE', value: 'https://example.test/about', label: null },
+        { kind: 'OTHER', value: '@pat.sample', label: 'Messaging' },
+        { kind: 'PHONE', value: '(404) 555-0104', label: null },
+      ],
+    });
+    expect(lead.otherContacts).toEqual([
+      { kind: 'ADDRESS', value: '12 Mock Lane, Springfield', label: 'Office' },
+      { kind: 'WEBSITE', value: 'https://example.test/about', label: null },
+      { kind: 'OTHER', value: '@pat.sample', label: 'Messaging' },
+      { kind: 'PHONE', value: '(404) 555-0104', label: null },
+    ]);
+    // A website that is not one, a detail over 300 characters, and the same address twice in
+    // another letter case: each refused, nothing changes.
+    for (const otherContacts of [
+      [{ kind: 'WEBSITE', value: 'javascript:alert(1)', label: null }],
+      [{ kind: 'WEBSITE', value: 'not a website', label: null }],
+      [{ kind: 'OTHER', value: 'x'.repeat(301), label: null }],
+      [
+        { kind: 'ADDRESS', value: '1 Same Street', label: null },
+        { kind: 'ADDRESS', value: '1 SAME STREET', label: null },
+      ],
+    ]) {
+      expectError(
+        await call('patch', `/${lead.id}`, people.ownerA, { otherContacts }),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
+    expect(profile(await call('get', `/${lead.id}/profile`, people.ownerA)).otherContacts).toEqual(
+      lead.otherContacts,
+    );
+    // A website without https:// is kept as typed.
+    expect(
+      profile(
+        await call('patch', `/${lead.id}`, people.ownerA, {
+          otherContacts: [{ kind: 'WEBSITE', value: 'example.test', label: 'Site' }],
+        }),
+      ).otherContacts,
+    ).toEqual([{ kind: 'WEBSITE', value: 'example.test', label: 'Site' }]);
+  });
+
   it("firm B never reaches firm A's lead", async () => {
     const lead = await newLead();
     expectError(
