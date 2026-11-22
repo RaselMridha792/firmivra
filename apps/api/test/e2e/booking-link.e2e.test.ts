@@ -21,6 +21,7 @@ import {
   PublicBookingType,
   PublicLink,
   publicButtonCode,
+  publicIframeCode,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { addDays, zonedDate } from '../../src/appointments/calendar.js';
@@ -243,21 +244,40 @@ afterAll(async () => {
 });
 
 describe("the firm's booking link (GET /business/appointment-types/:id/public-link)", () => {
-  it("gives every member the exact type's link and a button in the firm's colour, not an iframe", async () => {
+  it("gives every member the exact type's link, the booking frame as the embed code and a button in the firm's colour", async () => {
     for (const who of [people.ownerP, people.staffP]) {
       const link = await linkOf(live.id, who);
       expect(link).toEqual({
         kind: 'APPOINTMENT_TYPE',
         itemId: live.id,
         url: urlOf(live.id),
-        embedCode: publicButtonCode(urlOf(live.id), `Book ${live.name}`, BUTTON),
+        embedCode: publicIframeCode(urlOf(live.id), `Book ${live.name}`),
+        buttonCode: publicButtonCode(urlOf(live.id), `Book ${live.name}`, BUTTON),
         state: 'LIVE',
       });
-      expect(link.embedCode).toContain(`href="${urlOf(live.id)}"`);
-      expect(link.embedCode).not.toContain('<iframe');
+      expect(link.embedCode).toContain(`<iframe id="firmivra-${live.id}" src="${urlOf(live.id)}"`);
+      expect(link.embedCode).toContain(`title="Book ${live.name}"`);
+      expect(link.buttonCode).toContain(`href="${urlOf(live.id)}"`);
+      expect(link.buttonCode).not.toContain('<iframe');
     }
     // Each type's link is its own.
     expect((await linkOf(hidden.id)).url).toBe(urlOf(hidden.id));
+  });
+
+  it('escapes a type name in both codes: nothing from the name can open a tag or close the script', async () => {
+    const nasty = await createType({
+      name: `Q&A "x" <b></script> ${run}`,
+      durationMinutes: 30,
+      clientBookable: true,
+    });
+    const link = await linkOf(nasty.id);
+    for (const code of [link.embedCode, link.buttonCode ?? '']) {
+      expect(code).not.toContain('<b>');
+      expect(code).toContain('Q&amp;A');
+      expect(code).not.toContain('"x"');
+    }
+    expect(link.embedCode.match(/<\/script>/g)).toHaveLength(1);
+    expect(link.embedCode).toContain('title="Book Q&amp;A &quot;x&quot; &lt;b&gt;&lt;/script&gt;');
   });
 
   it('says when the link takes no bookings: archived, or not bookable by clients', async () => {
@@ -275,7 +295,7 @@ describe("the firm's booking link (GET /business/appointment-types/:id/public-li
       tx.businessSettings.update({ where: { businessId: ids.firmP }, data: { buttonColor: null } }),
     );
     try {
-      expect((await linkOf(live.id)).embedCode).toContain(`background:${BRAND}`);
+      expect((await linkOf(live.id)).buttonCode).toContain(`background:${BRAND}`);
     } finally {
       await asOwner(ids.firmP, (tx) =>
         tx.businessSettings.update({

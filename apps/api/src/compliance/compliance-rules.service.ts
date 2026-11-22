@@ -324,7 +324,10 @@ export class ComplianceRulesService {
           { type: 'compliance_rule', id },
           // R03b: each changed field's old and new value, and the rule's version.
           {
-            ...auditChanges(found, updated, { fields: Object.keys(body) }),
+            ...auditChanges(found, updated, {
+              fields: Object.keys(body),
+              quote: ['description'],
+            }),
             version: updated.version,
           },
         );

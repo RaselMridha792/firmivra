@@ -79,7 +79,8 @@ describe('outbound messages', () => {
     await expect(message({ status: 'SENT', completedAt: now() })).rejects.toThrow(
       /starts as a draft/,
     );
-    await expect(message({ body: ' ' })).rejects.toThrow(/check constraint/i);
+    await expect(message({ channel: 'EMAIL', body: ' ' })).rejects.toThrow(/check constraint/i);
+    await expect(message({ body: ' ' })).resolves.toBeTruthy(); // R55 (M22): a portal message may be files only
     await expect(message({ body: 'x'.repeat(10001) })).rejects.toThrow(/check constraint/i);
     await expect(message({ subject: 'x'.repeat(201) })).rejects.toThrow(/check constraint/i);
     await expect(message({ channel: 'SMS', body: 'x'.repeat(1601) })).rejects.toThrow(

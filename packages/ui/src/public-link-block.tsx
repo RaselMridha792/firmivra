@@ -14,6 +14,8 @@ export interface PublicLinkBlockProps {
   /** The link's button: "Copy Booking Link". */
   copyLinkLabel?: string;
   copyEmbedLabel?: string;
+  /** The line under the embed code, instead of the default about the button. */
+  embedHelp?: string;
   /** A warning above the fields, when the item takes no new public use (draft, archived…). */
   notice?: string;
   /** Shown instead of the fields while `url` is null. */
@@ -39,6 +41,7 @@ export function PublicLinkBlock({
   title = 'Public Link',
   copyLinkLabel = 'Copy Link',
   copyEmbedLabel = 'Copy Embed Code',
+  embedHelp = 'Paste it into a page of your website where the button should appear. An inline embed will be available once enabled for your site.',
   notice,
   emptyText = 'The link appears here once it is available.',
   copy = (text) => navigator.clipboard.writeText(text),
@@ -140,10 +143,7 @@ export function PublicLinkBlock({
                 />
                 {button('embed', copyEmbedLabel)}
               </div>
-              <p className="text-xs text-muted">
-                Paste it into a page of your website where the button should appear. An inline embed
-                will be available once enabled for your site.
-              </p>
+              <p className="text-xs text-muted">{embedHelp}</p>
             </div>
           ) : null}
         </>

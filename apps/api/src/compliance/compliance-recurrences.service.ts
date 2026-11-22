@@ -325,7 +325,10 @@ export class ComplianceRecurrencesService {
           tx,
           'compliance.recurrence.updated',
           { type: 'compliance_recurrence', id },
-          auditChanges(current, updated, { fields: Object.keys(body) }),
+          auditChanges(current, updated, {
+            fields: Object.keys(body),
+            quote: ['description'],
+          }),
         );
         return updated;
       });

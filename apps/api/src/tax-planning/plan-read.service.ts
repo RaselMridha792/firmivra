@@ -224,7 +224,7 @@ export class TaxPlanReadService {
     const inputs: PlanInput[] | null = ctx.perms.viewInputs
       ? rows.map((r) => ({
           key: r.key,
-          label: inputDef(r.key)?.label ?? r.key,
+          label: inputDef(r.key, r.textValue)?.label ?? r.key,
           kind: r.kind,
           taxYear: r.taxYear,
           amountCents: r.amountCents,
@@ -292,7 +292,7 @@ export class TaxPlanReadService {
   private async workflow(
     ctx: TaxCtx,
     plan: PlanShape,
-    inputs: { key: string; taxYear: number; asOf: Date | null }[],
+    inputs: { key: string; taxYear: number; asOf: Date | null; textValue?: string | null }[],
     discussions: number,
     names: Map<string, string>,
   ): Promise<PlanWorkflow> {
@@ -326,7 +326,7 @@ export class TaxPlanReadService {
     const blockers = finalBlockersOf(
       plan,
       inputs.map((r) => ({
-        label: inputDef(r.key)?.label ?? r.key,
+        label: inputDef(r.key, r.textValue)?.label ?? r.key,
         taxYear: r.taxYear,
         asOf: r.asOf,
       })),

@@ -10,6 +10,7 @@ import {
   OpportunityActionRequest,
   PlanReasonRequest,
   UpdatePlanningResourceRequest,
+  CreatePlanningResourceRequest,
   type TaxPlanEvent,
   UpdateTaxOpportunityRequest,
   PlanningCalendarQuery,
@@ -1248,11 +1249,13 @@ export function createTaxPlanningMock({
           ...keep,
           ...input.inputs.map((n): PlanInput => ({
             key: n.key,
-            // C06: an additional item is labelled from its key, as the API does.
+            // C06, as the API: an additional item keeps the name typed (its text value), else is
+            // labelled from its key.
             label:
               INPUT_CATALOG.find((c) => c.key === n.key)?.label ??
               (n.key.startsWith('custom_')
-                ? n.key
+                ? n.textValue?.trim() ||
+                  n.key
                     .slice(7)
                     .replace(/_+/g, ' ')
                     .replace(/^./, (c) => c.toUpperCase())
@@ -2183,10 +2186,34 @@ export function createTaxPlanningMock({
           category: input.category,
           kind: input.kind,
           summary: input.summary ?? r.summary,
+          body: input.body ?? null,
           clientFacing: input.clientFacing,
-          edited: true,
+          // The firm's own resource is edited in place, never shown as an edited built-in.
+          edited: !r.own,
         });
         return { ...r };
+      }),
+    // Tax Planning resources (audit, Nov 20), as the API: the firm's own (Add Resource, Create
+    // Checklist), after the built-in ones, with the key `firm-<id>`.
+    createResource: (body) =>
+      run(() => {
+        manage();
+        const input = parseInput(CreatePlanningResourceRequest, body);
+        const created: PlanningResource = {
+          key: `firm-${crypto.randomUUID()}`,
+          title: input.title,
+          category: input.category,
+          kind: input.kind,
+          clientFacing: input.clientFacing,
+          url: null,
+          summary: input.summary ?? '',
+          body: input.body ?? null,
+          edited: false,
+          staffOnly: false,
+          own: true,
+        };
+        RESOURCES.push(created);
+        return { ...created };
       }),
     resources: (q = {}) =>
       run(() => {

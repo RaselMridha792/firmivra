@@ -30,6 +30,8 @@ export default defineConfig({
       NEXT_DIST_DIR: '.next/mock',
       NEXT_PUBLIC_API_MOCK: 'all',
       NEXT_PUBLIC_API_MOCK_ROLE: 'OWNER',
+      // Appointments D3: the one website that may frame the booking page (r55-booking-embed).
+      EMBED_ALLOWED_ORIGINS: 'https://site.example.test',
     },
   },
 });

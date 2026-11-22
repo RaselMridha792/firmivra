@@ -10,9 +10,21 @@ import {
   type ReminderUnit,
   ScheduleAppointmentRequest,
   type SchedulingOptions,
+  SERIES_SCOPE_LABELS,
+  SeriesScope,
   type ServiceKind,
 } from '@firmivra/types';
-import { Button, Callout, Checkbox, Input, Select, Skeleton, Textarea, Toggle } from '@firmivra/ui';
+import {
+  Button,
+  Callout,
+  Checkbox,
+  Input,
+  Radio,
+  Select,
+  Skeleton,
+  Textarea,
+  Toggle,
+} from '@firmivra/ui';
 import {
   ArrowLeft,
   ArrowRight,
@@ -846,16 +858,30 @@ function FormBody({
   // In a side panel the page's address is the workspace's: nothing is kept for it.
   const [kept] = useState<Form | null>(() => (embedded ? null : readKept()));
   const [form, setForm] = useState<Form>(() => kept ?? start);
-  // Review 2 (TX-F06): Link to Tax Return, one of the client's returns that has its service.
+  // Review 2 (TX-F06; F06 R56): Link to Tax Return, any of the client's returns, with or without
+  // its service (the appointment names the exact return).
   const linkClientId = form.contact?.kind === 'CLIENT' ? form.contact.id : null;
   const clientReturns = useApiQuery(
     ['tax-returns', 'for-appointment', linkClientId ?? ''],
     async () => (linkClientId ? api.taxReturns.listForClient(linkClientId) : []),
   );
-  const linkable = (clientReturns.data ?? []).filter((r) => r.engagementId);
+  const linkable = clientReturns.data ?? [];
   const [linkReturn, setLinkReturn] = useState(linkReturnId ?? record?.related.taxReturn?.id ?? '');
   // Another client: a return of the one before never carries over.
   const linkedReturn = linkable.some((r) => r.id === linkReturn) ? linkReturn : '';
+  // Review 2 (row 9): Send Intake Form Before Appointment, on a new appointment for a client. Its
+  // form follows the Related Service (that service's default form), else the appointment type's
+  // required form, until the member picks one; on while there is such a form, until changed.
+  const [intakeOn, setIntakeOn] = useState<boolean | null>(null);
+  const [intakePick, setIntakePick] = useState('');
+  const serviceForm = form.serviceId
+    ? o.intakeForms.find((f) => f.serviceId === form.serviceId && f.serviceDefault)?.id
+    : undefined;
+  const typeForm = o.types.find((t) => t.id === form.typeId)?.requiredIntakeFormId ?? undefined;
+  const intakeFormId = o.intakeForms.some((f) => f.id === intakePick)
+    ? intakePick
+    : (serviceForm ?? typeForm ?? '');
+  const sendIntake = linkClientId !== null && (intakeOn ?? intakeFormId !== '');
   // SH1: the workspace's Back asks first once something was changed here.
   const [initial] = useState(() => JSON.stringify(start));
   const dirty = JSON.stringify(form) !== initial;
@@ -878,6 +904,8 @@ function FormBody({
   };
   const [copied, setCopied] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Review 2 (R2): editing one of a repeating series: which occurrences the change reaches.
+  const [scope, setScope] = useState<SeriesScope>('THIS');
   // Advisory B11 (Octavia, Oct 25): Generate Zoom Link needs Zoom connected (Integrations) and the
   // first staff member's meeting link (Settings > Availability); the form says which is missing
   // and how to fix it, and never generates without both.
@@ -1014,6 +1042,27 @@ function FormBody({
       },
     });
   };
+  // Review 2 (B9): a new appointment's "Show client instructions in" starts from its client: Email
+  // when they have an email, Portal when they have a portal login, Text only when they agreed to
+  // appointment texts (and the firm sends texts); a lead has no portal and gets no texts. Once
+  // changed by hand (or when editing), a contact chosen later leaves them.
+  const instructionsTouchedRef = useRef(!!record);
+  const chooseContact = (c: AppointmentContact) => {
+    setForm((f) => ({
+      ...f,
+      contact: c,
+      ...(instructionsTouchedRef.current
+        ? {}
+        : {
+            instructionsIn: {
+              email: !!c.email,
+              portal: c.kind === 'CLIENT' && (c.portal ?? true),
+              sms: c.kind === 'CLIENT' && !!c.textOptIn && o.smsEnabled,
+            },
+          }),
+    }));
+    setNote('');
+  };
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
     setNote('');
@@ -1149,6 +1198,8 @@ function FormBody({
     if (!form.typeId) found.typeId = 'Choose an appointment type.';
     if (!form.allDay && minutes <= 0) found.end = 'End time must be after the start.';
     if (!form.staffUserIds.length) found.staff = 'Choose a staff member.';
+    if (!record && sendIntake && !intakeFormId)
+      found.intakeForm = 'Choose the intake form to send.';
     if (!found.contact && !found.typeId) {
       const result = ScheduleAppointmentRequest.safeParse({ idempotencyKey: key, ...fields() });
       if (!result.success) {
@@ -1192,8 +1243,13 @@ function FormBody({
     if (!c) return;
     const body = { ...fields(), contact: c };
     if (record) {
+      // Review 2 (R2): the repeat itself changes on this appointment alone; with another scope
+      // the change keeps the series' repeat as it is.
+      const { recurrence: _repeat, ...rest } = body;
       update.mutate(
-        { version: record.version, ...body },
+        record.seriesId && scope !== 'THIS'
+          ? { version: record.version, ...rest, scope }
+          : { version: record.version, ...body },
         {
           onSuccess: (r) => {
             forgetKept();
@@ -1207,6 +1263,8 @@ function FormBody({
         {
           idempotencyKey: key,
           ...body,
+          // Review 2 (row 9): the form to send, or none (null) when unchecked.
+          related: { ...body.related, intakeFormId: sendIntake ? intakeFormId : null },
           ...(taxPlanId ? { taxPlanId } : {}),
           // Review 2 (Save as Draft): the draft goes with the booking.
           ...(draftId ? { draftId } : {}),
@@ -1408,7 +1466,7 @@ function FormBody({
                         <li key={`${c.kind}-${c.id}`}>
                           <button
                             type="button"
-                            onClick={() => set('contact', c)}
+                            onClick={() => chooseContact(c)}
                             className="flex w-full flex-col items-start rounded-control px-2 py-1.5 text-left text-sm hover:bg-canvas"
                           >
                             <span className="font-semibold text-heading">{c.name}</span>
@@ -1818,9 +1876,10 @@ function FormBody({
                 key={k}
                 label={label}
                 checked={form.instructionsIn[k]}
-                onChange={(e) =>
-                  set('instructionsIn', { ...form.instructionsIn, [k]: e.target.checked })
-                }
+                onChange={(e) => {
+                  instructionsTouchedRef.current = true;
+                  set('instructionsIn', { ...form.instructionsIn, [k]: e.target.checked });
+                }}
                 className="min-h-8 text-sm"
               />
             ))}
@@ -1859,7 +1918,7 @@ function FormBody({
                         ? 'Choose the client first'
                         : linkable.length
                           ? 'No tax return'
-                          : 'No tax return with its service yet',
+                          : 'This client has no tax return yet',
                     },
                     ...linkable.map((r) => ({
                       value: r.id,
@@ -1868,19 +1927,48 @@ function FormBody({
                   ]}
                 />
               </div>
-              {[
-                'Link to Task',
-                'Link to Bookkeeping Client',
-                'Send Intake Form Before Appointment',
-                'Link to Invoice',
-                'Require Documents Before Appointment',
-              ].map((l) => (
-                <Checkbox key={l} label={l} disabled className="min-h-8 text-xs" />
-              ))}
+              {/* Review 2 (row 9): Link to Task, Bookkeeping Client, Invoice and Require
+                  Documents are not built yet, so they are not shown (her answer is pending). */}
+              {record ? (
+                record.related.intakeForm ? (
+                  <p data-testid="intake-sent" className="col-span-2 text-xs text-muted">
+                    Intake form: {record.related.intakeForm.name} (
+                    {record.related.intakeForm.completed ? 'Completed' : 'Sent'})
+                  </p>
+                ) : null
+              ) : (
+                <div data-testid="send-intake" className="col-span-2 flex flex-col gap-1">
+                  <Checkbox
+                    label="Send Intake Form Before Appointment"
+                    checked={sendIntake}
+                    disabled={!linkClientId || o.intakeForms.length === 0}
+                    onChange={(e) => setIntakeOn(e.target.checked)}
+                    className="min-h-8 text-xs"
+                  />
+                  {sendIntake ? (
+                    <Select
+                      label="Intake form"
+                      data-testid="intake-form"
+                      value={intakeFormId}
+                      error={errors.intakeForm}
+                      onChange={(e) => setIntakePick(e.target.value)}
+                      options={[
+                        { value: '', label: 'Choose a form' },
+                        ...o.intakeForms.map((f) => ({
+                          value: f.id,
+                          label: `${f.name} (${o.services.find((x) => x.id === f.serviceId)?.name ?? 'Other'})`,
+                        })),
+                      ]}
+                    />
+                  ) : null}
+                  <p className="text-xs text-muted">
+                    {linkClientId
+                      ? "Sent to the client's portal when you schedule. The Related Service's default form comes first, then the appointment type's."
+                      : 'Choose a client first: the form goes to their portal.'}
+                  </p>
+                </div>
+              )}
             </div>
-            <p className="text-xs text-muted">
-              Choose these on the appointment once the client is set.
-            </p>
           </Section>
 
           <Section small title="Client Reminders" icon={Bell} testId="client-reminders">
@@ -2280,6 +2368,27 @@ function FormBody({
         </Callout>
       </aside>
 
+      {record?.seriesId ? (
+        <fieldset
+          data-testid="edit-scope"
+          className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 min-[1440px]:col-span-2"
+        >
+          <legend className="sr-only">Apply the changes to</legend>
+          <span aria-hidden className="text-sm font-semibold text-heading">
+            Apply the changes to
+          </span>
+          {SeriesScope.options.map((value) => (
+            <Radio
+              key={value}
+              name="edit-scope"
+              value={value}
+              label={SERIES_SCOPE_LABELS[value]}
+              checked={scope === value}
+              onChange={() => setScope(value)}
+            />
+          ))}
+        </fieldset>
+      ) : null}
       <div className="flex flex-wrap items-center justify-end gap-3 min-[1440px]:col-span-2">
         {embedded ? (
           <button

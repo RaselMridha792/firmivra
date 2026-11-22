@@ -1059,7 +1059,7 @@ export class TaxPlansService {
         strategies,
         inputs: rows.map((r) => ({
           key: r.key,
-          label: inputDef(r.key)?.label ?? r.key,
+          label: inputDef(r.key, r.textValue)?.label ?? r.key,
           kind: r.kind,
           taxYear: r.taxYear,
           amountCents: r.amountCents,

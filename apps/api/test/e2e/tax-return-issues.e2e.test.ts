@@ -749,3 +749,94 @@ describe('another firm', () => {
     );
   });
 });
+
+describe('Tax Returns Review Two CR-3: a material change after approval', () => {
+  it('sends the return back to review, naming what changed, and asks the approved steps again', async () => {
+    const id = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2017,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+        preparerUserId: staffA.id,
+        reviewerUserId: adminA.id,
+      }),
+      TaxReturnDetail,
+      201,
+    ).id;
+    const stepName = 'Reviewer check (fake)';
+    const approveAll = async () => {
+      const list = ok(
+        await call('get', `/tax-returns/${id}/approvals`, adminA),
+        TaxApprovalList,
+      ).items;
+      for (const s of list.filter((x) => x.status === 'PENDING'))
+        ok(
+          await call('post', `/tax-returns/${id}/approvals/${s.id}/approve`, adminA, {}),
+          TaxApprovalList,
+        );
+    };
+    ok(
+      await call('post', `/tax-returns/${id}/approvals`, ownerA, {
+        step: stepName,
+        assignedUserId: adminA.id,
+      }),
+      TaxApprovalList,
+    );
+    await approveAll();
+    const toSignature = async () => {
+      for (const workflowStatus of ['READY_FOR_REVIEW', 'READY_FOR_SIGNATURE'] as const)
+        ok(
+          await call('post', `/tax-returns/${id}/status`, adminA, {
+            workflowStatus,
+            reason: 'Fake: moving on',
+          }),
+          TaxReturnDetail,
+        );
+    };
+    await toSignature();
+
+    // A change that is not material (the due date) leaves it where it is.
+    ok(
+      await call('patch', `/tax-returns/${id}/details`, adminA, { dueOn: '2018-04-17' }),
+      TaxReturnDetail,
+    );
+    expect(
+      ok(await call('get', `/tax-returns/${id}`, adminA), TaxReturnDetail).workflowStatus,
+    ).toBe('READY_FOR_SIGNATURE');
+
+    // A new form type: back to Ready for Review, the history names it, the step is asked again.
+    ok(
+      await call('patch', `/tax-returns/${id}/details`, adminA, { formType: '1040-SR' }),
+      TaxReturnDetail,
+    );
+    const back = ok(await call('get', `/tax-returns/${id}`, adminA), TaxReturnDetail);
+    expect(back.workflowStatus).toBe('READY_FOR_REVIEW');
+    expect(back.statusReason).toBe('Sent back to review: the form type changed after approval');
+    const steps = ok(await call('get', `/tax-returns/${id}/approvals`, adminA), TaxApprovalList)
+      .items.filter((x) => x.step === stepName)
+      .map((x) => x.status);
+    expect(steps).toEqual(['APPROVED', 'PENDING']);
+    const [moved] = await audits('tax_return.status_changed', id);
+    expect(moved!.metadata).toMatchObject({ to: 'READY_FOR_REVIEW', changed: ['formType'] });
+
+    // Approved again and past review: a new refund amount sends it back too.
+    await approveAll();
+    await toSignature();
+    const filing = ok(await call('get', `/tax-returns/${id}/filings`, adminA), TaxReturnFilingList)
+      .items[0]!;
+    ok(
+      await call('patch', `/tax-returns/${id}/filings/${filing.id}`, adminA, {
+        refundCents: 123_400,
+        amountStatus: 'FINAL',
+        amountSource: 'TAX_SOFTWARE',
+      }),
+      TaxReturnFilingList,
+    );
+    const again = ok(await call('get', `/tax-returns/${id}`, adminA), TaxReturnDetail);
+    expect([again.workflowStatus, again.statusReason]).toEqual([
+      'READY_FOR_REVIEW',
+      'Sent back to review: the refund or amount due changed after approval',
+    ]);
+  });
+});

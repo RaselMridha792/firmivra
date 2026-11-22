@@ -1060,20 +1060,19 @@ describe('status actions', () => {
       'compliance.deadline.reopened',
     ]);
     // Audit Log Review 2, R04a: each row holds the status before and after and each value it set
-    // or cleared; the confirmation number is "set", never its value; Reopen keeps the filed-on
-    // day and the number, and says so.
+    // or cleared; the confirmation number is written old to new (R04: her actual values);
+    // Reopen keeps the filed-on day and the number, and says so.
     const [completed] = await auditMetadata(d.id, 'compliance.deadline.completed');
     expect(completed).toMatchObject({
       from: 'WAITING_ON_CLIENT',
       to: 'COMPLETED',
       changes: {
         filedOn: { from: null, to: `${plus(-1)}T00:00:00.000Z` },
-        confirmationNumber: 'set',
+        confirmationNumber: { from: null, to: 'FAKE-123' },
         completedByUserId: { from: null, to: people.staffA.id },
         completedAt: { from: null, to: expect.any(String) },
       },
     });
-    expect(JSON.stringify(completed)).not.toContain('FAKE-123');
     const [reopenedRow] = await auditMetadata(d.id, 'compliance.deadline.reopened');
     expect(reopenedRow).toMatchObject({
       from: 'COMPLETED',
@@ -2936,6 +2935,17 @@ describe('recurring definitions', () => {
         ).description,
       ).toBe('Fake new words');
     }
+  });
+
+  it('Audit Log R03: a changed description is logged old to new, not just "changed"', async () => {
+    const r = await mk();
+    const patch = (body: object) =>
+      call('patch', `/compliance/recurrences/${r.id}`, people.ownerA, body);
+    expect((await patch({ description: 'Fake first words' })).status).toBe(200);
+    expect((await patch({ description: 'Fake second words' })).status).toBe(200);
+    const rows = await auditMetadata(r.id, 'compliance.recurrence.updated');
+    const last = rows.at(-1)?.['changes'] as Record<string, unknown>;
+    expect(last['description']).toEqual({ from: 'Fake first words', to: 'Fake second words' });
   });
 
   it('edits a definition, checking the whole of it', async () => {

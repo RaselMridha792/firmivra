@@ -136,8 +136,9 @@ export const FirmSettings = z.object({
   taxSeasonEnd: z.string().nullable().default(null),
   /**
    * Tax Returns Review 2: how the firm keeps a return's refund and amount due. ROUND_TO_DOLLAR
-   * stores each amount rounded half up to the dollar when it is saved (the audit keeps the figure
-   * as entered); EXACT keeps the cents. Missing (an older answer) reads as EXACT.
+   * ("Round up figures") stores each amount with any cents taken up to the next whole dollar when
+   * it is saved (the audit keeps the figure as entered); EXACT ("Keep exactly as entered") keeps
+   * the cents. Missing (an older answer) reads as EXACT.
    */
   taxAmountRounding: TaxAmountRounding.default('EXACT'),
   /** The latest change to any of these settings. */

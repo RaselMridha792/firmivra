@@ -69,7 +69,15 @@ test('Tax statuses: Maps to per label with a help note, and the amount rounding'
 
   const rounding = page.getByTestId('amount-rounding').getByLabel('Refunds and amounts due');
   await expect(rounding).toHaveValue('EXACT');
-  await rounding.selectOption({ label: 'Round to the dollar' });
+  // Tax Returns Review 2 (Rounding): her words for the two choices, and how precise they are.
+  await expect(rounding.locator('option')).toHaveText([
+    'Keep exactly as entered',
+    'Round up figures',
+  ]);
+  await expect(page.getByTestId('amount-rounding')).toContainText(
+    'Round up figures takes any cents up to the next whole dollar',
+  );
+  await rounding.selectOption({ label: 'Round up figures' });
   await expect(page.getByTestId('amount-rounding').getByText('Saved.')).toBeVisible();
   await expect(rounding).toHaveValue('ROUND_TO_DOLLAR');
 });

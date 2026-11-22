@@ -46,7 +46,9 @@ if (sslmode !== 'verify-full' && sslmode !== 'disable') {
   throw new Error(`DB_SSLMODE must be verify-full or disable, not ${sslmode}`);
 }
 const clientInput = process.env['LINK_CLIENT_ACCOUNT'];
-const clientEntry = clientInput ? parseLinkClient(clientInput) : null;
+const clientEntry = clientInput
+  ? parseLinkClient(clientInput, process.env['LINK_ALLOW_EXACT_EMAIL'])
+  : null;
 const entries = clientEntry ? [] : parseLinkUsers(required('LINK_USERS'));
 const firm = {
   slug: process.env['LINK_FIRM_SLUG'] ?? 'lvp',
