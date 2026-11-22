@@ -518,8 +518,7 @@ describe('tenant isolation (R8 step 2)', () => {
       for (const f of fields.filter((f) => f.includes('*')))
         problems.push(`${key}: ${f}: body ids under a record's keys aren't swept yet`);
       if (params.length === 0 && fields.length === 0) {
-        // A case can still exercise a tenant-context-only read route's positive control. There
-        // are no record identifiers to attack, so the general firm-list sweep checks its boundary.
+        if (c) problems.push(`${key} (${c.file}): has no record param or body id, so no case`);
         continue;
       }
       if (!c) {
