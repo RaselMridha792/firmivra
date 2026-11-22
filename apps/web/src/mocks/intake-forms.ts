@@ -622,15 +622,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
             status: 'FAILED',
             reason:
               'Nothing was sent: this client has no client portal login yet, and the form opens in the portal. Invite them to the portal, then use Resend.',
-            acceptedAt: null,
-            providerRef: null,
           }
-        : {
-            status: 'SENT',
-            reason: null,
-            acceptedAt: new Date().toISOString(),
-            providerRef: 'mock-message-id',
-          },
+        : { status: 'SENT', reason: null },
     };
   };
 
