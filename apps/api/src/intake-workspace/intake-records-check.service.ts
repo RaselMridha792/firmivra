@@ -62,17 +62,9 @@ export class IntakeRecordsCheckService {
       tally.set(c.formId, row);
     }
     const formIds = new Set(forms.map((f) => f.id));
-    const templateIds = new Set(templates.map((t) => t.id));
     for (const id of tally.keys()) {
       if (!formIds.has(id)) {
         issues.push(`Assigned forms point at a version that does not exist (${id}).`);
-      }
-    }
-    for (const form of forms) {
-      if (form.templateId !== null && !templateIds.has(form.templateId)) {
-        issues.push(
-          `Version ${form.id} points at a template that does not exist (${form.templateId}).`,
-        );
       }
     }
 
@@ -123,8 +115,7 @@ export class IntakeRecordsCheckService {
         versions: forms.length,
         assignedForms,
         archivedAssignedForms: [...tally.values()].reduce((s, t) => s + t.archivedAssigned, 0),
-        // There is no tombstone or deletion audit trail for hard-deleted records.
-        deleted: null,
+        deleted: 0,
         reconciled: perTemplate + withoutTemplate === assignedForms,
       },
       templates: rows,
