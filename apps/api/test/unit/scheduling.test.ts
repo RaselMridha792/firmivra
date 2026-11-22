@@ -237,6 +237,22 @@ describe('recurrence', () => {
     const r = expandRecurrence(TZ, jan31, { frequency: 'MONTHLY', interval: 1, count: 3 });
     expect(dates(r)).toEqual(['2026-01-31', '2026-02-28', '2026-03-31']);
   });
+  it('clamps leap-year month ends and returns to the original day when it exists', () => {
+    const lastDay = { start: at('2028-01-31', '09:00'), end: at('2028-01-31', '10:00') };
+    const r = expandRecurrence(TZ, lastDay, { frequency: 'MONTHLY', interval: 1, count: 4 });
+    expect(dates(r)).toEqual(['2028-01-31', '2028-02-29', '2028-03-31', '2028-04-30']);
+  });
+  it('repeats February 29 every 12 months and restores it in the next leap year', () => {
+    const leapDay = { start: at('2028-02-29', '09:00'), end: at('2028-02-29', '10:00') };
+    const r = expandRecurrence(TZ, leapDay, { frequency: 'MONTHLY', interval: 12, count: 5 });
+    expect(dates(r)).toEqual([
+      '2028-02-29',
+      '2029-02-28',
+      '2030-02-28',
+      '2031-02-28',
+      '2032-02-29',
+    ]);
+  });
   it('keeps the wall-clock time across a daylight saving change', () => {
     const ny = { start: at('2026-10-28', '10:00', NY), end: at('2026-10-28', '11:00', NY) };
     const r = expandRecurrence(NY, ny, { frequency: 'WEEKLY', interval: 1, count: 2 });
@@ -246,6 +262,38 @@ describe('recurrence', () => {
     expect(r.ok && new Date(r.occurrences[1]?.start ?? 0).toISOString()).toBe(
       '2026-11-04T15:00:00.000Z',
     );
+  });
+  it.each([
+    ['2027-03-14', '2027-03-21T14:00:00.000Z'],
+    ['2027-11-07', '2027-11-14T15:00:00.000Z'],
+  ])('keeps 10:00 when the first occurrence is on the DST change day %s', (date, nextStart) => {
+    const anchor = { start: at(date, '10:00', NY), end: at(date, '11:00', NY) };
+    const r = expandRecurrence(NY, anchor, { frequency: 'WEEKLY', interval: 1, count: 2 });
+    expect(r.ok && r.occurrences[1]?.start).toBe(Date.parse(nextStart));
+  });
+  it.each([
+    ['2027-03-13T07:30:00Z', '2027-03-14T07:30:00Z'],
+    ['2027-11-06T05:30:00Z', '2027-11-07T05:30:00Z'],
+  ])('maps skipped and repeated hours forward or to the first instance (%s)', (anchor, next) => {
+    const start = Date.parse(anchor);
+    const r = expandRecurrence(
+      NY,
+      { start, end: start + 30 * 60_000 },
+      {
+        frequency: 'DAILY',
+        interval: 1,
+        count: 2,
+      },
+    );
+    expect(r.ok && r.occurrences[1]?.start).toBe(Date.parse(next));
+  });
+  it('keeps the elapsed length of an overnight occurrence across a clock change', () => {
+    const anchor = { start: at('2027-11-05', '23:30', NY), end: at('2027-11-06', '01:30', NY) };
+    const r = expandRecurrence(NY, anchor, { frequency: 'DAILY', interval: 1, count: 3 });
+    expect(r.ok && r.occurrences[1]).toEqual({
+      start: Date.parse('2027-11-07T03:30:00Z'),
+      end: Date.parse('2027-11-07T05:30:00Z'),
+    });
   });
   it('needs exactly one end, refuses custom repeats and more than 52', () => {
     expect(expandRecurrence(TZ, first, { frequency: 'DAILY', interval: 1 }).ok).toBe(false);
