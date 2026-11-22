@@ -166,11 +166,11 @@ describe('form builder: sections to the engine', () => {
     );
     const second = toDefinition({ title: 'y', settings: { showProgressBar: false } }, first);
     expect(second.subtitle).toBe('Fake description');
-    // Intake 1: Require e-signature defaults off unless the form or prior settings enable it.
+    // Intake Review 2 23-h: Require e-signature is always on, so every save keeps it on.
     expect(second.formSettings).toEqual({
       expiresAfterDays: 9,
       showProgressBar: false,
-      requireSignature: false,
+      requireSignature: true,
     });
     expect(second.steps).toEqual(first.steps);
   });
