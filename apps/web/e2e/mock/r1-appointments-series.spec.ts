@@ -147,7 +147,7 @@ for (const [scope, label] of choices) {
       page.waitForRequest(
         (r) => r.url().endsWith(`/${appointmentId}/details`) && r.method() === 'PATCH',
       ),
-      page.getByRole('button', { name: 'Save Changes' }).click(),
+      page.getByRole('button', { name: 'Save Changes' }).press('Enter'),
     ]);
     const body = UpdateAppointmentDetailsRequest.parse(request.postDataJSON());
     expect(body.scope ?? 'THIS').toBe(scope);

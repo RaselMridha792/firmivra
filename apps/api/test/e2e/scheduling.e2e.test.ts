@@ -1454,9 +1454,52 @@ describe('schedule', () => {
 });
 
 describe('Review 2 (R2): edit and cancel a series', () => {
+  const login = { id: randomUUID(), email: `r2-${run}@client.test` };
+  let clientId: string;
+  let nextSeriesDay = 500;
+
+  beforeAll(async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      await runInScope(owner, { kind: 'platform' }, (tx) =>
+        tx.user.create({
+          data: {
+            id: login.id,
+            cognitoSub: login.id,
+            pool: 'CLIENT',
+            email: login.email,
+            name: 'Fake series client',
+          },
+        }),
+      );
+      clientId = await asOwner(ids.firmA, async (tx) => {
+        const client = await tx.client.create({
+          data: { businessId: ids.firmA, displayName: 'Fake series client' },
+          select: { id: true },
+        });
+        await tx.clientAccount.create({
+          data: {
+            businessId: ids.firmA,
+            userId: login.id,
+            clientId: client.id,
+            email: login.email,
+            portalRole: 'PRIMARY',
+            status: 'ACTIVE',
+          },
+        });
+        return client.id;
+      });
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
   const series = async () => {
-    const n = freshDay() + 300;
+    // Reserve four weeks for each case, outside the dates the other scheduling tests book.
+    const n = nextSeriesDay;
+    nextSeriesDay += 28;
     const r = await scheduled({
+      contact: { kind: 'CLIENT', id: clientId },
       startsAt: at(n, '10:00'),
       endsAt: at(n, '10:30'),
       recurrence: { frequency: 'WEEKLY', interval: 1, count: 4 },
@@ -1481,8 +1524,29 @@ describe('Review 2 (R2): edit and cancel a series', () => {
       }),
     );
 
+  const expectNotices = (
+    since: number,
+    template: 'appointment.changed' | 'appointment.cancelled',
+    dates: number[],
+    time: string,
+  ) => {
+    const messages = outbox.slice(since).filter((notice) => notice.template === template);
+    expect(messages).toHaveLength(dates.length);
+    expect(messages).toEqual(
+      expect.arrayContaining(
+        dates.map((date) =>
+          expect.objectContaining({
+            to: login.email,
+            data: expect.objectContaining({ startsAt: new Date(at(date, time)) }),
+          }),
+        ),
+      ),
+    );
+  };
+
   it('Edit: This and later moves each later one by the same amount and gives them the change; the repeat changes on one alone', async () => {
     const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
     const second = exact(
       AppointmentRecord,
       await call('get', `/appointments/${s[1]}/record`, people.ownerA),
@@ -1514,10 +1578,12 @@ describe('Review 2 (R2): edit and cancel a series', () => {
         internalNotes: 'Fake: moved half an hour',
       })),
     ]);
+    expectNotices(beforeNotices, 'appointment.changed', [n + 7, n + 14, n + 21], '10:30');
   });
 
   it('Edit: SERIES moves every scheduled occurrence by the same amount', async () => {
     const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
     const second = exact(
       AppointmentRecord,
       await call('get', `/appointments/${s[1]}/record`, people.ownerA),
@@ -1544,10 +1610,12 @@ describe('Review 2 (R2): edit and cancel a series', () => {
         internalNotes: 'Fake: whole series moved',
       })),
     ]);
+    expectNotices(beforeNotices, 'appointment.changed', [n, n + 7, n + 14, n + 21], '11:00');
   });
 
   it('Edit: THIS changes only that one occurrence in a series', async () => {
     const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
     const second = exact(
       AppointmentRecord,
       await call('get', `/appointments/${s[1]}/record`, people.ownerA),
@@ -1572,6 +1640,7 @@ describe('Review 2 (R2): edit and cancel a series', () => {
       { status: 'SCHEDULED', startsAt: new Date(at(n + 14, '10:00')), internalNotes: null },
       { status: 'SCHEDULED', startsAt: new Date(at(n + 21, '10:00')), internalNotes: null },
     ]);
+    expectNotices(beforeNotices, 'appointment.changed', [n + 7], '11:00');
   });
 
   it.each([
@@ -1672,13 +1741,18 @@ describe('Review 2 (R2): edit and cancel a series', () => {
       statuses: ['SCHEDULED', 'CANCELLED', 'SCHEDULED', 'SCHEDULED'],
     },
   ])('Cancel: $label cancels exactly the intended occurrences', async ({ scope, statuses }) => {
-    const { ids: s } = await series();
+    const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
     const cancelled = exact(
       Appointment,
       await call('post', `/appointments/${s[1]}/cancel`, people.ownerA, { scope }),
     );
     expect(cancelled).toMatchObject({ id: s[1], status: 'CANCELLED' });
     expect((await state(s)).map((x) => x.status)).toEqual(statuses);
+    const cancelledDates = statuses.flatMap((status, index) =>
+      status === 'CANCELLED' ? [n + index * 7] : [],
+    );
+    expectNotices(beforeNotices, 'appointment.cancelled', cancelledDates, '10:00');
   });
 });
 
