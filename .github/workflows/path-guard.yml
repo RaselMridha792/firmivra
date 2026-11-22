@@ -235,7 +235,7 @@ jobs:
           const FIX_PHASE_END = new Date('2026-12-01T00:00:00+06:00');
           const FIX_PHASE = ['apps/web/', 'apps/api/', 'packages/types/', 'packages/ui/', 'docs/qa/'];
           const files = [...dev.files, ...extra, ...(Date.now() < FIX_PHASE_END.getTime() ? FIX_PHASE : [])];
-          const except = dev.except ?? [];
+          const except = Date.now() < FIX_PHASE_END.getTime() ? [] : (dev.except ?? []);
           const allowed = (file) => files.some((p) => matches(p, file)) && !except.some((p) => matches(p, file));
           // A rename changes two paths: both must be the developer's.
           const changed = readFileSync(filesPath, 'utf8')
