@@ -1,6 +1,6 @@
 import type { IntakeFormDetail } from '@firmivra/types';
 import { describe, expect, it } from 'vitest';
-import { blankQuestion, checkDraft, fromDetail, toRequest } from './builder-draft';
+import { blankQuestion, checkDraft, fromDetail } from './builder-draft';
 
 /**
  * A saved form as the builder gets it: a State list the engine fills (a dropdown with no choices)
@@ -63,13 +63,6 @@ describe('checkDraft on Publish (I3)', () => {
     expect(checkDraft(draft, true)).toEqual({
       [`question:${added.key}`]: 'Add at least one choice',
     });
-  });
-
-  it('keeps Require e-signature off when loading and saving a draft', () => {
-    const form = { ...saved, settings: { ...saved.settings, requireSignature: false } };
-    const draft = fromDetail(form);
-    expect(draft.settings.requireSignature).toBe(false);
-    expect(toRequest(draft).settings?.requireSignature).toBe(false);
   });
 
   it('still asks for a question after a section break added in the builder', () => {

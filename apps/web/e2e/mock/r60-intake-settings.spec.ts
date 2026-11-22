@@ -19,12 +19,12 @@ test('shows the numbers, the six cards, the checklist and the side frames', asyn
   await openSettings(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Intake Form Settings' })).toBeVisible();
 
-  // The mock's defaults: 9 of the 14 switches on, reminders scheduled, no rules, e-sign off.
-  await expect(page.getByTestId('kpi-active')).toContainText('9');
+  // The mock's defaults: 10 of the 14 switches on, reminders scheduled, no rules, e-sign on.
+  await expect(page.getByTestId('kpi-active')).toContainText('10');
   await expect(page.getByTestId('kpi-active')).toContainText('Active Settings');
   await expect(page.getByTestId('kpi-reminders')).toContainText('On');
   await expect(page.getByTestId('kpi-rules')).toContainText('0');
-  await expect(page.getByTestId('kpi-esign')).toContainText('Off');
+  await expect(page.getByTestId('kpi-esign')).toContainText('Enabled');
 
   for (const name of [
     'General Settings',
@@ -39,14 +39,14 @@ test('shows the numbers, the six cards, the checklist and the side frames', asyn
   await expect(page.getByRole('combobox', { name: 'First reminder' })).toHaveValue('4320');
   // Octavia's I11: encryption is a label, not a switch.
   await expect(page.getByText('Encrypted file uploads', { exact: true })).toBeVisible();
-  // Encryption stays on; e-signature is a user-controlled switch.
+  // Encrypted file uploads (Security), and Require e-signature (General, Intake Review 2 23-h).
   await expect(
     page.getByTestId('settings-card-security').getByText('Always on', { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('switch', { name: /encrypted/i })).toHaveCount(0);
   await expect(
-    page.getByTestId('settings-card-general').getByRole('switch', { name: 'Require e-signature' }),
+    page.getByTestId('settings-card-general').getByText('Always on', { exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole('switch', { name: /encrypted/i })).toHaveCount(0);
 
   // Real checks, not ticks for every switch: no default owner yet, no automation rules.
   const checklist = page.getByTestId('settings-checklist');
@@ -84,7 +84,7 @@ test('a switch saves, and Recent Changes shows it', async ({ page }) => {
   await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
   await expect(page.getByTestId('unsaved')).toBeHidden();
   await expect(task).toHaveAttribute('aria-checked', 'true');
-  await expect(page.getByTestId('kpi-active')).toContainText('10');
+  await expect(page.getByTestId('kpi-active')).toContainText('11');
   await expect(page.getByTestId('recent-changes')).toContainText('Intake settings updated');
 });
 
@@ -309,19 +309,13 @@ test('Submission Rules opens its own settings and rules', async ({ page }) => {
   await expect(panel).toBeVisible();
   for (const name of ['Consent checkbox required', 'Allow save and resume'])
     await expect(panel.getByRole('switch', { name })).toBeVisible();
-  const signature = panel.getByRole('switch', { name: 'Require e-signature' });
-  await expect(signature).toBeVisible();
-  await expect(signature).not.toBeChecked();
-  await signature.click();
-  await panel.getByRole('button', { name: 'Save Changes' }).click();
-  await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
-  await expect(page.getByRole('switch', { name: 'Require e-signature' })).toBeChecked();
-  await page.getByRole('button', { name: 'Submission Rules', exact: true }).click();
-  const savedPanel = page.getByRole('dialog', { name: 'Submission Rules' });
-  await expect(savedPanel.getByRole('combobox', { name: 'Default form expiration' })).toHaveValue(
-    '14',
+  // Intake Review 2 23-h (R1): Require e-signature is fixed on, like encryption.
+  await expect(panel.getByRole('switch', { name: 'Require e-signature' })).toHaveCount(0);
+  await expect(panel).toContainText(
+    "Always on: each submission signs your firm's agreements, which keeps a legal record.",
   );
-  await expect(savedPanel.getByTestId('submission-rules')).toContainText(
+  await expect(panel.getByRole('combobox', { name: 'Default form expiration' })).toHaveValue('14');
+  await expect(panel.getByTestId('submission-rules')).toContainText(
     'After a client submits, the answers are locked for them.',
   );
   await expect(page.getByText('Go to General Settings')).toHaveCount(0);

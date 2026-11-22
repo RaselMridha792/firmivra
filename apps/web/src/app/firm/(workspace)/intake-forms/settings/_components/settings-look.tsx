@@ -243,6 +243,11 @@ export function ToggleRow({
   );
 }
 
+/** A setting that cannot change, shown as its value ("Always on"), not as a switch. */
+/** Intake Review 2 23-h (lead, Nov 17): why Require e-signature can't be turned off. */
+export const SIGN_NOTE =
+  "Always on: each submission signs your firm's agreements, which keeps a legal record.";
+
 export function FixedRow({
   label,
   value,
