@@ -1454,9 +1454,52 @@ describe('schedule', () => {
 });
 
 describe('Review 2 (R2): edit and cancel a series', () => {
+  const login = { id: randomUUID(), email: `r2-${run}@client.test` };
+  let clientId: string;
+  let nextSeriesDay = 500;
+
+  beforeAll(async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      await runInScope(owner, { kind: 'platform' }, (tx) =>
+        tx.user.create({
+          data: {
+            id: login.id,
+            cognitoSub: login.id,
+            pool: 'CLIENT',
+            email: login.email,
+            name: 'Fake series client',
+          },
+        }),
+      );
+      clientId = await asOwner(ids.firmA, async (tx) => {
+        const client = await tx.client.create({
+          data: { businessId: ids.firmA, displayName: 'Fake series client' },
+          select: { id: true },
+        });
+        await tx.clientAccount.create({
+          data: {
+            businessId: ids.firmA,
+            userId: login.id,
+            clientId: client.id,
+            email: login.email,
+            portalRole: 'PRIMARY',
+            status: 'ACTIVE',
+          },
+        });
+        return client.id;
+      });
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
   const series = async () => {
-    const n = freshDay() + 300;
+    // Reserve four weeks for each case, outside the dates the other scheduling tests book.
+    const n = nextSeriesDay;
+    nextSeriesDay += 28;
     const r = await scheduled({
+      contact: { kind: 'CLIENT', id: clientId },
       startsAt: at(n, '10:00'),
       endsAt: at(n, '10:30'),
       recurrence: { frequency: 'WEEKLY', interval: 1, count: 4 },
@@ -1466,10 +1509,11 @@ describe('Review 2 (R2): edit and cancel a series', () => {
       tx.appointment.findMany({
         where: { businessId: ids.firmA, seriesId: r.seriesId },
         orderBy: { startsAt: 'asc' },
-        select: { id: true, updatedAt: true },
+        select: { id: true },
       }),
     );
-    return { n, ids: rows.map((x) => x.id), rows };
+    expect(rows).toHaveLength(4);
+    return { n, ids: rows.map((x) => x.id) };
   };
   const state = async (seriesIds: string[]) =>
     asOwner(ids.firmA, (tx) =>
@@ -1480,8 +1524,29 @@ describe('Review 2 (R2): edit and cancel a series', () => {
       }),
     );
 
+  const expectNotices = (
+    since: number,
+    template: 'appointment.changed' | 'appointment.cancelled',
+    dates: number[],
+    time: string,
+  ) => {
+    const messages = outbox.slice(since).filter((notice) => notice.template === template);
+    expect(messages).toHaveLength(dates.length);
+    expect(messages).toEqual(
+      expect.arrayContaining(
+        dates.map((date) =>
+          expect.objectContaining({
+            to: login.email,
+            data: expect.objectContaining({ startsAt: new Date(at(date, time)) }),
+          }),
+        ),
+      ),
+    );
+  };
+
   it('Edit: This and later moves each later one by the same amount and gives them the change; the repeat changes on one alone', async () => {
-    const { n, ids: s, rows } = await series();
+    const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
     const second = exact(
       AppointmentRecord,
       await call('get', `/appointments/${s[1]}/record`, people.ownerA),
@@ -1513,36 +1578,109 @@ describe('Review 2 (R2): edit and cancel a series', () => {
         internalNotes: 'Fake: moved half an hour',
       })),
     ]);
-    expect(rows).toHaveLength(4);
+    expectNotices(beforeNotices, 'appointment.changed', [n + 7, n + 14, n + 21], '10:30');
   });
 
-  it('Edit: This and later keeps the wall-clock time across a daylight saving change', async () => {
-    const CHI = 'America/Chicago';
-    const local = (date: string, time: string) =>
-      new Date(zonedInstant(CHI, date, minutesOf(time))).toISOString();
-    const settings = () =>
-      asOwner(ids.firmA, (tx) =>
-        tx.businessSettings.findFirstOrThrow({
-          where: { businessId: ids.firmA },
-          select: { timezone: true },
-        }),
-      );
-    const setZone = (timezone: string) =>
-      asOwner(ids.firmA, (tx) =>
-        tx.businessSettings.updateMany({ where: { businessId: ids.firmA }, data: { timezone } }),
-      );
-    const original = (await settings()).timezone;
-    await setZone(CHI);
-    try {
-      // Mondays at 10:00 Chicago: Oct 27, Nov 3 (after the clocks go back on Nov 2), Nov 10, Nov 17.
+  it('Edit: SERIES moves every scheduled occurrence by the same amount', async () => {
+    const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
+    const second = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${s[1]}/record`, people.ownerA),
+    );
+    exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${s[1]}/details`, people.ownerA, {
+        version: second.version,
+        scope: 'SERIES',
+        startsAt: at(n + 7, '11:00'),
+        endsAt: at(n + 7, '11:30'),
+        internalNotes: 'Fake: whole series moved',
+      }),
+    );
+    expect(await state(s)).toEqual([
+      {
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n, '11:00')),
+        internalNotes: 'Fake: whole series moved',
+      },
+      ...[7, 14, 21].map((d) => ({
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n + d, '11:00')),
+        internalNotes: 'Fake: whole series moved',
+      })),
+    ]);
+    expectNotices(beforeNotices, 'appointment.changed', [n, n + 7, n + 14, n + 21], '11:00');
+  });
+
+  it('Edit: THIS changes only that one occurrence in a series', async () => {
+    const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
+    const second = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${s[1]}/record`, people.ownerA),
+    );
+    exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${s[1]}/details`, people.ownerA, {
+        version: second.version,
+        scope: 'THIS',
+        startsAt: at(n + 7, '11:00'),
+        endsAt: at(n + 7, '11:30'),
+        internalNotes: 'Fake: only this one',
+      }),
+    );
+    expect(await state(s)).toEqual([
+      { status: 'SCHEDULED', startsAt: new Date(at(n, '10:00')), internalNotes: null },
+      {
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n + 7, '11:00')),
+        internalNotes: 'Fake: only this one',
+      },
+      { status: 'SCHEDULED', startsAt: new Date(at(n + 14, '10:00')), internalNotes: null },
+      { status: 'SCHEDULED', startsAt: new Date(at(n + 21, '10:00')), internalNotes: null },
+    ]);
+    expectNotices(beforeNotices, 'appointment.changed', [n + 7], '11:00');
+  });
+
+  it.each([
+    {
+      transition: 'spring forward',
+      occurrences: [
+        ['2031-02-23', '-06:00'],
+        ['2031-03-01', '-06:00'],
+        ['2031-03-08', '-06:00'],
+        ['2031-03-15', '-05:00'],
+      ],
+    },
+    {
+      transition: 'fall back',
+      occurrences: [
+        ['2031-10-19', '-05:00'],
+        ['2031-10-25', '-05:00'],
+        ['2031-11-01', '-05:00'],
+        ['2031-11-08', '-06:00'],
+      ],
+    },
+  ] as const)(
+    'Edit: This and later keeps wall-clock times during $transition',
+    async ({ occurrences }) => {
+      const timezone = 'America/Chicago';
+      const local = ([date, offset]: readonly [string, string], time: string) =>
+        new Date(`${date}T${time}:00${offset}`);
+      // The firm uses Asia/Kolkata. Book four Sundays in Chicago with the transition on the
+      // third. Move the second and later to Saturdays, crossing the offset change on that one.
+      const [first, selected] = occurrences;
+      const overrideConflicts = { reason: 'Fake: test a time outside firm working hours' };
       const r = await scheduled({
-        startsAt: local('2031-10-27', '10:00'),
-        endsAt: local('2031-10-27', '10:30'),
-        timezone: CHI,
-        overrideConflicts: { reason: 'Fake: a fixed far date for the test' },
+        startsAt: local(first, '10:00').toISOString(),
+        endsAt: local(first, '10:30').toISOString(),
+        timezone,
+        overrideConflicts,
         recurrence: { frequency: 'WEEKLY', interval: 1, count: 4 },
         sendConfirmation: false,
       });
+      expect(r.timezone).toBe(timezone);
       const rows = await asOwner(ids.firmA, (tx) =>
         tx.appointment.findMany({
           where: { businessId: ids.firmA, seriesId: r.seriesId },
@@ -1555,73 +1693,66 @@ describe('Review 2 (R2): edit and cancel a series', () => {
         AppointmentRecord,
         await call('get', `/appointments/${rows[1]?.id}/record`, people.ownerA),
       );
-      // This one (Nov 3) moves a day later, and later ones follow by a calendar day, not by 24 hours.
       exact(
         AppointmentRecord,
         await call('patch', `/appointments/${rows[1]?.id}/details`, people.ownerA, {
           version: second.version,
           scope: 'FOLLOWING',
-          timezone: CHI,
-          overrideConflicts: { reason: 'Fake: a fixed far date for the test' },
-          startsAt: local('2031-11-04', '10:00'),
-          endsAt: local('2031-11-04', '10:30'),
+          overrideConflicts,
+          startsAt: local(selected, '10:30').toISOString(),
+          endsAt: local(selected, '11:00').toISOString(),
         }),
       );
       const after = await asOwner(ids.firmA, (tx) =>
         tx.appointment.findMany({
-          where: { businessId: ids.firmA, id: { in: rows.map((x) => x.id) } },
+          where: { businessId: ids.firmA, seriesId: r.seriesId },
           orderBy: { startsAt: 'asc' },
-          select: { startsAt: true },
+          select: { startsAt: true, endsAt: true },
         }),
       );
-      expect(after.map((x) => x.startsAt.toISOString())).toEqual([
-        local('2031-10-27', '10:00'),
-        local('2031-11-04', '10:00'),
-        local('2031-11-11', '10:00'),
-        local('2031-11-18', '10:00'),
-      ]);
-    } finally {
-      await setZone(original);
-    }
-  });
+      expect(after).toEqual(
+        occurrences.map((occurrence, i) => ({
+          startsAt: local(occurrence, i === 0 ? '10:00' : '10:30'),
+          endsAt: local(occurrence, i === 0 ? '10:30' : '11:00'),
+        })),
+      );
+    },
+  );
 
-  it('Cancel: This and later cancels it and the later ones; All cancels every one still ahead', async () => {
-    const { ids: s } = await series();
-    exact(
+  it.each([
+    {
+      label: 'THIS',
+      scope: 'THIS',
+      statuses: ['SCHEDULED', 'CANCELLED', 'SCHEDULED', 'SCHEDULED'],
+    },
+    {
+      label: 'FOLLOWING',
+      scope: 'FOLLOWING',
+      statuses: ['SCHEDULED', 'CANCELLED', 'CANCELLED', 'CANCELLED'],
+    },
+    {
+      label: 'SERIES',
+      scope: 'SERIES',
+      statuses: ['CANCELLED', 'CANCELLED', 'CANCELLED', 'CANCELLED'],
+    },
+    {
+      label: 'default',
+      scope: undefined,
+      statuses: ['SCHEDULED', 'CANCELLED', 'SCHEDULED', 'SCHEDULED'],
+    },
+  ])('Cancel: $label cancels exactly the intended occurrences', async ({ scope, statuses }) => {
+    const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
+    const cancelled = exact(
       Appointment,
-      await call('post', `/appointments/${s[2]}/cancel`, people.ownerA, {
-        scope: 'FOLLOWING',
-        reason: 'Fake: the rest is off',
-      }),
+      await call('post', `/appointments/${s[1]}/cancel`, people.ownerA, { scope }),
     );
-    expect((await state(s)).map((x) => x.status)).toEqual([
-      'SCHEDULED',
-      'SCHEDULED',
-      'CANCELLED',
-      'CANCELLED',
-    ]);
-    exact(
-      Appointment,
-      await call('post', `/appointments/${s[1]}/cancel`, people.ownerA, { scope: 'SERIES' }),
+    expect(cancelled).toMatchObject({ id: s[1], status: 'CANCELLED' });
+    expect((await state(s)).map((x) => x.status)).toEqual(statuses);
+    const cancelledDates = statuses.flatMap((status, index) =>
+      status === 'CANCELLED' ? [n + index * 7] : [],
     );
-    expect((await state(s)).map((x) => x.status)).toEqual([
-      'CANCELLED',
-      'CANCELLED',
-      'CANCELLED',
-      'CANCELLED',
-    ]);
-    // Without a scope, as before: this one alone.
-    const other = await series();
-    exact(
-      Appointment,
-      await call('post', `/appointments/${other.ids[0]}/cancel`, people.ownerA, {}),
-    );
-    expect((await state(other.ids)).map((x) => x.status)).toEqual([
-      'CANCELLED',
-      'SCHEDULED',
-      'SCHEDULED',
-      'SCHEDULED',
-    ]);
+    expectNotices(beforeNotices, 'appointment.cancelled', cancelledDates, '10:00');
   });
 });
 
