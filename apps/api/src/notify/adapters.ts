@@ -43,8 +43,8 @@ export class NotifyClientCodeSender implements ClientCodeSender {
     private readonly logger: Log = new Logger('ClientCodeSender'),
   ) {}
 
-  emailCode(m: Parameters<ClientCodeSender['emailCode']>[0]): Promise<void> {
-    return this.notify.send({
+  async emailCode(m: Parameters<ClientCodeSender['emailCode']>[0]): Promise<void> {
+    await this.notify.send({
       template: 'client.signup-email-code',
       to: m.to,
       businessId: m.businessId,
@@ -62,8 +62,8 @@ export class NotifyClientCodeSender implements ClientCodeSender {
     });
   }
 
-  alreadyRegistered(m: Parameters<ClientCodeSender['alreadyRegistered']>[0]): Promise<void> {
-    return this.notify.send({
+  async alreadyRegistered(m: Parameters<ClientCodeSender['alreadyRegistered']>[0]): Promise<void> {
+    await this.notify.send({
       template: 'client.already-registered',
       to: m.to,
       businessId: m.businessId,
@@ -71,8 +71,8 @@ export class NotifyClientCodeSender implements ClientCodeSender {
     });
   }
 
-  signUpApproved(m: Parameters<ClientCodeSender['signUpApproved']>[0]): Promise<void> {
-    return this.notify.send({
+  async signUpApproved(m: Parameters<ClientCodeSender['signUpApproved']>[0]): Promise<void> {
+    await this.notify.send({
       template: 'client.signup-approved',
       to: m.to,
       businessId: m.businessId,
@@ -80,8 +80,8 @@ export class NotifyClientCodeSender implements ClientCodeSender {
     });
   }
 
-  signUpDeclined(m: Parameters<ClientCodeSender['signUpDeclined']>[0]): Promise<void> {
-    return this.notify.send({
+  async signUpDeclined(m: Parameters<ClientCodeSender['signUpDeclined']>[0]): Promise<void> {
+    await this.notify.send({
       template: 'client.signup-declined',
       to: m.to,
       businessId: m.businessId,

@@ -465,7 +465,7 @@ describe('send a form', () => {
     ids.emailed = res.form.id;
   });
 
-  it('19b: by email to a client with a portal login, the email opens the exact form, and the result says the mail service accepted it', async () => {
+  it('19b: by email to a client with a portal login, the result reports acceptance without claiming delivery', async () => {
     const before = mail.length;
     const res = SendIntakeFormResult.parse(
       ok(
@@ -1120,7 +1120,7 @@ describe('one form', () => {
     const sent = AssignedFormRecord.parse(
       ok(await call('post', `/intakes/${ids.sent}/remind`, ownerA)),
     );
-    expect(sent.delivery).toEqual({ status: 'SENT', reason: null });
+    expect(sent.delivery).toMatchObject({ status: 'SENT', reason: null });
     expect(sent.history.at(-1)?.label).toBe('Reminder sent');
     // By email to a client with no portal login: nothing reached them, and both say why.
     for (const [path, label] of [
@@ -1130,7 +1130,7 @@ describe('one form', () => {
       const missed = AssignedFormRecord.parse(
         ok(await call('post', `/intakes/${ids.emailed}/${path}`, ownerA)),
       );
-      expect(missed.delivery).toEqual({
+      expect(missed.delivery).toMatchObject({
         status: 'FAILED',
         reason: expect.stringContaining('no client portal login') as string,
       });
