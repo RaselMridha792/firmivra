@@ -5,8 +5,11 @@ import { expect, type Page, test } from '@playwright/test';
 // Publish in client portal), and the shared link's page, which starts the form for anyone. Mock
 // mode (playwright.mock.config.ts) as the Owner. Synthetic data only.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
+const httpsPort = String(Number(process.env['WEB_PORT'] ?? '3000') + 2);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 const portal = (path: string) => `http://portal.localhost:${port}${path}`;
+const httpsPortal = (path: string) => `https://portal.localhost:${httpsPort}${path}`;
+const testWebsite = `https://portal.localhost:${httpsPort}`;
 /** A share token as the mock makes them (mocks/intake-forms.ts): 32 hex characters + 11. */
 const TOKEN = '0199c0d00f0070008000000000000002mockshare00';
 
@@ -67,4 +70,48 @@ test('the shared link starts the form for anyone; a dead link says so', async ({
   await expect(page.getByTestId('share-invalid')).toContainText(
     'This form link is not available any more',
   );
+});
+
+test('the published form frames on an approved website and reports its height', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route(`${testWebsite}/intake`, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: `<!doctype html><html><body style="margin:0;padding:24px;font-family:Arial,sans-serif"><h1>Test website</h1><iframe id="intake" title="Intake form" src="${httpsPortal(`/lvp/start/${TOKEN}`)}" style="display:block;width:100%;height:520px;border:1px solid #94a3b8"></iframe><script>window.addEventListener('message',event=>{if(event.data?.type==='firmivra:height'&&typeof event.data.height==='number'){document.querySelector('#intake').style.height=event.data.height+'px'}})</script></body></html>`,
+    }),
+  );
+  await page.addInitScript(() => {
+    (window as unknown as { heights: number[] }).heights = [];
+    window.addEventListener('message', (event) => {
+      if (event.data?.type === 'firmivra:height' && typeof event.data.height === 'number') {
+        (window as unknown as { heights: number[] }).heights.push(event.data.height);
+        const frame = document.querySelector<HTMLIFrameElement>('#intake');
+        if (frame) frame.style.height = `${event.data.height}px`;
+      }
+    });
+  });
+
+  await page.goto(`${testWebsite}/intake`);
+  const frame = page.frameLocator('#intake');
+  await expect(frame.getByLabel('First Name *')).toBeVisible();
+  await expect(frame.locator('html')).toHaveAttribute('data-framed', '');
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { heights: number[] }).heights))
+    .toEqual(expect.arrayContaining([expect.any(Number)]));
+  await page.screenshot({ path: 'e2e/mock/screenshots/q45-intake-framed.png' });
+
+  // A portal sign-in link clicked from the embedded form must leave the frame.
+  const signIn = frame.getByRole('link', { name: 'Client Portal', exact: true });
+  const popupPromise = page.waitForEvent('popup');
+  await signIn.click();
+  const popup = await popupPromise;
+  await expect(popup).toHaveURL(/\/lvp\/sign-in$/);
+  await expect(signIn).toHaveAttribute('target', '_blank');
+  await expect(signIn).toHaveAttribute('rel', 'noopener');
+  await popup.close();
+  await context.close();
 });
