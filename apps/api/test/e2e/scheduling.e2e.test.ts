@@ -1515,6 +1515,64 @@ describe('Review 2 (R2): edit and cancel a series', () => {
     expect(rows).toHaveLength(4);
   });
 
+  it('Edit: SERIES moves every scheduled occurrence by the same amount', async () => {
+    const { n, ids: s } = await series();
+    const second = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${s[1]}/record`, people.ownerA),
+    );
+    exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${s[1]}/details`, people.ownerA, {
+        version: second.version,
+        scope: 'SERIES',
+        startsAt: at(n + 7, '11:00'),
+        endsAt: at(n + 7, '11:30'),
+        internalNotes: 'Fake: whole series moved',
+      }),
+    );
+    expect(await state(s)).toEqual([
+      {
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n, '11:00')),
+        internalNotes: 'Fake: whole series moved',
+      },
+      ...[7, 14, 21].map((d) => ({
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n + d, '11:00')),
+        internalNotes: 'Fake: whole series moved',
+      })),
+    ]);
+  });
+
+  it('Edit: THIS changes only that one occurrence in a series', async () => {
+    const { n, ids: s } = await series();
+    const second = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${s[1]}/record`, people.ownerA),
+    );
+    exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${s[1]}/details`, people.ownerA, {
+        version: second.version,
+        scope: 'THIS',
+        startsAt: at(n + 7, '11:00'),
+        endsAt: at(n + 7, '11:30'),
+        internalNotes: 'Fake: only this one',
+      }),
+    );
+    expect(await state(s)).toEqual([
+      { status: 'SCHEDULED', startsAt: new Date(at(n, '10:00')), internalNotes: null },
+      {
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n + 7, '11:00')),
+        internalNotes: 'Fake: only this one',
+      },
+      { status: 'SCHEDULED', startsAt: new Date(at(n + 14, '10:00')), internalNotes: null },
+      { status: 'SCHEDULED', startsAt: new Date(at(n + 21, '10:00')), internalNotes: null },
+    ]);
+  });
+
   it('Edit: This and later keeps the wall-clock time across a daylight saving change', async () => {
     const CHI = 'America/Chicago';
     const local = (date: string, time: string) =>
