@@ -4,7 +4,6 @@ import {
   type DashboardPeriod,
   type DashboardRevenuePeriod,
   type PermissionModule,
-  roleCan,
 } from '@firmivra/types';
 import { Badge, Skeleton } from '@firmivra/ui';
 import {
@@ -23,6 +22,7 @@ import { restoreScroll } from '../../../../components/origin-bar';
 import { useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
 import { rememberDashboard } from '../../../../lib/from-dashboard';
+import { useMyGrants } from '../../../../lib/my-grants';
 import { takeScroll } from '../../../../lib/origin';
 import { useApiQuery } from '../../../../lib/query';
 import { addDays, todayIn, toInstant } from '../calendar/_components/time';
@@ -104,6 +104,8 @@ const actions: {
 export function DashboardScreen({ initial }: { initial: DashboardPlace }) {
   const { me } = useMe();
   const { role } = useFirm();
+  // V5: Quick Actions follow the member's own grants, not the role's default grid.
+  const can = useMyGrants(role);
   // Octavia's review of Oct 25, C1 and C2: the global period (the first four cards), and the
   // Client Pipeline's and Revenue Overview's own (Service Breakdown shares Revenue Overview's).
   const [place, setPlace] = useState(initial);
@@ -279,7 +281,7 @@ export function DashboardScreen({ initial }: { initial: DashboardPlace }) {
 
         <section aria-label="Quick actions" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {actions
-            .filter((a) => role && roleCan(role, a.module, 'CREATE'))
+            .filter((a) => can(a.module, 'CREATE'))
             .map(({ title, hint, button, href, icon: Glyph, outline }) => (
               <div
                 key={title}

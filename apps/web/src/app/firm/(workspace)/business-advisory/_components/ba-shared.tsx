@@ -17,6 +17,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { useFirmZone, zonedDay, zonedTime } from '../../../../../lib/firm-zone';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 
 /** Every query of the Business Advisory module starts here: a change in one view refreshes the others. */
@@ -349,14 +350,13 @@ export function SectionHead({
 
 /** "Oct 3, 2026" over "10:00 AM", as the tables show a meeting time. */
 export function DateTimeCell({ iso }: { iso: string | null }): ReactNode {
+  // Audit Log Review 2, R01: the firm's zone, named.
+  const zone = useFirmZone();
   if (!iso) return <span className="text-muted">—</span>;
-  const d = new Date(iso);
   return (
     <span className="flex flex-col leading-snug">
-      <span>
-        {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-      </span>
-      <span>{d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+      <span>{zonedDay(iso, zone)}</span>
+      <span>{zonedTime(iso, zone)}</span>
     </span>
   );
 }

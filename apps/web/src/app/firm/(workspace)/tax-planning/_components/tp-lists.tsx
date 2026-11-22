@@ -24,9 +24,12 @@ import {
 import {
   ArrowRight,
   DotsThreeVertical,
+  DownloadSimple,
+  ListChecks,
   MagnifyingGlass,
   PaperPlaneTilt,
   Plus,
+  Printer,
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -41,6 +44,7 @@ import {
   emptyDraft,
   fieldsOf,
 } from './opportunity-fields';
+import { downloadResource, printResource } from './resource-files';
 import { Disclaimer, TpShell } from './tp-shell';
 import {
   CATEGORY_LABEL,
@@ -1464,6 +1468,8 @@ export function PlanningResources() {
   const [sending, setSending] = useState<string>();
   const [viewing, setViewing] = useState<string>();
   const [editing, setEditing] = useState<string>();
+  // Tax Planning resources (audit, Nov 20): Add Resource and Create Checklist.
+  const [creating, setCreating] = useState<'GUIDE' | 'CHECKLIST'>();
   const term = useDeferredValue(search.trim());
   const q = useApiQuery([...TP_KEY, 'resources', term], () =>
     api.taxPlanning.resources({ ...(term ? { search: term } : {}) }),
@@ -1492,6 +1498,20 @@ export function PlanningResources() {
             Planning Resources
           </h2>
           {searchBox(search, setSearch, 'Search resources')}
+          <button
+            type="button"
+            className={`${subtle} min-h-9`}
+            onClick={() => setCreating('GUIDE')}
+          >
+            <Plus aria-hidden weight="bold" className="size-4" /> Add Resource
+          </button>
+          <button
+            type="button"
+            className={`${subtle} min-h-9`}
+            onClick={() => setCreating('CHECKLIST')}
+          >
+            <ListChecks aria-hidden weight="bold" className="size-4" /> Create Checklist
+          </button>
         </div>
         {presetName ? (
           <p className="text-sm text-muted" data-testid="resource-for">
@@ -1526,6 +1546,23 @@ export function PlanningResources() {
                   Open
                 </a>
               ) : null}
+              {/* Tax Planning resources (audit, Nov 20): Download and Print, in the browser. */}
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-sm font-medium text-link"
+                aria-label={`Download ${r.title}`}
+                onClick={() => downloadResource(r)}
+              >
+                <DownloadSimple aria-hidden weight="bold" className="size-4" /> Download
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-sm font-medium text-link"
+                aria-label={`Print ${r.title}`}
+                onClick={() => printResource(r)}
+              >
+                <Printer aria-hidden weight="bold" className="size-4" /> Print
+              </button>
               <button
                 type="button"
                 disabled={!r.clientFacing}
@@ -1558,6 +1595,18 @@ export function PlanningResources() {
           onClose={() => setEditing(undefined)}
           onSaved={(t) => {
             setEditing(undefined);
+            setMsg({ text: t, tone: 'success' });
+          }}
+          onError={(t) => setMsg({ text: t, tone: 'error' })}
+        />
+      ) : null}
+      {creating ? (
+        <ResourceEdit
+          resource={undefined}
+          preset={creating}
+          onClose={() => setCreating(undefined)}
+          onSaved={(t) => {
+            setCreating(undefined);
             setMsg({ text: t, tone: 'success' });
           }}
           onError={(t) => setMsg({ text: t, tone: 'error' })}
@@ -1697,28 +1746,37 @@ function ResourceView({
  */
 function ResourceEdit({
   resource: r,
+  preset,
   onClose,
   onSaved,
   onError,
 }: {
   resource: PlanningResource | undefined;
+  /** Tax Planning resources (audit, Nov 20): a new resource of the firm's own, of this kind. */
+  preset?: 'GUIDE' | 'CHECKLIST';
   onClose: () => void;
   onSaved: (t: string) => void;
   onError: (t: string) => void;
 }) {
   const qc = useQueryClient();
   const [title, setTitle] = useState(r?.title ?? '');
-  const [category, setCategory] = useState(r?.category ?? '');
-  const [kind, setKind] = useState<PlanningResource['kind']>(r?.kind ?? 'GUIDE');
+  const [category, setCategory] = useState(
+    r?.category ?? (preset === 'CHECKLIST' ? 'Checklists' : ''),
+  );
+  const [kind, setKind] = useState<PlanningResource['kind']>(r?.kind ?? preset ?? 'GUIDE');
   const [summary, setSummary] = useState(r?.summary ?? '');
+  const [content, setContent] = useState(r?.body ?? '');
   const [clientFacing, setClientFacing] = useState(r?.clientFacing ?? false);
   const [busy, setBusy] = useState(false);
-  if (!r) return null;
+  if (!r && !preset) return null;
+  const creating = !r;
   return (
     <Modal
       open
-      title="Edit Resource"
-      subtitle={r.title}
+      title={
+        creating ? (preset === 'CHECKLIST' ? 'Create Checklist' : 'Add Resource') : 'Edit Resource'
+      }
+      subtitle={r ? r.title : 'Your firm’s own; the built-in resources stay as they are.'}
       onClose={onClose}
       footer={
         <>
@@ -1730,15 +1788,18 @@ function ResourceEdit({
             onClick={async () => {
               setBusy(true);
               try {
-                await api.taxPlanning.updateResource(r.key, {
+                const body = {
                   title: title.trim(),
                   category: category.trim(),
                   kind,
                   summary: summary.trim() || null,
+                  body: content.trim() || null,
                   clientFacing,
-                });
+                };
+                if (r) await api.taxPlanning.updateResource(r.key, body);
+                else await api.taxPlanning.createResource(body);
                 await qc.invalidateQueries({ queryKey: [...TP_KEY] });
-                onSaved('Resource saved.');
+                onSaved(creating ? 'Resource added.' : 'Resource saved.');
               } catch (e) {
                 onError(errorMessage(e, TP_ERRORS));
               }
@@ -1778,6 +1839,20 @@ function ResourceEdit({
           maxLength={1000}
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
+        />
+        {/* Tax Planning resources (audit, Nov 20): what it contains; Download, Print and Send
+            use it. */}
+        <Textarea
+          label={kind === 'CHECKLIST' ? 'Checklist items' : 'Content'}
+          hint={
+            kind === 'CHECKLIST'
+              ? 'One item per line. Each prints as a box to tick.'
+              : 'What the resource says. Download, Print and Send to Client include it.'
+          }
+          rows={6}
+          maxLength={8000}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
         />
         {/* C17 (Review 2): a staff reference is never sent to a client. */}
         {r?.staffOnly ? (

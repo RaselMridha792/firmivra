@@ -33,12 +33,12 @@ import {
   AUTOMATION_ERRORS,
   MODULE_ICON,
   card,
-  dayText,
+  DayText,
   hoursText,
   linkBtn,
   outlined,
   quiet,
-  stamp,
+  Stamp,
 } from './automations-shared';
 import { useRouter } from 'next/navigation';
 
@@ -215,7 +215,7 @@ export function AutomationsScreen({
       id: 'last',
       label: 'Last Run',
       cell: (r) => (
-        <span className="whitespace-nowrap">{r.lastRunAt ? stamp(r.lastRunAt) : '—'}</span>
+        <span className="whitespace-nowrap">{r.lastRunAt ? <Stamp iso={r.lastRunAt} /> : '—'}</span>
       ),
     },
   ];
@@ -713,7 +713,9 @@ export function AutomationsScreen({
                 key={r.id}
                 className="flex flex-wrap items-center justify-between gap-2 border-t border-divider py-2 text-sm first:border-t-0"
               >
-                <span className="text-muted">{dayText(r.createdAt)}</span>
+                <span className="text-muted">
+                  <DayText iso={r.createdAt} />
+                </span>
                 <span className="min-w-0 flex-1 truncate font-medium text-heading">
                   {r.rule.name}
                 </span>

@@ -31,6 +31,12 @@ export interface AuditChangesOptions {
    * the fields that changed are named, their values never written.
    */
   text?: readonly string[] | 'all';
+  /**
+   * Fields of the firm's own configuration text (a rule's or a deadline's description) whose old
+   * and new words are written, up to the length cap below (longer: "changed"). Never for a note,
+   * a message or anything about a client: Audit Log Review 2, R03.
+   */
+  quote?: readonly string[];
   /** More fields never listed (who and when saved, `version` and `etag` never are). */
   skip?: readonly string[];
 }
@@ -74,6 +80,7 @@ export function auditChanges(
   const skip = new Set([...BOOKKEEPING, ...(options.skip ?? [])]);
   const allText = options.text === 'all';
   const text = new Set(options.text === 'all' ? [] : (options.text ?? []));
+  const quote = new Set(options.quote ?? []);
   const fields = [...new Set(options.fields ?? Object.keys(after))]
     .filter((f) => !skip.has(f) && after[f] !== undefined && !same(before[f], after[f]))
     .sort();
@@ -84,7 +91,11 @@ export function auditChanges(
     const long = (v: AuditValue | undefined) =>
       v === undefined || JSON.stringify(v).length > MAX_VALUE;
     changes[field] =
-      allText || isFreeTextKey(field) || text.has(field) || long(from) || long(to)
+      allText ||
+      (isFreeTextKey(field) && !quote.has(field)) ||
+      text.has(field) ||
+      long(from) ||
+      long(to)
         ? CHANGED
         : { from: from as AuditValue, to: to as AuditValue };
   }

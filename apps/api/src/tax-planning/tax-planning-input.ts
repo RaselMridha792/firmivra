@@ -15,6 +15,7 @@ import {
   UpdatePlanRequestRequest,
   DuplicatePlanRequest,
   UpdatePlanningResourceRequest,
+  CreatePlanningResourceRequest,
   PlanningCalendarQuery,
   PlanningClientsQuery,
   PlanningResourcesQuery,
@@ -104,6 +105,7 @@ export const CreatePlanRequestBody = clean(CreatePlanRequestRequest);
 export const UpdatePlanRequestBody = clean(UpdatePlanRequestRequest);
 export const DuplicatePlanBody = clean(DuplicatePlanRequest);
 export const UpdateResourceBody = clean(UpdatePlanningResourceRequest);
+export const CreateResourceBody = clean(CreatePlanningResourceRequest);
 export const ScreeningBody = clean(RunScreeningRequest);
 
 export const CalculateBody = clean(CalculateSavingsRequest);

@@ -164,3 +164,25 @@ test('B11: + New keeps the way back only when it leaves the page; the page alrea
   await page.getByRole('menuitem', { name: 'New task' }).click();
   await expect(page).toHaveURL(/\/tasks\/new$/);
 });
+
+// Dashboard Review 2, V5 (action visibility): the dashboard's Quick Actions and the header New menu
+// follow the member's own grants (a custom role or their own change), not the role's default grid.
+test('V5: Quick Actions and the New menu leave out what the member’s own grants do not allow', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // An Owner by role, but a custom change takes Invoices & Payments and Clients away.
+  await page.addInitScript(() =>
+    window.sessionStorage.setItem('fv-mock-no-view', 'INVOICES_PAYMENTS,CLIENTS'),
+  );
+  await page.goto(app('/'));
+  const quick = page.getByRole('region', { name: 'Quick actions' });
+  await expect(quick.getByRole('link', { name: 'Send Message' })).toBeVisible({ timeout: 60_000 });
+  await expect(quick.getByRole('link', { name: 'Add Client' })).toHaveCount(0);
+  await expect(quick.getByRole('link', { name: /Invoice/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem').first()).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /Client/ })).toHaveCount(0);
+  await expect(menu.getByRole('menuitem', { name: /Invoice/ })).toHaveCount(0);
+});

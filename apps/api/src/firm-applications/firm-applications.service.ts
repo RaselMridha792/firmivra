@@ -36,6 +36,8 @@ import {
   type ListFirmApplicationsResponse,
   ListFirmsQuery,
   type ListFirmsResponse,
+  AdminSearchQuery,
+  type AdminSearchResult,
   RESERVED_FIRM_SLUGS,
   websiteHost,
 } from '@firmivra/types';
@@ -80,6 +82,31 @@ export type StoredApplication = z.infer<typeof StoredApplication>;
 type SlugQuery = { where: { slug: { startsWith: string } }; select: { slug: true } };
 type ListQuery = z.output<typeof ListFirmApplicationsQuery>;
 type FirmsQuery = z.output<typeof ListFirmsQuery>;
+type SearchQuery = z.output<typeof AdminSearchQuery>;
+
+/**
+ * SA-DSH-F01: status words the header search takes, as the screens say them. "pending" is a
+ * firm still in setup and an application not yet opened; "inactive" is the Inactive tab.
+ */
+const FIRM_WORDS: Readonly<Record<string, readonly string[]>> = {
+  active: ['ACTIVE'],
+  pending: ['PENDING_SETUP'],
+  'pending setup': ['PENDING_SETUP'],
+  suspended: ['SUSPENDED'],
+  closed: ['CLOSED'],
+  inactive: ['SUSPENDED', 'CLOSED'],
+};
+const APPLICATION_WORDS: Readonly<Record<string, readonly FirmApplication['status'][]>> = {
+  pending: ['PENDING_REVIEW'],
+  'pending review': ['PENDING_REVIEW'],
+  'in review': ['IN_REVIEW'],
+  'awaiting information': ['INFO_REQUESTED'],
+  'awaiting info': ['INFO_REQUESTED'],
+  'info requested': ['INFO_REQUESTED'],
+  approved: ['APPROVED'],
+  declined: ['DECLINED'],
+};
+const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * SA-FRM-Y08: the firms list by name (A to Z, ignoring case) or by approval day (oldest first);
@@ -503,6 +530,77 @@ export class FirmApplicationsService {
       total: items.length,
       page: q.page,
       pageSize: q.pageSize,
+    };
+  }
+
+  /**
+   * SA-DSH-F01: the header search. Firms and applications only, never people: names, the
+   * owner's or applicant's name and email, an id exactly, or a status word. Newest first, at
+   * most `limit` of each with their totals.
+   */
+  async search(q: SearchQuery): Promise<AdminSearchResult> {
+    const text = q.q.trim();
+    const lower = text.toLowerCase();
+    const word = lower.replace(/\s+/g, ' ');
+    const id = UUID_TEXT.test(lower) ? lower : null;
+    const firmStatuses = FIRM_WORDS[word];
+    const firms = (await this.firmItems()).filter(
+      (f) =>
+        f.id === id ||
+        (firmStatuses?.includes(f.status) ?? false) ||
+        [f.name, f.owner?.name, f.owner?.email].some((v) => v?.toLowerCase().includes(lower)),
+    );
+    // Insensitive contains is ILIKE: `%` and `_` in the text are plain characters.
+    const like = likeEscape(text);
+    const statuses = APPLICATION_WORDS[word];
+    const where: Prisma.FirmApplicationWhereInput = {
+      OR: [
+        ...(['legalName', 'dbaName', 'contactName', 'contactEmail'] as const).map((f) => ({
+          [f]: { contains: like, mode: 'insensitive' as const },
+        })),
+        ...(id ? [{ id }] : []),
+        ...(statuses ? [{ status: { in: [...statuses] } }] : []),
+      ],
+    };
+    const db = this.admin.db;
+    const [total, rows] = await Promise.all([
+      db.firmApplication.count({ where }),
+      db.firmApplication.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: q.limit,
+        select: {
+          id: true,
+          legalName: true,
+          status: true,
+          contactName: true,
+          contactEmail: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+    return {
+      firms: {
+        total: firms.length,
+        items: firms.slice(0, q.limit).map((f) => ({
+          id: f.id,
+          name: f.name,
+          status: f.status,
+          ownerName: f.owner?.name ?? null,
+          ownerEmail: f.owner?.email ?? null,
+        })),
+      },
+      applications: {
+        total,
+        items: rows.map((r) => ({
+          id: r.id,
+          legalName: r.legalName,
+          status: reviewStatus(r.status),
+          contactName: r.contactName,
+          contactEmail: r.contactEmail,
+          submittedAt: r.createdAt.toISOString(),
+        })),
+      },
     };
   }
 

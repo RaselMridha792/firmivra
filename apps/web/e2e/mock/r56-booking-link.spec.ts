@@ -74,21 +74,27 @@ test('every type has Copy Booking Link and Copy Embed Code; each targets that ex
     new RegExp(`/lvp/book/${ARCHIVED}$`),
   );
 
-  // Copy Embed Code: a button that opens that type's page, and why it is not an iframe.
+  // Copy Embed Code (D3): the inline booking frame first, the button as a second choice.
   await menuOf('Bookkeeping review');
   await page.getByRole('menuitem', { name: 'Copy Embed Code' }).click();
   const dialog = page.getByRole('dialog', { name: 'Embed Code for Bookkeeping review' });
-  await expect(dialog.getByTestId('embed-why-button')).toContainText(
-    'Why a button and not an embedded page',
+  await expect(dialog.getByTestId('embed-allowed-note')).toContainText(
+    'Your website must be listed first',
   );
   const code = dialog.getByRole('textbox', { name: /embed/i });
   await expect(code).toHaveValue(
+    new RegExp(`^<iframe id="firmivra-[^"]+" src="https?://[^"]+/lvp/book/${typeId(2)}"`),
+  );
+  await expect(code).toHaveValue(/title="Book Bookkeeping review"/);
+  const button = dialog.getByRole('textbox', { name: /button that opens the booking page/ });
+  await expect(button).toHaveValue(
     new RegExp(`^<a href="https?://[^"]+/lvp/book/${typeId(2)}" target="_blank" rel="noopener"`),
   );
-  await expect(code).toHaveValue(/>Book Bookkeeping review<\/a>$/);
-  await expect(code).not.toHaveValue(/iframe/);
+  await expect(button).toHaveValue(/>Book Bookkeeping review<\/a>$/);
   await page.screenshot({ path: testInfo.outputPath('embed-dialog.png') });
   await dialog.getByRole('button', { name: 'Copy Embed Code' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('<iframe');
+  await dialog.getByRole('button', { name: 'Copy Button Code' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
     `/lvp/book/${typeId(2)}"`,
   );

@@ -17,11 +17,14 @@ export function PublicLinkSection({
   kind,
   link,
   emptyText,
+  embedHelp,
 }: {
   kind: PublicItemKind;
   link: PublicLink | null | undefined;
   /** Replaces the item's default line when there is no link (a loading or error text). */
   emptyText?: string;
+  /** The line under the embed code, when it is not a button. */
+  embedHelp?: string;
 }) {
   const text = publicLinkText(kind, link?.state ?? null);
   return (
@@ -33,6 +36,7 @@ export function PublicLinkSection({
       copyEmbedLabel={text.copyEmbedLabel}
       notice={text.notice}
       emptyText={emptyText ?? text.emptyText}
+      embedHelp={embedHelp}
     />
   );
 }

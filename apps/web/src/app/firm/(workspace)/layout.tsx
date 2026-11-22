@@ -6,7 +6,6 @@ import {
   FIRM_ROLE_LABELS,
   type MembershipRole,
   type PermissionModule,
-  roleCan,
 } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import {
@@ -64,6 +63,7 @@ import { applyFirmTheme } from '../../../lib/theme';
 import { claimCache } from '../../../lib/session';
 import { pageCallsScript, startEarly, takeEarly } from '../../../lib/early';
 import { mocked } from '../../../lib/mock';
+import { useMyGrants } from '../../../lib/my-grants';
 import { pageCallUrls, startDashboardCalls } from './_components/dashboard-calls';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
@@ -268,6 +268,8 @@ function FirmShell({
   manager: boolean;
   children: ReactNode;
 }) {
+  // V5: the New menu follows the member's own grants, not the role's default grid.
+  const can = useMyGrants(role);
   // The portal's public info is the one place every role can read the firm's logo and motto.
   const info = useApiQuery(['firm', firm.id, 'branding'], () => portalAuth(firm.slug).info());
   const unread = useApiQuery(['messages', 'unread-count'], () => api.messages.unreadCount());
@@ -321,7 +323,7 @@ function FirmShell({
       headerStart={<FirmSearch team={manager} />}
       headerActions={
         <>
-          <NewMenu links={newLinks.filter((l) => role && roleCan(role, l.module, 'CREATE'))} />
+          <NewMenu links={newLinks.filter((l) => can(l.module, 'CREATE'))} />
           <HelpButton onOpen={() => setHelp(true)} />
         </>
       }
