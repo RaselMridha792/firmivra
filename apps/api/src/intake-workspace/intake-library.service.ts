@@ -10,7 +10,9 @@ import {
   INTAKE_FORMS,
   IntakeFormKey,
   type IntakeShare,
+  publicButtonCode,
   publicEmbedCode,
+  publicIntakeEmbedCode,
   type PublicLink,
   type PublicLinkState,
   type SaveIntakeShareRequest,
@@ -372,7 +374,8 @@ export class IntakeLibraryService {
             kind: 'INTAKE_FORM',
             itemId: t.id,
             url,
-            embedCode: publicEmbedCode(url, title),
+            embedCode: publicIntakeEmbedCode(url, title),
+            buttonCode: publicButtonCode(url, title),
             state: t.archivedAt
               ? 'ARCHIVED'
               : !live

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { Check, Copy, LinkSimple, WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -9,6 +9,7 @@ export interface PublicLinkBlockProps {
   url: string | null;
   /** The button code for the firm's own website (opens the link); shown with `url`. */
   embedCode: string | null;
+  buttonCode?: string | null;
   /** The heading: "Booking Link", "Form Link", "Package Link". */
   title?: string;
   /** The link's button: "Copy Booking Link". */
@@ -16,7 +17,7 @@ export interface PublicLinkBlockProps {
   copyEmbedLabel?: string;
   /** The line under the embed code, instead of the default about the button. */
   embedHelp?: string;
-  /** A warning above the fields, when the item takes no new public use (draft, archived…). */
+  /** A warning above the fields, when the item takes no new public use (draft, archivedâ€¦). */
   notice?: string;
   /** Shown instead of the fields while `url` is null. */
   emptyText?: string;
@@ -38,6 +39,7 @@ const field =
 export function PublicLinkBlock({
   url,
   embedCode,
+  buttonCode,
   title = 'Public Link',
   copyLinkLabel = 'Copy Link',
   copyEmbedLabel = 'Copy Embed Code',
@@ -67,7 +69,7 @@ export function PublicLinkBlock({
     } catch {
       setCopied(null);
       (which === 'link' ? linkRef.current : embedRef.current)?.select();
-      setStatus('Copying was blocked. The text is selected: press Ctrl+C (⌘C on a Mac).');
+      setStatus('Copying was blocked. The text is selected: press Ctrl+C (âŒ˜C on a Mac).');
     }
   };
 
@@ -144,6 +146,21 @@ export function PublicLinkBlock({
                 {button('embed', copyEmbedLabel)}
               </div>
               <p className="text-xs text-muted">{embedHelp}</p>
+            </div>
+          ) : null}
+          {buttonCode ? (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <label htmlFor={id + '-button-code'} className="text-sm font-semibold text-heading">
+                Button code
+              </label>
+              <textarea
+                id={id + '-button-code'}
+                readOnly
+                rows={3}
+                value={buttonCode}
+                onFocus={(e) => e.currentTarget.select()}
+                className={field + ' resize-none font-mono text-xs'}
+              />
             </div>
           ) : null}
         </>

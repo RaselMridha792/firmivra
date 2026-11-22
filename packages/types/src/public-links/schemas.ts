@@ -121,10 +121,13 @@ export function publicIframeCode(url: string, title: string): string {
 }
 
 /**
- * The website code of a public page that a frame can't show (an intake form and a package: see
- * `PublicLink.embedCode`): `publicButtonCode` in the portal's default colour, labelled with the
- * item's name. An appointment type's frame is `publicIframeCode`.
+ * Default website embed code for public links. Intake links and booking pages use an iframe.
  */
 export function publicEmbedCode(url: string, title: string): string {
   return publicButtonCode(url, title);
+}
+
+/** Q45: the public intake form inline embed, with the same origin-checked height bridge. */
+export function publicIntakeEmbedCode(url: string, title: string): string {
+  return publicIframeCode(url, title);
 }
