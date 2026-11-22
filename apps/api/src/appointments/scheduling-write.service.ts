@@ -10,7 +10,7 @@ import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
 import { endsInCalendar } from './appointments.service.js';
-import { addDays, usableTimeZone, zonedDate, zonedInstant } from './calendar.js';
+import { DAY, MINUTE, usableTimeZone, wallTime, zonedInstant } from './calendar.js';
 import { activeMember, type FirmActor, firmTimeZone } from './calendar-data.js';
 import { lockAppointment, lockEquipment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import {
@@ -43,7 +43,6 @@ import {
 } from './scheduling-map.js';
 import { expandRecurrence } from './scheduling-recurrence.js';
 import type { DetailsBody, ScheduleBody } from './scheduling.input.js';
-import { MINUTE } from './calendar.js';
 import { leadToBook } from './appointment-party.js';
 
 type Schedule = z.output<typeof ScheduleBody>;
@@ -563,7 +562,7 @@ export class SchedulingWriteService {
     const before = await this.inFirm(businessId, (tx) =>
       tx.appointment.findFirst({
         where: { businessId, id },
-        select: { seriesId: true, startsAt: true, endsAt: true },
+        select: { seriesId: true, startsAt: true, endsAt: true, timeZone: true },
       }),
     );
     const record = await this.updateOne(businessId, actor, id, details);
@@ -579,39 +578,32 @@ export class SchedulingWriteService {
           startsAt: { gt: scope === 'FOLLOWING' ? before.startsAt : new Date() },
         },
         orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
-        select: { id: true, startsAt: true, endsAt: true, updatedAt: true },
+        select: { id: true, startsAt: true, endsAt: true, updatedAt: true, timeZone: true },
       }),
     );
-    // A new time moves each by the same calendar days and time of day in the firm's zone, so a
-    // series that crosses a daylight saving change keeps its wall-clock time (10:30 stays 10:30).
-    const timeZone = await this.inFirm(businessId, (tx) => firmTimeZone(tx, businessId));
-    const minuteOf = (instant: number) =>
-      Math.round((instant - zonedInstant(timeZone, zonedDate(timeZone, instant), 0)) / MINUTE);
-    const dayNumber = (instant: number) => Date.parse(`${zonedDate(timeZone, instant)}T00:00:00Z`);
-    const shiftOf = (from: number, to: number) => ({
-      days: Math.round((dayNumber(to) - dayNumber(from)) / 86_400_000),
-      minutes: minuteOf(to) - minuteOf(from),
-    });
-    const moved = (instant: number, by: { days: number; minutes: number }) =>
-      new Date(
-        zonedInstant(
-          timeZone,
-          addDays(zonedDate(timeZone, instant), by.days),
-          minuteOf(instant) + by.minutes,
-        ),
-      ).toISOString();
-    const moveStart = details.startsAt
-      ? shiftOf(before.startsAt.getTime(), Date.parse(details.startsAt))
-      : null;
-    const moveEnd = details.endsAt
-      ? shiftOf(before.endsAt.getTime(), Date.parse(details.endsAt))
-      : null;
+    // Apply the same local date and time shift to each occurrence, including on a DST change day.
+    const firmZone = await this.inFirm(businessId, (tx) => firmTimeZone(tx, businessId));
+    const originalZone = before.timeZone ?? firmZone;
+    const updatedZone = record.timezone;
+    const shiftOf = (from: Date, to: string) =>
+      wallTime(updatedZone, Date.parse(to)) - wallTime(originalZone, from.getTime());
+    const moveStart = details.startsAt ? shiftOf(before.startsAt, details.startsAt) : null;
+    const moveEnd = details.endsAt ? shiftOf(before.endsAt, details.endsAt) : null;
     for (const o of others) {
+      const zone = o.timeZone ?? firmZone;
+      const targetZone = details.timezone === undefined ? zone : updatedZone;
+      const moved = (date: Date, shift: number) => {
+        if (shift === 0 && zone === targetZone) return date.toISOString();
+        const wall = wallTime(zone, date.getTime()) + shift;
+        const day = new Date(wall).toISOString().slice(0, 10);
+        const minutes = (wall - Math.floor(wall / DAY) * DAY) / MINUTE;
+        return new Date(zonedInstant(targetZone, day, minutes)).toISOString();
+      };
       await this.updateOne(businessId, actor, o.id, {
         ...details,
         version: versionOf(o.updatedAt),
-        ...(moveStart ? { startsAt: moved(o.startsAt.getTime(), moveStart) } : {}),
-        ...(moveEnd ? { endsAt: moved(o.endsAt.getTime(), moveEnd) } : {}),
+        ...(moveStart === null ? {} : { startsAt: moved(o.startsAt, moveStart) }),
+        ...(moveEnd === null ? {} : { endsAt: moved(o.endsAt, moveEnd) }),
       });
     }
     return record;

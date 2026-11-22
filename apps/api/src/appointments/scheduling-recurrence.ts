@@ -1,5 +1,13 @@
 import type { AppointmentRecurrence } from '@firmivra/types';
-import { addDays, type Interval, MINUTE, weekdayOf, zonedDate, zonedInstant } from './calendar.js';
+import {
+  addDays,
+  DAY,
+  type Interval,
+  MINUTE,
+  wallTime,
+  weekdayOf,
+  zonedInstant,
+} from './calendar.js';
 
 // Recurrence (Schedule Appointment > Recurrence): the series' occurrences as instants. Worked
 // out in the firm's calendar (or the form's zone), so "every Tuesday at 10:00" stays 10:00 across
@@ -40,11 +48,12 @@ export function expandRecurrence(
     return fail('Choose when the series ends: on a date or after a number of times');
   }
   const interval = recurrence.interval ?? 1;
-  const startDate = zonedDate(timeZone, first.start);
-  const minuteOfDay = Math.round((first.start - zonedInstant(timeZone, startDate, 0)) / MINUTE);
+  const wallStart = wallTime(timeZone, first.start);
+  const startDate = new Date(wallStart).toISOString().slice(0, 10);
+  const minutesSinceMidnight = (wallStart - Math.floor(wallStart / DAY) * DAY) / MINUTE;
   const length = first.end - first.start;
   const at = (date: string): Interval => {
-    const start = zonedInstant(timeZone, date, minuteOfDay);
+    const start = zonedInstant(timeZone, date, minutesSinceMidnight);
     return { start, end: start + length };
   };
 

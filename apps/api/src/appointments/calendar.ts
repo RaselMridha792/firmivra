@@ -92,9 +92,13 @@ export function zonedInstant(timeZone: string, date: string, minutes: number): n
   return exact.length > 0 ? Math.min(...exact) : wall - Math.min(before, after);
 }
 
+/** The local date and time represented as a UTC timestamp for calendar arithmetic. */
+export const wallTime = (timeZone: string, instant: number): number =>
+  instant + offsetAt(timeZone, instant);
+
 /** The calendar date (YYYY-MM-DD) of `instant` in `timeZone`. */
 export function zonedDate(timeZone: string, instant: number): string {
-  return new Date(instant + offsetAt(timeZone, instant)).toISOString().slice(0, 10);
+  return new Date(wallTime(timeZone, instant)).toISOString().slice(0, 10);
 }
 
 export const addDays = (date: string, days: number) =>
