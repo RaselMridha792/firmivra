@@ -199,9 +199,17 @@ const LeadEmail = z
   .toLowerCase()
   .pipe(z.email('Enter a valid email address').max(254, 'Use at most 254 characters'));
 
+/** Leads R2 9: a website, with or without https:// ("example.com", "https://example.com/about"). */
+const LeadWebsite = text(2048, 'one', 'Website is required').regex(
+  /^(?:https?:\/\/)?[^\s/:@]+\.[^\s/:@]+(?::\d{1,5})?(?:[/?#]\S*)?$/i,
+  'Enter a website, for example example.com',
+);
+
 /**
- * Leads R2 9: one of a lead's other phones and emails, with an optional label ("Work", "Mobile").
- * The lead's own Email and Phone stay its primary ones; these are listed beside them.
+ * Leads R2 9: one of a lead's other contact details, with an optional label ("Work", "Mobile"):
+ * another phone or email, or an address, a website or any other detail (up to 300 characters, as
+ * the database allows). The lead's own Email and Phone stay its primary ones; these are listed
+ * beside them.
  */
 export const LeadContactPointInput = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('EMAIL'), value: LeadEmail, label: clearable(text(40)) }),
@@ -210,13 +218,33 @@ export const LeadContactPointInput = z.discriminatedUnion('kind', [
     value: text(40, 'one', 'Phone number is required'),
     label: clearable(text(40)),
   }),
+  z.strictObject({
+    kind: z.literal('ADDRESS'),
+    value: text(300, 'one', 'Address is required'),
+    label: clearable(text(40)),
+  }),
+  z.strictObject({ kind: z.literal('WEBSITE'), value: LeadWebsite, label: clearable(text(40)) }),
+  z.strictObject({
+    kind: z.literal('OTHER'),
+    value: text(300, 'one', 'Contact detail is required'),
+    label: clearable(text(40)),
+  }),
 ]);
 export type LeadContactPointInput = z.input<typeof LeadContactPointInput>;
 
-/** The whole list, in order; each phone or email once (letter case ignored). */
+/** What each kind is called in a sentence ("This website is already listed"). */
+const CONTACT_NOUN: Record<LeadContactPointInput['kind'], string> = {
+  EMAIL: 'email',
+  PHONE: 'phone number',
+  ADDRESS: 'address',
+  WEBSITE: 'website',
+  OTHER: 'contact detail',
+};
+
+/** The whole list, in order; each detail once per kind (letter case ignored). */
 const OtherContacts = z
   .array(LeadContactPointInput)
-  .max(10, 'Add at most 10 other phones and emails')
+  .max(10, 'Add at most 10 other contact details')
   .superRefine((list, ctx) => {
     const seen = new Set<string>();
     list.forEach((c, i) => {
@@ -225,7 +253,7 @@ const OtherContacts = z
         ctx.addIssue({
           code: 'custom',
           path: [i, 'value'],
-          message: `This ${c.kind === 'EMAIL' ? 'email' : 'phone number'} is already listed`,
+          message: `This ${CONTACT_NOUN[c.kind]} is already listed`,
         });
       }
       seen.add(key);
