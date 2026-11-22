@@ -1354,7 +1354,7 @@ describe('the records check (Review Two 18c)', () => {
       versions: stored.versions,
       assignedForms: stored.intakes,
       archivedAssignedForms: stored.archived,
-      deleted: 0,
+      deleted: null,
       reconciled: true,
     });
     expect(check.totals.archivedAssignedForms).toBeGreaterThan(0);

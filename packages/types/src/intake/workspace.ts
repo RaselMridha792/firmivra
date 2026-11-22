@@ -899,8 +899,8 @@ export const IntakeRecordsCheck = z.object({
     assignedForms: z.number().int(),
     /** Assigned forms whose status is Archived. */
     archivedAssignedForms: z.number().int(),
-    /** Always 0: no template, version or assigned form can be deleted; the database refuses. */
-    deleted: z.number().int(),
+    /** Null when the database has no deletion history to count. */
+    deleted: z.number().int().nullable(),
     /** Whether the per-template assigned counts add up to `assignedForms`. */
     reconciled: z.boolean(),
   }),
