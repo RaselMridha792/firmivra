@@ -30,10 +30,15 @@ test('Share & Publish: the link and website button, Publish in client portal, sh
   await expect(share.getByLabel('Link', { exact: true })).toHaveValue(
     /\/lvp\/start\/[A-Za-z0-9_-]{43}$/,
   );
-  await expect(share.getByLabel('Embed code', { exact: true })).toHaveValue(/^<a href=/);
-  await expect(share).toContainText(
-    'An inline embed will be available once enabled for your site.',
+  await expect(share.getByLabel('Embed code', { exact: true })).toHaveValue(/^<iframe id=/);
+  await expect(share.getByLabel('Embed code', { exact: true })).toHaveValue(/firmivra:height/);
+  await expect(share.getByLabel('Button code', { exact: true })).toHaveValue(/^<a href=/);
+  await expect(share).toContainText('Your website must be approved for embedding.');
+  await expect(share.getByLabel('Portal sign-in link', { exact: true })).toHaveValue(
+    'http://portal.localhost:3000/lvp/sign-in',
   );
+  await expect(share).toContainText('Opens the portal sign-in page in a new tab.');
+  await dialog.screenshot({ path: 'e2e/mock/screenshots/q45-intake-share.png' });
 
   // Off by default; on, it is listed in the client portal.
   const portalSwitch = share.getByRole('switch', { name: 'Publish in client portal' });

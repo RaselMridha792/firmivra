@@ -32,6 +32,7 @@ export function PublicLinkSection({
       url={link?.url ?? null}
       embedCode={link?.embedCode ?? null}
       buttonCode={link?.buttonCode ?? null}
+      portalEntryUrl={link?.portalEntryUrl ?? null}
       title={text.title}
       copyLinkLabel={text.copyLinkLabel}
       copyEmbedLabel={text.copyEmbedLabel}
