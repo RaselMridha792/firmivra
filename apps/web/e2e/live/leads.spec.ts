@@ -1835,7 +1835,7 @@ test.describe('Leads (Owner)', () => {
     await card.getByRole('button', { name: /Edit/ }).click();
     const edit = page.getByRole('dialog');
     const others = edit.getByTestId('lead-other-contacts');
-    await others.getByRole('button', { name: 'Add phone or email' }).click();
+    await others.getByRole('button', { name: 'Add contact detail' }).click();
     await others.getByLabel('Type').last().selectOption('EMAIL');
     await others.getByLabel('Email', { exact: true }).last().fill(email('12b'));
     await others.getByLabel('Label (optional)').last().fill('Personal');
@@ -1845,7 +1845,7 @@ test.describe('Leads (Owner)', () => {
     await expect(card).toContainText('Personal email');
     await expect(card).toContainText(email('12b'));
     await card.getByRole('button', { name: /Edit/ }).click();
-    await others.getByRole('button', { name: 'Add phone or email' }).click();
+    await others.getByRole('button', { name: 'Add contact detail' }).click();
     await others.getByLabel('Type').last().selectOption('EMAIL');
     await others.getByLabel('Email', { exact: true }).last().fill(email('12b').toUpperCase());
     await edit.getByRole('button', { name: 'Save Changes' }).click();
