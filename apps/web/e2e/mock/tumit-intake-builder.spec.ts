@@ -69,6 +69,10 @@ test('Save as Draft on a published template saves its next draft version and sta
   await page.goto(builder());
   const name = page.getByLabel('Form Name');
   await expect(name).toHaveValue('Personal Tax Intake Form');
+  const signature = page.getByRole('switch', { name: 'Require e-signature' });
+  await expect(signature).not.toBeChecked();
+  await signature.click();
+  await expect(signature).toBeChecked();
   await name.fill('Personal Tax Intake Form 2026');
   await page.getByRole('button', { name: 'Save as Draft' }).click();
   await expect(page.getByTestId('builder-status')).toHaveText(
@@ -77,6 +81,7 @@ test('Save as Draft on a published template saves its next draft version and sta
   await expect(page).toHaveURL(new RegExp(`${TEMPLATE}$`));
   await expect(page.getByRole('heading', { level: 1, name: 'Edit Form Template' })).toBeVisible();
   await expect(name).toHaveValue('Personal Tax Intake Form 2026');
+  await expect(page.getByRole('switch', { name: 'Require e-signature' })).toBeChecked();
   await expect(page.getByTestId('form-section')).toHaveCount(SECTIONS.length);
 });
 

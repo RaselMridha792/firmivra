@@ -379,7 +379,7 @@ describe('the form library', () => {
     expect(d).toMatchObject({ id: ids.template, version: 1, status: 'PUBLISHED' });
     expect(d.sections.length).toBeGreaterThan(0);
     expect(d.sections[0]?.questions.length).toBeGreaterThan(0);
-    expect(d.settings).toMatchObject({ requireSignature: true, showProgressBar: true });
+    expect(d.settings).toMatchObject({ requireSignature: false, showProgressBar: true });
     expect(d.publishedAt).toBeTruthy();
   });
 
@@ -1094,8 +1094,7 @@ describe('the settings', () => {
         }),
       ),
     );
-    // Intake Review 2 23-h (lead, Nov 17): Require e-signature is always on; a false sent stays on.
-    expect(kept.general.requireSignature).toBe(true);
+    expect(kept.general.requireSignature).toBe(false);
     expect(kept.security).toMatchObject({ maxFileSizeMb: 25, consentRequired: false });
     const still = IntakeSettings.parse(
       ok(
@@ -1133,6 +1132,34 @@ describe('the settings', () => {
       tx.intakeSettings.findUniqueOrThrow({ where: { businessId: firms.a } }),
     );
     expect(row.maxFileSizeMb).toBe(100);
+    expect(row.requireSignature).toBe(false);
+  });
+
+  it('Require e-signature starts off and saves either switch state', async () => {
+    const defaults = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    expect(defaults.general.requireSignature).toBe(false);
+    const on = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: defaults.version,
+          general: { requireSignature: true },
+        }),
+      ),
+    );
+    expect(on.general.requireSignature).toBe(true);
+    expect(
+      IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA))).general
+        .requireSignature,
+    ).toBe(true);
+    const off = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: on.version,
+          general: { requireSignature: false },
+        }),
+      ),
+    );
+    expect(off.general.requireSignature).toBe(false);
   });
 
   it('is changed by Owner and Admin only', async () => {
