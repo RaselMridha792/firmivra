@@ -122,6 +122,16 @@ describe('the event view helpers', () => {
       { field: 'apiToken', before: null, after: '••••', masked: true },
       { field: 'fields', before: null, after: '["name"]', masked: false },
     ]);
+    expect(
+      changesOf({
+        businessId: 'synthetic-firm-id',
+        fields: ['status', 'subject'],
+        changes: { status: { from: 'RESOLVED', to: 'CLOSED' }, subject: 'changed' },
+      }),
+    ).toEqual([
+      { field: 'status', before: 'RESOLVED', after: 'CLOSED', masked: false },
+      { field: 'subject', before: null, after: 'changed', masked: true },
+    ]);
     expect(changesOf(null)).toEqual([]);
   });
 });

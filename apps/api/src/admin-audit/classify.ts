@@ -1,5 +1,5 @@
 import type { Prisma } from '@firmivra/db';
-import { isFreeTextKey } from '../audit/audit-values.js';
+import { CHANGED, isFreeTextKey } from '../audit/audit-values.js';
 import type {
   AdminAuditCategory,
   AdminAuditOutcome,
@@ -263,10 +263,22 @@ export function changesOf(
   metadata: unknown,
 ): { field: string; before: string | null; after: string | null; masked: boolean }[] {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return [];
+  const record = metadata as Record<string, unknown>;
+  const { changes } = record;
+  const structured =
+    Array.isArray(record.fields) &&
+    changes &&
+    typeof changes === 'object' &&
+    !Array.isArray(changes);
+  const entries = structured ? Object.entries(changes) : Object.entries(record);
   const out: { field: string; before: string | null; after: string | null; masked: boolean }[] = [];
   const text = (v: unknown) =>
     v === null || v === undefined ? null : typeof v === 'object' ? JSON.stringify(v) : String(v);
-  for (const [field, value] of Object.entries(metadata as Record<string, unknown>).slice(0, 50)) {
+  for (const [field, value] of entries.slice(0, 50)) {
+    if (structured && value === CHANGED) {
+      out.push({ field, before: null, after: CHANGED, masked: true });
+      continue;
+    }
     const masked = SENSITIVE.test(field) || isFreeTextKey(field);
     const fromTo =
       value &&
