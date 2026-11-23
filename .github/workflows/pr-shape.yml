@@ -1,0 +1,88 @@
+name: PR shape
+
+# Fix phase (Rasel, Nov 23): a developer's PR must fix rows in code. It fails when the PR changes no
+# code or test files (an empty commit or docs only), touches the shared instruction files or the
+# lead's live specs, or its body lacks the Rows, Tests (with counts) and Manual check sections.
+# Draft PRs are skipped until they are marked ready for review.
+#
+# pull_request_target runs this file as it is on main. It never checks out or runs the PR's code:
+# it reads the file names through the API, and the body and author only through env.
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  shape:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: List the changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename' > "$RUNNER_TEMP/files.txt"
+
+      - name: Check the PR
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BODY: ${{ github.event.pull_request.body }}
+          FILES: ${{ runner.temp }}/files.txt
+        run: |
+          cat > "$RUNNER_TEMP/shape.mjs" <<'JS'
+          import { readFileSync } from 'node:fs';
+
+          const DEVELOPERS = [
+            'arfan-ahmed-shohag',
+            'tumit-h-r-75',
+            'Sefat-Ullah-Fahad',
+            'nahid0hasan',
+            'asratulhasannahid',
+          ];
+          if (!DEVELOPERS.includes(process.env.AUTHOR)) {
+            console.log(`${process.env.AUTHOR}: not a fix-phase developer PR, nothing to check.`);
+            process.exit(0);
+          }
+          const files = readFileSync(process.env.FILES, 'utf8').split('\n').filter(Boolean);
+          const body = process.env.BODY ?? '';
+          const errors = [];
+          const code = files.filter((f) => !/\.md$/i.test(f) && !f.startsWith('docs/'));
+          if (code.length === 0) {
+            errors.push(
+              'It changes no code or test files (docs only, or an empty commit). A PR fixes rows in code, with tests. ' +
+                'Rows that already work: post the check on your issue instead.',
+            );
+          }
+          for (const f of files) {
+            if (/^(AGENTS|CLAUDE)\.md$/.test(f)) errors.push(`${f}: shared instructions, only the lead changes them.`);
+            if (f.startsWith('apps/web/e2e/live/')) errors.push(`${f}: the live specs are the lead's.`);
+          }
+          if (!/^\W*(ledger\s+)?rows?\b/im.test(body)) errors.push('The body needs a "Rows:" line with the ledger row IDs.');
+          // A count of at least 1 on a Tests line or the 3 lines under it ("e2e" is not a count).
+          const testLines = body.match(/^.*\btests?\b.*(\n.*){0,3}/gim) ?? [];
+          if (!testLines.some((block) => /\b[1-9]\d*\b/.test(block))) {
+            errors.push('The body needs a "Tests:" line with the counts you ran (unit / API e2e / mock specs), not all zero.');
+          }
+          if (!/manual check/i.test(body)) {
+            errors.push('The body needs a "Manual check" section: the steps you clicked for each row and what you saw.');
+          }
+          if (errors.length > 0) {
+            console.log(`::error::PR shape: ${errors.length} problem(s)`);
+            for (const e of errors) console.log(`- ${e}`);
+            console.log('\nFix the PR (push code, or edit the body), and this check reruns by itself.');
+            process.exit(1);
+          }
+          console.log(`OK: ${code.length} code or test file(s), Rows, Tests and Manual check present.`);
+          JS
+          node "$RUNNER_TEMP/shape.mjs"
