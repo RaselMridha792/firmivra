@@ -33,7 +33,7 @@ import { login, portalUrl, type Role } from './env';
 const TAB = 'appointments';
 const SIM_CLIENT = '00000000-0000-4a28-8005-000000000900'; // QA Appointments Client (fake), SES simulator
 const SIM_NAME = 'QA Appointments Client (fake)';
-const TZ = 'America/New_York';
+let firmTZ = 'America/New_York';
 
 interface Ctx {
   tag: string;
@@ -66,7 +66,7 @@ const idFromUrl = (page: Page) => /\/calendar\/([0-9a-f-]{36})/.exec(page.url())
 /** YYYY-MM-DD in the firm's zone, `days` from today. */
 function localDay(days: number): string {
   const d = new Date(Date.now() + days * 86_400_000);
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: firmTZ }).format(d);
 }
 /** EST until March: Review 2 dates here are all in November and December. */
 const at = (day: string, hhmm: string) => `${day}T${hhmm}:00-05:00`;
@@ -90,7 +90,7 @@ async function schedule(
     typeId,
     startsAt,
     endsAt,
-    timezone: TZ,
+    timezone: firmTZ,
     allDay: false,
     method: 'IN_PERSON',
     staffUserIds: [c.ownerId],
@@ -221,6 +221,10 @@ test.describe('Appointments (Owner)', () => {
     }
     const api = await apiAs('owner');
     const me = (await ok(await api.get('me'), 'me')) as { user: { id: string } };
+    const o = (await ok(await api.get('business/appointments/options'), 'options')) as {
+      timezone: string;
+    };
+    firmTZ = o.timezone;
     const mk = async (name: string, minutes: number, methods: string[]) =>
       (await ok(
         await api.post('business/appointment-types', {
@@ -246,7 +250,7 @@ test.describe('Appointments (Owner)', () => {
     const slot = Math.floor(Date.now() / 60_000) % 6;
     const busy = new Set<string>();
     const nyDay = (iso: string) =>
-      new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(iso));
+      new Intl.DateTimeFormat('en-CA', { timeZone: firmTZ }).format(new Date(iso));
     for (const [a, b] of [
       [-14, 30],
       [30, 75],
@@ -950,8 +954,12 @@ test.describe('Appointments (Owner)', () => {
   }, info) => {
     test.skip(info.project.name !== 'w1165');
     const c = ctx();
+    const api = await pageApi(page);
+    const opts = (await ok(await api.get('business/appointments/options'), 'options')) as {
+      timezone: string;
+    };
     await newForm(page);
-    await expect(page.getByLabel('Time Zone')).toHaveValue(TZ);
+    await expect(page.getByLabel('Time Zone')).toHaveValue(opts.timezone);
     await pickSimClient(page);
     await pickType(page, c.t1.name);
     await pickHarnessStaff(page);
@@ -970,11 +978,7 @@ test.describe('Appointments (Owner)', () => {
     await expect(page.getByLabel('Start Time *')).toHaveValue('09:00');
     await shot(page, TAB, 'B10-timezone', info);
     // The firm's own setting is unchanged.
-    const api = await pageApi(page);
-    const opts = (await ok(await api.get('business/appointments/options'), 'options')) as {
-      timezone: string;
-    };
-    expect(opts.timezone).toBe(TZ);
+    expect(opts.timezone).toBe('America/Chicago');
   });
 
   // ------------------------------------------------------------ the detail page (AP1 and friends)
@@ -1618,6 +1622,10 @@ async function book(
 
 async function pickContact(page: Page, name: string) {
   await page.getByLabel('Client / Lead *').fill(name);
+  // The contact search is debounced; wait for the matching result before clicking.
+  await expect(
+    page.getByTestId('contact-results').getByRole('button', { name }).first(),
+  ).toBeVisible({ timeout: 15_000 });
   await page.getByTestId('contact-results').getByRole('button', { name }).first().click();
 }
 /** A multi-pick (Assigned Staff, Equipment): exactly `names` chosen. */
@@ -1712,6 +1720,36 @@ async function listFor(api: PageApi, clientId: string, from: string, to: string)
   ).items;
   for (const a of items) keepR2('appointments', a.id);
   return items.filter((a) => a.status !== 'CANCELLED');
+}
+/** Cancel this spec's LIVE-CHECK appointments for a staff member in a window (never anything else). */
+async function cancelStaffLiveCheckLeftovers(
+  api: PageApi,
+  staffId: string,
+  from: string,
+  to: string,
+) {
+  const items = (
+    (await ok(
+      await api.get(
+        `business/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&staffUserId=${staffId}`,
+      ),
+      'staff leftovers',
+    )) as { items: { id: string; status: string }[] }
+  ).items;
+  for (const a of items.filter((x) => x.status !== 'CANCELLED')) {
+    const d = (await ok(await api.get(`business/appointments/${a.id}`), 'detail')) as {
+      type: { name: string } | null;
+      client: { displayName: string } | null;
+    };
+    if (
+      (d.type?.name ?? '').startsWith('LIVE-CHECK') ||
+      (d.client?.displayName ?? '').startsWith('LIVE-CHECK')
+    ) {
+      await api
+        .post(`business/appointments/${a.id}/cancel`, { reason: `${runTag} slot cleanup` })
+        .catch(() => {});
+    }
+  }
 }
 const R2_QUESTION = 'LIVE-CHECK question (synthetic): anything to tell us?';
 /** Completes a sent intake form in the portal, step by step, as the client. */
@@ -2909,6 +2947,13 @@ test.describe('Review Two verification (her steps)', () => {
       info.annotations.push({ type: 'inbox-clear', description: await inboxRun(['clear']) });
       // The first quarter hour at least 66 minutes ahead and free (its reminder due 6 to 21
       // minutes from now), inside the form's times (Chicago).
+      // QA Perf's LIVE-CHECK leftovers in the next 3 hours would otherwise fill every slot.
+      await cancelStaffLiveCheckLeftovers(
+        api,
+        r.owner.id,
+        new Date().toISOString(),
+        new Date(Date.now() + 3 * HOUR).toISOString(),
+      );
       const quarter = 15 * 60_000;
       let day = '';
       let start = '';
@@ -3362,6 +3407,13 @@ test.describe('Review Two verification (her steps)', () => {
       const client = await inboxClient(api);
       info.annotations.push({ type: 'inbox-clear', description: await inboxRun(['clear']) });
       // A start whose 1-hour reminders fall due 6 to 21 minutes from now (as P7).
+      // QA Perf's LIVE-CHECK leftovers in the next 3 hours would otherwise fill every slot.
+      await cancelStaffLiveCheckLeftovers(
+        api,
+        r.owner.id,
+        new Date().toISOString(),
+        new Date(Date.now() + 3 * HOUR).toISOString(),
+      );
       const quarter = 15 * 60_000;
       let day = '';
       let start = '';
@@ -3507,7 +3559,7 @@ test.describe('Review Two verification (her steps)', () => {
           const owner = await apiAs('owner');
           try {
             const oa = viaContext(owner);
-            const api = await pageApi(page);
+            const api = await apiAs(p.role);
             const me = (await ok(await api.get('me'), 'me')) as { user: { id: string } };
             const client = r.clients.p10.id;
             // The Owner books three for this member: a later one and two that have started.
@@ -3563,19 +3615,21 @@ test.describe('Review Two verification (her steps)', () => {
             actual['view'] = await outcome(api.get(`business/appointments/${later.id}/record`));
             actual['edit'] = await outcome(
               api.patch(`business/appointments/${later.id}/details`, {
-                version: record.version,
-                internalNotes: `${r.tag} P10 ${p.label} edit`,
+                data: {
+                  version: record.version,
+                  internalNotes: `${r.tag} P10 ${p.label} edit`,
+                },
               }),
             );
             const moved = Date.parse(instant(r.tz, later.slot.day, later.slot.start)) + HOUR;
             actual['reschedule'] = await outcome(
               api.post(`business/appointments/${later.id}/reschedule`, {
-                startsAt: new Date(moved).toISOString(),
+                data: { startsAt: new Date(moved).toISOString() },
               }),
             );
             actual['cancel'] = await outcome(
               api.post(`business/appointments/${later.id}/cancel`, {
-                reason: `${r.tag} P10 ${p.label}`,
+                data: { reason: `${r.tag} P10 ${p.label}` },
               }),
             );
             actual['complete'] = await outcome(
@@ -3617,6 +3671,41 @@ test.describe('Review Two verification (her steps)', () => {
         ['2028-01-31', '13:00', ['2028-01-31', '2028-02-29', '2028-03-31']],
       ];
       for (const [first, start, expected] of cases) {
+        // Cancel only this spec's LIVE-CHECK leftovers on QA Perf (staff) in Jan-Apr 2028.
+        // The list range is capped at 62 days, so chunk it; never cancel anything else.
+        const qaPerf = r.owner.id;
+        for (const [from, to] of [
+          ['2028-01-01T00:00:00Z', '2028-03-04T00:00:00Z'],
+          ['2028-03-04T00:00:00Z', '2028-05-01T00:00:00Z'],
+        ] as const) {
+          const items = (
+            (await ok(
+              await api.get(
+                `business/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&staffUserId=${qaPerf}`,
+              ),
+              'QA Perf 2028 appointments',
+            )) as { items: { id: string; startsAt: string; status: string }[] }
+          ).items;
+          for (const a of items.filter((x) => x.status !== 'CANCELLED')) {
+            const d = (await ok(
+              await api.get(`business/appointments/${a.id}`),
+              'appointment detail',
+            )) as {
+              type: { name: string } | null;
+              client: { displayName: string } | null;
+            };
+            const liveCheck =
+              (d.type?.name ?? '').startsWith('LIVE-CHECK') ||
+              (d.client?.displayName ?? '').startsWith('LIVE-CHECK');
+            if (liveCheck) {
+              await api
+                .post(`business/appointments/${a.id}/cancel`, {
+                  reason: `${r.tag} R2 leap cleanup`,
+                })
+                .catch(() => {});
+            }
+          }
+        }
         await fillNew(page, {
           contact: client.name,
           type: c.t1.name,

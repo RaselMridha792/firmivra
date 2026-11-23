@@ -1,5 +1,6 @@
 import type { Logger } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
+import { Email } from '@firmivra/types';
 import type { Env } from '../config/env.js';
 import type { NotifyService } from '../notify/notify.types.js';
 
@@ -38,8 +39,20 @@ export async function sendSubmittedNotice(
             select: { form: { select: { title: true } } },
           }),
         ]);
+        // Settings are lazy-created by the settings screen. A submit can happen first, so the
+        // company contact must still receive the default firm-master notice when no row exists.
+        // An existing empty list is intentional: the firm removed the master email there.
+        let emails = settings?.notifyAdditionalEmails;
+        if (!emails) {
+          const firm = await tx.businessSettings.findUnique({
+            where: { businessId },
+            select: { contactEmail: true },
+          });
+          const contact = Email.safeParse(firm?.contactEmail ?? '');
+          emails = contact.success ? [contact.data] : [];
+        }
         return {
-          emails: settings?.notifyAdditionalEmails ?? [],
+          emails,
           title: intake?.form?.title ?? 'An intake form',
         };
       },

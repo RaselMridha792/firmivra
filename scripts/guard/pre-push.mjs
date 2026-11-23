@@ -26,14 +26,22 @@ for (const file of changed) {
     if (file.startsWith(dir)) names.forEach((n) => packages.add(n));
   }
 }
-for (const name of packages) {
-  process.stderr.write(`[pre-push] typecheck ${name} ...\n`);
-  const run = spawnSync('pnpm', ['--filter', name, 'typecheck'], { stdio: 'inherit', shell: true });
-  if (run.status !== 0) {
-    process.stderr.write(
-      `\nPush blocked: ${name} does not typecheck. Fix the errors above, commit, and push again.\n` +
-        'If the errors are about a stale build (e.g. @firmivra/types), run: pnpm --filter @firmivra/db exec prisma generate && pnpm -r --filter "./packages/**" --if-present build\n\n',
-    );
-    process.exit(1);
-  }
+if (packages.size === 0) process.exit(0);
+// Through turbo, typecheck first builds the shared packages it uses (prisma generate,
+// @firmivra/types, @firmivra/ui). So a stale local build after merging main no longer blocks the
+// push with errors in files the branch never touched. Turbo caches the builds: an unchanged
+// package costs nothing. One task at a time keeps the laptop usable.
+const names = [...packages];
+process.stderr.write(`[pre-push] typecheck ${names.join(', ')} ...\n`);
+const run = spawnSync(
+  'pnpm',
+  ['exec', 'turbo', 'run', 'typecheck', '--concurrency=1', ...names.map((n) => `--filter=${n}`)],
+  { stdio: 'inherit', shell: true },
+);
+if (run.status !== 0) {
+  process.stderr.write(
+    '\nPush blocked: the code does not typecheck. Fix the errors above, commit, and push again.\n' +
+      'Never push with --no-verify: CI runs the same typecheck, and a red PR is not merged.\n\n',
+  );
+  process.exit(1);
 }
