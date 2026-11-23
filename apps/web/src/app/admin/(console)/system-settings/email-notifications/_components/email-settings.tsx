@@ -258,7 +258,7 @@ export function EmailSettings() {
         </SectionCard>
 
         <SectionCard
-          id="signature"
+          id="branding"
           title="Email Signature"
           subtitle="Set the default signature for system emails."
           icon={UsersThree}

@@ -155,6 +155,12 @@ test('feature status legend explains default and emergency-off behavior', async 
   await expect(legend).toContainText('All firms, no override');
 });
 
+test('email branding deep link lands on the signature settings section', async ({ page }) => {
+  await page.goto(`${url}/email-notifications#branding`);
+  await expect(page.locator('#branding')).toBeVisible();
+  await expect(page.locator('#branding')).toContainText('Email Signature');
+});
+
 test('loading and empty results preserve the widgets and do not invent platform values', async ({
   page,
 }) => {
