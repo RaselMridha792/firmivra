@@ -560,24 +560,36 @@ describe('trial expiry job', () => {
       };
     });
 
-    const result = await app.get(SubscriptionTrialExpiryJob).run({ now });
-    expect(result).toEqual({ skipped: false, expired: 1 });
-    const state = await owner('platform', async (tx) => ({
-      expired: await tx.platformFirmSubscription.findUniqueOrThrow({
-        where: { id: fixtures.expired.id },
-        select: { status: true },
-      }),
-      current: await tx.platformFirmSubscription.findUniqueOrThrow({
-        where: { id: fixtures.current.id },
-        select: { status: true },
-      }),
-      history: await tx.platformSubscriptionChange.findFirst({
-        where: { subscriptionId: fixtures.expired.id, toStatus: 'EXPIRED' },
-      }),
-    }));
-    expect(state.expired.status).toBe('EXPIRED');
-    expect(state.current.status).toBe('TRIAL');
-    expect(state.history).toMatchObject({ fromStatus: 'TRIAL', toStatus: 'EXPIRED' });
+    try {
+      const result = await app.get(SubscriptionTrialExpiryJob).run({ now });
+      expect(result).toEqual({ skipped: false, expired: 1 });
+      const state = await owner('platform', async (tx) => ({
+        expired: await tx.platformFirmSubscription.findUniqueOrThrow({
+          where: { id: fixtures.expired.id },
+          select: { status: true },
+        }),
+        current: await tx.platformFirmSubscription.findUniqueOrThrow({
+          where: { id: fixtures.current.id },
+          select: { status: true },
+        }),
+        history: await tx.platformSubscriptionChange.findFirst({
+          where: { subscriptionId: fixtures.expired.id, toStatus: 'EXPIRED' },
+        }),
+      }));
+      expect(state.expired.status).toBe('EXPIRED');
+      expect(state.current.status).toBe('TRIAL');
+      expect(state.history).toMatchObject({ fromStatus: 'TRIAL', toStatus: 'EXPIRED' });
+    } finally {
+      await owner('platform', async (tx) => {
+        const subscriptionIds = [fixtures.expired.id, fixtures.current.id];
+        await tx.platformSubscriptionChange.deleteMany({
+          where: { subscriptionId: { in: subscriptionIds } },
+        });
+        await tx.platformFirmSubscription.deleteMany({
+          where: { id: { in: subscriptionIds } },
+        });
+      });
+    }
   });
 });
 
