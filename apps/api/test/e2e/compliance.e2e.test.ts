@@ -482,6 +482,12 @@ describe('settings', () => {
       tx.task.findFirstOrThrow({ where: { id: d.tasks[0]!.id } }),
     );
     expect(task).toMatchObject({ templateId: s.tpl, deadlineId: d.id, clientId: s.c1 });
+    const taskGet = await call('get', `/tasks/${d.tasks[0]!.id}`, people.ownerA);
+    expect(taskGet.status).toBe(200);
+    expect((taskGet.body as { deadline: { id: string; name: string } }).deadline).toEqual({
+      id: d.id,
+      name: d.name,
+    });
     await call('patch', '/compliance/settings', people.ownerA, { taskTemplates: [] });
   });
 });
