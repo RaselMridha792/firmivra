@@ -47,6 +47,13 @@ test('the Billing dashboard lists invoices with totals, tabs, filters and quick 
   }
   await expect(page.getByTestId('kpi-invoiced')).toContainText('Across 4 invoices');
 
+  await page.getByRole('searchbox', { name: 'Search invoices' }).fill('Taylor');
+  await page.getByRole('combobox', { name: 'Status', exact: true }).selectOption('OVERDUE');
+  await page.getByRole('button', { name: 'Clear all' }).click();
+  await expect(page.getByRole('searchbox', { name: 'Search invoices' })).toHaveValue('');
+  await expect(page.getByRole('combobox', { name: 'Status', exact: true })).toHaveValue('');
+  await expect(rows).toHaveCount(10);
+
   await expect(page.getByRole('heading', { name: 'Quick Actions' })).toBeVisible();
   await expect(page.getByRole('link', { name: /Billing Settings/ })).toHaveAttribute(
     'href',
