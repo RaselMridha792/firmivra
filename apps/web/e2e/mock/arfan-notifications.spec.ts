@@ -100,4 +100,11 @@ test('Super Admin Notifications renders the API states and responsive layouts', 
   await page.getByLabel('Notification priority').selectOption('CRITICAL');
   await expect(page.locator('article').filter({ hasText: 'Payment Failed' })).toBeVisible();
   await expect(page.locator('article').filter({ hasText: 'Subscription Renewed' })).toBeHidden();
+
+  await page.getByLabel('Date range').selectOption('CUSTOM');
+  await page.getByLabel('From date').fill('2026-10-10');
+  await page.getByLabel('To date').fill('2026-10-01');
+  await expect(page.getByRole('alert')).toHaveText(
+    'The end date must be on or after the start date.',
+  );
 });

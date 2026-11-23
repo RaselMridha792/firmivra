@@ -148,6 +148,7 @@ function rangeOf(filter: DateFilter, customFrom: string, customTo: string) {
   if (filter === 'TODAY') return { from: today.toISOString() };
   if (filter === 'LAST_7_DAYS') return { from: daysAgo(7) };
   if (filter === 'LAST_30_DAYS') return { from: daysAgo(30) };
+  if (customFrom && customTo && customFrom > customTo) return {};
   const from = customFrom ? new Date(`${customFrom}T00:00:00`) : null;
   const to = customTo ? new Date(new Date(`${customTo}T00:00:00`).getTime() + DAY_MS) : null;
   return {
@@ -167,6 +168,8 @@ export function NotificationsScreen() {
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('ALL');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  const customRangeReversed =
+    dateFilter === 'CUSTOM' && Boolean(customFrom && customTo && customFrom > customTo);
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<AdminNotification | null>(null);
@@ -561,34 +564,41 @@ export function NotificationsScreen() {
           />
         </div>
         {dateFilter === 'CUSTOM' ? (
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2 xl:col-span-2">
-            <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted">
-              From
-              <input
-                aria-label="From date"
-                type="date"
-                value={customFrom}
-                onChange={(event) => {
-                  setPage(1);
-                  setCustomFrom(event.target.value);
-                }}
-                className="h-10 min-h-0 min-w-0 rounded-control border border-divider bg-surface px-3 text-sm text-text"
-              />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted">
-              To
-              <input
-                aria-label="To date"
-                type="date"
-                value={customTo}
-                onChange={(event) => {
-                  setPage(1);
-                  setCustomTo(event.target.value);
-                }}
-                className="h-10 min-h-0 min-w-0 rounded-control border border-divider bg-surface px-3 text-sm text-text"
-              />
-            </label>
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:col-span-2 xl:col-span-2">
+              <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted">
+                From
+                <input
+                  aria-label="From date"
+                  type="date"
+                  value={customFrom}
+                  onChange={(event) => {
+                    setPage(1);
+                    setCustomFrom(event.target.value);
+                  }}
+                  className="h-10 min-h-0 min-w-0 rounded-control border border-divider bg-surface px-3 text-sm text-text"
+                />
+              </label>
+              <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted">
+                To
+                <input
+                  aria-label="To date"
+                  type="date"
+                  value={customTo}
+                  onChange={(event) => {
+                    setPage(1);
+                    setCustomTo(event.target.value);
+                  }}
+                  className="h-10 min-h-0 min-w-0 rounded-control border border-divider bg-surface px-3 text-sm text-text"
+                />
+              </label>
+            </div>
+            {customRangeReversed ? (
+              <p role="alert" className="text-sm text-danger sm:col-span-2 xl:col-span-2">
+                The end date must be on or after the start date.
+              </p>
+            ) : null}
+          </>
         ) : null}
       </section>
 
