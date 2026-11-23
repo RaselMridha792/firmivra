@@ -4,6 +4,7 @@ import { AdminPrisma } from '../firm-applications/admin-prisma.js';
 import { AdminSubscriptionsController } from './admin-subscriptions.controller.js';
 import { SubscriptionsChangeService } from './subscriptions-changes.service.js';
 import { SubscriptionsReadService } from './subscriptions-reads.service.js';
+import { SubscriptionTrialExpiryJob } from './subscription-trial-expiry.job.js';
 
 /**
  * Super Admin Subscriptions (R60 on R0's stage A, B3 and the MRR rollup): Firmivra's plans for
@@ -14,6 +15,11 @@ import { SubscriptionsReadService } from './subscriptions-reads.service.js';
 @Module({
   imports: [AdminBillingModule],
   controllers: [AdminSubscriptionsController],
-  providers: [AdminPrisma, SubscriptionsReadService, SubscriptionsChangeService],
+  providers: [
+    AdminPrisma,
+    SubscriptionsReadService,
+    SubscriptionsChangeService,
+    SubscriptionTrialExpiryJob,
+  ],
 })
 export class AdminSubscriptionsModule {}
