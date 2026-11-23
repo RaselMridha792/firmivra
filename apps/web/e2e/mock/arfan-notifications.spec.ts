@@ -121,6 +121,20 @@ test('Super Admin sidebar collapse stays after a reload', async ({ page }) => {
   await expect(menu).not.toHaveAttribute('data-collapsed', 'true');
 });
 
+test('Super Admin header bell shows recent items and View all', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'));
+  await page.route('**/api/v1/**', (route) => route.abort());
+  await page.goto(`http://admin.localhost:${port}/notifications`);
+  await page.locator('summary[aria-label="Notifications, 37 unread"]').click();
+  const recent = page.getByRole('region', { name: 'Recent notifications' });
+  await expect(recent).toContainText('Security Event');
+  await expect(recent.getByText('high', { exact: true })).toBeVisible();
+  await expect(recent.getByRole('link', { name: 'View all' })).toHaveAttribute(
+    'href',
+    '/notifications',
+  );
+});
+
 test('notification filters survive reload and All resets only status', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'));
   await page.route('**/api/v1/**', (route) => route.abort());
