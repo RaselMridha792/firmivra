@@ -33,7 +33,7 @@ import { login, portalUrl, type Role } from './env';
 const TAB = 'appointments';
 const SIM_CLIENT = '00000000-0000-4a28-8005-000000000900'; // QA Appointments Client (fake), SES simulator
 const SIM_NAME = 'QA Appointments Client (fake)';
-const TZ = 'America/New_York';
+let firmTZ = 'America/New_York';
 
 interface Ctx {
   tag: string;
@@ -66,7 +66,7 @@ const idFromUrl = (page: Page) => /\/calendar\/([0-9a-f-]{36})/.exec(page.url())
 /** YYYY-MM-DD in the firm's zone, `days` from today. */
 function localDay(days: number): string {
   const d = new Date(Date.now() + days * 86_400_000);
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: firmTZ }).format(d);
 }
 /** EST until March: Review 2 dates here are all in November and December. */
 const at = (day: string, hhmm: string) => `${day}T${hhmm}:00-05:00`;
@@ -90,7 +90,7 @@ async function schedule(
     typeId,
     startsAt,
     endsAt,
-    timezone: TZ,
+    timezone: firmTZ,
     allDay: false,
     method: 'IN_PERSON',
     staffUserIds: [c.ownerId],
@@ -221,6 +221,10 @@ test.describe('Appointments (Owner)', () => {
     }
     const api = await apiAs('owner');
     const me = (await ok(await api.get('me'), 'me')) as { user: { id: string } };
+    const o = (await ok(await api.get('business/appointments/options'), 'options')) as {
+      timezone: string;
+    };
+    firmTZ = o.timezone;
     const mk = async (name: string, minutes: number, methods: string[]) =>
       (await ok(
         await api.post('business/appointment-types', {
@@ -246,7 +250,7 @@ test.describe('Appointments (Owner)', () => {
     const slot = Math.floor(Date.now() / 60_000) % 6;
     const busy = new Set<string>();
     const nyDay = (iso: string) =>
-      new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(iso));
+      new Intl.DateTimeFormat('en-CA', { timeZone: firmTZ }).format(new Date(iso));
     for (const [a, b] of [
       [-14, 30],
       [30, 75],
@@ -607,7 +611,7 @@ test.describe('Appointments (Owner)', () => {
     await page.getByLabel('Start Time *').selectOption('15:00');
     await pickType(page, c.t2.name);
     await expect(page.getByLabel('End Time *')).toHaveValue('15:15');
-    await expect(page.getByTestId('appointment-summary')).toContainText('3:00 PM â€“ 3:15 PM');
+    await expect(page.getByTestId('appointment-summary')).toContainText('3:00 PM – 3:15 PM');
     await pickType(page, c.t1.name);
     await expect(page.getByLabel('End Time *')).toHaveValue('15:30');
     await page.getByLabel('Start Time *').selectOption('16:00');
@@ -618,7 +622,7 @@ test.describe('Appointments (Owner)', () => {
       description: await page.getByLabel('End Time *').inputValue(),
     });
     await expect(page.getByLabel('End Time *')).toHaveValue('16:30');
-    await expect(page.getByTestId('appointment-summary')).toContainText('4:00 PM â€“ 4:30 PM');
+    await expect(page.getByTestId('appointment-summary')).toContainText('4:00 PM – 4:30 PM');
     await shot(page, TAB, 'B5-end-time', info);
   });
 
@@ -978,7 +982,7 @@ test.describe('Appointments (Owner)', () => {
     const opts = (await ok(await api.get('business/appointments/options'), 'options')) as {
       timezone: string;
     };
-    expect(opts.timezone).toBe(TZ);
+    expect(opts.timezone).toBe('America/Chicago');
   });
 
   // ------------------------------------------------------------ the detail page (AP1 and friends)
@@ -1234,7 +1238,7 @@ test.describe('Appointments (Owner)', () => {
     await expect(page.getByTestId('calendar-period')).toBeVisible({ timeout: 60_000 });
     const chip = page
       .getByTestId('appointments-calendar')
-      .getByRole('button', { name: /, 2:00\s*PM\s*[â€“-]\s*2:30\s*PM/ })
+      .getByRole('button', { name: /, 2:00\s*PM\s*[–-]\s*2:30\s*PM/ })
       .first();
     await expect(chip).toBeVisible({ timeout: 30_000 });
     await shot(page, TAB, 'W2-calendar-week', info);
@@ -1518,7 +1522,7 @@ function instant(tz: string, day: string, hhmm: string): string {
   return new Date(guess - (shown - guess)).toISOString();
 }
 const oneLine = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
-/** The detail's "Date & time": "Nov 26, 2026, 3:00 PM â€“ 3:15 PM". */
+/** The detail's "Date & time": "Nov 26, 2026, 3:00 PM – 3:15 PM". */
 function detailWhen(startIso: string, endIso: string, tz: string): string {
   const day = new Date(startIso).toLocaleDateString('en-US', {
     timeZone: tz,
@@ -1528,7 +1532,7 @@ function detailWhen(startIso: string, endIso: string, tz: string): string {
   });
   const clock = (iso: string) =>
     new Date(iso).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
-  return oneLine(`${day}, ${clock(startIso)} â€“ ${clock(endIso)}`);
+  return oneLine(`${day}, ${clock(startIso)} – ${clock(endIso)}`);
 }
 
 type PageApi = Awaited<ReturnType<typeof pageApi>>;
@@ -1716,6 +1720,36 @@ async function listFor(api: PageApi, clientId: string, from: string, to: string)
   ).items;
   for (const a of items) keepR2('appointments', a.id);
   return items.filter((a) => a.status !== 'CANCELLED');
+}
+/** Cancel this spec's LIVE-CHECK appointments for a staff member in a window (never anything else). */
+async function cancelStaffLiveCheckLeftovers(
+  api: PageApi,
+  staffId: string,
+  from: string,
+  to: string,
+) {
+  const items = (
+    (await ok(
+      await api.get(
+        `business/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&staffUserId=${staffId}`,
+        'staff leftovers',
+      ),
+    )) as { items: { id: string; status: string }[] }
+  ).items;
+  for (const a of items.filter((x) => x.status !== 'CANCELLED')) {
+    const d = (await ok(await api.get(`business/appointments/${a.id}`), 'detail')) as {
+      type: { name: string } | null;
+      client: { displayName: string } | null;
+    };
+    if (
+      (d.type?.name ?? '').startsWith('LIVE-CHECK') ||
+      (d.client?.displayName ?? '').startsWith('LIVE-CHECK')
+    ) {
+      await api
+        .post(`business/appointments/${a.id}/cancel`, { reason: `${runTag} slot cleanup` })
+        .catch(() => {});
+    }
+  }
 }
 const R2_QUESTION = 'LIVE-CHECK question (synthetic): anything to tell us?';
 /** Completes a sent intake form in the portal, step by step, as the client. */
@@ -2047,8 +2081,8 @@ test.describe('Review Two verification (her steps)', () => {
     // The notice history lists reminders only (run appointments-r2v2, Nov 19): recorded, not
     // asserted; the client-facing ask checked here is the portal's.
     const notices = page.getByTestId('detail-reminders');
-    // The card reads Loadingâ€¦ until the record is in.
-    await expect(notices).not.toContainText('Loadingâ€¦', { timeout: 60_000 });
+    // The card reads Loading… until the record is in.
+    await expect(notices).not.toContainText('Loading…', { timeout: 60_000 });
     info.annotations.push({
       type: '8-history-after-request',
       description: oneLine(await notices.textContent()),
@@ -2109,13 +2143,13 @@ test.describe('Review Two verification (her steps)', () => {
           async () => {
             await page.reload();
             await expect(notices).toBeVisible({ timeout: 60_000 });
-            // The card reads Loadingâ€¦ until the record is in.
-            await expect(notices).not.toContainText('Loadingâ€¦', { timeout: 60_000 });
+            // The card reads Loading… until the record is in.
+            await expect(notices).not.toContainText('Loading…', { timeout: 60_000 });
             return oneLine(await notices.textContent());
           },
           { timeout: 90_000, intervals: [5_000] },
         )
-        .toMatch(/Reminder Â· email/);
+        .toMatch(/Reminder · email/);
       await shot(page, TAB, '8-confirmed-reminded', info);
       await pp.reload();
       await settled(pp);
@@ -2241,13 +2275,13 @@ test.describe('Review Two verification (her steps)', () => {
     await page.getByLabel('Date *').fill(slot.day);
     await page.getByLabel('Start Time *').selectOption('14:00');
     await pickType(page, r.t15.name);
-    await endIs(page, '2:15 PM', '15 min', '2:00 PM â€“ 2:15 PM (CT)');
+    await endIs(page, '2:15 PM', '15 min', '2:00 PM – 2:15 PM (CT)');
     await pickType(page, r.t45.name);
-    await endIs(page, '2:45 PM', '45 min', '2:00 PM â€“ 2:45 PM (CT)');
+    await endIs(page, '2:45 PM', '45 min', '2:00 PM – 2:45 PM (CT)');
     await shot(page, TAB, 'B5-create-2pm-45', info);
     // End follows a changed Start, keeping the 45 minutes.
     await page.getByLabel('Start Time *').selectOption('15:00');
-    await endIs(page, '3:45 PM', '45 min', '3:00 PM â€“ 3:45 PM (CT)');
+    await endIs(page, '3:45 PM', '45 min', '3:00 PM – 3:45 PM (CT)');
 
     // Her saved case 1: 3:00 PM and 15 minutes; then Edit, and a time change saved from Edit.
     await fillNew(page, {
@@ -2257,22 +2291,22 @@ test.describe('Review Two verification (her steps)', () => {
       day: slot.day,
       start: '15:00',
     });
-    await endIs(page, '3:15 PM', '15 min', '3:00 PM â€“ 3:15 PM (CT)');
+    await endIs(page, '3:15 PM', '15 min', '3:00 PM – 3:15 PM (CT)');
     await noConfirmation(page);
     await submit(page, 'Schedule Appointment', /\/calendar\/[0-9a-f-]{36}$/, 'B5 15');
     const first = idFromUrl(page);
     keepR2('appointments', first);
     await page.reload();
-    await expect(detailSummary(page)).toContainText('3:00 PM â€“ 3:15 PM', { timeout: 60_000 });
+    await expect(detailSummary(page)).toContainText('3:00 PM – 3:15 PM', { timeout: 60_000 });
     await page.getByRole('link', { name: 'Edit', exact: true }).click();
     await expect(page.getByLabel('Start Time *')).toHaveValue('15:00', { timeout: 60_000 });
-    await endIs(page, '3:15 PM', '15 min', '3:00 PM â€“ 3:15 PM (CT)');
+    await endIs(page, '3:15 PM', '15 min', '3:00 PM – 3:15 PM (CT)');
     await page.getByLabel('Start Time *').selectOption('15:30');
-    await endIs(page, '3:45 PM', '15 min', '3:30 PM â€“ 3:45 PM (CT)');
+    await endIs(page, '3:45 PM', '15 min', '3:30 PM – 3:45 PM (CT)');
     await shot(page, TAB, 'B5-edit-start-moved', info);
     await submit(page, 'Save Changes', new RegExp(`/calendar/${first}$`), 'B5 edit');
     await page.reload();
-    await expect(detailSummary(page)).toContainText('3:30 PM â€“ 3:45 PM', { timeout: 60_000 });
+    await expect(detailSummary(page)).toContainText('3:30 PM – 3:45 PM', { timeout: 60_000 });
 
     // Her saved case 2: 4:00 PM and 45 minutes; Edit shows the same end.
     await fillNew(page, {
@@ -2282,16 +2316,16 @@ test.describe('Review Two verification (her steps)', () => {
       day: slot.day,
       start: '16:00',
     });
-    await endIs(page, '4:45 PM', '45 min', '4:00 PM â€“ 4:45 PM (CT)');
+    await endIs(page, '4:45 PM', '45 min', '4:00 PM – 4:45 PM (CT)');
     await noConfirmation(page);
     await submit(page, 'Schedule Appointment', /\/calendar\/[0-9a-f-]{36}$/, 'B5 45');
     const second = idFromUrl(page);
     keepR2('appointments', second);
     await page.reload();
-    await expect(detailSummary(page)).toContainText('4:00 PM â€“ 4:45 PM', { timeout: 60_000 });
+    await expect(detailSummary(page)).toContainText('4:00 PM – 4:45 PM', { timeout: 60_000 });
     await page.getByRole('link', { name: 'Edit', exact: true }).click();
     await expect(page.getByLabel('Start Time *')).toHaveValue('16:00', { timeout: 60_000 });
-    await endIs(page, '4:45 PM', '45 min', '4:00 PM â€“ 4:45 PM (CT)');
+    await endIs(page, '4:45 PM', '45 min', '4:00 PM – 4:45 PM (CT)');
     await shot(page, TAB, 'B5-edit-4pm-45', info);
   });
 
@@ -2505,7 +2539,7 @@ test.describe('Review Two verification (her steps)', () => {
     };
     await placeFields(true, true);
     const summary = page.getByTestId('appointment-summary');
-    await expect(summary).toContainText(`In Person â€“ ${office.name}`);
+    await expect(summary).toContainText(`In Person – ${office.name}`);
     await expect(summary).toContainText(room.name);
     await expect(summary).toContainText(item.name);
     await noConfirmation(page);
@@ -2913,12 +2947,19 @@ test.describe('Review Two verification (her steps)', () => {
       info.annotations.push({ type: 'inbox-clear', description: await inboxRun(['clear']) });
       // The first quarter hour at least 66 minutes ahead and free (its reminder due 6 to 21
       // minutes from now), inside the form's times (Chicago).
+      // QA Perf's LIVE-CHECK leftovers in the next 3 hours would otherwise fill every slot.
+      await cancelStaffLiveCheckLeftovers(
+        api,
+        r.owner.id,
+        new Date().toISOString(),
+        new Date(Date.now() + 3 * HOUR).toISOString(),
+      );
       const quarter = 15 * 60_000;
       let day = '';
       let start = '';
       for (
         let t = Math.ceil((Date.now() + 66 * 60_000) / quarter) * quarter;
-        t < Date.now() + 24 * HOUR;
+        t < Date.now() + 5 * HOUR;
         t += quarter
       ) {
         const iso = new Date(t).toISOString();
@@ -2931,7 +2972,7 @@ test.describe('Review Two verification (her steps)', () => {
           break;
         }
       }
-      if (!start) throw new Error('no free start inside the form times in the next 24 hours');
+      if (!start) throw new Error('no free start inside the form times in the next 5 hours');
       const startIso = instant(r.tz, day, start);
       const due = Date.parse(startIso) - HOUR;
       const note = `${r.tag} P7 note: please bring last year's return.`;
@@ -2983,8 +3024,8 @@ test.describe('Review Two verification (her steps)', () => {
       // The firm's record lists it as sent.
       await page.reload();
       const notices = page.getByTestId('detail-reminders');
-      await expect(notices).not.toContainText('Loadingâ€¦', { timeout: 60_000 });
-      await expect(notices).toContainText(/Reminder Â· email/);
+      await expect(notices).not.toContainText('Loading…', { timeout: 60_000 });
+      await expect(notices).toContainText(/Reminder · email/);
       await shot(page, TAB, 'P7-inbox-history', info);
     });
   });
@@ -3224,8 +3265,8 @@ test.describe('Review Two verification (her steps)', () => {
       const relatedText = async () => {
         await page.reload();
         await expect(related).toBeVisible({ timeout: 60_000 });
-        // The card reads Loadingâ€¦ until the record is in.
-        await expect(related).not.toContainText('Loadingâ€¦', { timeout: 60_000 });
+        // The card reads Loading… until the record is in.
+        await expect(related).not.toContainText('Loading…', { timeout: 60_000 });
         return oneLine(await related.textContent());
       };
       await expect
@@ -3366,12 +3407,19 @@ test.describe('Review Two verification (her steps)', () => {
       const client = await inboxClient(api);
       info.annotations.push({ type: 'inbox-clear', description: await inboxRun(['clear']) });
       // A start whose 1-hour reminders fall due 6 to 21 minutes from now (as P7).
+      // QA Perf's LIVE-CHECK leftovers in the next 3 hours would otherwise fill every slot.
+      await cancelStaffLiveCheckLeftovers(
+        api,
+        r.owner.id,
+        new Date().toISOString(),
+        new Date(Date.now() + 3 * HOUR).toISOString(),
+      );
       const quarter = 15 * 60_000;
       let day = '';
       let start = '';
       for (
         let t = Math.ceil((Date.now() + 66 * 60_000) / quarter) * quarter;
-        t < Date.now() + 24 * HOUR;
+        t < Date.now() + 5 * HOUR;
         t += quarter
       ) {
         const iso = new Date(t).toISOString();
@@ -3384,7 +3432,7 @@ test.describe('Review Two verification (her steps)', () => {
           break;
         }
       }
-      if (!start) throw new Error('no free start inside the form times in the next 24 hours');
+      if (!start) throw new Error('no free start inside the form times in the next 5 hours');
       const startIso = instant(r.tz, day, start);
       const due = Date.parse(startIso) - HOUR;
       const words = {
@@ -3438,7 +3486,7 @@ test.describe('Review Two verification (her steps)', () => {
       // The notice history after the booking (the confirmation was asked to be listed: B8).
       await page.reload();
       const notices = page.getByTestId('detail-reminders');
-      await expect(notices).not.toContainText('Loadingâ€¦', { timeout: 60_000 });
+      await expect(notices).not.toContainText('Loading…', { timeout: 60_000 });
       info.annotations.push({
         type: 'B8-history-after-confirmation',
         description: oneLine(await notices.textContent()),
@@ -3621,17 +3669,40 @@ test.describe('Review Two verification (her steps)', () => {
         ['2028-01-31', '13:00', ['2028-01-31', '2028-02-29', '2028-03-31']],
       ];
       for (const [first, start, expected] of cases) {
-        // Leftovers from prior LIVE-CHECK runs on this fixed 2028 series cause 409.
-        const prior = await listFor(
-          api,
-          client.id,
-          instant(r.tz, first, '00:00'),
-          instant(r.tz, '2028-04-05', '00:00'),
-        );
-        for (const a of prior.filter((x) => hhmmIn(r.tz, x.startsAt) === start)) {
-          await api
-            .post(`business/appointments/${a.id}/cancel`, { reason: `${r.tag} R2 leap cleanup` })
-            .catch(() => {});
+        // Cancel only this spec's LIVE-CHECK leftovers on QA Perf (staff) in Jan-Apr 2028.
+        // The list range is capped at 62 days, so chunk it; never cancel anything else.
+        const qaPerf = r.owner.id;
+        for (const [from, to] of [
+          ['2028-01-01T00:00:00Z', '2028-03-04T00:00:00Z'],
+          ['2028-03-04T00:00:00Z', '2028-05-01T00:00:00Z'],
+        ] as const) {
+          const items = (
+            (await ok(
+              await api.get(
+                `business/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&staffUserId=${qaPerf}`,
+                'QA Perf 2028 appointments',
+              ),
+            )) as { items: { id: string; startsAt: string; status: string }[] }
+          ).items;
+          for (const a of items.filter((x) => x.status !== 'CANCELLED')) {
+            const d = (await ok(
+              await api.get(`business/appointments/${a.id}`),
+              'appointment detail',
+            )) as {
+              type: { name: string } | null;
+              client: { displayName: string } | null;
+            };
+            const liveCheck =
+              (d.type?.name ?? '').startsWith('LIVE-CHECK') ||
+              (d.client?.displayName ?? '').startsWith('LIVE-CHECK');
+            if (liveCheck) {
+              await api
+                .post(`business/appointments/${a.id}/cancel`, {
+                  reason: `${r.tag} R2 leap cleanup`,
+                })
+                .catch(() => {});
+            }
+          }
         }
         await fillNew(page, {
           contact: client.name,
@@ -3825,7 +3896,7 @@ test.describe('Review Two verification (her steps)', () => {
       await expect(page.getByLabel('Duration')).toHaveValue('30 min');
       await submit(page, 'Save Changes', new RegExp(`/calendar/${id}$`), 'R3 to timed');
       await page.reload();
-      await expect(detailSummary(page)).toContainText('2:00 PM â€“ 2:30 PM', { timeout: 60_000 });
+      await expect(detailSummary(page)).toContainText('2:00 PM – 2:30 PM', { timeout: 60_000 });
       await expect(detailSummary(page)).not.toContainText('all day');
       await shot(page, TAB, 'R3-timed-again', info);
     });
