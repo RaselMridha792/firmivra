@@ -45,11 +45,18 @@ describe('AuditService: where a row goes', () => {
       await audit.log('thing.done', { type: 'thing', id: 't1' }, { n: 1 });
       await audit.log('thing.done', { type: 'thing' }, undefined, { businessId: undefined });
       await audit.log('thing.done', { type: 'thing' }, undefined, { businessId: other });
+      await audit.log(
+        'auth.signed_in',
+        { type: 'user', id: owner },
+        {},
+        { actorRole: 'SUPER_ADMIN', sessionId: 'hashed-session', authMethod: 'PASSWORD+MFA' },
+      );
     });
     expect(where(writes)).toEqual([
       [`business:${firm}`, firm, owner],
       [`business:${firm}`, firm, owner],
       [`business:${other}`, other, owner],
+      [`business:${firm}`, firm, owner],
     ]);
     expect(writes[0]?.data).toMatchObject({
       action: 'thing.done',
@@ -59,6 +66,11 @@ describe('AuditService: where a row goes', () => {
       ip: '203.0.113.5',
       userAgent: 'Fake/1.0',
       requestId: 'req-1',
+    });
+    expect(writes[3]?.data).toMatchObject({
+      actorRole: 'SUPER_ADMIN',
+      sessionId: 'hashed-session',
+      authMethod: 'PASSWORD+MFA',
     });
   });
 

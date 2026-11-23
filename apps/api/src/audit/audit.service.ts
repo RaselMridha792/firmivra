@@ -20,6 +20,9 @@ export interface AuditAt {
   /** The firm; `null` for the platform's row, never the context's firm. */
   businessId?: string | null;
   actorUserId?: string;
+  actorRole?: string | null;
+  sessionId?: string | null;
+  authMethod?: string | null;
   /** Leaves out the IP and user agent, for a row the actor's audience must not trace to them. */
   withoutOrigin?: boolean;
 }
@@ -160,7 +163,9 @@ export class AuditService {
       businessId:
         at.businessId === null ? null : (at.businessId ?? store?.tenant?.businessId ?? null),
       actorUserId: at.actorUserId ?? store?.auth?.userId ?? null,
-      actorRole: store?.platform?.role ?? store?.tenant?.role ?? null,
+      actorRole: at.actorRole ?? store?.platform?.role ?? store?.tenant?.role ?? null,
+      sessionId: at.sessionId ?? store?.auth?.session ?? null,
+      authMethod: at.authMethod ?? null,
       action,
       entityType: entity.type,
       entityId: entity.id ?? null,

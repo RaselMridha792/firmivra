@@ -1,15 +1,15 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { type Database, Prisma } from '@firmivra/db';
 import type { IdentityPool, MfaSetupResponse, SignInResult } from '@firmivra/types';
-import { type AuditEntity, AuditService } from '../audit/audit.service.js';
+import { type AuditAt, type AuditEntity, AuditService } from '../audit/audit.service.js';
 import { type AuthContext, requestContext } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
-import { StaffSessions } from './staff-sessions.js';
+import { sessionKey, StaffSessions } from './staff-sessions.js';
 import { accountLocked, httpError, runFlow } from './auth-errors.js';
 import { ChallengeSessions } from './challenge-session.js';
 import {
@@ -22,6 +22,7 @@ import { networkOf } from '../common/network.js';
 import { portalClient } from './portal-clients.js';
 import { deriveKey, poolSecrets } from './sealed.js';
 import type { SessionTokens, SignInPlace } from './site.js';
+import { TokenService } from './token.service.js';
 
 /** Failed resets are audited; the per-email limit counts those rows (shared by every API task). */
 const RESET_FAILED = 'auth.password_reset_failed';
@@ -236,6 +237,7 @@ export class SignInService {
     @Inject(ENV) env: Env,
     private readonly notifier: Notifier,
     private readonly staffSessions: StaffSessions,
+    private readonly tokens: TokenService,
     @Optional() @Inject(NOTIFY_SERVICE) private readonly notify?: NotifyService,
   ) {
     for (const [pool, secret] of Object.entries(poolSecrets(env))) {
@@ -364,7 +366,12 @@ export class SignInService {
       if (!(e instanceof AuthFlowError)) throw e;
       throw httpError(e.code);
     }
-    await this.succeeded(place, c.userId);
+    await this.succeeded(
+      place,
+      c.userId,
+      tokens,
+      c.step === 'MFA' ? 'PASSWORD+MFA' : 'PASSWORD+MFA_SETUP',
+    );
     if (c.step !== 'MFA') await this.mfaEnrolled(place, c.userId);
     return { kind: 'signed-in', userId: c.userId, username: c.username, tokens };
   }
@@ -744,14 +751,51 @@ export class SignInService {
     }
   }
 
-  private succeeded(place: Pick<SignInPlace, 'pool' | 'businessId'>, userId: string) {
+  private async succeeded(
+    place: Pick<SignInPlace, 'pool' | 'businessId'>,
+    userId: string,
+    tokens: SessionTokens,
+    authMethod: string,
+  ) {
+    const claims = tokens.idToken
+      ? await this.tokens.verify(tokens.idToken).catch(() => null)
+      : null;
+    const sessionId = claims?.session
+      ? place.businessId
+        ? sessionKey(place.businessId, claims.session)
+        : createHash('sha256').update(claims.session).digest('hex')
+      : null;
+    const actorRole = await this.roleAtSignIn(place, userId);
     return this.log(
       place,
       'auth.signed_in',
       { type: 'user', id: userId },
       { pool: place.pool },
-      { userId, pool: place.pool },
+      { userId, pool: place.pool, ...(sessionId ? { session: sessionId } : {}) },
+      { actorRole, sessionId, authMethod },
     );
+  }
+
+  private async roleAtSignIn(place: Pick<SignInPlace, 'pool' | 'businessId'>, userId: string) {
+    if (place.pool === 'ADMIN') {
+      return (
+        (
+          await this.db
+            .forPlatform()
+            .platformAdmin.findUnique({ where: { userId }, select: { role: true } })
+        )?.role ?? null
+      );
+    }
+    if (place.businessId) {
+      return (
+        (
+          await this.db
+            .forBusiness(place.businessId)
+            .membership.findFirst({ where: { userId }, select: { role: true } })
+        )?.role ?? null
+      );
+    }
+    return place.pool === 'CLIENT' ? 'CLIENT' : place.pool === 'STAFF' ? 'STAFF' : null;
   }
 
   /**
@@ -763,7 +807,8 @@ export class SignInService {
     action: string,
     entity: AuditEntity,
     metadata: Record<string, unknown>,
-    actor?: Pick<AuthContext, 'userId' | 'pool'>,
+    actor?: Pick<AuthContext, 'userId' | 'pool' | 'session'>,
+    auditAt: Pick<AuditAt, 'actorRole' | 'sessionId' | 'authMethod'> = {},
   ): Promise<void> {
     const store = requestContext.getStore() ?? { requestId: randomUUID() };
     return requestContext.run(
@@ -775,7 +820,7 @@ export class SignInService {
           ? { businessId: place.businessId, role: 'STAFF', kind: 'staff' }
           : undefined,
       },
-      () => this.audit.log(action, entity, metadata),
+      () => this.audit.log(action, entity, metadata, auditAt),
     );
   }
 
@@ -821,7 +866,7 @@ export class SignInService {
         if (step.tokens.refreshToken) await this.identity.revoke(pool, step.tokens.refreshToken);
         throw new Error(`Refused a ${pool} sign-in that skipped MFA: check the pool's MFA setting`);
       }
-      await this.succeeded(place, userId);
+      await this.succeeded(place, userId, step.tokens, 'PASSWORD');
       return { kind: 'signed-in', userId, username: step.username, tokens: step.tokens };
     }
     const session = await this.challenges.seal({
