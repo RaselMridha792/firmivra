@@ -28,5 +28,5 @@ test('Q07: a custom grant removes dashboard actions during loading and after res
   });
   for (const action of ['Edit', 'Reschedule', 'Send Reminder', 'Mark Complete', 'Cancel'])
     await expect(menu.getByRole('menuitem', { name: action, exact: true })).toHaveCount(0);
-  await menu.screenshot({ path: 'e2e/mock/screenshots/q07-dashboard-permissions.png' });
+  await menu.screenshot({ path: 'test-results/q07-dashboard-permissions.png' });
 });
