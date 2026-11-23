@@ -146,6 +146,15 @@ test('tablet and mobile keep every card readable without horizontal page overflo
   );
 });
 
+test('feature status legend explains default and emergency-off behavior', async ({ page }) => {
+  await page.goto(`${url}/features`);
+  const legend = page.getByTestId('status-legend');
+  await expect(legend).toContainText('Off by default');
+  await expect(legend).toContainText('Firms may turn this feature on');
+  await expect(legend).toContainText('Emergency off');
+  await expect(legend).toContainText('All firms, no override');
+});
+
 test('loading and empty results preserve the widgets and do not invent platform values', async ({
   page,
 }) => {
