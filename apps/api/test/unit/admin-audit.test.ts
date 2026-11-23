@@ -12,6 +12,7 @@ import {
   changesOf,
   classify,
   deviceOf,
+  eventReferenceWhere,
   referenceOf,
   viewWhere,
 } from '../../src/admin-audit/classify.js';
@@ -61,6 +62,17 @@ describe('the event view helpers', () => {
       ),
     ).toEqual({ browser: 'Safari', os: 'iOS', mobile: true, label: 'Safari / iOS' });
     expect(deviceOf(null).label).toBe('Unknown device');
+  });
+
+  it('matches an EVT reference by its date and exact id suffix', () => {
+    expect(eventReferenceWhere('EVT-20261014-1A2B3C')).toEqual({
+      createdAt: {
+        gte: new Date('2026-10-14T00:00:00Z'),
+        lt: new Date('2026-10-15T00:00:00Z'),
+      },
+      id: { endsWith: '1a2b3c' },
+    });
+    expect(eventReferenceWhere('EVT-20260230-1A2B3C')).toBeNull();
   });
 
   it('shows metadata as changes, masking secrets and personal details', () => {

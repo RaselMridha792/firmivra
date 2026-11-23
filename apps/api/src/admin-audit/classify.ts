@@ -200,6 +200,22 @@ export function actionLabel(action: string): string {
 export const referenceOf = (id: string, at: Date) =>
   `EVT-${at.toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(-6).toUpperCase()}`;
 
+/** Match one event reference, rather than every event created on the referenced day. */
+export function eventReferenceWhere(reference: string) {
+  const match = /^EVT-(\d{4})(\d{2})(\d{2})-([0-9A-F]{6})$/i.exec(reference);
+  if (!match) return null;
+  const day = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`);
+  if (
+    Number.isNaN(day.getTime()) ||
+    day.toISOString().slice(0, 10) !== `${match[1]}-${match[2]}-${match[3]}`
+  )
+    return null;
+  return {
+    createdAt: { gte: day, lt: new Date(day.getTime() + 86_400_000) },
+    id: { endsWith: match[4]!.toLowerCase() },
+  };
+}
+
 /** Browser and system from a user agent: telemetry only. */
 export function deviceOf(userAgent: string | null): {
   browser: string | null;

@@ -27,6 +27,7 @@ import {
   changesOf,
   classify,
   deviceOf,
+  eventReferenceWhere,
   failedLoginWhere,
   outcomeWhere,
   referenceOf,
@@ -140,13 +141,8 @@ export class AdminAuditService {
         { action: { contains: s, mode: 'insensitive' } },
       ];
       if (/^[0-9a-f-]{36}$/i.test(s)) or.push({ id: s.toLowerCase() });
-      const ref = /^EVT-(\d{8})-([0-9A-F]{6})$/i.exec(s);
-      if (ref) {
-        const day = new Date(
-          `${ref[1]!.slice(0, 4)}-${ref[1]!.slice(4, 6)}-${ref[1]!.slice(6)}T00:00:00Z`,
-        );
-        or.push({ createdAt: { gte: day, lt: new Date(day.getTime() + DAY) } });
-      }
+      const eventReference = eventReferenceWhere(s);
+      if (eventReference) or.push(eventReference);
       and.push({ OR: or });
     }
     return { AND: and };
