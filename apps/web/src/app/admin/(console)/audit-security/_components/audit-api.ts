@@ -53,6 +53,23 @@ const RESPONSES: Record<string, ResponseAction> = {
 };
 const OUTCOME_TEXT = { SUCCESS: 'Success', FAILURE: 'Failed', DENIED: 'Denied' } as const;
 
+/** Link only record types with a matching Super Admin detail page. */
+export function adminRecordHref(type: string | null, id: string | null): string | null {
+  if (!type || !id) return null;
+  const key = type.toLowerCase().replace(/[ -]+/g, '_');
+  const encodedId = encodeURIComponent(id);
+  const paths: Record<string, string> = {
+    business: `/firms/${encodedId}`,
+    firm: `/firms/${encodedId}`,
+    firm_application: `/applications/${encodedId}`,
+    application: `/applications/${encodedId}`,
+    support_ticket: `/support/tickets/${encodedId}`,
+    ticket: `/support/tickets/${encodedId}`,
+    platform_security_policy: '/audit-security/settings',
+  };
+  return paths[key] ?? null;
+}
+
 /** A list row in the screens' shape. */
 function shown(e: AdminAuditEvent): AuditEvent {
   return {
@@ -87,8 +104,8 @@ function shown(e: AdminAuditEvent): AuditEvent {
       type: e.target.type,
       id: e.target.id ?? '',
       name: e.target.name ?? e.target.type,
-      relatedRecord: null,
-      href: null,
+      relatedRecord: e.target.name ?? e.target.type,
+      href: adminRecordHref(e.target.type, e.target.id),
     },
     subjectUserId: e.subjectUserId,
     facts: e.itemCount === null ? [] : [{ label: 'Records', value: String(e.itemCount) }],
