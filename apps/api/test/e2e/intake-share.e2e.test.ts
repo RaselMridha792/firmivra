@@ -242,10 +242,13 @@ describe('Share & Publish (firm)', () => {
     expect(on).toMatchObject({ sharing: true, portalPublished: true });
     const url = on.link!.url;
     expect(url).toMatch(new RegExp(`^${portalBase}/${firms.a.slug}/start/[A-Za-z0-9_-]{43}$`));
-    // A website button that opens the link; never an iframe that another site can't show.
-    expect(on.link!.embedCode).toMatch(/^<a href="[^"]+" target="_blank" rel="noopener"/);
-    expect(on.link!.embedCode).toContain('>Quarterly Check-In (shared)</a>');
-    expect(on.link!.embedCode).not.toContain('iframe');
+    // The public intake route is embeddable; the separate button always opens a new tab.
+    expect(on.link!.embedCode).toMatch(/^<iframe id="firmivra-/);
+    expect(on.link!.embedCode).toContain(`src="${url}"`);
+    expect(on.link!.embedCode).toContain('Quarterly Check-In (shared)');
+    expect(on.link!.buttonCode).toMatch(/^<a href="[^"]+" target="_blank" rel="noopener"/);
+    expect(on.link!.buttonCode).toContain('>Quarterly Check-In (shared)</a>');
+    expect(on.link!.portalEntryUrl).toBe(`${portalBase}/${firms.a.slug}/sign-in`);
     expect(on.link!.state).toBe('LIVE');
     // Stable: the same link every time; only its hash is stored.
     expect(share(await firmCall('get', `/${ids.shared}/share`, people.ownerA)).link!.url).toBe(url);

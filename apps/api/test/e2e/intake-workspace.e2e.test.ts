@@ -22,7 +22,9 @@ import {
   IntakeSettingsChangeList,
   INTAKE_FORMS,
   INTAKE_MAX_FILE_SIZE_MB,
-  publicEmbedCode,
+  publicButtonCode,
+  publicIntakeEmbedCode,
+  publicPortalEntryUrl,
   PublicLink,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -1269,7 +1271,9 @@ describe('the public link (I3)', () => {
       kind: 'INTAKE_FORM',
       itemId: fixture('template'),
       url,
-      embedCode: publicEmbedCode(url, 'Annual Tax Intake'),
+      embedCode: publicIntakeEmbedCode(url, 'Annual Tax Intake'),
+      buttonCode: publicButtonCode(url, 'Annual Tax Intake'),
+      portalEntryUrl: publicPortalEntryUrl(portal, `r55i-a-${run}`),
       state: 'HIDDEN',
     });
     expect(url).toMatch(/\/begin\/annual-tax$/);

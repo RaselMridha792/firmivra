@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bookingFrameAncestors, embedAllowedOrigins } from './embed';
+import { bookingFrameAncestors, embedAllowedOrigins, publicEmbedFrameAncestors } from './embed';
 
 const env = (value?: string) => ({ EMBED_ALLOWED_ORIGINS: value });
 const BOOK = '/lvp/book/0199b6c2-0000-7000-8000-000000000001';
@@ -81,5 +81,46 @@ describe('bookingFrameAncestors', () => {
     expect(bookingFrameAncestors('firm', BOOK, allowed)).toBeNull();
     expect(bookingFrameAncestors('admin', BOOK, allowed)).toBeNull();
     expect(bookingFrameAncestors(null, BOOK, allowed)).toBeNull();
+  });
+});
+
+describe('publicEmbedFrameAncestors', () => {
+  it('allows the configured origin on public intake pages', () => {
+    const allowed = env('https://site.example.test');
+    for (const path of [
+      '/lvp/begin/annual-tax',
+      '/lvp/start/Abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG',
+    ]) {
+      expect(publicEmbedFrameAncestors('portal', path, allowed)).toBe(
+        'frame-ancestors https://site.example.test',
+      );
+    }
+  });
+
+  it('refuses all framing when no valid origin is configured', () => {
+    expect(
+      publicEmbedFrameAncestors(
+        'portal',
+        '/lvp/start/Abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG',
+        env(),
+      ),
+    ).toBe("frame-ancestors 'none'");
+  });
+
+  it('leaves other routes and hosts without an embed policy', () => {
+    for (const path of [
+      '/lvp',
+      '/lvp/book/1',
+      '/lvp/appointments',
+      '/lvp/sign-in',
+      '/lvp/sign-up',
+    ]) {
+      expect(
+        publicEmbedFrameAncestors('portal', path, env('https://site.example.test')),
+      ).toBeNull();
+    }
+    expect(
+      publicEmbedFrameAncestors('firm', '/lvp/begin/annual-tax', env('https://site.example.test')),
+    ).toBeNull();
   });
 });

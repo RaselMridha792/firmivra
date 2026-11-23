@@ -8,6 +8,7 @@ import {
   publicEmbedCode,
   publicIframeCode,
   publicItemUrl,
+  publicPortalEntryUrl,
 } from '../../src/index.js';
 
 const ID = '0f000000-0000-4000-a000-000000000001';
@@ -28,6 +29,17 @@ describe('publicItemUrl', () => {
   it('encodes the slug and id, so neither can add a path', () => {
     expect(publicItemUrl('https://p.example', 'a/b', 'PACKAGE', '../x')).toBe(
       'https://p.example/a%2Fb/packages/..%2Fx',
+    );
+  });
+});
+
+describe('publicPortalEntryUrl', () => {
+  it('builds the portal sign-in URL from the configured origin and firm slug', () => {
+    expect(publicPortalEntryUrl('https://portal.firmivra.com/', 'lvp')).toBe(
+      'https://portal.firmivra.com/lvp/sign-in',
+    );
+    expect(publicPortalEntryUrl('http://portal.localhost:3000//', 'firm-2')).toBe(
+      'http://portal.localhost:3000/firm-2/sign-in',
     );
   });
 });

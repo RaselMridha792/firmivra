@@ -22,7 +22,9 @@ import {
   type IntakeView,
   type MemberRef,
   parseInput,
-  publicEmbedCode,
+  publicIntakeEmbedCode,
+  publicButtonCode,
+  publicPortalEntryUrl,
   type IntakeShare,
   SaveIntakeShareRequest,
   RequestIntakeCorrectionRequest,
@@ -483,7 +485,9 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       kind: 'INTAKE_FORM' as const,
       itemId: f.id,
       url,
-      embedCode: publicEmbedCode(url, f.name),
+      embedCode: publicIntakeEmbedCode(url, f.name),
+      buttonCode: publicButtonCode(url, f.name),
+      portalEntryUrl: publicPortalEntryUrl(PORTAL, 'lvp'),
       state: !s.live.has(f.id)
         ? ('DRAFT' as const)
         : kind === MOCK_NOT_ON_BEGIN_ONLINE
@@ -514,7 +518,9 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
               kind: 'INTAKE_FORM',
               itemId: f.id,
               url,
-              embedCode: publicEmbedCode(url, f.name),
+              embedCode: publicIntakeEmbedCode(url, f.name),
+              buttonCode: publicButtonCode(url, f.name),
+              portalEntryUrl: publicPortalEntryUrl(PORTAL, 'lvp'),
               state: 'LIVE',
             }
           : null),

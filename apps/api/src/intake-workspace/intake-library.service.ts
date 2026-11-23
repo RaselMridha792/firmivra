@@ -10,7 +10,9 @@ import {
   INTAKE_FORMS,
   IntakeFormKey,
   type IntakeShare,
-  publicEmbedCode,
+  publicButtonCode,
+  publicIntakeEmbedCode,
+  publicPortalEntryUrl,
   type PublicLink,
   type PublicLinkState,
   type SaveIntakeShareRequest,
@@ -309,7 +311,9 @@ export class IntakeLibraryService {
       kind: 'INTAKE_FORM',
       itemId: t.id,
       url,
-      embedCode: publicEmbedCode(url, title),
+      embedCode: publicIntakeEmbedCode(url, title),
+      buttonCode: publicButtonCode(url, title),
+      portalEntryUrl: publicPortalEntryUrl(this.env.PORTAL_BASE_URL, firm.slug),
       state: linkState(t.service, live !== undefined),
     };
   }
@@ -371,7 +375,9 @@ export class IntakeLibraryService {
             kind: 'INTAKE_FORM',
             itemId: t.id,
             url,
-            embedCode: publicEmbedCode(url, title),
+            embedCode: publicIntakeEmbedCode(url, title),
+            buttonCode: publicButtonCode(url, title),
+            portalEntryUrl: publicPortalEntryUrl(this.env.PORTAL_BASE_URL, firm.slug),
             state: t.archivedAt
               ? 'ARCHIVED'
               : !live

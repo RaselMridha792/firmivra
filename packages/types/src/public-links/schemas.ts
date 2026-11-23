@@ -2,12 +2,12 @@ import { z } from 'zod';
 
 /**
  * Public links (Octavia's review of Oct 20, `docs/specs/review-2026-10-21/CHANGE-LIST.md`, top):
- * the one shape every public item answers with, so the firm can put a stable link behind a
- * button on its own website or paste the embed code. Three items have one: an intake form
- * (Intake Forms, I3), an appointment type (Appointments, A4) and a service package (Services &
- * Pricing, S12). Each answers `GET /business/<its collection>/{id}/public-link` with a
- * `PublicLink`, built with `publicItemUrl` and `publicEmbedCode` so the three agree; the screens
- * show it with `PublicLinkBlock` from `@firmivra/ui` (through `components/public-link.tsx`).
+ * the one shape every public item answers with, so the firm can use a stable link on its website.
+ * Three items have one: an intake form (Intake Forms, I3), an appointment type (Appointments, A4)
+ * and a service package (Services & Pricing, S12). Each answers `GET /business/<its collection>/{id}/public-link`
+ * with a `PublicLink`; intake and booking links may carry an iframe and a separate button, while
+ * the package link uses a button. The screens show it with `PublicLinkBlock` from `@firmivra/ui`
+ * (through `components/public-link.tsx`).
  * One exception (Rasel, Oct 22): an intake form has no page of its own. Only a service's main form
  * has a link, and it is that service's Begin Online page (`beginOnlinePageUrl`, begin-online), so
  * the `forms` segment below is not used.
@@ -39,6 +39,8 @@ export const PublicLink = z.object({
   embedCode: z.string(),
   /** The button as a second choice, when `embedCode` is a frame (an appointment type). */
   buttonCode: z.string().optional(),
+  /** Direct portal sign-in entry link; sign-in is always opened in a new tab. */
+  portalEntryUrl: z.url().optional(),
   state: PublicLinkState,
 });
 export type PublicLink = z.infer<typeof PublicLink>;
@@ -59,6 +61,12 @@ export function publicItemUrl(
 ): string {
   const base = portalBaseUrl.replace(/\/+$/, '');
   return `${base}/${encodeURIComponent(firmSlug)}/${PUBLIC_ITEM_SEGMENT[kind]}/${encodeURIComponent(itemId)}`;
+}
+
+/** The firm's client portal sign-in page, built from configured origin and firm slug. */
+export function publicPortalEntryUrl(portalBaseUrl: string, firmSlug: string): string {
+  const base = portalBaseUrl.replace(/\/+$/, '');
+  return `${base}/${encodeURIComponent(firmSlug)}/sign-in`;
 }
 
 /** Text for an HTML attribute value. */
@@ -121,10 +129,14 @@ export function publicIframeCode(url: string, title: string): string {
 }
 
 /**
- * The website code of a public page that a frame can't show (an intake form and a package: see
- * `PublicLink.embedCode`): `publicButtonCode` in the portal's default colour, labelled with the
- * item's name. An appointment type's frame is `publicIframeCode`.
+ * Default website button code for public links. Intake and booking routes build their iframe with
+ * `publicIntakeEmbedCode` and `publicIframeCode` respectively.
  */
 export function publicEmbedCode(url: string, title: string): string {
   return publicButtonCode(url, title);
+}
+
+/** Q45: the public intake form inline embed, with the same origin-checked height bridge. */
+export function publicIntakeEmbedCode(url: string, title: string): string {
+  return publicIframeCode(url, title);
 }
