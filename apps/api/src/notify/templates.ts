@@ -372,6 +372,30 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  'platform.firm-download-code': (d) => ({
+    channel: 'email',
+    subject: 'Your closed-firm download code',
+    blocks: [
+      text('Use this one-time code to access the closed-firm download page:'),
+      { kind: 'code', code: code(d) },
+      small(
+        'The code expires in 10 minutes. Never share it. If you did not request it, ignore this email.',
+      ),
+    ],
+  }),
+  'platform.firm-download-link': (d, b, options) => ({
+    channel: 'email',
+    subject: 'Download access to your closed Firmivra workspace',
+    blocks: [
+      hello(d),
+      text('Download-only access to the retained records is available from this secure page.'),
+      button('Open download page', link(d, 'link', options)),
+      small(
+        `This link expires ${dateTime(d, 'expiresAt', b.timeZone)}. You will verify your email before downloading.`,
+      ),
+    ],
+  }),
+
   'staff.phone-code': (d, b) => ({
     channel: 'sms',
     text: `${code(d)} is your ${b.name} code to verify your mobile number. Never share it.`,

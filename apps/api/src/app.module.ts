@@ -98,6 +98,7 @@ import { TemplatesModule } from './templates/templates.module.js';
 import { IntegrationsModule } from './integrations/integrations.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { BookkeepingModule } from './bookkeeping/bookkeeping.module.js';
+import { FirmDataDownloadsModule } from './firm-data-downloads/firm-data-downloads.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -146,6 +147,7 @@ export class AppModule {
         SystemStatusModule,
         MeModule,
         FirmApplicationsModule,
+        FirmDataDownloadsModule,
         AdminFirmProfileModule,
         AdminNotificationsModule,
         AdminCommunicationsModule,
