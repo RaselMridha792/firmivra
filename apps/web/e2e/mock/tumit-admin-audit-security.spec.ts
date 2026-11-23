@@ -17,6 +17,8 @@ test('the dashboard shows its cards and log, and the filters and tabs narrow it'
     await expect(page.getByTestId(`kpi-${card}-value`)).toHaveText(/^\d+$/);
   const events = page.getByTestId('audit-events');
   await expect(events.getByRole('link', { name: /^View event EVT-/ }).first()).toBeVisible();
+  await expect(events.getByRole('columnheader', { name: 'Category' })).toBeVisible();
+  await expect(events.getByRole('columnheader', { name: 'Outcome' })).toBeVisible();
   await expect(page.getByText(/^Showing 1 – 8 of \d+ logs$/)).toBeVisible();
 
   await page.getByRole('combobox', { name: 'Severity' }).selectOption('HIGH');
@@ -57,6 +59,21 @@ test('platform actor and affected firm are shown separately', async ({ page }) =
   await expect(info).toContainText('Firmivra (platform)');
   await expect(info).toContainText('Affected firm');
   await expect(info).toContainText('Firmivra');
+});
+
+test('IP and device filters are addressable and narrow audit events', async ({ page }) => {
+  await page.goto(admin('/audit-security'));
+  await page.getByRole('button', { name: 'More filters' }).click();
+  await page.getByRole('searchbox', { name: 'IP address' }).fill('198.51.100.5');
+  await expect(page).toHaveURL(/ip=198\.51\.100\.5/);
+  const events = page.getByTestId('audit-events');
+  await expect(events.locator('tbody tr').filter({ hasNotText: '198.51.100.5' })).toHaveCount(0);
+
+  await page.getByRole('searchbox', { name: 'IP address' }).fill('');
+  await expect(page).not.toHaveURL(/ip=/);
+  await page.getByRole('searchbox', { name: 'Device' }).fill('Chrome');
+  await expect(page).toHaveURL(/device=Chrome/);
+  await expect(events.locator('tbody tr').first()).toBeVisible();
 });
 
 test('Export Logs downloads the filtered rows and logs the export', async ({ page }) => {

@@ -126,6 +126,8 @@ export class AdminAuditService {
     if (q.user) and.push({ actorUserId: q.user });
     if (q.action) and.push({ action: q.action });
     if (q.resource) and.push({ entityType: q.resource });
+    if (q.ip) and.push({ ip: { contains: q.ip } });
+    if (q.device) and.push({ userAgent: { contains: q.device, mode: 'insensitive' } });
     if (q.category) and.push(categoryWhere([q.category]));
     if (q.severity) and.push(severityWhere([q.severity]));
     if (q.outcome) and.push(outcomeWhere([q.outcome]));

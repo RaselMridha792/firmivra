@@ -1,7 +1,7 @@
 // Super Admin Audit & Security (R55): the classification of rows written before the normalized
 // fields, labels, references, devices, masked changes, and the security policy's mapping.
 import { describe, expect, it } from 'vitest';
-import { ADMIN_SECURITY_DEFAULTS } from '@firmivra/types';
+import { ADMIN_SECURITY_DEFAULTS, AdminAuditEventQuery } from '@firmivra/types';
 import {
   diffOf,
   sectionsOf,
@@ -46,6 +46,12 @@ describe('classify', () => {
 });
 
 describe('the event view helpers', () => {
+  it('accepts IP and device event filters', () => {
+    expect(
+      AdminAuditEventQuery.parse({ ip: '192.0.2.', device: 'Chrome', page: '1', pageSize: '25' }),
+    ).toMatchObject({ ip: '192.0.2.', device: 'Chrome' });
+  });
+
   it('filters System Settings to platform setting events', () => {
     expect(viewWhere('settings')).toEqual({ action: { startsWith: 'system_settings.' } });
   });

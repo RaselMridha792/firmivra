@@ -191,6 +191,8 @@ export const AdminAuditEventQuery = z.strictObject({
   alert: z.union([SecurityAlertStatus, z.literal('NONE')]).optional(),
   /** A record type (`target.type`). */
   resource: z.string().trim().max(60).optional(),
+  ip: z.string().trim().max(64).optional(),
+  device: z.string().trim().max(100).optional(),
   /** Inclusive moments; left out: the last 14 days. */
   from: DateTime.optional(),
   to: DateTime.optional(),

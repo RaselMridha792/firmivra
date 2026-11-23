@@ -137,6 +137,8 @@ interface Filters {
   outcome: string;
   alert: string;
   resource: string;
+  ip: string;
+  device: string;
   /** `YYYY-MM-DD` on the viewer's calendar. */
   from: string;
   to: string;
@@ -162,6 +164,8 @@ function defaultFilters(): Filters {
     outcome: '',
     alert: '',
     resource: '',
+    ip: '',
+    device: '',
     from: dayText(from),
     to: dayText(today),
     sort: 'at',
@@ -197,6 +201,8 @@ function readFilters(address: AddressQuery): Filters {
     outcome: oneOf(OUTCOMES, get('outcome')) ?? '',
     alert: oneOf(ALERT_FILTERS, get('alert')) ?? '',
     resource: text('resource'),
+    ip: text('ip'),
+    device: text('device'),
     from: date('from', base.from),
     to: date('to', base.to),
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -217,6 +223,8 @@ function addressOf(filters: Filters): string {
   put('outcome', filters.outcome);
   put('alert', filters.alert);
   put('resource', filters.resource);
+  put('ip', filters.ip);
+  put('device', filters.device);
   put('from', filters.from, base.from);
   put('to', filters.to, base.to);
   put('page', String(filters.page), '1');
@@ -264,7 +272,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
   const clearFilters = () => setFilters({ ...defaultFilters(), view: filters.view });
   const filtered =
     !!(filters.search || filters.firm || filters.user || filters.action || filters.severity) ||
-    !!(filters.outcome || filters.alert || filters.resource) ||
+    !!(filters.outcome || filters.alert || filters.resource || filters.ip || filters.device) ||
     filters.from !== base.from ||
     filters.to !== base.to;
 
@@ -279,6 +287,8 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
     outcome: oneOf(OUTCOMES, shown.outcome),
     alert: oneOf(ALERT_FILTERS, shown.alert),
     resource: shown.resource || undefined,
+    ip: shown.ip || undefined,
+    device: shown.device || undefined,
     ...range,
     sort: shown.sort,
     descending: shown.descending,
@@ -353,6 +363,12 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
       cell: (event) => event.firm.name,
     },
     {
+      id: 'category',
+      label: 'Category',
+      className: 'min-w-32',
+      cell: (event) => event.category,
+    },
+    {
       id: 'action',
       label: 'Action',
       sortable: true,
@@ -364,6 +380,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
       ),
     },
     { id: 'details', label: 'Details', className: 'min-w-44', cell: (event) => event.details },
+    { id: 'outcome', label: 'Outcome', className: 'min-w-24', cell: (event) => event.outcome },
     {
       id: 'ip',
       label: 'IP Address',
@@ -468,7 +485,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
         <FilterBar
           onReset={filtered ? clearFilters : undefined}
           resetLabel="Clear Filters"
-          onClear={() => update({ outcome: '', alert: '', resource: '' })}
+          onClear={() => update({ outcome: '', alert: '', resource: '', ip: '', device: '' })}
           more={
             <>
               <FilterGroup title="Outcome">
@@ -506,6 +523,24 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
                     option('', 'All resources'),
                     ...(facets.data?.resources ?? []).map((value) => option(value, value)),
                   ]}
+                />
+              </FilterGroup>
+              <FilterGroup title="IP Address">
+                <SearchField
+                  label="IP address"
+                  placeholder="Filter by IP"
+                  maxLength={64}
+                  value={filters.ip}
+                  onChange={(event) => update({ ip: event.target.value })}
+                />
+              </FilterGroup>
+              <FilterGroup title="Device">
+                <SearchField
+                  label="Device"
+                  placeholder="Filter by device"
+                  maxLength={100}
+                  value={filters.device}
+                  onChange={(event) => update({ device: event.target.value })}
                 />
               </FilterGroup>
             </>
