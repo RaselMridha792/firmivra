@@ -41,6 +41,12 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     replyBy: '2026-12-01',
     link: 'https://app.example.test/settings/firmivra-requests/0199c0a0-0a00-7000-8000-000000000001',
   },
+  'platform.firm-download-code': { code: '482913' },
+  'platform.firm-download-link': {
+    name: 'Jordan Sample',
+    link: 'https://app.example.test/closed-firm-download#token=synthetic-download-token',
+    expiresAt: new Date('2026-12-01T13:00:00Z'),
+  },
   'client.signup-sms-code': { code: '482913' },
   'client.already-registered': {
     signInLink: 'https://portal.example.test/sample/sign-in',
