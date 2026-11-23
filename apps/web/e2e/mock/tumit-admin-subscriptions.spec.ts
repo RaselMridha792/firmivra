@@ -74,6 +74,18 @@ test('the detail panel changes a plan and shows the price impact first', async (
   await expect(panel.getByText('Business (Annual)', { exact: true })).toBeVisible();
 });
 
+test('the discount preview explains the percent against the base plan', async ({ page }) => {
+  await page.goto(admin('/subscriptions'));
+  await page.getByRole('button', { name: 'Sample Blue Ridge Tax', exact: true }).click();
+  const panel = page.getByTestId('subscription-panel');
+  await panel.getByRole('button', { name: 'More Actions' }).click();
+  await page.getByRole('menuitem', { name: 'Apply Credit / Discount' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Apply Credit / Discount' });
+  await expect(dialog.getByTestId('discount-impact')).toContainText(
+    /10% off base plan \$[\d,]+\.\d{2}\/mo/,
+  );
+});
+
 test('Auto-Renew off needs the client request confirmation, source and notes', async ({ page }) => {
   await page.goto(admin('/subscriptions'));
   await page.getByRole('switch', { name: 'Auto-Renew for Sample Summit Tax Group' }).click();

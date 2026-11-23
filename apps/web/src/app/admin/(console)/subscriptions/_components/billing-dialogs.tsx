@@ -39,6 +39,12 @@ const DURATIONS = [
   { value: '12', label: '12 months' },
   { value: '0', label: 'No end date' },
 ];
+const moneyWithCents = (cents: number) =>
+  (cents / 100).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+  });
 /** The mock's promotion codes; the API has none (its list is empty). */
 const PROMO_CODES: PromoCode[] = Object.keys(PROMOS);
 
@@ -78,7 +84,7 @@ function DiscountForm({ sub, onClose, onDone }: FormProps) {
         : kind === 'PROMO' && !promo
           ? 'No promotion codes are available yet.'
           : valid
-            ? `From ${dayText(startsOn)}: ${money(discounted)}/mo instead of ${money(netMonthlyOn(sub, startsOn))}/mo${runs ? `, until ${dayText(addMonths(startsOn, runs))}` : ', with no end date'}.${sub.discount ? ` Replaces ${sub.discount.label}.` : ''}`
+            ? `${share}% off base plan ${moneyWithCents(list)}/mo. From ${dayText(startsOn)}: ${money(discounted)}/mo instead of ${money(netMonthlyOn(sub, startsOn))}/mo${runs ? `, until ${dayText(addMonths(startsOn, runs))}` : ', with no end date'}.${sub.discount ? ` Replaces ${sub.discount.label}.` : ''}`
             : 'Enter a whole percentage from 1 to 100.';
   const ended = sub.status === 'CLOSED' || sub.status === 'CANCELLED';
   return (
