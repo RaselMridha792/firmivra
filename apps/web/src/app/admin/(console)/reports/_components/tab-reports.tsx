@@ -48,6 +48,11 @@ import {
 const SUBTITLE =
   'Insights and data to help you monitor growth, performance, and platform activity.';
 
+const durationText = (minutes: number) => {
+  const rounded = Math.max(0, Math.round(minutes));
+  return `${Math.floor(rounded / 60)} h ${rounded % 60} m`;
+};
+
 function Page({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -525,7 +530,7 @@ export function SupportReport() {
             d
               ? d.avgFirstResponseMinutes === null
                 ? NOT_AVAILABLE
-                : `${Math.round(d.avgFirstResponseMinutes)} min`
+                : durationText(d.avgFirstResponseMinutes)
               : undefined
           }
           icon={Clock}
@@ -538,7 +543,7 @@ export function SupportReport() {
             d
               ? d.avgResolutionHours === null
                 ? NOT_AVAILABLE
-                : `${Math.round(d.avgResolutionHours * 10) / 10} h`
+                : durationText(d.avgResolutionHours * 60)
               : undefined
           }
           icon={CalendarCheck}

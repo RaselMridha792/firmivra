@@ -19,6 +19,29 @@ async function rowCount(page: Page, label: string) {
   return Number(await row.locator('span.font-semibold').innerText());
 }
 
+test('SA-RPT-Y1d: support report durations show hours and minutes', async ({ page }) => {
+  await page.route('**/api/v1/admin/reports/support*', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total: { value: 2, previous: 1 },
+        open: 1,
+        inProgress: 0,
+        closed: { value: 1, previous: 1 },
+        avgFirstResponseMinutes: 2,
+        avgResolutionHours: 1.5,
+        byPriority: [],
+        byFirm: [],
+        volume: [],
+      }),
+    }),
+  );
+  await page.goto(admin('/reports/support'));
+  await expect(page.getByRole('heading', { name: 'Reports & Analytics' })).toBeVisible();
+  await expect(page.getByText('0 h 2 m', { exact: true })).toBeVisible();
+  await expect(page.getByText('1 h 30 m', { exact: true })).toBeVisible();
+});
+
 test('SA-DSH-F02, SA-FRM-F01: Active Firms opens Firms on Active; the tab lives in the address', async ({
   page,
 }) => {
