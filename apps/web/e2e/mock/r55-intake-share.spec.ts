@@ -41,7 +41,7 @@ test('Share & Publish: the link and website button, Publish in client portal, sh
     'http://portal.localhost:3000/lvp/sign-in',
   );
   await expect(share).toContainText('Opens the portal sign-in page in a new tab.');
-  await dialog.screenshot({ path: 'e2e/mock/screenshots/q45-intake-share.png' });
+  await dialog.screenshot({ path: 'test-results/q45-intake-share.png' });
 
   // Off by default; on, it is listed in the client portal.
   const portalSwitch = share.getByRole('switch', { name: 'Publish in client portal' });
@@ -103,7 +103,7 @@ test('the published form frames on an approved website and reports its height', 
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { heights: number[] }).heights))
     .toEqual(expect.arrayContaining([expect.any(Number)]));
-  await page.screenshot({ path: 'e2e/mock/screenshots/q45-intake-framed.png' });
+  await page.screenshot({ path: 'test-results/q45-intake-framed.png' });
 
   // A portal sign-in link clicked from the embedded form must leave the frame.
   const signIn = frame.getByRole('link', { name: 'Client Portal', exact: true });
