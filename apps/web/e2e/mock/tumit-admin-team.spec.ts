@@ -15,6 +15,12 @@ test('the directory opens with its totals, cards and list, and filters by depart
   page,
 }) => {
   await openTeam(page);
+  await expect(
+    page.getByText(
+      'Manage team members, departments, roles, reporting relationships, and access permissions.',
+      { exact: true },
+    ),
+  ).toBeVisible();
   await expect(page.getByTestId('kpi-members-value')).toHaveText('15');
   await expect(page.getByTestId('kpi-admins-value')).toHaveText('10');
   await expect(page.getByTestId('kpi-standard-value')).toHaveText('5');
