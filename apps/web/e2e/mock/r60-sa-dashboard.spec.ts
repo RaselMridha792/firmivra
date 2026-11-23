@@ -42,6 +42,37 @@ test('SA-RPT-Y1d: support report durations show hours and minutes', async ({ pag
   await expect(page.getByText('1 h 30 m', { exact: true })).toBeVisible();
 });
 
+test('SA-RPT-Y1c: uncollected firm report values explain the dash on hover', async ({ page }) => {
+  await page.route('**/api/v1/admin/reports/firms*', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: [
+          {
+            id: '0199d100-0000-7000-8000-000000000001',
+            name: 'Example Firm',
+            status: 'ACTIVE',
+            planName: null,
+            joinedAt: '2026-10-01T00:00:00.000Z',
+            contactName: null,
+            contactEmail: null,
+            totalUsers: null,
+            revenueCents: 0,
+            openTickets: 0,
+            lastLoginAt: null,
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 25,
+      }),
+    }),
+  );
+  await page.goto(admin('/reports/firms'));
+  await expect(page.getByRole('row', { name: /Example Firm/ })).toBeVisible();
+  await expect(page.getByTitle('Not collected yet')).toHaveCount(3);
+});
+
 test('SA-DSH-F02, SA-FRM-F01: Active Firms opens Firms on Active; the tab lives in the address', async ({
   page,
 }) => {

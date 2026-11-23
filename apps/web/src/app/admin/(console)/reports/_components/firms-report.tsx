@@ -24,6 +24,7 @@ import {
   dateTimeText,
   loadError,
   moneyWhole,
+  NotCollected,
   QuietLine,
   ReportsHeader,
   ReportsTabs,
@@ -263,18 +264,18 @@ export function FirmsReport() {
                   </td>
                   <td className="px-3 py-3 text-text">{dateText(f.joinedAt)}</td>
                   <td className="px-3 py-3 text-text">
-                    {f.contactName ?? '—'}
+                    {f.contactName ?? <NotCollected />}
                     {f.contactEmail ? (
                       <span className="block text-xs text-muted">{f.contactEmail}</span>
                     ) : null}
                   </td>
                   <td className="px-3 py-3 text-right text-text">
-                    {f.totalUsers === null ? '—' : count(f.totalUsers)}
+                    {f.totalUsers === null ? <NotCollected /> : count(f.totalUsers)}
                   </td>
                   <td className="px-3 py-3 text-right text-text">{moneyWhole(f.revenueCents)}</td>
                   <td className="px-3 py-3 text-right text-text">{count(f.openTickets)}</td>
                   <td className="px-3 py-3 text-text">
-                    {f.lastLoginAt ? dateTimeText(f.lastLoginAt) : '—'}
+                    {f.lastLoginAt ? dateTimeText(f.lastLoginAt) : <NotCollected />}
                   </td>
                 </tr>
               ))}
