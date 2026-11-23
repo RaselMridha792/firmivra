@@ -137,3 +137,30 @@ test('E-File report, import and the empty Ready-to-File blockers', async ({ page
   await page.getByRole('button', { name: 'Import Return' }).first().click();
   await expect(page.getByTestId('import-dialog')).toContainText('No tax-software integration');
 });
+
+test('the Due Date header sorts the list, reversed on a second click', async ({ page }) => {
+  await page.goto(app('/tax-returns'));
+  await expect(page.getByTestId('return-link').first()).toBeVisible();
+  const header = page.getByRole('columnheader', { name: /Due Date/ });
+  const dueDates = async () => {
+    const cells = await page.locator('tbody tr td:nth-child(5)').allTextContents();
+    return cells.map((t) => t.trim()).filter((t) => t !== '—' && t !== '');
+  };
+  const parse = (s: string) => {
+    const [m, d, y] = s.split('/');
+    return new Date(Number(y), Number(m) - 1, Number(d)).getTime();
+  };
+  // First click: ascending — rows sorted by due date.
+  await page.getByRole('button', { name: /Due Date/ }).click();
+  await page.waitForTimeout(400);
+  await expect(header).toHaveAttribute('aria-sort', 'ascending');
+  const asc = await dueDates();
+  expect(asc.length).toBeGreaterThan(0);
+  for (let i = 1; i < asc.length; i++) {
+    expect(parse(asc[i])).toBeGreaterThanOrEqual(parse(asc[i - 1]));
+  }
+  // Second click: the header toggles to descending (aria-sort reflects the toggle).
+  await page.getByRole('button', { name: /Due Date/ }).click();
+  await page.waitForTimeout(400);
+  await expect(header).toHaveAttribute('aria-sort', 'descending');
+});
