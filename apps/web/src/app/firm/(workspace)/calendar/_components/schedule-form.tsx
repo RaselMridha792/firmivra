@@ -1245,22 +1245,24 @@ function FormBody({
     if (record) {
       // Review 2 (R2): the repeat itself changes on this appointment alone; with another scope
       // the change keeps the series' repeat as it is.
+      // mutateAsync, not mutate(..., { onSuccess }): saving bumps the version, the edit page remounts
+      // this form (key=version), and TanStack drops per-call callbacks of an unmounted component (R3).
       const { recurrence: _repeat, ...rest } = body;
-      update.mutate(
-        record.seriesId && scope !== 'THIS'
-          ? { version: record.version, ...rest, scope }
-          : { version: record.version, ...body },
-        {
-          onSuccess: (r) => {
-            forgetKept();
-            if (embedded) embedded.onDone(r.id);
-            else router.push(`/calendar/${r.id}`);
-          },
-        },
-      );
+      update
+        .mutateAsync(
+          record.seriesId && scope !== 'THIS'
+            ? { version: record.version, ...rest, scope }
+            : { version: record.version, ...body },
+        )
+        .then((r) => {
+          forgetKept();
+          if (embedded) embedded.onDone(r.id);
+          else router.push(`/calendar/${r.id}`);
+        })
+        .catch(() => {});
     } else {
-      schedule.mutate(
-        {
+      schedule
+        .mutateAsync({
           idempotencyKey: key,
           ...body,
           // Review 2 (row 9): the form to send, or none (null) when unchecked.
@@ -1271,17 +1273,15 @@ function FormBody({
           ...(conflict && override.trim()
             ? { overrideConflicts: { reason: override.trim() } }
             : {}),
-        },
-        {
-          onSuccess: (r) => {
-            forgetKept();
-            if (embedded) embedded.onDone(r.id);
-            // Advisory A-11: booked from a workspace (its `from`), back there, as Cancel goes:
-            // Business Advisory's client Meetings tab lists the new meeting.
-            else router.push(cancelHref ?? `/calendar/${r.id}`);
-          },
-        },
-      );
+        })
+        .then((r) => {
+          forgetKept();
+          if (embedded) embedded.onDone(r.id);
+          // Advisory A-11: booked from a workspace (its `from`), back there, as Cancel goes:
+          // Business Advisory's client Meetings tab lists the new meeting.
+          else router.push(cancelHref ?? `/calendar/${r.id}`);
+        })
+        .catch(() => {});
     }
   };
   const saveDraft = () => {
