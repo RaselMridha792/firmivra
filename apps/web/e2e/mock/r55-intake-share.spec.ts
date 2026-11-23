@@ -75,6 +75,7 @@ test('the shared link starts the form for anyone; a dead link says so', async ({
 test('the published form frames on an approved website and reports its height', async ({
   browser,
 }) => {
+  test.skip(process.env['MOCK_HTTPS'] !== '1', 'Set MOCK_HTTPS=1 to start the HTTPS mock server.');
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const page = await context.newPage();
   await page.setViewportSize({ width: 1280, height: 900 });
