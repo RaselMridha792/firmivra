@@ -337,7 +337,7 @@ function SetupForm({ editId, initial }: { editId: string | undefined; initial: S
   const body = (asTemplate: boolean) => ({
     name: s.name.trim(),
     type: s.type,
-    ...(s.description.trim() ? { description: s.description.trim() } : {}),
+    description: s.description.trim() === '' ? null : s.description.trim(),
     ...(s.agency.trim() ? { agency: s.agency.trim() } : {}),
     ...(s.relatedForm.trim() ? { relatedForm: s.relatedForm.trim() } : {}),
     ...(s.jurisdiction ? { jurisdiction: s.jurisdiction as JurisdictionLevel } : {}),
