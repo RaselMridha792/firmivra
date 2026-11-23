@@ -120,6 +120,9 @@ describe('seed', () => {
       'firm_data_download_codes',
       'firm_data_download_log',
       'firm_exceptional_access_requests',
+      // Q36 task collaboration: acknowledgement and discussion rows appear only after task activity.
+      'task_acknowledgements',
+      'task_comments',
     ];
     const empty: string[] = [];
     for (const t of tables) {
