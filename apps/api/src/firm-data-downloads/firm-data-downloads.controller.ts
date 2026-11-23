@@ -97,6 +97,7 @@ export class ClosedFirmDownloadController {
   @Post('files/:fileId/link')
   @Public()
   @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   fileLink(
     @Param('fileId', new ZodValidationPipe(FileId)) fileId: string,
     @Headers('authorization') authorization?: string,

@@ -1,4 +1,11 @@
-import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  randomInt,
+  randomUUID,
+  timingSafeEqual,
+} from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -11,6 +18,7 @@ import { DATABASE } from '../database/database.module.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { deriveKey } from '../auth/sealed.js';
+import { AdminPrisma } from '../firm-applications/admin-prisma.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import {
   DOCUMENT_STORAGE,
@@ -39,6 +47,7 @@ export class FirmDataDownloadsService {
   private readonly sessionKey: Uint8Array;
   constructor(
     @Inject(DATABASE) private readonly database: Database,
+    private readonly admin: AdminPrisma,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
     @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
     @Inject(ENV) private readonly env: Env,
@@ -60,18 +69,33 @@ export class FirmDataDownloadsService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  private async owner(db: ScopedClient, businessId: string): Promise<OwnerIdentity> {
+  private async ownerForBusiness(db: ScopedClient, businessId: string): Promise<OwnerIdentity> {
     const owner = await db.membership.findFirst({
       where: { businessId, role: 'OWNER', status: 'ACTIVE' },
-      select: { userId: true, user: { select: { email: true, name: true } } },
+      select: { userId: true },
       orderBy: { createdAt: 'asc' },
     });
-    if (!owner?.user.email)
-      throw new ConflictException({
-        code: 'OWNER_EMAIL_MISSING',
-        message: 'The firm has no active owner email.',
-      });
-    return { userId: owner.userId, email: owner.user.email, name: owner.user.name ?? '' };
+    if (!owner) throw this.ownerEmailMissing();
+    // Admin scope exposes the owner membership, while the platform-scoped user row holds
+    // contact fields. Keep those reads separate so the user RLS policy doesn't hide the email.
+    return this.ownerByUserId(this.platform, owner.userId);
+  }
+
+  private ownerEmailMissing() {
+    return new ConflictException({
+      code: 'OWNER_EMAIL_MISSING',
+      message: 'The firm has no active owner email.',
+    });
+  }
+
+  /** Public link/code requests use the grant's stored owner id and platform-visible user row. */
+  private async ownerByUserId(db: ScopedClient, userId: string): Promise<OwnerIdentity> {
+    const owner = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true },
+    });
+    if (!owner?.email) throw this.ownerEmailMissing();
+    return { userId: owner.id, email: owner.email, name: owner.name ?? '' };
   }
 
   /** Called at closure and by Super Admin when granting a requested window. */
@@ -89,7 +113,8 @@ export class FirmDataDownloadsService {
     if (!firm || firm.status !== 'CLOSED' || !firm.closedAt) throw denied();
     const day90 = new Date(firm.closedAt.getTime() + 90 * DAY);
     if (Date.now() >= day90.getTime()) throw inactive();
-    const owner = await this.owner(db, businessId);
+    // Admin scope can read only the firm's Owner contact, unlike broad platform scope.
+    const owner = await this.ownerForBusiness(this.admin.db, businessId);
     const token = randomBytes(TOKEN_BYTES).toString('base64url');
     const expiresAt = new Date(
       Math.min(firm.closedAt.getTime() + (kind === 'AUTOMATIC' ? 30 : 90) * DAY, day90.getTime()),
@@ -200,16 +225,24 @@ export class FirmDataDownloadsService {
   async sendCode(token: string) {
     const grant = await this.grantForToken(token);
     const db = this.platform;
-    const owner = await this.owner(db, grant.businessId);
+    const owner = await this.ownerByUserId(db, grant.ownerUserId);
     if (owner.userId !== grant.ownerUserId) throw denied();
     const code = String(randomInt(100_000, 1_000_000));
-    await db.firmDataDownloadCode.create({
-      data: {
-        grantId: grant.id,
-        codeHash: this.codeHash(code),
-        expiresAt: new Date(Date.now() + CODE_TTL),
-      },
-    });
+    // The code table is introduced by the standalone schema PR. Use parameterized SQL here so
+    // this feature-only PR still typechecks against main before that schema PR merges.
+    await this.database.withScope(
+      { kind: 'platform' },
+      (tx) =>
+        tx.$executeRaw`
+        INSERT INTO firm_data_download_codes (id, grant_id, code_hash, expires_at)
+        VALUES (
+          ${randomUUID()}::uuid,
+          ${grant.id}::uuid,
+          ${this.codeHash(code)},
+          ${new Date(Date.now() + CODE_TTL)}::timestamptz
+        )
+      `,
+    );
     await this.notify.send({
       template: 'platform.firm-download-code',
       to: owner.email,
@@ -263,14 +296,20 @@ export class FirmDataDownloadsService {
 
   async verifyCode(token: string, value: string) {
     const grant = await this.grantForToken(token);
-    const owner = await this.owner(this.platform, grant.businessId);
+    const owner = await this.ownerByUserId(this.platform, grant.ownerUserId);
     if (owner.userId !== grant.ownerUserId) throw denied();
     if (!/^\d{6}$/.test(value))
       throw new BadRequestException({ code: 'INVALID_CODE', message: 'Enter the six-digit code.' });
-    const code = await this.platform.firmDataDownloadCode.findFirst({
-      where: { grantId: grant.id, consumedAt: null, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-    });
+    const codes = await this.platform.$queryRaw<
+      { id: string; attempts: number; codeHash: string }[]
+    >`
+      SELECT id, attempts, code_hash AS "codeHash"
+      FROM firm_data_download_codes
+      WHERE grant_id = ${grant.id}::uuid AND consumed_at IS NULL AND expires_at > now()
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    const code = codes[0];
     if (!code || code.attempts >= 5) throw denied();
     const expectedCodeHash = Buffer.from(this.codeHash(value), 'hex');
     const storedCodeHash = Buffer.from(code.codeHash, 'hex');
@@ -278,17 +317,21 @@ export class FirmDataDownloadsService {
       storedCodeHash.length === expectedCodeHash.length &&
       timingSafeEqual(storedCodeHash, expectedCodeHash);
     if (!codeMatches) {
-      const changed = await this.platform.firmDataDownloadCode.updateMany({
-        where: { id: code.id, attempts: { lt: 5 }, consumedAt: null },
-        data: { attempts: { increment: 1 } },
-      });
-      if (!changed.count) throw denied();
+      const changed = await this.platform.$queryRaw<{ id: string }[]>`
+        UPDATE firm_data_download_codes
+        SET attempts = attempts + 1
+        WHERE id = ${code.id}::uuid AND attempts < 5 AND consumed_at IS NULL
+        RETURNING id
+      `;
+      if (!changed.length) throw denied();
       throw denied();
     }
-    await this.platform.firmDataDownloadCode.update({
-      where: { id: code.id },
-      data: { consumedAt: new Date() },
-    });
+    const consumed = await this.platform.$queryRaw<{ id: string }[]>`
+      UPDATE firm_data_download_codes SET consumed_at = now()
+      WHERE id = ${code.id}::uuid AND consumed_at IS NULL
+      RETURNING id
+    `;
+    if (!consumed.length) throw denied();
     const expiresAt = Math.min(Date.now() + SESSION_TTL, grant.expiresAt.getTime());
     return {
       sessionToken: this.session(grant.id, expiresAt),
