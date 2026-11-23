@@ -10,11 +10,23 @@ const git = (...args) =>
 const lead = process.env.FIRMIVRA_LEAD === '1';
 const approved = lead || process.env.FIRMIVRA_APPROVED === '1';
 
-const staged = git('diff', '--cached', '--name-only', '--diff-filter=ACMRD')
+// Merging main into a branch stages main's own changes too (its .github, packages/db, ...). Those
+// are not the developer's: during a merge, check only what differs from the branch being merged in.
+const isMerging = () => {
+  try {
+    git('rev-parse', '-q', '--verify', 'MERGE_HEAD');
+    return true;
+  } catch {
+    return false;
+  }
+};
+const merging = isMerging();
+const against = merging ? ['MERGE_HEAD'] : [];
+const staged = git('diff', '--cached', '--name-only', '--diff-filter=ACMRD', ...against)
   .split('\n')
   .filter(Boolean);
 const errors = [];
-if (staged.length === 0) {
+if (staged.length === 0 && !merging) {
   errors.push('Nothing is staged. Empty commits are not allowed: a commit changes code or tests.');
 }
 
@@ -40,7 +52,9 @@ for (const file of staged) {
 const BROKEN = /\u00e2\u20ac|\u00c2[\u00a0-\u00bf]|\u00c3[\u0080-\u00bf]/;
 let file = '';
 let broken = 0;
-for (const line of git('diff', '--cached', '-U0', '--no-color', '--no-ext-diff').split('\n')) {
+for (const line of git('diff', '--cached', '-U0', '--no-color', '--no-ext-diff', ...against).split(
+  '\n',
+)) {
   if (line.startsWith('+++ ')) file = line.slice(6);
   else if (line.startsWith('+') && BROKEN.test(line)) {
     broken += 1;
