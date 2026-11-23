@@ -104,9 +104,9 @@ test('Super Admin Notifications renders the API states and responsive layouts', 
   await page.getByLabel('Date range').selectOption('CUSTOM');
   await page.getByLabel('From date').fill('2026-10-10');
   await page.getByLabel('To date').fill('2026-10-01');
-  await expect(page.getByRole('alert')).toHaveText(
-    'The end date must be on or after the start date.',
-  );
+  await expect(
+    page.getByText('The end date must be on or after the start date.', { exact: true }),
+  ).toBeVisible();
 });
 
 test('Super Admin sidebar collapse stays after a reload', async ({ page }) => {
@@ -119,4 +119,47 @@ test('Super Admin sidebar collapse stays after a reload', async ({ page }) => {
   await expect(menu).toHaveAttribute('data-collapsed', 'true');
   await page.getByRole('button', { name: 'Expand menu' }).click();
   await expect(menu).not.toHaveAttribute('data-collapsed', 'true');
+});
+
+test('notification filters survive reload and All resets only status', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'));
+  await page.route('**/api/v1/**', (route) => route.abort());
+  await page.goto(`http://admin.localhost:${port}/notifications`);
+
+  await page.getByRole('tab', { name: 'Billing & Subscriptions' }).click();
+  await page.getByLabel('Notification status').selectOption('UNREAD');
+  await page.getByLabel('Notification priority').selectOption('CRITICAL');
+  await page.getByRole('searchbox', { name: 'Search notifications, firms, users' }).fill('Payment');
+  await expect(page).toHaveURL(/category=BILLING_SUBSCRIPTIONS/);
+  await expect(page).toHaveURL(/status=UNREAD/);
+  await expect(page).toHaveURL(/priority=CRITICAL/);
+  await expect(page).toHaveURL(/q=Payment/);
+
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Billing & Subscriptions' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.getByLabel('Notification status')).toHaveValue('UNREAD');
+  await expect(page.getByLabel('Notification priority')).toHaveValue('CRITICAL');
+  await expect(
+    page.getByRole('searchbox', { name: 'Search notifications, firms, users' }),
+  ).toHaveValue('Payment');
+
+  await page.getByRole('button', { name: /All Notifications/ }).click();
+  await expect(page).not.toHaveURL(/status=/);
+  await expect(page).toHaveURL(/priority=CRITICAL/);
+});
+
+test('opening an unread notification marks it read and keeps its filters', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'));
+  await page.route('**/api/v1/**', (route) => route.abort());
+  await page.goto(`http://admin.localhost:${port}/notifications?category=BILLING_SUBSCRIPTIONS`);
+  const row = page.locator('tr').filter({ hasText: 'Payment Failed' }).first();
+  await expect(row.locator('td').nth(6)).toContainText('Unread');
+  await row.getByRole('button', { name: 'Payment Failed', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Payment Failed' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(row.locator('td').nth(6)).toContainText('Read');
+  await expect(page).toHaveURL(/category=BILLING_SUBSCRIPTIONS/);
 });

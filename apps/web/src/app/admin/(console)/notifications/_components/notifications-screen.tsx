@@ -33,7 +33,7 @@ import {
 } from '@firmivra/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -117,6 +117,27 @@ const iconStyle: Record<PlatformNotificationCategory, string> = {
 const pageSize = 7;
 const DAY_MS = 86_400_000;
 const NOTIFICATIONS = ['admin-notifications'] as const;
+const statusOptions: readonly StatusFilter[] = [
+  'ALL',
+  'UNREAD',
+  'READ',
+  'ACTION_REQUIRED',
+  'RESOLVED',
+  'DISMISSED',
+];
+const priorityOptions: readonly PriorityFilter[] = [
+  'ALL',
+  'CRITICAL',
+  'HIGH',
+  'NORMAL',
+  'INFORMATIONAL',
+];
+const dateOptions: readonly DateFilter[] = ['TODAY', 'LAST_7_DAYS', 'LAST_30_DAYS', 'CUSTOM'];
+const validOption = <T extends string>(
+  value: string | null,
+  options: readonly T[],
+  fallback: T,
+): T => options.find((option) => option === value) ?? fallback;
 
 /** What a notification's source record is, as the Related To column names it. */
 const sourceTypeLabels: Record<string, string> = {
@@ -160,6 +181,8 @@ function rangeOf(filter: DateFilter, customFrom: string, customTo: string) {
 export function NotificationsScreen() {
   const client = useQueryClient();
   const router = useRouter();
+  const skipUrlWriteRef = useRef(false);
+  const [urlReady, setUrlReady] = useState(false);
   const [category, setCategory] = useState<CategoryFilter>('ALL');
   const [search, setSearch] = useState('');
   const [searchText, setSearchText] = useState('');
@@ -181,6 +204,66 @@ export function NotificationsScreen() {
     const timeout = window.setTimeout(() => setSearchText(search.trim()), 300);
     return () => window.clearTimeout(timeout);
   }, [search]);
+
+  // Restore the filter state once on the client so a reload keeps the selected view.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const query = params.get('q') ?? '';
+    const nextDate = validOption(params.get('range'), dateOptions, 'LAST_30_DAYS');
+    const nextPage = Number(params.get('page'));
+    const timeout = window.setTimeout(() => {
+      skipUrlWriteRef.current = true;
+      setCategory(
+        validOption(
+          params.get('category'),
+          categoryTabs.map((tab) => tab.id),
+          'ALL',
+        ),
+      );
+      setSearch(query);
+      setSearchText(query.trim());
+      setDateFilter(nextDate);
+      setStatusFilter(validOption(params.get('status'), statusOptions, 'ALL'));
+      setPriorityFilter(validOption(params.get('priority'), priorityOptions, 'ALL'));
+      setCustomFrom(params.get('from') ?? '');
+      setCustomTo(params.get('to') ?? '');
+      setPage(Number.isSafeInteger(nextPage) && nextPage > 0 ? nextPage : 1);
+      setUrlReady(true);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  // Keep the current history entry addressable; opening a row then Back returns to these filters.
+  useEffect(() => {
+    if (!urlReady) return;
+    if (skipUrlWriteRef.current) {
+      skipUrlWriteRef.current = false;
+      return;
+    }
+    const params = new URLSearchParams();
+    if (category !== 'ALL') params.set('category', category);
+    if (search.trim()) params.set('q', search.trim());
+    if (dateFilter !== 'LAST_30_DAYS') params.set('range', dateFilter);
+    if (statusFilter !== 'ALL') params.set('status', statusFilter);
+    if (priorityFilter !== 'ALL') params.set('priority', priorityFilter);
+    if (dateFilter === 'CUSTOM' && customFrom) params.set('from', customFrom);
+    if (dateFilter === 'CUSTOM' && customTo) params.set('to', customTo);
+    if (page > 1) params.set('page', String(page));
+    const query = params.toString();
+    const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
+    if (`${window.location.pathname}${window.location.search}` !== nextUrl)
+      window.history.replaceState(window.history.state, '', nextUrl);
+  }, [
+    urlReady,
+    category,
+    search,
+    dateFilter,
+    statusFilter,
+    priorityFilter,
+    customFrom,
+    customTo,
+    page,
+  ]);
 
   const filters: ListAdminNotificationsQuery = useMemo(
     () => ({
@@ -295,7 +378,6 @@ export function NotificationsScreen() {
     setPage(1);
     if (filter === 'ALL') {
       setStatusFilter('ALL');
-      setPriorityFilter('ALL');
     } else if (filter === 'UNREAD') {
       setStatusFilter('UNREAD');
     } else if (filter === 'ACTION_REQUIRED') {
