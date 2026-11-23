@@ -688,7 +688,7 @@ function filterEvents(query: AuditEventQuery): AuditEvent[] {
     if (query.outcome && event.outcome !== query.outcome) return false;
     if (query.alert && (event.alertState ?? 'NONE') !== query.alert) return false;
     if (query.resource && event.target.type !== query.resource) return false;
-    if (query.ip && !event.device.ip?.includes(query.ip)) return false;
+    if (query.ip && !event.device.ip?.startsWith(query.ip)) return false;
     if (query.device && !event.device.userAgent?.toLowerCase().includes(query.device.toLowerCase()))
       return false;
     if (!search) return true;

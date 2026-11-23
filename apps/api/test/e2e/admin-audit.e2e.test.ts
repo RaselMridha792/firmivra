@@ -251,6 +251,13 @@ describe('the log', () => {
       [events.failed1, events.failed2].sort(),
     );
     expect(await ids(`search=target%20locked%20${run}`)).toEqual([events.locked]);
+    expect(await ids('view=login&ip=203.0.113.7')).toEqual(
+      [events.signedIn, events.failed1, events.failed2].sort(),
+    );
+    expect(await ids('view=login&ip=203.0.113')).toEqual(
+      [events.signedIn, events.failed1, events.failed2].sort(),
+    );
+    expect(await ids('view=login&ip=113.7')).toEqual([]);
     const two = await page('pageSize=3&page=2');
     expect([two.total, two.items.length, two.page]).toEqual([8, 3, 2]);
   });
