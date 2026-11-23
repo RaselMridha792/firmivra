@@ -262,7 +262,7 @@ export class AdminAuditService {
               : [{ createdAt: q.descending ? 'desc' : 'asc' }];
         const where = this.where({ ...q, search: undefined });
         const candidates = await tx.auditLog.findMany({
-          where: { AND: [where, eventReference.createdAt] },
+          where: { AND: [where, { createdAt: eventReference.createdAt }] },
           select: eventSelect,
           orderBy: [...order, { id: q.descending ? 'desc' : 'asc' }],
         });
