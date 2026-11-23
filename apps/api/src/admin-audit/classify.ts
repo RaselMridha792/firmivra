@@ -212,7 +212,7 @@ export function eventReferenceWhere(reference: string) {
     return null;
   return {
     createdAt: { gte: day, lt: new Date(day.getTime() + 86_400_000) },
-    id: { endsWith: match[4]!.toLowerCase() },
+    idSuffix: match[4]!.toLowerCase(),
   };
 }
 

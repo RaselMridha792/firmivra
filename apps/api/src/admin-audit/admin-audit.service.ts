@@ -141,8 +141,6 @@ export class AdminAuditService {
         { action: { contains: s, mode: 'insensitive' } },
       ];
       if (/^[0-9a-f-]{36}$/i.test(s)) or.push({ id: s.toLowerCase() });
-      const eventReference = eventReferenceWhere(s);
-      if (eventReference) or.push(eventReference);
       and.push({ OR: or });
     }
     return { AND: and };
@@ -251,6 +249,34 @@ export class AdminAuditService {
 
   async events(q: Query): Promise<AdminAuditEventPage> {
     return this.admin.transaction(async (tx) => {
+      const eventReference = q.search ? eventReferenceWhere(q.search) : null;
+      if (eventReference) {
+        const order: Prisma.AuditLogOrderByWithRelationInput[] =
+          q.sort === 'action'
+            ? [{ action: q.descending ? 'desc' : 'asc' }, { createdAt: 'desc' }]
+            : q.sort === 'severity'
+              ? [
+                  { severity: { sort: q.descending ? 'desc' : 'asc', nulls: 'last' } },
+                  { createdAt: 'desc' },
+                ]
+              : [{ createdAt: q.descending ? 'desc' : 'asc' }];
+        const where = this.where({ ...q, search: undefined });
+        const candidates = await tx.auditLog.findMany({
+          where: { AND: [where, eventReference.createdAt] },
+          select: eventSelect,
+          orderBy: [...order, { id: q.descending ? 'desc' : 'asc' }],
+        });
+        const exact = candidates.filter((row) =>
+          row.id.toLowerCase().endsWith(eventReference.idSuffix),
+        );
+        const page = exact.slice((q.page - 1) * q.pageSize, q.page * q.pageSize);
+        return {
+          items: await this.views(tx, page),
+          total: exact.length,
+          page: q.page,
+          pageSize: q.pageSize,
+        };
+      }
       const where = this.where(q);
       const order: Prisma.AuditLogOrderByWithRelationInput[] =
         q.sort === 'action'

@@ -70,7 +70,7 @@ describe('the event view helpers', () => {
         gte: new Date('2026-10-14T00:00:00Z'),
         lt: new Date('2026-10-15T00:00:00Z'),
       },
-      id: { endsWith: '1a2b3c' },
+      idSuffix: '1a2b3c',
     });
     expect(eventReferenceWhere('EVT-20260230-1A2B3C')).toBeNull();
   });
