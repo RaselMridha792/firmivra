@@ -16062,11 +16062,12 @@ model FirmDataDownloadGrant {
   revokeReason    String?               @map("revoke_reason")
   createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  business  Business              @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  owner     Membership            @relation(fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
-  grantedBy PlatformAdmin?        @relation("DownloadGrantGrantedBy", fields: [grantedByUserId], references: [userId], onDelete: Restrict)
-  revokedBy PlatformAdmin?        @relation("DownloadGrantRevokedBy", fields: [revokedByUserId], references: [userId], onDelete: Restrict)
+  business  Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  owner     Membership             @relation(fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  grantedBy PlatformAdmin?         @relation("DownloadGrantGrantedBy", fields: [grantedByUserId], references: [userId], onDelete: Restrict)
+  revokedBy PlatformAdmin?         @relation("DownloadGrantRevokedBy", fields: [revokedByUserId], references: [userId], onDelete: Restrict)
   log       FirmDataDownloadLog[]
+  codes     FirmDataDownloadCode[]
 
   @@unique([businessId, id])
   @@index([businessId, expiresAt])
@@ -16076,6 +16077,24 @@ model FirmDataDownloadGrant {
 enum FirmDownloadGrantKind {
   AUTOMATIC
   REQUESTED
+}
+
+/// Q32 (SA-FRM-F07/F08): an email code sent to the verified owner before downloads. Only its
+/// HMAC-SHA256 is stored; attempts and consumption are retained, and only the newest code for a
+/// grant can be used. Codes expire within 10 minutes and are never deleted.
+model FirmDataDownloadCode {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  grantId    String    @map("grant_id") @db.Uuid
+  codeHash   String    @map("code_hash")
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  grant FirmDataDownloadGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
+
+  @@index([grantId, createdAt(sort: Desc)])
+  @@map("firm_data_download_codes")
 }
 
 /// R1 (Nov 10, SA-FRM-F07): what happened with a download grant: issued, each download, expiry,

@@ -31,7 +31,7 @@ const sameText = (a: unknown, b: unknown) =>
   (typeof a === 'string' ? a.trim() : (a ?? '')) === (typeof b === 'string' ? b.trim() : (b ?? ''));
 const sameSet = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((t) => b.some((u) => u.toLowerCase() === t.toLowerCase()));
-/** Other phones and emails, in order, as the lead keeps them (emails lower-cased, no blank label). */
+/** Other contact details, in order, as the lead keeps them (emails lower-cased, no blank label). */
 const contactsKey = (list: unknown) =>
   JSON.stringify(
     ((list ?? []) as { kind: string; value: string; label?: string | null }[]).map((c) => [
@@ -131,13 +131,8 @@ function EditForm({
       businessName: lead.businessName ?? '',
       email: lead.email,
       phone: lead.phone ?? '',
-      // The form edits phones and emails; the other kinds (address, website, other) come with
-      // Leads R2 9's screens.
-      otherContacts: lead.otherContacts.flatMap((c) =>
-        c.kind === 'EMAIL' || c.kind === 'PHONE'
-          ? [{ ...c, kind: c.kind, label: c.label ?? '' }]
-          : [],
-      ),
+      // Leads R2 9: every kind (phone, email, address, website, other), so a save keeps them all.
+      otherContacts: lead.otherContacts.map((c) => ({ ...c, label: c.label ?? '' })),
       address: lead.address ?? '',
       dateOfBirth: lead.dateOfBirth,
       preferredContact: lead.preferredContact,
