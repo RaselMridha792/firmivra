@@ -8,6 +8,7 @@ import {
   sectionsOf,
   settingsOf,
 } from '../../src/admin-audit/admin-security-policy.service.js';
+import { responseActionReason } from '../../src/admin-audit/admin-audit.service.js';
 import {
   actionLabel,
   changesOf,
@@ -47,6 +48,27 @@ describe('classify', () => {
 });
 
 describe('the event view helpers', () => {
+  it('explains response action availability for the affected event type', () => {
+    expect(
+      responseActionReason('RESET_PASSWORD', {
+        target: { type: 'client_account', id: 'user-1', name: 'Account' },
+        subjectUserId: null,
+      }),
+    ).toContain('managed from the firm');
+    expect(
+      responseActionReason('DISABLE_INTEGRATION', {
+        target: { type: 'client_account', id: 'user-1', name: 'Account' },
+        subjectUserId: null,
+      }),
+    ).toBe('This event does not involve an integration.');
+    expect(
+      responseActionReason('DISABLE_INTEGRATION', {
+        target: { type: 'integration', id: 'integration-1', name: 'Integration' },
+        subjectUserId: null,
+      }),
+    ).toBe('Integrations are disabled from the Integrations module.');
+  });
+
   it('accepts IP and device event filters', () => {
     expect(
       AdminAuditEventQuery.parse({ ip: '192.0.2.', device: 'Chrome', page: '1', pageSize: '25' }),

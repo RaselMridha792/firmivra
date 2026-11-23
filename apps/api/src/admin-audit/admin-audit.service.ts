@@ -69,6 +69,34 @@ export const eventSelect = {
 } satisfies Prisma.AuditLogSelect;
 export type EventRow = Prisma.AuditLogGetPayload<{ select: typeof eventSelect }>;
 
+const ACCOUNT_RESPONSE_ACTIONS = [
+  'RESET_PASSWORD',
+  'UNLOCK_ACCOUNT',
+  'FORCE_LOGOUT',
+  'SUSPEND_USER',
+  'RESET_MFA',
+] as const;
+
+/** A disabled action explains why it does not apply to this event's affected record. */
+export function responseActionReason(
+  action: AdminAuditAvailableAction['action'],
+  event: Pick<AdminAuditEvent, 'target' | 'subjectUserId'>,
+): string | null {
+  const targetType = event.target.type?.toLowerCase() ?? '';
+  const userId = event.subjectUserId ?? (/user|account/.test(targetType) ? event.target.id : null);
+  if ((ACCOUNT_RESPONSE_ACTIONS as readonly string[]).includes(action)) {
+    return userId
+      ? 'User account actions are managed from the firm until the console supports them.'
+      : 'This event does not identify an affected user account.';
+  }
+  if (action === 'DISABLE_INTEGRATION') {
+    return /integration|webhook/.test(targetType)
+      ? 'Integrations are disabled from the Integrations module.'
+      : 'This event does not involve an integration.';
+  }
+  return null;
+}
+
 export const alertSelect = {
   id: true,
   auditLogId: true,
@@ -540,9 +568,6 @@ export class AdminAuditService {
 
   /** Event Details' buttons: what works from the admin console today, and why not otherwise. */
   actionsFor(event: AdminAuditEvent, alerts: { status: string }[]): AdminAuditAvailableAction[] {
-    const firmAccount =
-      'Firm accounts are changed from the firm (Staff Management) until the console has a path into them';
-    const user = event.subjectUserId ?? event.actor.id;
     return [
       {
         action: 'MARK_REVIEWED',
@@ -568,13 +593,13 @@ export class AdminAuditService {
         action,
         label,
         enabled: false,
-        reason: user ? firmAccount : 'No user is named by this event',
+        reason: responseActionReason(action, event),
       })),
       {
         action: 'DISABLE_INTEGRATION',
         label: 'Disable Integration',
         enabled: false,
-        reason: 'Integrations are disabled from the Integrations module',
+        reason: responseActionReason('DISABLE_INTEGRATION', event),
       },
     ];
   }
