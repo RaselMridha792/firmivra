@@ -251,6 +251,12 @@ export function PlanEditor({ id, step }: { id?: string; step: Step }) {
               Read-only: version {p.version}, exactly as the client will see it. Staff notes are not
               shown.
             </p>
+            <h2
+              className="font-display text-2xl font-bold text-heading"
+              data-testid="preview-title"
+            >
+              {p.name}
+            </h2>
             <h3 className="font-display text-lg font-bold text-heading">{p.client.name}</h3>
             <p className="text-sm text-muted">
               {p.planYear} · Version {p.version}
