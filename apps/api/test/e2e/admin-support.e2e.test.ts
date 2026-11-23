@@ -710,8 +710,25 @@ describe('tickets', () => {
     );
     expect(resolved.resolvedAt).not.toBeNull();
     expect(resolved.sla.state).toBe('MET');
+    const closed = await call('patch', `/tickets/${t.id}`, { version: 4, status: 'CLOSED' });
+    expect(closed.body).toMatchObject({ status: 'CLOSED', version: 5 });
+    const audit = await asOwner((tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { action: 'support.ticket_updated', entityId: t.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    );
+    expect(audit.actorRole).toBe('SUPER_ADMIN');
+    const eventDetail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/audit/events/${audit.id}`)
+      .set('authorization', `Bearer ${await tokenFor(fx.users.admin.email)}`)
+      .set('x-forwarded-for', viewer())
+      .expect(200);
+    expect(eventDetail.body).toMatchObject({
+      changes: [{ field: 'status', before: 'RESOLVED', after: 'CLOSED', masked: false }],
+    });
     const reopened = SupportTicket.parse(
-      (await call('patch', `/tickets/${t.id}`, { version: 4, status: 'OPEN' })).body,
+      (await call('patch', `/tickets/${t.id}`, { version: 5, status: 'OPEN' })).body,
     );
     expect(reopened).toMatchObject({ resolvedAt: null, closedAt: null, status: 'OPEN' });
     expect((await detail(t.id)).activity.map((a) => a.type)).toEqual(

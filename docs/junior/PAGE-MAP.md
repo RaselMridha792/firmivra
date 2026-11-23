@@ -27,6 +27,7 @@ Paths below are inside `apps/web/src/app/`. Mockups are in `docs/mockups/`. A fo
 | `/applications` | `admin/(console)/applications/page.tsx` | Tumit | F04b | `super-admin/Firm application.png` |
 | `/applications/[id]` | `admin/(console)/applications/[id]/page.tsx` | Tumit | F04b | `super-admin/When firm aplication is open.png`, `Firm approved.png` |
 | `/firms` | `admin/(console)/firms/page.tsx` | Tumit | N04 | none |
+| `/firms/[id]/closed-firm-download` (Super Admin) and `/closed-firm-download` (owner) | `admin/(console)/firms/[id]/closed-firm-download/`, `admin/(console)/firms/[id]/layout.tsx`, and `firm/closed-firm-download/` | Arfan | SA-FRM-F07/F08 | new, approved Nov 23 |
 
 Sidebar: Dashboard, Firm Applications (pending count), Firms. Then Sales, Leads / CRM, Team, Subscriptions, Billing, Support, Reports & Analytics, Notifications, Audit & Security and System Settings with a "Soon" badge: they open nothing.
 
@@ -431,6 +432,8 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
 **Arfan** (Leads, Intake Forms and Services & Pricing, from Oct 14)
+
+- Q32: `apps/web/src/app/admin/(console)/firms/[id]/closed-firm-download/`, its entry link in `apps/web/src/app/admin/(console)/firms/[id]/layout.tsx`, `apps/web/src/app/firm/closed-firm-download/`, and `apps/web/src/lib/firm-data-downloads.ts` (new, approved Nov 23).
 - `apps/web/src/app/portal/[firmSlug]/(public)/begin/` (shared with Tumit from Oct 19)
 - `apps/web/src/app/firm/(workspace)/leads/` (the list, the lead profile `leads/[id]/` and its tabs and convert steps; 14 routes), `intake-forms/` (13 routes), `services-pricing/` (6 routes: the list, categories, packages list, `packages/[id]`, `packages/[id]/edit` and promotions; `new`, `[id]`, `[id]/edit`, `inactive` and `packages/new` moved to Fahad on Oct 15)
 - `apps/web/src/mocks/leads.ts`, `mocks/intake-forms.ts`, `mocks/services-pricing.ts` and new `mocks/leads-*.ts`, `mocks/intake-forms-*.ts`, `mocks/services-pricing-*.ts` (synthetic data only; registering a module in `lib/api.ts` is the contract session's)

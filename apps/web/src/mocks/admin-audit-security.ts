@@ -53,6 +53,7 @@ export const AUDIT_VIEWS = [
   'data',
   'integrations',
   'policies',
+  'settings',
 ] as const;
 export type AuditView = (typeof AUDIT_VIEWS)[number];
 export const RESPONSE_ACTIONS = [
@@ -245,6 +246,8 @@ export interface AuditEventQuery {
   outcome?: Outcome;
   alert?: AlertState | 'NONE';
   resource?: string;
+  ip?: string;
+  device?: string;
   /** ISO moments, inclusive. */
   from?: string;
   to?: string;
@@ -266,7 +269,7 @@ export interface AuditFacets {
   actions: string[];
   resources: string[];
 }
-/** `value` counts the selected range; `current` and `previous` the last 7 days and the 7 before. */
+/** `value` and `current` count the selected range; `previous` counts the prior equal range. */
 export interface AuditMetric {
   value: number;
   current: number;
@@ -332,6 +335,7 @@ export const REMEMBER_ME_DAYS = [0, 1, 7, 14, 30] as const;
 export const CONCURRENT_SESSIONS = [1, 3, 5, 10, 0] as const;
 export const MAX_FAILED_ATTEMPTS = [3, 5, 10] as const;
 export const LOCKOUT_MINUTES = [15, 30, 60, 1440] as const;
+export const SESSION_LIFETIME_HOURS = [1, 4, 8, 12, 24, 72, 168, 720] as const;
 /** One year at least (the database's floor), ten at most. */
 export const RETENTION_DAYS = [365, 730, 1095, 1825, 2555, 3650] as const;
 
@@ -342,6 +346,11 @@ export interface SecuritySettingsRecord {
   updatedBy: string | null;
   /** Whether audit retention may change here (fixed by policy otherwise). */
   retentionEditable: boolean;
+  integrationPolicy: {
+    apiKeySecretsMasked: boolean | null;
+    apiKeyTokenLifetimeDays: number | null;
+    webhookEnabled: boolean | null;
+  };
   settings: SecuritySettings;
 }
 
@@ -614,7 +623,6 @@ const notFound = () => new ApiRequestError(404, 'NOT_FOUND', 'Event not found');
 const copy = <T>(value: T): T => structuredClone(value);
 const time = (iso: string) => Date.parse(iso);
 const DAY_MS = 86_400_000;
-const WEEK_MS = 7 * DAY_MS;
 const SEVERITY_RANK: Record<Severity, number> = {
   INFO: 0,
   LOW: 1,
@@ -640,6 +648,8 @@ function inView(event: AuditEvent, view: AuditView): boolean {
       return event.category === 'INTEGRATION';
     case 'policies':
       return event.type === 'policy.changed';
+    case 'settings':
+      return event.type.startsWith('system_settings.');
     default:
       return true;
   }
@@ -678,6 +688,9 @@ function filterEvents(query: AuditEventQuery): AuditEvent[] {
     if (query.outcome && event.outcome !== query.outcome) return false;
     if (query.alert && (event.alertState ?? 'NONE') !== query.alert) return false;
     if (query.resource && event.target.type !== query.resource) return false;
+    if (query.ip && !event.device.ip?.startsWith(query.ip)) return false;
+    if (query.device && !event.device.userAgent?.toLowerCase().includes(query.device.toLowerCase()))
+      return false;
     if (!search) return true;
     return [
       event.reference,
@@ -854,13 +867,18 @@ export const adminAuditSecurity = {
     const s = db();
     const bounds = parseRange(range.from, range.to);
     const end = bounds.to ?? Date.now();
-    const lastWeek = (at: number) => at > end - WEEK_MS && at <= end;
-    const weekBefore = (at: number) => at > end - 2 * WEEK_MS && at <= end - WEEK_MS;
-    const metric = (times: number[], inRange = (at: number) => within(bounds, at)) => ({
-      value: times.filter(inRange).length,
-      current: times.filter(lastWeek).length,
-      previous: times.filter(weekBefore).length,
-    });
+    const start = bounds.from ?? end - 14 * DAY_MS;
+    const span = end - start;
+    const inCurrentRange = (at: number) => at >= start && at <= end;
+    const inPreviousRange = (at: number) => at >= start - span && at < start;
+    const metric = (times: number[], inRange = inCurrentRange) => {
+      const current = times.filter(inCurrentRange).length;
+      return {
+        value: times.filter(inRange).length,
+        current,
+        previous: times.filter(inPreviousRange).length,
+      };
+    };
     const times = (keep: (event: AuditEvent) => boolean) =>
       s.events.filter(keep).map((event) => time(event.at));
     const active = s.sessions.filter((session) => !session.endedAt);

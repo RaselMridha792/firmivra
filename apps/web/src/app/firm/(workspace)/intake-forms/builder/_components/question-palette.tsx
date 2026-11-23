@@ -5,7 +5,6 @@ import { CaretDown, CaretUp } from '@phosphor-icons/react';
 import { useState } from 'react';
 import type { DraftSettings } from './builder-draft';
 import { type BuilderState, BuilderCard } from './builder-parts';
-import { SIGN_NOTE } from '../../settings/_components/settings-look';
 import { PALETTE, QUESTION_LOOKS, TILE_DRAG } from './question-types';
 
 /**
@@ -69,6 +68,7 @@ type Switch = {
 const SWITCHES: { key: Switch; label: string }[] = [
   { key: 'requireAllQuestions', label: 'Require all questions to be completed' },
   { key: 'allowFileUploads', label: 'Allow file uploads' },
+  { key: 'requireSignature', label: 'Require e-signature' },
   { key: 'showProgressBar', label: 'Show progress bar' },
   { key: 'expires', label: 'Set expiration date' },
 ];
@@ -115,19 +115,12 @@ export function FormSettingsCard({
           <ul className="flex flex-col gap-0.5">
             {SWITCHES.map((sw) => (
               <li key={sw.key}>
-                <label className="flex min-h-7 cursor-pointer items-center gap-3">
+                <div className="flex min-h-7 items-center gap-3">
                   <Toggle label={sw.label} checked={s[sw.key]} onChange={(on) => set(sw.key, on)} />
                   <span className="text-sm text-heading">{sw.label}</span>
-                </label>
+                </div>
               </li>
             ))}
-            {/* Intake Review 2 23-h (lead, Nov 17): fixed, like encryption. */}
-            <li className="flex min-h-7 flex-col py-0.5" data-testid="signature-always-on">
-              <span className="text-sm text-heading">
-                Require e-signature: <span className="font-semibold">Always on</span>
-              </span>
-              <span className="text-xs text-muted">{SIGN_NOTE}</span>
-            </li>
           </ul>
           {s.expires ? (
             <Input

@@ -285,7 +285,8 @@ beforeAll(async () => {
       send: (message: NotifyMessage) => {
         if (failMail) return Promise.reject(new Error('Throttling'));
         mail.push(message);
-        return Promise.resolve();
+        // The mail service's own id for what it accepted (SES MessageId).
+        return Promise.resolve({ providerMessageId: `0100019aabcdef${mail.length}-fake` });
       },
     })
     .compile();
@@ -410,6 +411,9 @@ describe('send a form', () => {
       to: 'Client portal',
       portalNotice: true,
       reason: null,
+      // No email went out, so the mail service has no evidence to give.
+      acceptedAt: null,
+      providerRef: null,
     });
     // A form sent in the portal sends no email of its own.
     expect(mail.filter((m) => m.template === 'intake.sent')).toEqual([]);
@@ -455,11 +459,13 @@ describe('send a form', () => {
       to: `e***@client.test`,
       portalNotice: false,
       reason: expect.stringContaining('no client portal login') as string,
+      acceptedAt: null,
+      providerRef: null,
     });
     ids.emailed = res.form.id;
   });
 
-  it('19b: by email to a client with a portal login, the email opens the exact form, and the result says the mail service accepted it', async () => {
+  it('19b: by email to a client with a portal login, the result reports acceptance without claiming delivery', async () => {
     const before = mail.length;
     const res = SendIntakeFormResult.parse(
       ok(
@@ -483,7 +489,13 @@ describe('send a form', () => {
       to: 'm***@client.test',
       portalNotice: true,
       reason: null,
+      // 19b: the provider's handoff evidence: when it was accepted and its short reference.
+      acceptedAt: expect.any(String),
+      providerRef: '0100019a',
     });
+    expect(Math.abs(Date.now() - new Date(res.delivery.acceptedAt!).getTime())).toBeLessThan(
+      60_000,
+    );
     const sentMail = mail.slice(before).filter((m) => m.template === 'intake.sent');
     expect(sentMail).toHaveLength(1);
     expect(sentMail[0]).toMatchObject({
@@ -503,10 +515,12 @@ describe('send a form', () => {
     const rows = await inFirm('a', (tx) =>
       tx.notificationDelivery.findMany({
         where: { businessId: firms.a, channel: 'EMAIL', notification: { entityId: res.form.id } },
-        select: { status: true, attempts: true },
+        select: { status: true, attempts: true, providerMessageId: true },
       }),
     );
-    expect(rows).toEqual([{ status: 'SENT', attempts: 1 }]);
+    expect(rows).toEqual([
+      { status: 'SENT', attempts: 1, providerMessageId: expect.stringMatching(/^0100019a/) },
+    ]);
 
     // The mail service refuses a reminder: its row is FAILED with the reason, for the retry job.
     failMail = true;
@@ -1106,7 +1120,7 @@ describe('one form', () => {
     const sent = AssignedFormRecord.parse(
       ok(await call('post', `/intakes/${ids.sent}/remind`, ownerA)),
     );
-    expect(sent.delivery).toEqual({ status: 'SENT', reason: null });
+    expect(sent.delivery).toMatchObject({ status: 'SENT', reason: null });
     expect(sent.history.at(-1)?.label).toBe('Reminder sent');
     // By email to a client with no portal login: nothing reached them, and both say why.
     for (const [path, label] of [
@@ -1116,7 +1130,7 @@ describe('one form', () => {
       const missed = AssignedFormRecord.parse(
         ok(await call('post', `/intakes/${ids.emailed}/${path}`, ownerA)),
       );
-      expect(missed.delivery).toEqual({
+      expect(missed.delivery).toMatchObject({
         status: 'FAILED',
         reason: expect.stringContaining('no client portal login') as string,
       });

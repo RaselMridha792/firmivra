@@ -63,7 +63,7 @@ test('INTAKE-USABILITY-02: the search and its results come back after opening a 
   await expect(forms(page.getByRole('table').first())).toHaveCount(shown);
 });
 
-test('23-h: Require e-signature is always on in the builder’s Form Settings, with why', async ({
+test('Intake 1: Require e-signature is a switch that starts off in the builder', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -74,15 +74,9 @@ test('23-h: Require e-signature is always on in the builder’s Form Settings, w
   await service.selectOption((await service.locator('option').nth(1).getAttribute('value')) ?? '');
   await dialog.getByRole('button', { name: 'Create Intake Form', exact: true }).click();
   const settings = page.getByTestId('form-settings');
-  await expect(settings.getByTestId('signature-always-on')).toContainText(
-    'Require e-signature: Always on',
-    { timeout: 60_000 },
-  );
-  await expect(settings).toContainText(
-    "Always on: each submission signs your firm's agreements, which keeps a legal record.",
-  );
-  await expect(settings.getByRole('switch', { name: 'Require e-signature' })).toHaveCount(0);
-  // The other switches stay, Allow file uploads and Show progress bar among them.
+  const signature = settings.getByRole('switch', { name: 'Require e-signature' });
+  await expect(signature).toBeVisible({ timeout: 60_000 });
+  await expect(signature).not.toBeChecked();
   for (const name of ['Allow file uploads', 'Show progress bar'])
     await expect(settings.getByRole('switch', { name })).toBeVisible();
 });

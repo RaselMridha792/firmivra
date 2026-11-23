@@ -123,7 +123,11 @@ export class IntakeSettingsService {
     if (found) return found;
     return tx.intakeSettings.upsert({
       where: { businessId },
-      create: { businessId, notifyAdditionalEmails: await this.firmContact(tx, businessId) },
+      create: {
+        businessId,
+        requireSignature: false,
+        notifyAdditionalEmails: await this.firmContact(tx, businessId),
+      },
       update: {},
       include,
     });
@@ -140,9 +144,7 @@ export class IntakeSettingsService {
       general: {
         defaultExpirationDays: r.defaultExpiryDays,
         allowSaveAndResume: r.allowSaveResume,
-        // Intake Review 2 23-h (lead, Nov 17): always on, like encryption: the agreements are
-        // signed with every submission (the database requires it).
-        requireSignature: true,
+        requireSignature: r.requireSignature,
         autoSubmissionId: r.autoSubmissionId,
         defaultOwner: ref(r.defaultOwner),
       },
@@ -231,8 +233,7 @@ export class IntakeSettingsService {
         if (g.defaultExpirationDays !== undefined)
           data.defaultExpiryDays = g.defaultExpirationDays ?? 14;
         if (g.allowSaveAndResume !== undefined) data.allowSaveResume = g.allowSaveAndResume;
-        // 23-h: always on; a false sent is kept as on.
-        if (g.requireSignature !== undefined) data.requireSignature = true;
+        if (g.requireSignature !== undefined) data.requireSignature = g.requireSignature;
         if (g.autoSubmissionId !== undefined) data.autoSubmissionId = g.autoSubmissionId;
         if (g.defaultOwnerUserId !== undefined) {
           if (g.defaultOwnerUserId)
@@ -392,7 +393,7 @@ export class IntakeSettingsService {
         data: {
           defaultExpiryDays: 14,
           allowSaveResume: true,
-          requireSignature: true,
+          requireSignature: false,
           autoSubmissionId: false,
           defaultOwnerUserId: null,
           showProgressBar: true,

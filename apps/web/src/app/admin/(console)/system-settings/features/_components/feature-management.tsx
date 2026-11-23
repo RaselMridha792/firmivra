@@ -519,12 +519,8 @@ export function FeatureManagement() {
             {(
               [
                 ['success', 'Enabled', 'Feature is on for every firm without its own setting'],
-                ['neutral', 'Disabled', 'Feature is off unless a firm has it turned on'],
-                [
-                  'danger',
-                  'Emergency off',
-                  'Switched off for every firm at once, whatever their setting',
-                ],
+                ['neutral', 'Off by default', 'Firms may turn this feature on'],
+                ['danger', 'Emergency off', 'All firms, no override'],
               ] as const
             ).map(([tone, label, text]) => (
               <div key={label} className="text-sm">

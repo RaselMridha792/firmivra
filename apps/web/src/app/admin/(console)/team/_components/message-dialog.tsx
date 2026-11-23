@@ -239,8 +239,8 @@ export function MessageDialog({
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="sm:col-span-2">
               <Input
-                label="Subject *"
-                placeholder="Enter a subject..."
+                label="Subject"
+                placeholder="Optional"
                 maxLength={150}
                 value={subject}
                 error={errors.subject}

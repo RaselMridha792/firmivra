@@ -1,6 +1,6 @@
 // End-to-end: staff and Super Admin sign-in (R2) in AUTH_MODE=local, the same routes and guards
 // as with Cognito. Contract: docs/api/auth.yaml.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -16,6 +16,7 @@ import {
   LOCAL_TOTP_SECRET,
 } from '../../src/auth/identity/local-identity.provider.js';
 import { RESET_LIMIT } from '../../src/auth/sign-in.service.js';
+import { TokenService } from '../../src/auth/token.service.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -203,6 +204,25 @@ describe('Super Admin sign-in (admin site)', () => {
       expect.stringMatching(/^fv_admin_refresh=.*; Max-Age=86400; Path=\/api\/v1\/admin\/auth;/),
     ]);
     const cookie = cookieHeader(done);
+    const accessToken = cookieNamed(done, 'fv_admin_access').slice('fv_admin_access='.length);
+    const claims = await app.get(TokenService).verify(accessToken);
+    expect(claims.session).toBeDefined();
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      const audit = await runInScope(owner, { kind: 'platform' }, (tx) =>
+        tx.auditLog.findFirstOrThrow({
+          where: { action: 'auth.signed_in', actorUserId: fx.users.admin.id, ip: viewer },
+          select: { actorRole: true, authMethod: true, sessionId: true },
+        }),
+      );
+      expect(audit).toEqual({
+        actorRole: 'SUPER_ADMIN',
+        authMethod: 'password_mfa_setup',
+        sessionId: createHash('sha256').update(claims.session!).digest('hex'),
+      });
+    } finally {
+      await owner.$disconnect();
+    }
 
     const me = await request(app.getHttpServer())
       .get('/api/v1/admin/me')

@@ -19,6 +19,7 @@ import {
   ShieldWarning,
 } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
@@ -85,10 +86,12 @@ function Neighbor({
   id,
   label,
   next,
+  returnTo,
 }: {
   id: string | null | undefined;
   label: string;
   next?: boolean;
+  returnTo: string;
 }) {
   const content = (
     <>
@@ -98,7 +101,9 @@ function Neighbor({
     </>
   );
   return id ? (
-    <LinkButton href={`/audit-security/events/${id}`}>{content}</LinkButton>
+    <LinkButton href={`/audit-security/events/${id}?returnTo=${encodeURIComponent(returnTo)}`}>
+      {content}
+    </LinkButton>
   ) : (
     <Button variant="secondary" disabled>
       {content}
@@ -151,6 +156,11 @@ function Summary({ query }: { query: UseQueryResult<AuditEventDetail> }) {
 }
 
 export function EventDetail({ eventId }: { eventId: string }) {
+  const searchParams = useSearchParams();
+  const requestedReturn = searchParams.get('returnTo');
+  const returnTo = requestedReturn?.startsWith('/audit-security?')
+    ? requestedReturn
+    : '/audit-security';
   const detail = useApiQuery(['admin-audit-security', 'event', eventId], () =>
     adminAuditSecurity.event(eventId),
   );
@@ -203,12 +213,12 @@ export function EventDetail({ eventId }: { eventId: string }) {
         }
         actions={
           <>
-            <LinkButton href="/audit-security">
+            <LinkButton href={returnTo}>
               <ArrowLeft aria-hidden weight="bold" className="size-4" />
               Back to Audit Logs
             </LinkButton>
-            <Neighbor id={data?.previousId} label="Previous Event" />
-            <Neighbor id={data?.nextId} label="Next Event" next />
+            <Neighbor id={data?.previousId} label="Previous Event" returnTo={returnTo} />
+            <Neighbor id={data?.nextId} label="Next Event" next returnTo={returnTo} />
           </>
         }
       />

@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { buildCsp, CSP_HEADER, newNonce } from './lib/csp';
-import { bookingFrameAncestors } from './lib/embed';
+import { bookingFrameAncestors, publicEmbedFrameAncestors } from './lib/embed';
 import { type Area, areaForHost, INTERNAL_PREFIXES } from './lib/hosts';
 
 /**
@@ -23,7 +23,8 @@ function withCsp(
   // The booking page alone may be framed, by the allowed websites (lib/embed.ts): an ENFORCED
   // frame-ancestors, which browsers prefer over CloudFront's X-Frame-Options. No other route has one.
   const frame = bookingFrameAncestors(area, pathname);
-  if (frame) response.headers.set('Content-Security-Policy', frame);
+  const publicFrame = publicEmbedFrameAncestors(area, pathname);
+  if (frame || publicFrame) response.headers.set('Content-Security-Policy', frame ?? publicFrame!);
   return response;
 }
 

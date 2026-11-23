@@ -26,7 +26,7 @@ import {
   shapeOf,
   UpdateDashboardCardRequest,
 } from '@firmivra/types';
-import { MOCK_ROLE, mockDelay, mockNoView } from '../lib/mock';
+import { MOCK_ROLE, mockDelay, mockNoEdit, mockNoView } from '../lib/mock';
 
 const ME = { userId: '0199b6a0-0000-7000-8000-0000000000f0', name: 'Mock User' };
 
@@ -272,11 +272,16 @@ export function createDashboardMock(): DashboardClient {
     permissions: async () => {
       await mockDelay();
       const no = mockNoView();
+      const noEdit = mockNoEdit();
       return {
         grants: Object.fromEntries(
           PermissionModule.options.map((m) => [
             m,
-            no.has(m) ? [] : PermissionCapability.options.filter((c) => roleCan(MOCK_ROLE, m, c)),
+            no.has(m)
+              ? []
+              : PermissionCapability.options.filter(
+                  (c) => roleCan(MOCK_ROLE, m, c) && !(c === 'EDIT' && noEdit.has(m)),
+                ),
           ]),
         ) as Record<PermissionModule, PermissionCapability[]>,
       };

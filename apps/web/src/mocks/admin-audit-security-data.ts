@@ -221,6 +221,11 @@ export function seedAuditStore(empty: boolean): AuditStore {
     updatedAt: ago(4 * 1440 + 95),
     updatedBy: AUDIT_ADMIN.name,
     retentionEditable: true,
+    integrationPolicy: {
+      apiKeySecretsMasked: true,
+      apiKeyTokenLifetimeDays: 90,
+      webhookEnabled: false,
+    },
     settings: {
       mfa: { scope: 'ALL' },
       methods: { authenticatorApp: true, sms: true, email: true, hardwareKey: false },

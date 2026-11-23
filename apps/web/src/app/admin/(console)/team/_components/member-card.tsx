@@ -12,7 +12,7 @@ import { Avatar, Button, Skeleton } from '@firmivra/ui';
 import type { ReactNode } from 'react';
 import { MemberMenu, type MemberCommand } from './member-menu';
 import type { AdminTeamMember } from './team-api';
-import { Presence, TitleBadge } from './team-parts';
+import { AccessBadge, Presence, StatusBadge, TitleBadge } from './team-parts';
 
 function Line({ icon: Glyph, children }: { icon: Icon; children: ReactNode }) {
   return (
@@ -70,6 +70,10 @@ export function MemberCard({
           <TitleBadge department={member.departmentCode ?? member.departmentId}>
             {member.jobTitle}
           </TitleBadge>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <StatusBadge status={member.status} />
+            <AccessBadge level={member.accessLevel} />
+          </div>
         </div>
       </div>
       <ul className="mt-4 flex flex-col gap-2 text-sm text-text">

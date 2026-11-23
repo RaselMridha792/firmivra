@@ -27,6 +27,7 @@ import {
   changesOf,
   classify,
   deviceOf,
+  eventReferenceWhere,
   failedLoginWhere,
   outcomeWhere,
   referenceOf,
@@ -67,6 +68,34 @@ export const eventSelect = {
   itemCount: true,
 } satisfies Prisma.AuditLogSelect;
 export type EventRow = Prisma.AuditLogGetPayload<{ select: typeof eventSelect }>;
+
+const ACCOUNT_RESPONSE_ACTIONS = [
+  'RESET_PASSWORD',
+  'UNLOCK_ACCOUNT',
+  'FORCE_LOGOUT',
+  'SUSPEND_USER',
+  'RESET_MFA',
+] as const;
+
+/** A disabled action explains why it does not apply to this event's affected record. */
+export function responseActionReason(
+  action: AdminAuditAvailableAction['action'],
+  event: Pick<AdminAuditEvent, 'target' | 'subjectUserId'>,
+): string | null {
+  const targetType = event.target.type?.toLowerCase() ?? '';
+  const userId = event.subjectUserId ?? (/user|account/.test(targetType) ? event.target.id : null);
+  if ((ACCOUNT_RESPONSE_ACTIONS as readonly string[]).includes(action)) {
+    return userId
+      ? 'User account actions are managed from the firm until the console supports them.'
+      : 'This event does not identify an affected user account.';
+  }
+  if (action === 'DISABLE_INTEGRATION') {
+    return /integration|webhook/.test(targetType)
+      ? 'Integrations are disabled from the Integrations module.'
+      : 'This event does not involve an integration.';
+  }
+  return null;
+}
 
 export const alertSelect = {
   id: true,
@@ -125,6 +154,8 @@ export class AdminAuditService {
     if (q.user) and.push({ actorUserId: q.user });
     if (q.action) and.push({ action: q.action });
     if (q.resource) and.push({ entityType: q.resource });
+    if (q.ip) and.push({ ip: { startsWith: q.ip } });
+    if (q.device) and.push({ userAgent: { contains: q.device, mode: 'insensitive' } });
     if (q.category) and.push(categoryWhere([q.category]));
     if (q.severity) and.push(severityWhere([q.severity]));
     if (q.outcome) and.push(outcomeWhere([q.outcome]));
@@ -140,13 +171,6 @@ export class AdminAuditService {
         { action: { contains: s, mode: 'insensitive' } },
       ];
       if (/^[0-9a-f-]{36}$/i.test(s)) or.push({ id: s.toLowerCase() });
-      const ref = /^EVT-(\d{8})-([0-9A-F]{6})$/i.exec(s);
-      if (ref) {
-        const day = new Date(
-          `${ref[1]!.slice(0, 4)}-${ref[1]!.slice(4, 6)}-${ref[1]!.slice(6)}T00:00:00Z`,
-        );
-        or.push({ createdAt: { gte: day, lt: new Date(day.getTime() + DAY) } });
-      }
       and.push({ OR: or });
     }
     return { AND: and };
@@ -255,6 +279,34 @@ export class AdminAuditService {
 
   async events(q: Query): Promise<AdminAuditEventPage> {
     return this.admin.transaction(async (tx) => {
+      const eventReference = q.search ? eventReferenceWhere(q.search) : null;
+      if (eventReference) {
+        const order: Prisma.AuditLogOrderByWithRelationInput[] =
+          q.sort === 'action'
+            ? [{ action: q.descending ? 'desc' : 'asc' }, { createdAt: 'desc' }]
+            : q.sort === 'severity'
+              ? [
+                  { severity: { sort: q.descending ? 'desc' : 'asc', nulls: 'last' } },
+                  { createdAt: 'desc' },
+                ]
+              : [{ createdAt: q.descending ? 'desc' : 'asc' }];
+        const where = this.where({ ...q, search: undefined });
+        const candidates = await tx.auditLog.findMany({
+          where: { AND: [where, { createdAt: eventReference.createdAt }] },
+          select: eventSelect,
+          orderBy: [...order, { id: q.descending ? 'desc' : 'asc' }],
+        });
+        const exact = candidates.filter((row) =>
+          row.id.toLowerCase().endsWith(eventReference.idSuffix),
+        );
+        const page = exact.slice((q.page - 1) * q.pageSize, q.page * q.pageSize);
+        return {
+          items: await this.views(tx, page),
+          total: exact.length,
+          page: q.page,
+          pageSize: q.pageSize,
+        };
+      }
       const where = this.where(q);
       const order: Prisma.AuditLogOrderByWithRelationInput[] =
         q.sort === 'action'
@@ -516,9 +568,6 @@ export class AdminAuditService {
 
   /** Event Details' buttons: what works from the admin console today, and why not otherwise. */
   actionsFor(event: AdminAuditEvent, alerts: { status: string }[]): AdminAuditAvailableAction[] {
-    const firmAccount =
-      'Firm accounts are changed from the firm (Staff Management) until the console has a path into them';
-    const user = event.subjectUserId ?? event.actor.id;
     return [
       {
         action: 'MARK_REVIEWED',
@@ -544,13 +593,13 @@ export class AdminAuditService {
         action,
         label,
         enabled: false,
-        reason: user ? firmAccount : 'No user is named by this event',
+        reason: responseActionReason(action, event),
       })),
       {
         action: 'DISABLE_INTEGRATION',
         label: 'Disable Integration',
         enabled: false,
-        reason: 'Integrations are disabled from the Integrations module',
+        reason: responseActionReason('DISABLE_INTEGRATION', event),
       },
     ];
   }

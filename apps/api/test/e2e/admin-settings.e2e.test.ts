@@ -208,6 +208,17 @@ describe('sections', () => {
     expect(sent).toBe(1);
   });
 
+  it('rejects Nobody for billing and security alert recipients', async () => {
+    const email = AdminEmailSection.parse(ok(await call('get', '/email')));
+    for (const key of ['billing', 'securityAlerts'] as const) {
+      const res = await call('put', '/email', {
+        version: email.version,
+        value: { ...email.value, recipients: { ...email.value.recipients, [key]: 'NOBODY' } },
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(400);
+    }
+  });
+
   it('reports the email status (the last test from its audit row) and the system health', async () => {
     const status = AdminEmailStatus.parse(ok(await call('get', '/email/status')));
     expect(['SES', 'SMTP', 'LOG']).toContain(status.sender);
