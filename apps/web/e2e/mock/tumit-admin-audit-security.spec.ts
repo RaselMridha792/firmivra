@@ -136,6 +136,9 @@ test('security settings save after a review, are audited, and catch a bad length
   await expect(page.getByRole('heading', { level: 1, name: 'Security Settings' })).toBeVisible();
   const length = page.getByLabel('Minimum Length');
   await expect(length).toHaveValue('12');
+  await expect(page.getByLabel('Maximum Session Lifetime')).toHaveValue('12');
+  await expect(page.getByText('API key token lifetime')).toBeVisible();
+  await expect(page.getByTestId('settings-integration-policy').getByText('90 days')).toBeVisible();
 
   await length.fill('6');
   await page.getByRole('button', { name: 'Save Changes' }).click();

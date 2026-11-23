@@ -483,6 +483,11 @@ export const AdminSecuritySettingsRecord = z.object({
   updatedBy: z.string().nullable(),
   /** Whether audit retention may change here (fixed by policy otherwise). */
   retentionEditable: z.boolean(),
+  integrationPolicy: z.object({
+    apiKeySecretsMasked: z.boolean().nullable(),
+    apiKeyTokenLifetimeDays: z.number().int().positive().nullable(),
+    webhookEnabled: z.boolean().nullable(),
+  }),
   settings: AdminSecuritySettings,
 });
 export type AdminSecuritySettingsRecord = z.infer<typeof AdminSecuritySettingsRecord>;

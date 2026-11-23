@@ -46,6 +46,7 @@ import {
   REMEMBER_ME_DAYS,
   RETENTION_DAYS,
   retentionLabel,
+  SESSION_LIFETIME_HOURS,
   sessionsLabel,
   SEVERITY_FLOOR_LABELS,
   validateSecuritySettings,
@@ -443,6 +444,13 @@ export function SecuritySettingsForm() {
             <>
               <div className={fieldGrid}>
                 <NumberSelect
+                  label="Maximum Session Lifetime"
+                  value={value.session.maxLifetimeHours}
+                  choices={SESSION_LIFETIME_HOURS}
+                  show={(hours) => (hours >= 24 ? `${hours / 24} days` : `${hours} hours`)}
+                  onChange={(maxLifetimeHours) => patch('session', { maxLifetimeHours })}
+                />
+                <NumberSelect
                   label="Session Timeout (Inactivity)"
                   value={value.session.idleTimeoutMinutes}
                   choices={IDLE_TIMEOUT_MINUTES}
@@ -483,6 +491,44 @@ export function SecuritySettingsForm() {
               </div>
             </>
           ))}
+        </SettingsCard>
+
+        <SettingsCard
+          id="integration-policy"
+          title="API Key & Webhook Policy"
+          subtitle="Read-only integration security policy values."
+          icon={ShieldCheck}
+        >
+          <dl className="grid gap-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-text">API key secrets</dt>
+              <dd className="font-semibold text-heading">
+                {saved?.integrationPolicy.apiKeySecretsMasked === null
+                  ? 'Not recorded'
+                  : saved?.integrationPolicy.apiKeySecretsMasked
+                    ? 'Masked'
+                    : 'Not masked'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-text">API key token lifetime</dt>
+              <dd className="font-semibold text-heading">
+                {saved?.integrationPolicy.apiKeyTokenLifetimeDays == null
+                  ? 'Not recorded'
+                  : `${saved.integrationPolicy.apiKeyTokenLifetimeDays} days`}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-text">Webhook policy</dt>
+              <dd className="font-semibold text-heading">
+                {saved?.integrationPolicy.webhookEnabled == null
+                  ? 'Not recorded'
+                  : saved.integrationPolicy.webhookEnabled
+                    ? 'Enabled'
+                    : 'Disabled'}
+              </dd>
+            </div>
+          </dl>
         </SettingsCard>
 
         <SettingsCard

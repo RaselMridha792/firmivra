@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { ADMIN_SECURITY_DEFAULTS, AdminAuditEventQuery } from '@firmivra/types';
 import {
   diffOf,
+  integrationPolicyOf,
   sectionsOf,
   settingsOf,
 } from '../../src/admin-audit/admin-security-policy.service.js';
@@ -155,6 +156,11 @@ describe('the security policy mapping', () => {
       session: { idleTimeoutMinutes: 30, reauthSensitive: true, reauthWindowMinutes: 10 },
       ip: { mode: 'ANY', allowList: [] },
       retention: { retentionDays: 2555, archiveAfterDays: 365 },
+    });
+    expect(integrationPolicyOf(row)).toEqual({
+      apiKeySecretsMasked: true,
+      apiKeyTokenLifetimeDays: 90,
+      webhookEnabled: false,
     });
   });
 

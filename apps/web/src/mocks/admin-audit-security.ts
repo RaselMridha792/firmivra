@@ -335,6 +335,7 @@ export const REMEMBER_ME_DAYS = [0, 1, 7, 14, 30] as const;
 export const CONCURRENT_SESSIONS = [1, 3, 5, 10, 0] as const;
 export const MAX_FAILED_ATTEMPTS = [3, 5, 10] as const;
 export const LOCKOUT_MINUTES = [15, 30, 60, 1440] as const;
+export const SESSION_LIFETIME_HOURS = [1, 4, 8, 12, 24, 72, 168, 720] as const;
 /** One year at least (the database's floor), ten at most. */
 export const RETENTION_DAYS = [365, 730, 1095, 1825, 2555, 3650] as const;
 
@@ -345,6 +346,11 @@ export interface SecuritySettingsRecord {
   updatedBy: string | null;
   /** Whether audit retention may change here (fixed by policy otherwise). */
   retentionEditable: boolean;
+  integrationPolicy: {
+    apiKeySecretsMasked: boolean | null;
+    apiKeyTokenLifetimeDays: number | null;
+    webhookEnabled: boolean | null;
+  };
   settings: SecuritySettings;
 }
 
