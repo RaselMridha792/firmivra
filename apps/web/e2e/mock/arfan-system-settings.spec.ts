@@ -71,6 +71,13 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`), fullPage: true });
 }
 
+async function mockSettingsHistory(page: Page) {
+  await page.route('**/api/v1/admin/system-settings/history**', async (route) => {
+    const section = new URL(route.request().url()).searchParams.get('section') ?? 'EMAIL';
+    await route.fulfill({ json: { section, version: 1, items: [] } });
+  });
+}
+
 test('overview matches the design regions and links to existing settings and audit pages', async ({
   page,
 }) => {
@@ -162,6 +169,18 @@ test('email branding deep link lands on the signature settings section', async (
 });
 
 test('billing and security alert recipients cannot be set to Nobody', async ({ page }) => {
+  await mockSettingsHistory(page);
+  await page.route('**/api/v1/admin/system-settings/email/status', (route) =>
+    route.fulfill({
+      json: {
+        sender: 'LOG',
+        customSmtp: false,
+        lastTest: null,
+        deliveryRate24h: null,
+        bounced24h: null,
+      },
+    }),
+  );
   await page.route('**/api/v1/admin/system-settings/email', (route) =>
     route.fulfill({
       json: {
@@ -209,6 +228,20 @@ test('billing and security alert recipients cannot be set to Nobody', async ({ p
 test('maintenance preview shows ET and UTC and rejects an end before the start', async ({
   page,
 }) => {
+  await page.route('**/api/v1/admin/system-settings/health', (route) =>
+    route.fulfill({
+      json: {
+        checkedAt: '2026-11-23T14:00:00.000Z',
+        services: [{ key: 'api', status: 'ONLINE', detail: null }],
+      },
+    }),
+  );
+  await page.route('**/api/v1/admin/system-settings/jobs', (route) =>
+    route.fulfill({ json: { items: [] } }),
+  );
+  await page.route('**/api/v1/admin/system-settings/maintenance', (route) =>
+    route.fulfill({ json: { items: [] } }),
+  );
   await page.goto(`${url}/configuration`);
   await page.getByRole('button', { name: 'Schedule Maintenance' }).click();
   const dialog = page.getByRole('dialog', { name: 'Schedule Maintenance' });
