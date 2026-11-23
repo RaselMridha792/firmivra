@@ -1214,9 +1214,11 @@ model Membership {
   agreementFiles             FirmAgreementFile[]
   agreementVersions          FirmAgreementVersion[]
   taskCollaborations         TaskAssignee[]
-  checklistAssigned          TaskChecklistItem[]
-  taskTemplates              TaskTemplate[]
-  taskSeries                 TaskSeries[]
+  acknowledgementsReceived TaskAcknowledgement[] @relation("TaskAcknowledgementAssignee")
+  acknowledgementsRecorded TaskAcknowledgement[] @relation("TaskAcknowledgementRecorder")
+  checklistAssigned        TaskChecklistItem[]
+  taskTemplates            TaskTemplate[]
+  taskSeries               TaskSeries[]
 
   // Offline payments this member recorded or voided.
   offlinePaymentsRecorded OfflinePayment[] @relation("OfflinePaymentRecordedBy")
@@ -3612,6 +3614,7 @@ model Task {
   dependsOn          Task?                    @relation("TaskDependency", fields: [businessId, dependsOnTaskId], references: [businessId, id], onDelete: Restrict)
   dependents         Task[]                   @relation("TaskDependency")
   assignees          TaskAssignee[]
+  acknowledgements   TaskAcknowledgement[]
   taskChecklistItems TaskChecklistItem[]
   taskReminders      TaskReminder[]
   taskAttachments    TaskAttachment[]
@@ -10001,6 +10004,29 @@ model TaskAssignee {
   @@id([taskId, userId])
   @@index([businessId, userId])
   @@map("task_assignees")
+}
+
+/// One acknowledgement state per assignee on a task occurrence.
+model TaskAcknowledgement {
+  businessId           String    @map("business_id") @db.Uuid
+  taskId               String    @map("task_id") @db.Uuid
+  assigneeUserId       String    @map("assignee_user_id") @db.Uuid
+  required             Boolean   @default(false)
+  dueAt                DateTime? @map("due_at") @db.Timestamptz(3)
+  acknowledgedAt       DateTime? @map("acknowledged_at") @db.Timestamptz(3)
+  acknowledgedByUserId String?   @map("acknowledged_by_user_id") @db.Uuid
+  reminderSentAt       DateTime? @map("reminder_sent_at") @db.Timestamptz(3)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task           Task        @relation(fields: [businessId, taskId], references: [businessId, id], onDelete: Cascade)
+  assignee       Membership  @relation("TaskAcknowledgementAssignee", fields: [businessId, assigneeUserId], references: [businessId, userId], onDelete: Restrict)
+  acknowledgedBy Membership? @relation("TaskAcknowledgementRecorder", fields: [businessId, acknowledgedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@id([businessId, taskId, assigneeUserId])
+  @@index([businessId, assigneeUserId, acknowledgedAt])
+  @@index([businessId, required, dueAt, reminderSentAt])
+  @@map("task_acknowledgements")
 }
 
 /// One step of a task's checklist (ordered). A required item must be completed before the task
