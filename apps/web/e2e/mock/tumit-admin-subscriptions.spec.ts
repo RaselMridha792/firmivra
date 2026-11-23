@@ -13,6 +13,7 @@ test('the page opens with its KPIs and the subscriptions table', async ({ page }
   await expect(page.getByTestId('kpi-mrr-value')).toHaveText(/^\$[\d,]+$/);
   await expect(page.getByTestId('kpi-churn-value')).toHaveText(/^\d+\.\d%$/);
   await expect(page.getByRole('row', { name: /Sample Blue Ridge Tax/ })).toContainText('Team Pro');
+  await expect(page.getByRole('row', { name: /Sample Blue Ridge Tax/ })).toContainText('Renews');
   await expect(page.getByText(/Showing 1 – 8 of \d+ subscriptions/)).toBeVisible();
 });
 
