@@ -1,6 +1,11 @@
 'use client';
 
-import type { AdminJob, AdminMaintenanceWindow, AdminSystemHealth } from '@firmivra/types';
+import {
+  zonedInstant,
+  type AdminJob,
+  type AdminMaintenanceWindow,
+  type AdminSystemHealth,
+} from '@firmivra/types';
 import { Badge, Button, Card, Input, Modal, Textarea, Toggle } from '@firmivra/ui';
 import {
   ArrowRight,
@@ -538,9 +543,25 @@ function PauseModal({
   );
 }
 
-const local = (d: Date) =>
-  new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-const zoneTime = (value: string, timeZone: string) =>
+const MAINTENANCE_ZONE = 'America/New_York';
+const easternInput = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: MAINTENANCE_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+const asEasternInput = (date: Date) => easternInput.format(date).replace(' ', 'T');
+function maintenanceInstant(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  if (!Number.isFinite(Date.parse(`${value}:00Z`))) return null;
+  const instant = zonedInstant(value.slice(0, 10), value.slice(11), MAINTENANCE_ZONE);
+  // Reject a skipped wall-clock time at the spring daylight-saving transition.
+  return asEasternInput(instant) === value ? instant : null;
+}
+const zoneTime = (value: Date, timeZone: string) =>
   new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
@@ -548,7 +569,7 @@ const zoneTime = (value: string, timeZone: string) =>
     hour: 'numeric',
     minute: '2-digit',
     timeZone,
-  }).format(new Date(value));
+  }).format(value);
 
 /** Schedule a window; "now" starts it at once (Maintenance Mode on). */
 function ScheduleModal({
@@ -576,21 +597,23 @@ function ScheduleModal({
     setForm({
       title: mode === 'now' ? 'Maintenance' : '',
       message: '',
-      startsAt: local(start),
-      endsAt: local(new Date(start.getTime() + 3_600_000)),
+      startsAt: asEasternInput(start),
+      endsAt: asEasternInput(new Date(start.getTime() + 3_600_000)),
       adminBypass: true,
     });
   }
-  const startMs = Date.parse(form.startsAt);
-  const endMs = Date.parse(form.endsAt);
-  const endBeforeStart = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs <= startMs;
+  const start = maintenanceInstant(form.startsAt);
+  const end = maintenanceInstant(form.endsAt);
+  const invalidTime = Boolean((form.startsAt && !start) || (form.endsAt && !end));
+  const endBeforeStart = start !== null && end !== null && end <= start;
   const save = useApiMutation(
     async () => {
+      if (!start || !end || endBeforeStart) return;
       const w = await api.adminSettings.scheduleMaintenance({
         title: form.title,
         message: form.message,
-        startsAt: new Date(form.startsAt).toISOString(),
-        endsAt: new Date(form.endsAt).toISOString(),
+        startsAt: start.toISOString(),
+        endsAt: end.toISOString(),
         adminBypass: form.adminBypass,
       });
       return mode === 'now' ? api.adminSettings.startMaintenance(w.id) : w;
@@ -617,14 +640,15 @@ function ScheduleModal({
             disabled={
               !form.title.trim() ||
               !form.message.trim() ||
-              !form.startsAt ||
-              !form.endsAt ||
+              !start ||
+              !end ||
               endBeforeStart ||
               save.isPending
             }
             onClick={() =>
               save.mutate(undefined, {
                 onSuccess: (w) => {
+                  if (!w) return;
                   onDone(
                     mode === 'now'
                       ? `Maintenance mode is on until ${stamp(w.endsAt)}.`
@@ -656,13 +680,13 @@ function ScheduleModal({
         />
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
-            label="Starts (local time)"
+            label="Starts (America/New_York)"
             type="datetime-local"
             value={form.startsAt}
             onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
           />
           <Input
-            label="Ends (local time)"
+            label="Ends (America/New_York)"
             type="datetime-local"
             value={form.endsAt}
             onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
@@ -673,20 +697,29 @@ function ScheduleModal({
           aria-live="polite"
           className="rounded-lg bg-canvas p-3 text-sm text-text"
         >
-          <p className="font-medium text-heading">Schedule preview</p>
-          {form.startsAt && Number.isFinite(startMs) ? (
+          <p className="font-medium text-heading">User notice preview</p>
+          {form.title.trim() ? (
+            <p className="mt-2 font-semibold wrap-anywhere text-heading">{form.title.trim()}</p>
+          ) : null}
+          {form.message.trim() ? (
+            <p className="mb-2 wrap-anywhere whitespace-pre-wrap">{form.message.trim()}</p>
+          ) : null}
+          {start ? (
             <p>
-              Starts — ET: {zoneTime(form.startsAt, 'America/New_York')} · UTC:{' '}
-              {zoneTime(form.startsAt, 'UTC')}
+              Starts — ET: {zoneTime(start, MAINTENANCE_ZONE)} · UTC: {zoneTime(start, 'UTC')}
             </p>
           ) : null}
-          {form.endsAt && Number.isFinite(endMs) ? (
+          {end ? (
             <p>
-              Ends — ET: {zoneTime(form.endsAt, 'America/New_York')} · UTC:{' '}
-              {zoneTime(form.endsAt, 'UTC')}
+              Ends — ET: {zoneTime(end, MAINTENANCE_ZONE)} · UTC: {zoneTime(end, 'UTC')}
             </p>
           ) : null}
         </div>
+        {invalidTime ? (
+          <p role="alert" className="text-sm text-danger">
+            Enter a valid Eastern time.
+          </p>
+        ) : null}
         {endBeforeStart ? (
           <p role="alert" className="text-sm text-danger">
             End after the start.

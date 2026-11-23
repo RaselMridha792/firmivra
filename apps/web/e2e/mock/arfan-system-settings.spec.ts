@@ -212,17 +212,24 @@ test('maintenance preview shows ET and UTC and rejects an end before the start',
   await page.goto(`${url}/configuration`);
   await page.getByRole('button', { name: 'Schedule Maintenance' }).click();
   const dialog = page.getByRole('dialog', { name: 'Schedule Maintenance' });
-  const starts = dialog.getByLabel('Starts (local time)');
-  const ends = dialog.getByLabel('Ends (local time)');
+  const starts = dialog.getByLabel('Starts (America/New_York)');
+  const ends = dialog.getByLabel('Ends (America/New_York)');
+  await dialog.getByLabel('Title', { exact: true }).fill('Synthetic maintenance');
+  await dialog.getByLabel('Message to users').fill('<b>Scheduled work</b>');
   await starts.fill('2026-11-23T09:00');
   await ends.fill('2026-11-23T10:00');
   const preview = dialog.getByTestId('maintenance-time-preview');
   await expect(preview).toContainText('Starts — ET:');
-  await expect(preview).toContainText('UTC:');
+  await expect(preview).toContainText('UTC: Nov 23, 2026, 2:00 PM');
   await expect(preview).toContainText('Ends — ET:');
+  await expect(preview).toContainText('Synthetic maintenance');
+  await expect(preview).toContainText('<b>Scheduled work</b>');
+  await expect(preview.locator('b')).toHaveCount(0);
   await ends.fill('2026-11-23T08:00');
   await expect(dialog.getByRole('alert')).toHaveText('End after the start.');
   await expect(dialog.getByRole('button', { name: 'Schedule' })).toBeDisabled();
+  await starts.fill('2027-03-14T02:30');
+  await expect(dialog.getByRole('alert')).toHaveText('Enter a valid Eastern time.');
 });
 
 test('loading and empty results preserve the widgets and do not invent platform values', async ({
