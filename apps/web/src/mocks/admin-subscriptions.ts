@@ -422,6 +422,7 @@ export interface SubscriptionQuery {
   plan?: PlanId | '';
   status?: StatusFilter | '';
   cycle?: BillingCycle | '';
+  dateBy?: 'START' | 'RENEWAL' | 'NEXT_BILLING';
   /** The reporting period (YYYY-MM-DD); empty means this month. */
   from?: string;
   to?: string;
@@ -1841,8 +1842,17 @@ export const adminSubscriptions = {
                   : status === 'ENDED'
                     ? row.status === 'CANCELLED' || row.status === 'CLOSED'
                     : row.status === status)) &&
-          row.startedOn <= period.to &&
-          (!row.endedOn || row.endedOn >= period.from),
+          (query.dateBy
+            ? (() => {
+                const day =
+                  query.dateBy === 'START'
+                    ? row.startedOn
+                    : query.dateBy === 'RENEWAL'
+                      ? (row.paidThroughOn ?? row.endsOn)
+                      : row.nextBillingOn;
+                return day !== null && day >= period.from && day <= period.to;
+              })()
+            : row.startedOn <= period.to && (!row.endedOn || row.endedOn >= period.from)),
       )
       .map((row) => listItem(row, today));
     return { items, total: items.length, all: rows.length };

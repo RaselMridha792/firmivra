@@ -67,7 +67,7 @@ import {
 type Out<S extends z.ZodType> = z.output<S>;
 type Filters = Pick<
   Out<typeof SubscriptionsQuery>,
-  'search' | 'planId' | 'status' | 'billingCycle' | 'from' | 'to'
+  'search' | 'planId' | 'status' | 'billingCycle' | 'from' | 'to' | 'dateBy'
 >;
 
 /** The most subscriptions one export holds (each gets an EXPORTED event). */
@@ -167,7 +167,17 @@ export class SubscriptionsReadService {
         (!q.planId || l.row.plan.id === q.planId) &&
         (!q.billingCycle || l.row.billingCycle === q.billingCycle) &&
         matchesStatus(l.row, q.status, today) &&
-        inForce(l, period),
+        (q.dateBy
+          ? (() => {
+              const day =
+                q.dateBy === 'START'
+                  ? l.row.startedOn
+                  : q.dateBy === 'RENEWAL'
+                    ? l.row.renewalOn
+                    : l.row.nextBillingOn;
+              return day !== null && day >= period.from && day <= period.to;
+            })()
+          : inForce(l, period)),
     );
   }
 

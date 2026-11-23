@@ -87,11 +87,22 @@ export function SubscriptionsScreen() {
     plan: applied.plan,
     status: applied.status,
     cycle: applied.cycle,
+    dateBy: applied.dateBy || undefined,
     from,
     to,
   };
   const list = useApiQuery(
-    [KEY, 'list', applied.search, applied.plan, applied.status, applied.cycle, from, to],
+    [
+      KEY,
+      'list',
+      applied.search,
+      applied.plan,
+      applied.status,
+      applied.cycle,
+      from,
+      to,
+      applied.dateBy,
+    ],
     () => adminSubscriptions.subscriptions(query),
   );
   const stats = useApiQuery([KEY, 'stats', from, to], () => adminSubscriptions.stats({ from, to }));

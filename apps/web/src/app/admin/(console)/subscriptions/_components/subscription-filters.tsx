@@ -28,8 +28,16 @@ export interface Filters {
   cycle: BillingCycle | '';
   /** The reporting period; null is this month. */
   period: DateRange | null;
+  dateBy: 'START' | 'RENEWAL' | 'NEXT_BILLING' | '';
 }
-export const NO_FILTERS: Filters = { search: '', plan: '', status: '', cycle: '', period: null };
+export const NO_FILTERS: Filters = {
+  search: '',
+  plan: '',
+  status: '',
+  cycle: '',
+  period: null,
+  dateBy: '',
+};
 
 /** The statuses, then the KPI cards' groups. */
 const statusOptions = [{ value: '', label: 'All Statuses' }, ...STATUS_FILTERS];
@@ -151,6 +159,25 @@ export function SubscriptionFilters({
             label="Reset the period to this month"
             className="mb-1"
             onClick={() => onDraft({ ...draft, period: null })}
+          />
+        </div>
+        <div className="w-full sm:w-48">
+          <Select
+            label="Filter table by"
+            hideLabel
+            options={[
+              { value: '', label: 'Table date: In period' },
+              { value: 'START', label: 'Start date' },
+              { value: 'RENEWAL', label: 'Renewal date' },
+              { value: 'NEXT_BILLING', label: 'Next billing date' },
+            ]}
+            value={draft.dateBy}
+            onChange={(event) =>
+              onDraft({
+                ...draft,
+                dateBy: event.target.value as Filters['dateBy'],
+              })
+            }
           />
         </div>
         <div className="ml-auto flex items-center gap-2">

@@ -57,6 +57,37 @@ test('a reversed reporting period is rejected before it is applied', async ({ pa
   );
 });
 
+test('the reporting range filters the table by the selected subscription date, not the KPIs', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'));
+  await page.goto(admin('/subscriptions'));
+  const kpi = await page.getByTestId('kpi-mrr-value').textContent();
+  const table = page.getByRole('search', { name: 'Filter subscriptions' });
+  await table.getByLabel('Reporting period: From, start date').fill('2020-01-01');
+  await table.getByLabel('Reporting period: To, end date').fill('2030-01-01');
+  await page.getByLabel('Filter table by').selectOption('START');
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByText(/of \d+ subscriptions/)).toBeVisible();
+  const startCount = Number(
+    (await page.getByText(/of \d+ subscriptions/).textContent())?.match(
+      /of (\d+) subscriptions/,
+    )?.[1],
+  );
+  expect(startCount).toBeGreaterThan(0);
+  await expect(page.getByTestId('kpi-mrr-value')).toHaveText(kpi ?? '');
+
+  await page.getByLabel('Filter table by').selectOption('NEXT_BILLING');
+  await page.getByRole('button', { name: 'Apply' }).click();
+  const billingCount = Number(
+    (await page.getByText(/of \d+ subscriptions/).textContent())?.match(
+      /of (\d+) subscriptions/,
+    )?.[1],
+  );
+  expect(billingCount).toBeGreaterThan(0);
+  expect(billingCount).toBeLessThanOrEqual(startCount);
+});
+
 test('the detail panel changes a plan and shows the price impact first', async ({ page }) => {
   await page.goto(admin('/subscriptions'));
   await page.getByRole('button', { name: 'Sample Blue Ridge Tax', exact: true }).click();
