@@ -59,6 +59,10 @@ test('the Billing dashboard lists invoices with totals, tabs, filters and quick 
     'href',
     '/billing/settings',
   );
+  await expect(page.getByRole('link', { name: /View Reports/ })).toHaveAttribute(
+    'href',
+    '/reports/revenue',
+  );
 });
 
 test('a row menu records a payment on an open invoice', async ({ page }) => {
