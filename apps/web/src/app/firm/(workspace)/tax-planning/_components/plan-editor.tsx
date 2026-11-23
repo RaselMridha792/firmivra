@@ -67,6 +67,7 @@ export function PlanEditor({ id, step }: { id?: string; step: Step }) {
   );
   const p = plan.data ?? undefined;
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
+  const [previewOpen, setPreviewOpen] = useState(false);
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
   const refresh = () => qc.invalidateQueries({ queryKey: [...TP_KEY] });
   const go = (n: number, pid = id) => router.push(`/tax-planning/plans/${pid}/edit${PATHS[n - 1]}`);
@@ -110,6 +111,16 @@ export function PlanEditor({ id, step }: { id?: string; step: Step }) {
           </div>
         </div>
         {p ? <PlanPill status={p.status} /> : null}
+        {p ? (
+          <button
+            type="button"
+            className={outlined}
+            data-testid="preview-as-client"
+            onClick={() => setPreviewOpen(true)}
+          >
+            Preview as Client
+          </button>
+        ) : null}
       </header>
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
@@ -228,6 +239,53 @@ export function PlanEditor({ id, step }: { id?: string; step: Step }) {
         />
       ) : null}
       {p ? <Disclaimer text={p.disclaimer} /> : null}
+      {p && previewOpen ? (
+        <Modal
+          open
+          title="Preview as Client"
+          subtitle={`${p.name}, version ${p.version}`}
+          onClose={() => setPreviewOpen(false)}
+        >
+          <div data-testid="client-preview" className="flex flex-col gap-4">
+            <p className="text-sm text-muted" data-testid="read-only-note">
+              Read-only: version {p.version}, exactly as the client will see it. Staff notes are not
+              shown.
+            </p>
+            <h3 className="font-display text-lg font-bold text-heading">{p.client.name}</h3>
+            <p className="text-sm text-muted">
+              {p.planYear} · Version {p.version}
+            </p>
+            {p.strategies.filter((s) => s.selected).length === 0 ? (
+              <p className="text-sm text-muted">This version lists no strategies.</p>
+            ) : (
+              <ul className="flex flex-col" aria-label="Strategies" data-testid="plan-strategies">
+                {p.strategies
+                  .filter((s) => s.selected)
+                  .map((s) => (
+                    <li
+                      key={s.id}
+                      className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-divider py-2 first:border-t-0"
+                    >
+                      <span className="min-w-0 flex-1 font-semibold text-heading">{s.name}</span>
+                      {s.category ? <span className="text-sm text-muted">{s.category}</span> : null}
+                      <span className="text-sm text-text">
+                        {s.estimate.cents === null
+                          ? 'Not estimated'
+                          : `Estimated savings ${money(s.estimate.cents)}`}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            )}
+            {p.projectedSavingsCents !== null ? (
+              <p className="mt-3 font-semibold text-heading" data-testid="projected-savings">
+                Projected savings: {money(p.projectedSavingsCents)}
+              </p>
+            ) : null}
+            <p className="text-xs text-muted">{p.disclaimer}</p>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
