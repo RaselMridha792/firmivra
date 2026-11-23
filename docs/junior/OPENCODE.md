@@ -108,3 +108,24 @@ Your task issue says which branch to use. The full steps are in the team repo's 
 git fetch origin && git merge origin/main     # every morning and before every push (MERGE, never rebase)
 git push                                      # to your task branch only; the PR into main updates by itself
 ```
+
+## 8. Guards (Rasel, Nov 23): the tools now stop the common mistakes
+
+Activate the git hooks once per clone, then check:
+
+```bash
+pnpm exec husky
+git config core.hooksPath   # must print .husky/_
+```
+
+| When | What blocks you | What to do |
+|---|---|---|
+| `git commit` | an empty commit; text with broken encoding (a dash or "..." turned into 2-3 odd characters); `AGENTS.md`, `CLAUDE.md` or `apps/web/e2e/live/`; `packages/db`, `infra/`, `.github/` without approval; a `.env` file | Fix the files. Write files only with the editor tool or node, never PowerShell `Set-Content`/`Out-File`. Approved db task: `FIRMIVRA_APPROVED=1 git commit ...` |
+| `git commit` | a subject that isn't `fix: ...` / `feat: ...` / `test: ...`; "Co-Authored-By" or "Generated with" lines | Fix the message |
+| `git push` | a package you changed doesn't typecheck | Fix the errors, commit, push again |
+| PR (CI "PR shape") | no code or test files changed; no `Rows:` line; no `Tests:` line with counts; no `Manual check` section | Push code, or edit the PR body |
+
+- Never use `--no-verify`.
+- Never edit `apps/web/e2e/live/`. The lead runs the live checks on dev. You fix product code, with unit tests, API e2e tests and mock specs.
+- 30-minute rule: stuck on setup, a test harness or the environment for 30 minutes? Write `BLOCKED-ENV` and the exact error on your issue, and go to the next row.
+- A row that already works is not a PR. Post the check (steps and a screenshot) as a comment on the issue.

@@ -135,7 +135,7 @@ jobs:
             // F10's messages from Oct 9 (Rasel); its invoices pages went to Fahad on Oct 10. The
             // portal pages moved to R17, Rasel's own session.
             nahid: {
-              logins: ['asratulhasannahid'],
+              logins: ['asratulhasannahid', 'nahid0hasan'],
               files: [
                 ...['messages/', 'clients/[id]/messages/'].map((p) => `${WEB}firm/(workspace)/${p}`),
               ],
