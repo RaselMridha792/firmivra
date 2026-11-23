@@ -90,6 +90,8 @@ const sendFields = {
 };
 
 export const cases: CaseModule['cases'] = {
+  // Intake Forms Review Two 18c: the read-only audit contains only the authenticated firm's rows.
+  'GET /api/v1/business/intake-forms/records-check': { params: {} },
   'PUT /api/v1/business/intake-settings': {
     params: {},
     bodyIds: {

@@ -121,7 +121,12 @@ export function FormLinkDialog({
       }
     >
       <div className="flex flex-col gap-4" data-testid="form-share">
-        <PublicLinkSection kind="INTAKE_FORM" link={s?.link ?? null} emptyText={emptyText} />
+        <PublicLinkSection
+          kind="INTAKE_FORM"
+          link={s?.link ?? null}
+          emptyText={emptyText}
+          embedHelp="Your website must be approved for embedding. Portal sign-in always opens in a new tab."
+        />
         {/* Leads row 24: where the link or button goes on the common website builders. */}
         {s?.link ? <WebsiteGuide /> : null}
         {s ? (

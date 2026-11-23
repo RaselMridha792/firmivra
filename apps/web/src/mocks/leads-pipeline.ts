@@ -1445,6 +1445,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
           engagementIds: input.serviceIds.map((_, i) => uuid('1e00', i)),
           inviteSent: input.sendPortalInvite,
           carried: {
+            campaigns: 0,
             notes: 0,
             communications: 0,
             appointments: 0,
@@ -1471,6 +1472,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         engagementIds: input.serviceIds.map((_, i) => uuid('1e00', s.next + i)),
         inviteSent: input.sendPortalInvite,
         carried: {
+          campaigns: c.communications && l.profile.campaign ? 1 : 0,
           notes: c.notes ? l.notes.length : 0,
           communications: c.communications
             ? l.activity.filter((a) => ['CALL', 'EMAIL_SENT', 'SMS_SENT'].includes(a.kind)).length
