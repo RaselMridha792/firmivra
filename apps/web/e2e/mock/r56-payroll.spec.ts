@@ -203,6 +203,10 @@ test('A demo review shows the five Run Payroll steps and processes no payroll: o
   const run = page.getByTestId('payroll-run');
   await expect(page.getByTestId('demo-banner')).toContainText('no payroll is processed here');
   await expect(page.getByTestId('demo-sample')).toContainText('samples');
+  // N01 (Payroll Q02): sample rates are labelled as illustrative, not provider figures.
+  await expect(page.getByTestId('demo-sample')).toContainText('12%');
+  await expect(page.getByTestId('demo-sample')).toContainText('7.65%');
+  await expect(page.getByTestId('demo-sample')).toContainText('3.8%');
   for (const name of ['Alex Rivera (sample)', 'Jordan Lee (sample)', 'Sam Patel (sample)']) {
     await expect(run).toContainText(name);
   }
