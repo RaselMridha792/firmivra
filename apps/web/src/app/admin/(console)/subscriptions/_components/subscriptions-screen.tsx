@@ -107,6 +107,7 @@ export function SubscriptionsScreen() {
   const support = rows.find((row) => row.supportViewUntil);
 
   function apply() {
+    if (periodError) return;
     const period = draft.period;
     if (period && (!period.from || !period.to || period.from > period.to)) {
       setPeriodError('Choose a start date on or before the end date.');
@@ -234,6 +235,7 @@ export function SubscriptionsScreen() {
           onDraft={setDraft}
           onApply={apply}
           onClear={clear}
+          onReversedChange={setPeriodError}
         />
         {periodError ? (
           <p role="alert" className="text-sm text-danger">

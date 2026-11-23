@@ -42,6 +42,20 @@ test('search and the status filter apply on Apply, and Clear resets them', async
   await expect(page.getByRole('row', { name: /Sample Blue Ridge Tax/ })).toHaveCount(0);
 });
 
+test('a reversed reporting period is rejected before it is applied', async ({ page }) => {
+  await page.goto(admin('/subscriptions'));
+  await page.getByLabel('Reporting period: From, start date').fill('2026-10-10');
+  await page.getByLabel('Reporting period: To, end date').fill('2026-10-01');
+  const filters = page.getByRole('search', { name: 'Filter subscriptions' });
+  await expect(filters.getByRole('alert')).toHaveText(
+    'Choose a start date on or before the end date.',
+  );
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(filters.getByRole('alert')).toHaveText(
+    'Choose a start date on or before the end date.',
+  );
+});
+
 test('the detail panel changes a plan and shows the price impact first', async ({ page }) => {
   await page.goto(admin('/subscriptions'));
   await page.getByRole('button', { name: 'Sample Blue Ridge Tax', exact: true }).click();

@@ -52,12 +52,14 @@ export function SubscriptionFilters({
   onDraft,
   onApply,
   onClear,
+  onReversedChange,
 }: {
   draft: Filters;
   thisMonth: DateRange;
   onDraft: (filters: Filters) => void;
   onApply: () => void;
   onClear: () => void;
+  onReversedChange?: (message: string | null) => void;
 }) {
   // The plans are the API's (meta), in display order; until they load only "All Plans".
   const meta = useApiQuery([KEY, 'meta'], () => adminSubscriptions.meta());
@@ -134,6 +136,13 @@ export function SubscriptionFilters({
             <DateRangePicker
               label="Reporting period"
               value={draft.period ?? thisMonth}
+              strict
+              reversedMessage="Choose a start date on or before the end date."
+              onReversedChange={(reversed) =>
+                onReversedChange?.(
+                  reversed ? 'Choose a start date on or before the end date.' : null,
+                )
+              }
               onChange={(period) => onDraft({ ...draft, period })}
             />
           </div>
