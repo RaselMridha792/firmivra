@@ -112,11 +112,12 @@ describe('seed', () => {
       'firm_application_response_files',
       // Firm application response codes (Nov 10): none until an applicant opens a request's link.
       'firm_application_response_codes',
-      // Firm closure (Nov 10): no grant, log or exceptional-access request until a firm closes or a
-      // request is made.
+      // Firm closure (Nov 10) and Q32: no grant, code, log or exceptional-access request until a
+      // firm closes, a code is sent or a request is made.
       // Review 2 (R1's handoff, Nov 14): none until staff enter an account's opening balance.
       'bookkeeping_opening_balances',
       'firm_data_download_grants',
+      'firm_data_download_codes',
       'firm_data_download_log',
       'firm_exceptional_access_requests',
     ];

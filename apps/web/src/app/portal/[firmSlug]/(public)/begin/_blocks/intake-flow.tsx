@@ -28,6 +28,7 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { portalAuth } from '../../../../../../lib/auth';
 import { refreshSession } from '../../../../../../lib/session';
 import { uploadFile } from '../../../../../../lib/upload';
+import { startFrameBridge } from '../../../../../../lib/frame-bridge';
 import { usePortal } from '../../../layout';
 import { IntakeStepper, SectionPanel } from './form-blocks';
 import {
@@ -217,23 +218,26 @@ export function IntakePage({
     }
   });
   return (
-    <div
-      data-theme="begin-online"
-      data-testid="intake-page"
-      className={`bg-surface py-4 text-sm text-firm-primary ${className}`}
-    >
-      <PageContainer>
-        <PageState query={draft} isEmpty={() => false}>
-          {(found) =>
-            found && typeof found === 'object' ? (
-              <IntakeFlow key={found.form} firmSlug={firmSlug} draft={found} />
-            ) : (
-              <StartCard firmSlug={firmSlug} form={form} ended={found} />
-            )
-          }
-        </PageState>
-      </PageContainer>
-    </div>
+    <>
+      <PublicIntakeFrameBridge />
+      <div
+        data-theme="begin-online"
+        data-testid="intake-page"
+        className={`bg-surface py-4 text-sm text-firm-primary ${className}`}
+      >
+        <PageContainer>
+          <PageState query={draft} isEmpty={() => false}>
+            {(found) =>
+              found && typeof found === 'object' ? (
+                <IntakeFlow key={found.form} firmSlug={firmSlug} draft={found} />
+              ) : (
+                <StartCard firmSlug={firmSlug} form={form} ended={found} />
+              )
+            }
+          </PageState>
+        </PageContainer>
+      </div>
+    </>
   );
 }
 
@@ -262,31 +266,40 @@ export function SharedIntakePage({
     shared.error instanceof ApiRequestError &&
     (shared.error.code === 'LINK_INVALID' || shared.error.status === 400);
   return (
-    <div
-      data-theme="begin-online"
-      data-testid="intake-page"
-      className={`bg-surface py-4 text-sm text-firm-primary ${className}`}
-    >
-      <PageContainer>
-        {gone ? (
-          <p
-            role="alert"
-            data-testid="share-invalid"
-            className="mx-auto max-w-2xl rounded-control border border-folder-border bg-folder-surface p-4 text-sm text-heading"
-          >
-            This form link is not available any more. Ask the firm for a new one.
-          </p>
-        ) : (
-          <>
-            <SignedInStart firmSlug={firmSlug} token={token} />
-            <PageState query={shared} isEmpty={() => false}>
-              {(found) => <SharedForm firmSlug={firmSlug} token={token} found={found} />}
-            </PageState>
-          </>
-        )}
-      </PageContainer>
-    </div>
+    <>
+      <PublicIntakeFrameBridge />
+      <div
+        data-theme="begin-online"
+        data-testid="intake-page"
+        className={`bg-surface py-4 text-sm text-firm-primary ${className}`}
+      >
+        <PageContainer>
+          {gone ? (
+            <p
+              role="alert"
+              data-testid="share-invalid"
+              className="mx-auto max-w-2xl rounded-control border border-folder-border bg-folder-surface p-4 text-sm text-heading"
+            >
+              This form link is not available any more. Ask the firm for a new one.
+            </p>
+          ) : (
+            <>
+              <SignedInStart firmSlug={firmSlug} token={token} />
+              <PageState query={shared} isEmpty={() => false}>
+                {(found) => <SharedForm firmSlug={firmSlug} token={token} found={found} />}
+              </PageState>
+            </>
+          )}
+        </PageContainer>
+      </div>
+    </>
   );
+}
+
+/** Public intake pages inside a firm's site report their height and open portal links in a tab. */
+function PublicIntakeFrameBridge() {
+  useEffect(() => startFrameBridge(window, document), []);
+  return null;
 }
 
 /** This browser's client session at the firm, refreshed once as the portal's pages do. */

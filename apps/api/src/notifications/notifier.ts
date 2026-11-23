@@ -1,4 +1,5 @@
 import { LIVE_DOCUMENT } from '../storage/document-records.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
@@ -788,6 +789,9 @@ async function recipientsOf(
   return { recipients: out, clientName };
 }
 
+/** The provider id of the attempt being made, handed from the send back to its outbox row. */
+const attemptSink = new AsyncLocalStorage<{ providerMessageId?: string }>();
+
 /**
  * The helper other features call (R6 step 7): `notifier.notify({ businessId, event, recordId })`
  * after their change commits. It writes the bell item for each recipient and sends the event's
@@ -1206,7 +1210,8 @@ export class Notifier {
         data: { attempts: attempts + 1 },
       });
       if (claimed.count !== 1) return 'busy';
-      const error = await send();
+      const sink: { providerMessageId?: string } = {};
+      const error = await attemptSink.run(sink, send);
       const status = error === null ? 'SENT' : error === 'skip' ? 'SKIPPED' : 'FAILED';
       // Only while this claim is the latest: a later claim's outcome is never overwritten.
       await db.notificationDelivery.updateMany({
@@ -1214,6 +1219,10 @@ export class Notifier {
         data: {
           status,
           sentAt: status === 'SENT' ? new Date() : null,
+          // The provider's own id for the accepted email (never the address or the text).
+          ...(status === 'SENT' && sink.providerMessageId
+            ? { providerMessageId: sink.providerMessageId }
+            : {}),
           lastError: status === 'FAILED' ? error : null,
         },
       });
@@ -1364,13 +1373,15 @@ export class Notifier {
                                 // A1: only the appointment's own client confirms it.
                                 ...(recipient.attendee ? { confirmAsk: false } : {}),
                               };
-      await this.sender.send({
+      const sent = await this.sender.send({
         template,
         to: recipient.email!,
         businessId,
         recipient: { userId: recipient.userId },
         data,
       } as NotifyMessage);
+      const store = attemptSink.getStore();
+      if (store && sent && sent.providerMessageId) store.providerMessageId = sent.providerMessageId;
       return null;
     } catch (error) {
       this.logger.warn(

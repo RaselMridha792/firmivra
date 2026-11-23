@@ -1,8 +1,8 @@
 import type { Area } from './hosts';
 
 /**
- * Who may show the booking page in a frame (Appointments D3, the inline booking embed on a
- * firm's own website). Everything else keeps today's behaviour: no frame-ancestors on any other
+ * Who may show supported public pages in a frame (booking, intake, and portal entry embeds).
+ * Everything else keeps today's behaviour: no frame-ancestors on any other
  * route (the app frames its own PDF previews) and CloudFront's X-Frame-Options SAMEORIGIN.
  *
  * EMBED_ALLOWED_ORIGINS: the websites that may embed, comma separated (each trimmed, empties ignored), each a bare
@@ -12,6 +12,8 @@ export const EMBED_ALLOWED_ORIGINS = 'EMBED_ALLOWED_ORIGINS';
 
 /** `/{slug}/book/{typeId}` (one optional trailing slash), nothing longer. */
 const BOOKING_PATH = /^\/[A-Za-z0-9-]{1,63}\/book\/[^/]+\/?$/;
+const INTAKE_PATH =
+  /^\/[A-Za-z0-9-]{1,63}\/(?:begin\/[A-Za-z0-9-]{1,63}|start\/[A-Za-z0-9_-]{43})\/?$/;
 
 /** One entry as a clean https origin, or null: no path, query, credentials, wildcard or `*`. */
 function cleanOrigin(entry: string): string | null {
@@ -47,6 +49,19 @@ export function bookingFrameAncestors(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
   if (area !== 'portal' || !BOOKING_PATH.test(pathname)) return null;
+  const origins = embedAllowedOrigins(env);
+  return `frame-ancestors ${origins.length ? origins.join(' ') : "'none'"}`;
+}
+
+/** A public intake Begin Online page may be framed by a configured website. */
+export function publicEmbedFrameAncestors(
+  area: Area | null,
+  pathname: string,
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  if (area !== 'portal' || !INTAKE_PATH.test(pathname)) {
+    return null;
+  }
   const origins = embedAllowedOrigins(env);
   return `frame-ancestors ${origins.length ? origins.join(' ') : "'none'"}`;
 }

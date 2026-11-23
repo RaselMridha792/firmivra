@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { Check, Copy, LinkSimple, WarningCircle } from '@phosphor-icons/react';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -9,6 +9,8 @@ export interface PublicLinkBlockProps {
   url: string | null;
   /** The button code for the firm's own website (opens the link); shown with `url`. */
   embedCode: string | null;
+  buttonCode?: string | null;
+  portalEntryUrl?: string | null;
   /** The heading: "Booking Link", "Form Link", "Package Link". */
   title?: string;
   /** The link's button: "Copy Booking Link". */
@@ -16,7 +18,7 @@ export interface PublicLinkBlockProps {
   copyEmbedLabel?: string;
   /** The line under the embed code, instead of the default about the button. */
   embedHelp?: string;
-  /** A warning above the fields, when the item takes no new public use (draft, archived…). */
+  /** A warning above the fields, when the item takes no new public use (draft, archivedâ€¦). */
   notice?: string;
   /** Shown instead of the fields while `url` is null. */
   emptyText?: string;
@@ -24,7 +26,7 @@ export interface PublicLinkBlockProps {
   copy?: (text: string) => Promise<void>;
 }
 
-type Field = 'link' | 'embed';
+type Field = 'link' | 'embed' | 'button' | 'portal-entry';
 
 const field =
   'min-w-0 flex-1 rounded-control border border-border bg-subtle px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-action/25';
@@ -38,6 +40,8 @@ const field =
 export function PublicLinkBlock({
   url,
   embedCode,
+  buttonCode,
+  portalEntryUrl,
   title = 'Public Link',
   copyLinkLabel = 'Copy Link',
   copyEmbedLabel = 'Copy Embed Code',
@@ -49,6 +53,8 @@ export function PublicLinkBlock({
   const id = useId();
   const linkRef = useRef<HTMLInputElement>(null);
   const embedRef = useRef<HTMLTextAreaElement>(null);
+  const buttonRef = useRef<HTMLTextAreaElement>(null);
+  const portalEntryRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState<Field | null>(null);
   const [status, setStatus] = useState('');
   useEffect(() => {
@@ -58,16 +64,38 @@ export function PublicLinkBlock({
   }, [copied]);
 
   const copyField = async (which: Field) => {
-    const text = which === 'link' ? url : embedCode;
+    const text =
+      which === 'link'
+        ? url
+        : which === 'embed'
+          ? embedCode
+          : which === 'button'
+            ? buttonCode
+            : portalEntryUrl;
     if (!text) return;
     try {
       await copy(text);
       setCopied(which);
-      setStatus(which === 'link' ? 'Link copied.' : 'Embed code copied.');
+      setStatus(
+        which === 'link'
+          ? 'Link copied.'
+          : which === 'portal-entry'
+            ? 'Portal sign-in link copied.'
+            : which === 'button'
+              ? 'Button code copied.'
+              : 'Embed code copied.',
+      );
     } catch {
       setCopied(null);
-      (which === 'link' ? linkRef.current : embedRef.current)?.select();
-      setStatus('Copying was blocked. The text is selected: press Ctrl+C (⌘C on a Mac).');
+      (which === 'link'
+        ? linkRef.current
+        : which === 'embed'
+          ? embedRef.current
+          : which === 'button'
+            ? buttonRef.current
+            : portalEntryRef.current
+      )?.select();
+      setStatus('Copying was blocked. The text is selected: press Ctrl+C (âŒ˜C on a Mac).');
     }
   };
 
@@ -144,6 +172,44 @@ export function PublicLinkBlock({
                 {button('embed', copyEmbedLabel)}
               </div>
               <p className="text-xs text-muted">{embedHelp}</p>
+            </div>
+          ) : null}
+          {buttonCode ? (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <label htmlFor={id + '-button-code'} className="text-sm font-semibold text-heading">
+                Button code
+              </label>
+              <div className="flex min-w-0 gap-2 max-sm:flex-col sm:items-start">
+                <textarea
+                  ref={buttonRef}
+                  id={id + '-button-code'}
+                  readOnly
+                  rows={3}
+                  value={buttonCode}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className={field + ' resize-none font-mono text-xs'}
+                />
+                {button('button', 'Copy Button Code')}
+              </div>
+            </div>
+          ) : null}
+          {portalEntryUrl ? (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <label htmlFor={`${id}-portal-entry`} className="text-sm font-semibold text-heading">
+                Portal sign-in link
+              </label>
+              <div className="flex min-w-0 gap-2 max-sm:flex-col">
+                <input
+                  ref={portalEntryRef}
+                  id={`${id}-portal-entry`}
+                  readOnly
+                  value={portalEntryUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className={field}
+                />
+                {button('portal-entry', 'Copy Portal Link')}
+              </div>
+              <p className="text-xs text-muted">Opens the portal sign-in page in a new tab.</p>
             </div>
           ) : null}
         </>

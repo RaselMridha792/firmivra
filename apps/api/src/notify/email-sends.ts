@@ -27,13 +27,15 @@ export class EmailSendLog {
 export function trackedTransport(transport: EmailTransport, sends: EmailSendLog): EmailTransport {
   return {
     send: async (mail) => {
+      let id: string | void;
       try {
-        await transport.send(mail);
+        id = await transport.send(mail);
       } catch (error) {
         sends.record(false);
         throw error;
       }
       sends.record(true);
+      return id;
     },
   };
 }

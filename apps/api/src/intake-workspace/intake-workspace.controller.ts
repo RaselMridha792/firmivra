@@ -4,6 +4,7 @@ import type {
   IntakeShare,
   IntakeFormDetail,
   IntakeFormLibrarySummary,
+  IntakeRecordsCheck,
   IntakeFormList,
   IntakeSettings,
   IntakeSettingsChangeList,
@@ -23,6 +24,7 @@ import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { IntakeBuilderService } from './intake-builder.service.js';
 import { IntakeLibraryService } from './intake-library.service.js';
+import { IntakeRecordsCheckService } from './intake-records-check.service.js';
 import { IntakeSettingsService } from './intake-settings.service.js';
 import {
   DuplicateFormBody,
@@ -45,7 +47,15 @@ export class IntakeFormsController {
   constructor(
     private readonly library: IntakeLibraryService,
     private readonly builder: IntakeBuilderService,
+    private readonly recordsCheck: IntakeRecordsCheckService,
   ) {}
+
+  /** Review Two 18c: the Records check (Owner and Admin, read-only). */
+  @Get('records-check')
+  @Roles(...FIRM_MANAGERS)
+  records(@CurrentTenant() tenant: TenantContext): Promise<IntakeRecordsCheck> {
+    return this.recordsCheck.check(tenant);
+  }
 
   @Get()
   list(

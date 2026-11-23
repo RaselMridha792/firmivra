@@ -659,6 +659,11 @@ export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
   data: NotifyTemplates[T];
 }
 
+/** What a send that reached a provider can tell: the provider's own message id (email only). */
+export interface SendResult {
+  providerMessageId: string | null;
+}
+
 export interface NotifyService {
   /**
    * Sends one message. Resolves once the provider (or, in a log mode, the API log) has it.
@@ -668,7 +673,7 @@ export interface NotifyService {
    * The caller decides what a failure means: usually its own flow stands, and it logs a warning
    * with its record's id (as R4 does), never the address.
    */
-  send<T extends NotifyTemplate>(message: NotifyMessage<T>): Promise<void>;
+  send<T extends NotifyTemplate>(message: NotifyMessage<T>): Promise<SendResult | void>;
 }
 
 /** Nest injection token: `@Inject(NOTIFY_SERVICE) private readonly notify: NotifyService`. */

@@ -105,7 +105,7 @@ export function DashboardScreen({ initial }: { initial: DashboardPlace }) {
   const { me } = useMe();
   const { role } = useFirm();
   // V5: Quick Actions follow the member's own grants, not the role's default grid.
-  const can = useMyGrants(role);
+  const can = useMyGrants();
   // Octavia's review of Oct 25, C1 and C2: the global period (the first four cards), and the
   // Client Pipeline's and Revenue Overview's own (Service Breakdown shares Revenue Overview's).
   const [place, setPlace] = useState(initial);

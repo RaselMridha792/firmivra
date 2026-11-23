@@ -12,7 +12,6 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import { DashboardLink as Link, useDashboardNavigate } from './dashboard-link';
 import { useState } from 'react';
-import { useFirm } from '../../../../components/firm-context';
 import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
 import { useMyGrants } from '../../../../lib/my-grants';
@@ -104,9 +103,8 @@ export function RecentMessages({
 }
 
 export function TasksDue({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
-  const { role } = useFirm();
   // V5: the member's own grants (custom role, own change), not the role's default grid.
-  const can = useMyGrants(role);
+  const can = useMyGrants();
   const canComplete = can('TASKS', 'EDIT');
   const canOpenClient = can('CLIENTS', 'VIEW');
   // A checkbox before each task marks it done, as the design draws the list (R1, Oct 20), after
@@ -231,8 +229,7 @@ export function UpcomingAppointments({
   list: UseQueryResult<Awaited<ReturnType<typeof api.appointments.list>>>;
 }) {
   const go = useDashboardNavigate();
-  const { role } = useFirm();
-  const can = useMyGrants(role);
+  const can = useMyGrants();
   const [ask, setAsk] = useState<{ ask: Ask; a: Appointment }>();
   const [message, setMessage] = useState<string>();
   const remind = useApiMutation((id: string) => api.scheduling.sendReminder(id), {
