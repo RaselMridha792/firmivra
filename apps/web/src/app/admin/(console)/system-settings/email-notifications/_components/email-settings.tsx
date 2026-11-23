@@ -432,7 +432,11 @@ export function EmailSettings() {
                         },
                       })
                     }
-                    options={GROUPS}
+                    options={
+                      r.key === 'billing' || r.key === 'securityAlerts'
+                        ? GROUPS.filter((group) => group.value !== 'NOBODY')
+                        : GROUPS
+                    }
                   />
                 ))}
               </div>

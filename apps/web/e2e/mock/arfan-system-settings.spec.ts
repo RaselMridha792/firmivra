@@ -161,6 +161,51 @@ test('email branding deep link lands on the signature settings section', async (
   await expect(page.locator('#branding')).toContainText('Email Signature');
 });
 
+test('billing and security alert recipients cannot be set to Nobody', async ({ page }) => {
+  await page.route('**/api/v1/admin/system-settings/email', (route) =>
+    route.fulfill({
+      json: {
+        version: 1,
+        updatedAt: '2026-10-14T12:00:00.000Z',
+        updatedBy: null,
+        smtpConfigured: false,
+        value: {
+          fromName: 'Firmivra',
+          fromEmail: null,
+          replyTo: null,
+          cc: null,
+          signature: null,
+          includeSignature: true,
+          channels: { email: true, inApp: true, sms: false, push: false },
+          digest: false,
+          recipients: {
+            systemAlerts: 'SUPER_ADMINS',
+            firmApplications: 'SUPER_ADMINS',
+            billing: 'SUPER_ADMINS',
+            securityAlerts: 'SUPER_ADMINS',
+          },
+          maxRetries: 3,
+          retryBackoffMinutes: 15,
+          dailyCapPerRecipient: 50,
+        },
+      },
+    }),
+  );
+  await page.goto(`${url}/email-notifications`);
+  await expect(
+    page.getByLabel('Billing Notifications', { exact: true }).locator('option'),
+  ).toHaveText(['Super Admin Only', 'All Admins']);
+  await expect(page.getByLabel('Security Alerts', { exact: true }).locator('option')).toHaveText([
+    'Super Admin Only',
+    'All Admins',
+  ]);
+  await expect(page.getByLabel('System Alerts', { exact: true }).locator('option')).toHaveText([
+    'Super Admin Only',
+    'All Admins',
+    'Nobody',
+  ]);
+});
+
 test('loading and empty results preserve the widgets and do not invent platform values', async ({
   page,
 }) => {
