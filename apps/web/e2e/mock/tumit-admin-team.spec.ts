@@ -22,6 +22,8 @@ test('the directory opens with its totals, cards and list, and filters by depart
   await expect(page.getByTestId('member-card')).toHaveCount(12);
   await expect(page.getByText('Showing 1–12 of 15 team members')).toBeVisible();
   await expect(page.getByRole('article', { name: 'Morgan Admin' })).toContainText('Owner / CEO');
+  await expect(page.getByRole('article', { name: 'Morgan Admin' })).toContainText('Active');
+  await expect(page.getByRole('article', { name: 'Morgan Admin' })).toContainText('Super Admin');
 
   await page.getByLabel('Department', { exact: true }).selectOption({ label: 'Revenue / Sales' });
   await expect(page.getByTestId('member-card')).toHaveCount(5);
