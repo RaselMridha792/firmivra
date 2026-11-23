@@ -17,6 +17,8 @@ test('the dashboard shows its cards and log, and the filters and tabs narrow it'
     await expect(page.getByTestId(`kpi-${card}-value`)).toHaveText(/^\d+$/);
   const events = page.getByTestId('audit-events');
   await expect(events.getByRole('link', { name: /^View event EVT-/ }).first()).toBeVisible();
+  await expect(events.getByRole('columnheader', { name: 'Category' })).toBeVisible();
+  await expect(events.getByRole('columnheader', { name: 'Outcome' })).toBeVisible();
   await expect(page.getByText(/^Showing 1 – 8 of \d+ logs$/)).toBeVisible();
 
   await page.getByRole('combobox', { name: 'Severity' }).selectOption('HIGH');
@@ -38,6 +40,40 @@ test('the dashboard shows its cards and log, and the filters and tabs narrow it'
     .click();
   await expect(page).toHaveURL(/\/audit-security\/events\/0199d1a0-0e01-/);
   await expect(page.getByTestId('event-title')).toContainText('Login Failed');
+  await expect(page).toHaveURL(/returnTo=.*view%3Dlogin.*q%3DMarcus/);
+  await page.getByRole('link', { name: 'Back to Audit Logs' }).click();
+  await expect(page).toHaveURL(/\/audit-security\?view=login&q=Marcus/);
+});
+
+test('System Settings view is addressable and explains its event filter', async ({ page }) => {
+  await page.goto(admin('/audit-security?view=settings'));
+  await expect(page).toHaveURL(/view=settings/);
+  await expect(page.getByTestId('view-intro')).toContainText('System Settings');
+  await expect(page.getByTestId('view-intro')).toContainText('platform system settings');
+});
+
+test('platform actor and affected firm are shown separately', async ({ page }) => {
+  await page.goto(admin('/audit-security/events/0199d1a0-0e01-7000-8000-000000000007'));
+  const info = page.getByTestId('event-information');
+  await expect(info).toContainText('Actor');
+  await expect(info).toContainText('Firmivra (platform)');
+  await expect(info).toContainText('Affected firm');
+  await expect(info).toContainText('Firmivra');
+});
+
+test('IP and device filters are addressable and narrow audit events', async ({ page }) => {
+  await page.goto(admin('/audit-security'));
+  await page.getByRole('button', { name: 'More filters' }).click();
+  await page.getByRole('searchbox', { name: 'IP address' }).fill('198.51.100.5');
+  await expect(page).toHaveURL(/ip=198\.51\.100\.5/);
+  const events = page.getByTestId('audit-events');
+  await expect(events.locator('tbody tr').filter({ hasNotText: '198.51.100.5' })).toHaveCount(0);
+
+  await page.getByRole('searchbox', { name: 'IP address' }).fill('');
+  await expect(page).not.toHaveURL(/ip=/);
+  await page.getByRole('searchbox', { name: 'Device' }).fill('Chrome');
+  await expect(page).toHaveURL(/device=Chrome/);
+  await expect(events.locator('tbody tr').first()).toBeVisible();
 });
 
 test('Export Logs downloads the filtered rows and logs the export', async ({ page }) => {
@@ -100,6 +136,9 @@ test('security settings save after a review, are audited, and catch a bad length
   await expect(page.getByRole('heading', { level: 1, name: 'Security Settings' })).toBeVisible();
   const length = page.getByLabel('Minimum Length');
   await expect(length).toHaveValue('12');
+  await expect(page.getByLabel('Maximum Session Lifetime')).toHaveValue('12');
+  await expect(page.getByText('API key token lifetime')).toBeVisible();
+  await expect(page.getByTestId('settings-integration-policy').getByText('90 days')).toBeVisible();
 
   await length.fill('6');
   await page.getByRole('button', { name: 'Save Changes' }).click();

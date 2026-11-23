@@ -15,6 +15,12 @@ test('the directory opens with its totals, cards and list, and filters by depart
   page,
 }) => {
   await openTeam(page);
+  await expect(
+    page.getByText(
+      'Manage team members, departments, roles, reporting relationships, and access permissions.',
+      { exact: true },
+    ),
+  ).toBeVisible();
   await expect(page.getByTestId('kpi-members-value')).toHaveText('15');
   await expect(page.getByTestId('kpi-admins-value')).toHaveText('10');
   await expect(page.getByTestId('kpi-standard-value')).toHaveText('5');
@@ -22,6 +28,8 @@ test('the directory opens with its totals, cards and list, and filters by depart
   await expect(page.getByTestId('member-card')).toHaveCount(12);
   await expect(page.getByText('Showing 1–12 of 15 team members')).toBeVisible();
   await expect(page.getByRole('article', { name: 'Morgan Admin' })).toContainText('Owner / CEO');
+  await expect(page.getByRole('article', { name: 'Morgan Admin' })).toContainText('Active');
+  await expect(page.getByRole('article', { name: 'Morgan Admin' })).toContainText('Super Admin');
 
   await page.getByLabel('Department', { exact: true }).selectOption({ label: 'Revenue / Sales' });
   await expect(page.getByTestId('member-card')).toHaveCount(5);
@@ -32,7 +40,11 @@ test('the directory opens with its totals, cards and list, and filters by depart
   await page.getByRole('button', { name: 'List View' }).click();
   const table = page.getByRole('table', { name: 'Team members' });
   await expect(table.getByRole('columnheader', { name: 'Permission Level' })).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: 'Reports To' })).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: 'Team', exact: true })).toBeVisible();
   await expect(table.getByRole('row')).toHaveCount(2);
+  await expect(table.getByRole('row').nth(1)).toContainText('Priya Raman');
+  await expect(table.getByRole('row').nth(1)).toContainText('Enterprise Sales');
   await expect(table).toContainText('Charlotte, NC');
 });
 
@@ -42,8 +54,9 @@ test('a member gets a message, and the selection changes status', async ({ page 
   const dialog = page.getByRole('dialog', { name: 'Send Message' });
   await expect(dialog.getByText('Hannah Cole')).toBeVisible();
   await dialog.getByRole('button', { name: 'Send Message' }).click();
-  await expect(dialog.getByText('Enter a subject')).toBeVisible();
-  await dialog.getByLabel('Subject *', { exact: true }).fill('Quarterly onboarding review');
+  await expect(dialog.getByText('Write a message')).toBeVisible();
+  await expect(dialog.getByText('Enter a subject')).toHaveCount(0);
+  await dialog.getByLabel('Subject', { exact: true }).fill('');
   await dialog.getByRole('textbox', { name: 'Message' }).fill('Please send your notes by Friday.');
   await dialog.getByRole('button', { name: 'Send Message' }).click();
   await expect(page.getByText('Message sent to 1 team member.')).toBeVisible();
@@ -65,7 +78,7 @@ test('Team Communication sends to a department through every channel', async ({ 
   await dialog.getByLabel('Department', { exact: true }).check();
   await dialog.getByLabel('Select Department', { exact: true }).fill('people');
   await dialog.getByRole('button', { name: /Human Resources \/ People/ }).click();
-  await dialog.getByLabel('Subject *', { exact: true }).fill('Benefits enrollment');
+  await dialog.getByLabel('Subject', { exact: true }).fill('Benefits enrollment');
   await dialog.getByRole('textbox', { name: 'Message' }).fill('Enrollment closes next week.');
   await dialog.getByLabel('Send Through All Channels', { exact: true }).check();
   await dialog.getByRole('button', { name: 'Send Message' }).click();
