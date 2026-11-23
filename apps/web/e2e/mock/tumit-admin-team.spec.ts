@@ -48,8 +48,9 @@ test('a member gets a message, and the selection changes status', async ({ page 
   const dialog = page.getByRole('dialog', { name: 'Send Message' });
   await expect(dialog.getByText('Hannah Cole')).toBeVisible();
   await dialog.getByRole('button', { name: 'Send Message' }).click();
-  await expect(dialog.getByText('Enter a subject')).toBeVisible();
-  await dialog.getByLabel('Subject *', { exact: true }).fill('Quarterly onboarding review');
+  await expect(dialog.getByText('Write a message')).toBeVisible();
+  await expect(dialog.getByText('Enter a subject')).toHaveCount(0);
+  await dialog.getByLabel('Subject', { exact: true }).fill('');
   await dialog.getByRole('textbox', { name: 'Message' }).fill('Please send your notes by Friday.');
   await dialog.getByRole('button', { name: 'Send Message' }).click();
   await expect(page.getByText('Message sent to 1 team member.')).toBeVisible();
@@ -71,7 +72,7 @@ test('Team Communication sends to a department through every channel', async ({ 
   await dialog.getByLabel('Department', { exact: true }).check();
   await dialog.getByLabel('Select Department', { exact: true }).fill('people');
   await dialog.getByRole('button', { name: /Human Resources \/ People/ }).click();
-  await dialog.getByLabel('Subject *', { exact: true }).fill('Benefits enrollment');
+  await dialog.getByLabel('Subject', { exact: true }).fill('Benefits enrollment');
   await dialog.getByRole('textbox', { name: 'Message' }).fill('Enrollment closes next week.');
   await dialog.getByLabel('Send Through All Channels', { exact: true }).check();
   await dialog.getByRole('button', { name: 'Send Message' }).click();
