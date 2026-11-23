@@ -66,6 +66,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
       subtitle="Super Admin Portal"
       sections={sections}
       roleLabel="Super Admin"
+      collapsibleSidebar
       // SA-DSH-F01: firms and applications, never people.
       search={`${ADMIN_SEARCH_LABEL}...`}
       headerStart={<AdminSearch />}

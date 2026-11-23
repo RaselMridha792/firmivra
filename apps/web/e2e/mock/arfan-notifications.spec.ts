@@ -108,3 +108,15 @@ test('Super Admin Notifications renders the API states and responsive layouts', 
     'The end date must be on or after the start date.',
   );
 });
+
+test('Super Admin sidebar collapse stays after a reload', async ({ page }) => {
+  await page.goto(`http://admin.localhost:${port}/notifications`);
+  const menu = page.getByRole('navigation', { name: 'Main' });
+  await page.getByRole('button', { name: 'Collapse menu' }).click();
+  await expect(menu).toHaveAttribute('data-collapsed', 'true');
+
+  await page.reload();
+  await expect(menu).toHaveAttribute('data-collapsed', 'true');
+  await page.getByRole('button', { name: 'Expand menu' }).click();
+  await expect(menu).not.toHaveAttribute('data-collapsed', 'true');
+});
