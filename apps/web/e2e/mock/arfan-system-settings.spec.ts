@@ -71,6 +71,13 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`), fullPage: true });
 }
 
+async function mockSettingsHistory(page: Page) {
+  await page.route('**/api/v1/admin/system-settings/history**', async (route) => {
+    const section = new URL(route.request().url()).searchParams.get('section') ?? 'EMAIL';
+    await route.fulfill({ json: { section, version: 1, items: [] } });
+  });
+}
+
 test('overview matches the design regions and links to existing settings and audit pages', async ({
   page,
 }) => {
@@ -144,6 +151,118 @@ test('tablet and mobile keep every card readable without horizontal page overflo
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
+});
+
+test('feature status legend explains default and emergency-off behavior', async ({ page }) => {
+  await page.goto(`${url}/features`);
+  const legend = page.getByTestId('status-legend');
+  await expect(legend).toContainText('Off by default');
+  await expect(legend).toContainText('Firms may turn this feature on');
+  await expect(legend).toContainText('Emergency off');
+  await expect(legend).toContainText('All firms, no override');
+});
+
+test('email branding deep link lands on the signature settings section', async ({ page }) => {
+  await page.goto(`${url}/email-notifications#branding`);
+  await expect(page.locator('#branding')).toBeVisible();
+  await expect(page.locator('#branding')).toContainText('Email Signature');
+});
+
+test('billing and security alert recipients cannot be set to Nobody', async ({ page }) => {
+  await mockSettingsHistory(page);
+  await page.route('**/api/v1/admin/system-settings/email/status', (route) =>
+    route.fulfill({
+      json: {
+        sender: 'LOG',
+        customSmtp: false,
+        lastTest: null,
+        deliveryRate24h: null,
+        bounced24h: null,
+      },
+    }),
+  );
+  await page.route('**/api/v1/admin/system-settings/email', (route) =>
+    route.fulfill({
+      json: {
+        version: 1,
+        updatedAt: '2026-10-14T12:00:00.000Z',
+        updatedBy: null,
+        smtpConfigured: false,
+        value: {
+          fromName: 'Firmivra',
+          fromEmail: null,
+          replyTo: null,
+          cc: null,
+          signature: null,
+          includeSignature: true,
+          channels: { email: true, inApp: true, sms: false, push: false },
+          digest: false,
+          recipients: {
+            systemAlerts: 'SUPER_ADMINS',
+            firmApplications: 'SUPER_ADMINS',
+            billing: 'SUPER_ADMINS',
+            securityAlerts: 'SUPER_ADMINS',
+          },
+          maxRetries: 3,
+          retryBackoffMinutes: 15,
+          dailyCapPerRecipient: 50,
+        },
+      },
+    }),
+  );
+  await page.goto(`${url}/email-notifications`);
+  await expect(
+    page.getByLabel('Billing Notifications', { exact: true }).locator('option'),
+  ).toHaveText(['Super Admin Only', 'All Admins']);
+  await expect(page.getByLabel('Security Alerts', { exact: true }).locator('option')).toHaveText([
+    'Super Admin Only',
+    'All Admins',
+  ]);
+  await expect(page.getByLabel('System Alerts', { exact: true }).locator('option')).toHaveText([
+    'Super Admin Only',
+    'All Admins',
+    'Nobody',
+  ]);
+});
+
+test('maintenance preview shows ET and UTC and rejects an end before the start', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/admin/system-settings/health', (route) =>
+    route.fulfill({
+      json: {
+        checkedAt: '2026-11-23T14:00:00.000Z',
+        services: [{ key: 'api', status: 'ONLINE', detail: null }],
+      },
+    }),
+  );
+  await page.route('**/api/v1/admin/system-settings/jobs', (route) =>
+    route.fulfill({ json: { items: [] } }),
+  );
+  await page.route('**/api/v1/admin/system-settings/maintenance', (route) =>
+    route.fulfill({ json: { items: [] } }),
+  );
+  await page.goto(`${url}/configuration`);
+  await page.getByRole('button', { name: 'Schedule Maintenance' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Schedule Maintenance' });
+  const starts = dialog.getByLabel('Starts (America/New_York)');
+  const ends = dialog.getByLabel('Ends (America/New_York)');
+  await dialog.getByLabel('Title', { exact: true }).fill('Synthetic maintenance');
+  await dialog.getByLabel('Message to users').fill('<b>Scheduled work</b>');
+  await starts.fill('2026-11-23T09:00');
+  await ends.fill('2026-11-23T10:00');
+  const preview = dialog.getByTestId('maintenance-time-preview');
+  await expect(preview).toContainText('Starts — ET:');
+  await expect(preview).toContainText('UTC: Nov 23, 2026, 2:00 PM');
+  await expect(preview).toContainText('Ends — ET:');
+  await expect(preview).toContainText('Synthetic maintenance');
+  await expect(preview).toContainText('<b>Scheduled work</b>');
+  await expect(preview.locator('b')).toHaveCount(0);
+  await ends.fill('2026-11-23T08:00');
+  await expect(dialog.getByRole('alert')).toHaveText('End after the start.');
+  await expect(dialog.getByRole('button', { name: 'Schedule' })).toBeDisabled();
+  await starts.fill('2027-03-14T02:30');
+  await expect(dialog.getByRole('alert')).toHaveText('Enter a valid Eastern time.');
 });
 
 test('loading and empty results preserve the widgets and do not invent platform values', async ({
@@ -266,4 +385,11 @@ test('a missing local settings endpoint shows labelled design data instead of a 
     ).toBe(true);
   }
   await screenshot(page, 'local-preview');
+});
+
+test('View Audit Logs opens the System Settings event filter', async ({ page }) => {
+  await page.goto(`${url}/general`);
+  await expect(
+    page.getByTestId('quick-links').getByRole('link', { name: 'View Audit Logs' }),
+  ).toHaveAttribute('href', '/audit-security?view=settings');
 });

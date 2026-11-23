@@ -227,7 +227,17 @@ export const AdminEmailSection = section(AdminEmailSettings).extend({
   smtpConfigured: z.boolean(),
 });
 export type AdminEmailSection = z.infer<typeof AdminEmailSection>;
-export const SaveAdminEmailRequest = saveSection(AdminEmailSettings);
+const SaveAdminEmailSettings = AdminEmailSettings.superRefine((value, context) => {
+  for (const key of ['billing', 'securityAlerts'] as const) {
+    if (value.recipients[key] === 'NOBODY')
+      context.addIssue({
+        code: 'custom',
+        path: ['recipients', key],
+        message: 'Choose an administrator group for this alert.',
+      });
+  }
+});
+export const SaveAdminEmailRequest = saveSection(SaveAdminEmailSettings);
 export type SaveAdminEmailRequest = z.input<typeof SaveAdminEmailRequest>;
 
 /** Send Test Email: the provider's answer; nothing is saved. */

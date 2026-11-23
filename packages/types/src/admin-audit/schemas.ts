@@ -60,6 +60,7 @@ export const AdminAuditView = z.enum([
   'data',
   'integrations',
   'policies',
+  'settings',
 ]);
 export type AdminAuditView = z.infer<typeof AdminAuditView>;
 
@@ -190,6 +191,8 @@ export const AdminAuditEventQuery = z.strictObject({
   alert: z.union([SecurityAlertStatus, z.literal('NONE')]).optional(),
   /** A record type (`target.type`). */
   resource: z.string().trim().max(60).optional(),
+  ip: z.string().trim().max(64).optional(),
+  device: z.string().trim().max(100).optional(),
   /** Inclusive moments; left out: the last 14 days. */
   from: DateTime.optional(),
   to: DateTime.optional(),
@@ -480,6 +483,11 @@ export const AdminSecuritySettingsRecord = z.object({
   updatedBy: z.string().nullable(),
   /** Whether audit retention may change here (fixed by policy otherwise). */
   retentionEditable: z.boolean(),
+  integrationPolicy: z.object({
+    apiKeySecretsMasked: z.boolean().nullable(),
+    apiKeyTokenLifetimeDays: z.number().int().positive().nullable(),
+    webhookEnabled: z.boolean().nullable(),
+  }),
   settings: AdminSecuritySettings,
 });
 export type AdminSecuritySettingsRecord = z.infer<typeof AdminSecuritySettingsRecord>;

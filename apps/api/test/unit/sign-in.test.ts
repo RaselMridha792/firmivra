@@ -693,6 +693,7 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
       env,
       { notify: vi.fn() } as never,
       { revokeForUser: vi.fn().mockResolvedValue(0) } as never,
+      { verify: vi.fn() } as never,
     );
     await expect(service.signIn(sitePlace(site), 'owner@lvp.test', 'pw')).rejects.toThrow(
       /skipped MFA/,
@@ -722,6 +723,7 @@ describe('SignInService: the ceiling warning comes once per email per window (#2
       env,
       { notify: vi.fn() } as never,
       { revokeForUser: vi.fn().mockResolvedValue(0) } as never,
+      { verify: vi.fn() } as never,
     ) as unknown as Gate;
   const { windowMs } = SIGN_IN_LIMIT;
 

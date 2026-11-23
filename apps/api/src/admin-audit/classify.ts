@@ -1,4 +1,5 @@
 import type { Prisma } from '@firmivra/db';
+import { CHANGED, isFreeTextKey } from '../audit/audit-values.js';
 import type {
   AdminAuditCategory,
   AdminAuditOutcome,
@@ -176,6 +177,8 @@ export function viewWhere(view: AdminAuditView): Prisma.AuditLogWhereInput {
       return {
         OR: [{ action: { startsWith: 'policy.' } }, { action: { startsWith: 'audit.policy' } }],
       };
+    case 'settings':
+      return { action: { startsWith: 'system_settings.' } };
   }
 }
 
@@ -197,6 +200,22 @@ export function actionLabel(action: string): string {
 /** EVT-YYYYMMDD-XXXXXX: the day (UTC) and the id's last six characters. */
 export const referenceOf = (id: string, at: Date) =>
   `EVT-${at.toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(-6).toUpperCase()}`;
+
+/** Match one event reference, rather than every event created on the referenced day. */
+export function eventReferenceWhere(reference: string) {
+  const match = /^EVT-(\d{4})(\d{2})(\d{2})-([0-9A-F]{6})$/i.exec(reference);
+  if (!match) return null;
+  const day = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`);
+  if (
+    Number.isNaN(day.getTime()) ||
+    day.toISOString().slice(0, 10) !== `${match[1]}-${match[2]}-${match[3]}`
+  )
+    return null;
+  return {
+    createdAt: { gte: day, lt: new Date(day.getTime() + 86_400_000) },
+    idSuffix: match[4]!.toLowerCase(),
+  };
+}
 
 /** Browser and system from a user agent: telemetry only. */
 export function deviceOf(userAgent: string | null): {
@@ -244,11 +263,23 @@ export function changesOf(
   metadata: unknown,
 ): { field: string; before: string | null; after: string | null; masked: boolean }[] {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return [];
+  const record = metadata as Record<string, unknown>;
+  const { changes } = record;
+  const structured =
+    Array.isArray(record.fields) &&
+    changes &&
+    typeof changes === 'object' &&
+    !Array.isArray(changes);
+  const entries = structured ? Object.entries(changes) : Object.entries(record);
   const out: { field: string; before: string | null; after: string | null; masked: boolean }[] = [];
   const text = (v: unknown) =>
     v === null || v === undefined ? null : typeof v === 'object' ? JSON.stringify(v) : String(v);
-  for (const [field, value] of Object.entries(metadata as Record<string, unknown>).slice(0, 50)) {
-    const masked = SENSITIVE.test(field);
+  for (const [field, value] of entries.slice(0, 50)) {
+    if (structured && value === CHANGED) {
+      out.push({ field, before: null, after: CHANGED, masked: true });
+      continue;
+    }
+    const masked = SENSITIVE.test(field) || isFreeTextKey(field);
     const fromTo =
       value &&
       typeof value === 'object' &&

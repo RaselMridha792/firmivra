@@ -212,6 +212,23 @@ export function sectionsOf(p: PolicyRow, s: AdminSecuritySettings) {
   };
 }
 
+/** Read-only integration policy values are reported as unknown when the policy has no value. */
+export function integrationPolicyOf(p: PolicyRow) {
+  const integrations = obj(p.apiIntegrations);
+  const alerts = obj(p.alertRouting);
+  return {
+    apiKeySecretsMasked:
+      typeof integrations.maskSecrets === 'boolean' ? integrations.maskSecrets : null,
+    apiKeyTokenLifetimeDays:
+      typeof integrations.tokenLifetimeDays === 'number' &&
+      Number.isInteger(integrations.tokenLifetimeDays) &&
+      integrations.tokenLifetimeDays > 0
+        ? integrations.tokenLifetimeDays
+        : null,
+    webhookEnabled: typeof alerts.webhook === 'boolean' ? alerts.webhook : null,
+  };
+}
+
 /** The settings' leaves that changed, as dotted paths with their old and new values. */
 export function diffOf(before: AdminSecuritySettings, after: AdminSecuritySettings) {
   const out: Record<string, unknown> = {};
@@ -248,6 +265,7 @@ export class AdminSecurityPolicyService {
       updatedAt: p.updatedAt.toISOString(),
       updatedBy: p.updatedByUserId ? (names.get(p.updatedByUserId) ?? 'Super Admin') : null,
       retentionEditable: editable,
+      integrationPolicy: integrationPolicyOf(p),
       settings,
     };
   }
