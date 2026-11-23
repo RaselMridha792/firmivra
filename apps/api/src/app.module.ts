@@ -126,6 +126,7 @@ export class AppModule {
             redact: {
               paths: [
                 'req.headers.authorization',
+                'req.headers["x-download-link"]',
                 'req.headers.cookie',
                 'res.headers["set-cookie"]',
               ],

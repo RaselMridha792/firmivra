@@ -388,7 +388,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     subject: 'Download access to your closed Firmivra workspace',
     blocks: [
       hello(d),
-      text('Download-only access to the retained records is available from this secure page.'),
+      text(`Download-only access opens ${dateTime(d, 'startsAt', b.timeZone)}.`),
       button('Open download page', link(d, 'link', options)),
       small(
         `This link expires ${dateTime(d, 'expiresAt', b.timeZone)}. You will verify your email before downloading.`,

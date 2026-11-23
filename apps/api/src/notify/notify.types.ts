@@ -57,7 +57,7 @@ export interface NotifyTemplates {
   /** Q32 (SA-FRM-F07/F08): one-time email code for a closed-firm download link. */
   'platform.firm-download-code': { code: string };
   /** Q32: a download-only closed-firm link sent to its verified owner. */
-  'platform.firm-download-link': { name: string; link: string; expiresAt: Date };
+  'platform.firm-download-link': { name: string; link: string; startsAt: Date; expiresAt: Date };
 
   // ----- Client portal (R3) -----
   /** The 6-digit code that verifies a sign-up's email. */

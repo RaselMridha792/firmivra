@@ -45,6 +45,7 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'platform.firm-download-link': {
     name: 'Jordan Sample',
     link: 'https://app.example.test/closed-firm-download#token=synthetic-download-token',
+    startsAt: new Date('2026-11-23T13:00:00Z'),
     expiresAt: new Date('2026-12-01T13:00:00Z'),
   },
   'client.signup-sms-code': { code: '482913' },

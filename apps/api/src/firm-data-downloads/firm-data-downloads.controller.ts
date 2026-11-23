@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  Headers,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Post,
+  Res,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import type { Response } from 'express';
@@ -18,12 +29,15 @@ const GrantRequest = z.object({ reason: z.string().trim().min(1).max(1000) });
 const RevokeRequest = z.object({ reason: z.string().trim().min(1).max(1000) });
 const FileId = z.uuid();
 const bearer = (value?: string) => (value?.startsWith('Bearer ') ? value.slice(7) : '');
-const linkToken = (headers: Record<string, string | string[] | undefined>) =>
-  Token.parse(
+const linkToken = (headers: Record<string, string | string[] | undefined>) => {
+  const parsed = Token.safeParse(
     Array.isArray(headers['x-download-link'])
       ? headers['x-download-link'][0]
       : headers['x-download-link'],
   );
+  if (!parsed.success) throw new NotFoundException();
+  return parsed.data;
+};
 
 @Controller('admin/firms/:businessId/download-access')
 @Roles('SUPER_ADMIN')
@@ -73,6 +87,7 @@ export class ClosedFirmDownloadController {
 
   @Post('verify-code')
   @Public()
+  @Header('Cache-Control', 'private, no-store')
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   verifyCode(
@@ -84,18 +99,21 @@ export class ClosedFirmDownloadController {
 
   @Get('clients')
   @Public()
+  @Header('Cache-Control', 'private, no-store')
   clients(@Headers('authorization') authorization?: string) {
     return this.downloads.clients(bearer(authorization));
   }
 
   @Get('files')
   @Public()
+  @Header('Cache-Control', 'private, no-store')
   files(@Headers('authorization') authorization?: string) {
     return this.downloads.files(bearer(authorization));
   }
 
   @Post('files/:fileId/link')
   @Public()
+  @Header('Cache-Control', 'private, no-store')
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   fileLink(
