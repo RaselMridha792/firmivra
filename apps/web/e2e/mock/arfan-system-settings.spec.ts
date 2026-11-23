@@ -206,6 +206,25 @@ test('billing and security alert recipients cannot be set to Nobody', async ({ p
   ]);
 });
 
+test('maintenance preview shows ET and UTC and rejects an end before the start', async ({
+  page,
+}) => {
+  await page.goto(`${url}/configuration`);
+  await page.getByRole('button', { name: 'Schedule Maintenance' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Schedule Maintenance' });
+  const starts = dialog.getByLabel('Starts (local time)');
+  const ends = dialog.getByLabel('Ends (local time)');
+  await starts.fill('2026-11-23T09:00');
+  await ends.fill('2026-11-23T10:00');
+  const preview = dialog.getByTestId('maintenance-time-preview');
+  await expect(preview).toContainText('Starts — ET:');
+  await expect(preview).toContainText('UTC:');
+  await expect(preview).toContainText('Ends — ET:');
+  await ends.fill('2026-11-23T08:00');
+  await expect(dialog.getByRole('alert')).toHaveText('End after the start.');
+  await expect(dialog.getByRole('button', { name: 'Schedule' })).toBeDisabled();
+});
+
 test('loading and empty results preserve the widgets and do not invent platform values', async ({
   page,
 }) => {

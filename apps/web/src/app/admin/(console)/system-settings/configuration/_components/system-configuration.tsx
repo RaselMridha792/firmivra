@@ -540,6 +540,15 @@ function PauseModal({
 
 const local = (d: Date) =>
   new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+const zoneTime = (value: string, timeZone: string) =>
+  new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone,
+  }).format(new Date(value));
 
 /** Schedule a window; "now" starts it at once (Maintenance Mode on). */
 function ScheduleModal({
@@ -572,6 +581,9 @@ function ScheduleModal({
       adminBypass: true,
     });
   }
+  const startMs = Date.parse(form.startsAt);
+  const endMs = Date.parse(form.endsAt);
+  const endBeforeStart = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs <= startMs;
   const save = useApiMutation(
     async () => {
       const w = await api.adminSettings.scheduleMaintenance({
@@ -607,6 +619,7 @@ function ScheduleModal({
               !form.message.trim() ||
               !form.startsAt ||
               !form.endsAt ||
+              endBeforeStart ||
               save.isPending
             }
             onClick={() =>
@@ -643,18 +656,42 @@ function ScheduleModal({
         />
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
-            label="Starts"
+            label="Starts (local time)"
             type="datetime-local"
             value={form.startsAt}
             onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
           />
           <Input
-            label="Ends"
+            label="Ends (local time)"
             type="datetime-local"
             value={form.endsAt}
             onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
           />
         </div>
+        <div
+          data-testid="maintenance-time-preview"
+          aria-live="polite"
+          className="rounded-lg bg-canvas p-3 text-sm text-text"
+        >
+          <p className="font-medium text-heading">Schedule preview</p>
+          {form.startsAt && Number.isFinite(startMs) ? (
+            <p>
+              Starts — ET: {zoneTime(form.startsAt, 'America/New_York')} · UTC:{' '}
+              {zoneTime(form.startsAt, 'UTC')}
+            </p>
+          ) : null}
+          {form.endsAt && Number.isFinite(endMs) ? (
+            <p>
+              Ends — ET: {zoneTime(form.endsAt, 'America/New_York')} · UTC:{' '}
+              {zoneTime(form.endsAt, 'UTC')}
+            </p>
+          ) : null}
+        </div>
+        {endBeforeStart ? (
+          <p role="alert" className="text-sm text-danger">
+            End after the start.
+          </p>
+        ) : null}
         <div className="flex items-center gap-3 text-sm text-heading">
           <Toggle
             label="Super Admins can still sign in"
