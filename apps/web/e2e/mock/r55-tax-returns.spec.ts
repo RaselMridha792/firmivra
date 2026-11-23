@@ -147,7 +147,10 @@ test('the Due Date header sorts the list, reversed on a second click', async ({ 
     return cells.map((t) => t.trim()).filter((t) => t !== '—' && t !== '');
   };
   const parse = (s: string) => {
-    const [m, d, y] = s.split('/');
+    const parts = s.split('/');
+    const m = parts[0] ?? '1';
+    const d = parts[1] ?? '1';
+    const y = parts[2] ?? '2026';
     return new Date(Number(y), Number(m) - 1, Number(d)).getTime();
   };
   // First click: ascending — rows sorted by due date.
@@ -157,7 +160,7 @@ test('the Due Date header sorts the list, reversed on a second click', async ({ 
   const asc = await dueDates();
   expect(asc.length).toBeGreaterThan(0);
   for (let i = 1; i < asc.length; i++) {
-    expect(parse(asc[i])).toBeGreaterThanOrEqual(parse(asc[i - 1]));
+    expect(parse(asc[i]!)).toBeGreaterThanOrEqual(parse(asc[i - 1]!));
   }
   // Second click: the header toggles to descending (aria-sort reflects the toggle).
   await page.getByRole('button', { name: /Due Date/ }).click();
