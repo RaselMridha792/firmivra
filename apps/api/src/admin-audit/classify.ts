@@ -1,4 +1,5 @@
 import type { Prisma } from '@firmivra/db';
+import { isFreeTextKey } from '../audit/audit-values.js';
 import type {
   AdminAuditCategory,
   AdminAuditOutcome,
@@ -266,7 +267,7 @@ export function changesOf(
   const text = (v: unknown) =>
     v === null || v === undefined ? null : typeof v === 'object' ? JSON.stringify(v) : String(v);
   for (const [field, value] of Object.entries(metadata as Record<string, unknown>).slice(0, 50)) {
-    const masked = SENSITIVE.test(field);
+    const masked = SENSITIVE.test(field) || isFreeTextKey(field);
     const fromTo =
       value &&
       typeof value === 'object' &&

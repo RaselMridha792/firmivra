@@ -160,6 +160,7 @@ export class AuditService {
       businessId:
         at.businessId === null ? null : (at.businessId ?? store?.tenant?.businessId ?? null),
       actorUserId: at.actorUserId ?? store?.auth?.userId ?? null,
+      actorRole: store?.platform?.role ?? store?.tenant?.role ?? null,
       action,
       entityType: entity.type,
       entityId: entity.id ?? null,

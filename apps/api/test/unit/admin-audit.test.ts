@@ -76,6 +76,10 @@ describe('the event view helpers', () => {
   });
 
   it('shows metadata as changes, masking secrets and personal details', () => {
+    const textChange = changesOf({ note: { from: 'private note', to: 'updated note' } })[0]!;
+    expect(textChange.masked).toBe(true);
+    expect(textChange.before).not.toContain('private note');
+    expect(textChange.after).not.toContain('updated note');
     expect(
       changesOf({
         role: { from: 'STAFF', to: 'ADMIN' },
