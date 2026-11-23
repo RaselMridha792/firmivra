@@ -22,7 +22,8 @@ export interface OutgoingSms {
 }
 
 export interface EmailTransport {
-  send(mail: OutgoingEmail): Promise<void>;
+  /** Resolves with the provider's message id when it gives one (SES MessageId, SMTP id). */
+  send(mail: OutgoingEmail): Promise<string | void>;
 }
 
 export interface SmsTransport {
@@ -86,9 +87,9 @@ export function formatSender(from: Sender): string {
 export class SesEmailTransport implements EmailTransport {
   constructor(private readonly client: Pick<SESv2Client, 'send'>) {}
 
-  async send(mail: OutgoingEmail): Promise<void> {
+  async send(mail: OutgoingEmail): Promise<string | void> {
     const utf8 = (Data: string) => ({ Data, Charset: 'UTF-8' });
-    await this.client.send(
+    const res = await this.client.send(
       new SendEmailCommand({
         FromEmailAddress: formatSender(mail.from),
         Destination: { ToAddresses: [mail.to] },
@@ -101,6 +102,7 @@ export class SesEmailTransport implements EmailTransport {
         },
       }),
     );
+    return (res as { MessageId?: string } | undefined)?.MessageId;
   }
 }
 
@@ -120,8 +122,8 @@ export interface MailTransporter {
 export class SmtpEmailTransport implements EmailTransport {
   constructor(private readonly transporter: MailTransporter) {}
 
-  async send(mail: OutgoingEmail): Promise<void> {
-    await this.transporter.sendMail({
+  async send(mail: OutgoingEmail): Promise<string | void> {
+    const info = await this.transporter.sendMail({
       from: { name: senderDisplayName(mail.from.name), address: mail.from.address },
       to: mail.to,
       ...(mail.replyTo ? { replyTo: mail.replyTo } : {}),
@@ -129,6 +131,8 @@ export class SmtpEmailTransport implements EmailTransport {
       text: mail.text,
       html: mail.html,
     });
+    const id = (info as { messageId?: unknown } | undefined)?.messageId;
+    return typeof id === 'string' ? id : undefined;
   }
 }
 

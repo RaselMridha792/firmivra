@@ -38,6 +38,12 @@ test('send a form to a client by email and see the result', async ({ page }) => 
   const result = page.getByTestId('send-result');
   await expect(result).toContainText('Form Sent');
   await expect(result).toContainText('c***@example.test');
+  // Intake Forms Review Two 19b: accepted by the mail service (its time and reference), and not
+  // called delivered.
+  await expect(page.getByTestId('send-accepted')).toContainText(
+    /Accepted by the mail service at .+Mail service reference: 0100019a/,
+  );
+  await expect(page.getByTestId('send-delivered')).toContainText('Delivered: not confirmed yet');
   await expect(result.getByRole('link', { name: 'Back to Intake Forms' })).toHaveAttribute(
     'href',
     '/intake-forms',

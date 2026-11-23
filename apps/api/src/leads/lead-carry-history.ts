@@ -138,3 +138,80 @@ export async function carryLeadTimeline(
   }
   return counts;
 }
+
+/** What the lead's campaign gave the client at conversion (Leads Review Two 17). */
+export interface CampaignCarry {
+  /** The lead's source campaign was written to the client's source detail. */
+  sourceDetail: boolean;
+  /** Campaigns still being prepared whose audience had the lead: the client took its place. */
+  enrolments: number;
+}
+
+/**
+ * Leads Review Two 17: the lead's campaign goes with it to the client.
+ * - The source campaign (the lead's source detail, "Back Taxes Campaign") fills the client's
+ *   source detail (and source) when the client has none: a value the client already has stays.
+ * - The campaigns that had the lead in their audience (or left it out) now have the client in its
+ *   place, as the same kind of entry. The database lets an audience change only while a campaign
+ *   is a draft or scheduled, so a campaign that went out keeps its history as sent; nothing is
+ *   sent here. A retried conversion finds nothing left to move.
+ */
+export async function carryLeadCampaigns(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+  clientId: string,
+  carry: { attribution: boolean; communications: boolean } = {
+    attribution: true,
+    communications: true,
+  },
+): Promise<CampaignCarry> {
+  const out: CampaignCarry = { sourceDetail: false, enrolments: 0 };
+  if (carry.attribution) {
+    const [lead, client] = await Promise.all([
+      tx.lead.findFirst({
+        where: { businessId, id: leadId },
+        select: { source: true, sourceDetail: true },
+      }),
+      tx.client.findFirst({
+        where: { businessId, id: clientId },
+        select: { source: true, sourceDetail: true },
+      }),
+    ]);
+    const detail = lead?.sourceDetail?.trim();
+    if (lead && client && detail && !client.sourceDetail?.trim()) {
+      await tx.client.update({
+        where: { businessId_id: { businessId, id: clientId } },
+        data: { sourceDetail: detail, ...(client.source ? {} : { source: lead.source }) },
+      });
+      out.sourceDetail = true;
+    }
+  }
+  if (carry.communications) {
+    const entries = await tx.communicationAudienceEntry.findMany({
+      where: {
+        businessId,
+        leadId,
+        kind: { in: ['LEAD', 'EXCLUDE_LEAD'] },
+        communication: { status: { in: ['DRAFT', 'SCHEDULED'] } },
+      },
+      select: { id: true, communicationId: true, kind: true },
+    });
+    if (entries.length > 0) {
+      await tx.communicationAudienceEntry.createMany({
+        data: entries.map((e) => ({
+          businessId,
+          communicationId: e.communicationId,
+          kind: e.kind === 'LEAD' ? ('CLIENT' as const) : ('EXCLUDE_CLIENT' as const),
+          clientId,
+        })),
+        skipDuplicates: true,
+      });
+      await tx.communicationAudienceEntry.deleteMany({
+        where: { businessId, id: { in: entries.map((e) => e.id) } },
+      });
+      out.enrolments = entries.length;
+    }
+  }
+  return out;
+}

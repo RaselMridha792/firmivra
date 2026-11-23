@@ -489,7 +489,10 @@ export class IntakeRecordService {
       return { token: link?.token ?? null, channel: row.deliveryChannel };
     });
     // 19b: what really happened, shown to the member and kept in History (a code, no address).
-    const outcome: Pick<DeliveryOutcome, 'status' | 'reason' | 'code'> = token
+    const outcome: Pick<
+      DeliveryOutcome,
+      'status' | 'reason' | 'code' | 'acceptedAt' | 'providerRef'
+    > = token
       ? (await this.sender.emailLink(businessId, id, token))
         ? { status: 'SENT', reason: null }
         : { status: 'FAILED', reason: LEAD_EMAIL_FAILED, code: 'LEAD_EMAIL_FAILED' }
@@ -507,10 +510,19 @@ export class IntakeRecordService {
         delivered: outcome.status !== 'FAILED',
         status: outcome.status,
         ...(outcome.code ? { code: outcome.code } : {}),
+        ...(outcome.providerRef ? { providerRef: outcome.providerRef } : {}),
       },
     );
     const record = await this.load(tenant, userId, id);
-    return { ...record, delivery: { status: outcome.status, reason: outcome.reason } };
+    return {
+      ...record,
+      delivery: {
+        status: outcome.status,
+        reason: outcome.reason,
+        acceptedAt: outcome.acceptedAt?.toISOString() ?? null,
+        providerRef: outcome.providerRef ?? null,
+      },
+    };
   }
 
   /** POST /business/intakes/{id}/resend. */

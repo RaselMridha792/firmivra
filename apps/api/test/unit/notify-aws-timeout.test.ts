@@ -59,7 +59,7 @@ describe('AWS clients against a provider that never answers', () => {
     });
 
     const started = Date.now();
-    const timed = (send: Promise<void>) =>
+    const timed = (send: Promise<unknown>) =>
       send.then(
         () => ({ error: null as unknown, ms: Date.now() - started }),
         (error: unknown) => ({ error, ms: Date.now() - started }),

@@ -121,7 +121,7 @@ function defaultSettings(): IntakeSettings {
     general: {
       defaultExpirationDays: 14,
       allowSaveAndResume: true,
-      requireSignature: true,
+      requireSignature: false,
       autoSubmissionId: true,
       defaultOwner: null,
     },
@@ -240,8 +240,7 @@ function seed(empty: boolean): Store {
     settings: {
       requireAllQuestions: true,
       allowFileUploads: true,
-      // Intake Review 2 23-h: always on, as the API keeps it.
-      requireSignature: true,
+      requireSignature: false,
       showProgressBar: true,
       expiresAfterDays: null,
       successMessage: "Thank you! We've received your information and will be in touch soon.",
@@ -623,8 +622,15 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
             status: 'FAILED',
             reason:
               'Nothing was sent: this client has no client portal login yet, and the form opens in the portal. Invite them to the portal, then use Resend.',
+            acceptedAt: null,
+            providerRef: null,
           }
-        : { status: 'SENT', reason: null },
+        : {
+            status: 'SENT',
+            reason: null,
+            acceptedAt: new Date().toISOString(),
+            providerRef: 'mock-message-id',
+          },
     };
   };
 
@@ -711,6 +717,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
             to: 'c***@example.test',
             portalNotice: true,
             reason: null,
+            acceptedAt: null,
+            providerRef: null,
           },
         };
       }
@@ -818,6 +826,9 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           to: input.channel === 'PORTAL' ? 'Client portal' : 'c***@example.test',
           // 19b: the portal notice and, when nothing went out, why (as the API says it).
           portalNotice: !undelivered,
+          // 19b: the mail service's acceptance of the email: its time and short reference.
+          acceptedAt: !undelivered && input.channel === 'EMAIL' ? '2026-11-19T15:04:00.000Z' : null,
+          providerRef: !undelivered && input.channel === 'EMAIL' ? '0100019a' : null,
           reason: undelivered
             ? 'Nothing was sent: this client has no client portal login yet, and the form opens in the portal. Invite them to the portal, then use Resend.'
             : null,
@@ -1072,7 +1083,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         settings: {
           requireAllQuestions: input.settings?.requireAllQuestions ?? false,
           allowFileUploads: input.settings?.allowFileUploads ?? true,
-          requireSignature: true,
+          requireSignature: input.settings?.requireSignature ?? false,
           showProgressBar: input.settings?.showProgressBar ?? true,
           expiresAfterDays: input.settings?.expiresAfterDays ?? null,
           successMessage: input.settings?.successMessage ?? null,
@@ -1115,8 +1126,6 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         Object.assign(
           f.settings,
           Object.fromEntries(Object.entries(input.settings).filter(([, v]) => v !== undefined)),
-          // 23-h, as the API: Require e-signature stays on.
-          { requireSignature: true },
         );
       f.updatedAt = new Date().toISOString();
       return copy(f);
@@ -1247,8 +1256,6 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         ]);
       const { defaultOwnerUserId, ...general } = input.general ?? {};
       Object.assign(st.general, pick(general));
-      // 23-h, as the API: Require e-signature stays on.
-      st.general.requireSignature = true;
       if (defaultOwnerUserId !== undefined)
         st.general.defaultOwner = defaultOwnerUserId
           ? { userId: defaultOwnerUserId, name: 'Selected member' }
