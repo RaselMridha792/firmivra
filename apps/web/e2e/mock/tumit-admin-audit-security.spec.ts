@@ -38,6 +38,9 @@ test('the dashboard shows its cards and log, and the filters and tabs narrow it'
     .click();
   await expect(page).toHaveURL(/\/audit-security\/events\/0199d1a0-0e01-/);
   await expect(page.getByTestId('event-title')).toContainText('Login Failed');
+  await expect(page).toHaveURL(/returnTo=.*view%3Dlogin.*q%3DMarcus/);
+  await page.getByRole('link', { name: 'Back to Audit Logs' }).click();
+  await expect(page).toHaveURL(/\/audit-security\?view=login&q=Marcus/);
 });
 
 test('System Settings view is addressable and explains its event filter', async ({ page }) => {

@@ -48,7 +48,11 @@ import {
 
 type DetailQuery = UseQueryResult<AuditEventDetail>;
 
-const eventHref = (id: string) => `/audit-security/events/${id}`;
+const eventHref = (id: string) => {
+  const returnTo = new URLSearchParams(window.location.search).get('returnTo');
+  const query = returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : '';
+  return `/audit-security/events/${id}${query}`;
+};
 const approximate = (location: string | null) =>
   location ? `${location} (Approximate)` : 'Not available';
 

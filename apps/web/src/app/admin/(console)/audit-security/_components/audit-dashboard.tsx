@@ -227,7 +227,10 @@ function addressOf(filters: Filters): string {
 /** Whole days on the viewer's calendar, as ISO moments. */
 const startOf = (day: string) => (day ? new Date(`${day}T00:00:00`).toISOString() : undefined);
 const endOf = (day: string) => (day ? new Date(`${day}T23:59:59.999`).toISOString() : undefined);
-const eventHref = (id: string) => `/audit-security/events/${id}`;
+const eventHref = (id: string, filters: Filters) => {
+  const back = encodeURIComponent(addressOf(filters));
+  return `/audit-security/events/${id}?returnTo=${back}`;
+};
 
 /** Hands the export to the browser as a file; the link is short-lived and the export is logged. */
 function saveFile(file: AuditExport) {
@@ -355,7 +358,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
       sortable: true,
       className: 'min-w-32',
       cell: (event) => (
-        <Link href={eventHref(event.id)} className="hover:text-action hover:underline">
+        <Link href={eventHref(event.id, filters)} className="hover:text-action hover:underline">
           {event.action}
         </Link>
       ),
@@ -611,7 +614,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
             }}
             rowActions={(event) => (
               <>
-                <LinkButton href={eventHref(event.id)} size="sm">
+                <LinkButton href={eventHref(event.id, filters)} size="sm">
                   View<span className="sr-only"> event {event.reference}</span>
                 </LinkButton>
                 <ActionMenu
@@ -623,7 +626,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
                         {
                           label: 'Open Event',
                           icon: ArrowSquareOut,
-                          onSelect: () => router.push(eventHref(event.id)),
+                          onSelect: () => router.push(eventHref(event.id, filters)),
                         },
                         ...(event.actor.id
                           ? [
