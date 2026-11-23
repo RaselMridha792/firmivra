@@ -72,6 +72,7 @@ test('a row menu records a payment on an open invoice', async ({ page }) => {
 test('Create Invoice checks the form, previews live and saves a draft', async ({ page }) => {
   await page.goto(admin('/billing/invoices/new'));
   await expect(page.getByTestId('page-title')).toHaveText('Create Invoice');
+  await expect(page.getByLabel('Allow online payment (pay by link)')).toBeVisible();
   await expect(page.locator('#invoice-number')).toHaveValue('INV-0027');
 
   await page.getByRole('button', { name: 'Save as Draft' }).click();
