@@ -34,7 +34,11 @@ test('the directory opens with its totals, cards and list, and filters by depart
   await page.getByRole('button', { name: 'List View' }).click();
   const table = page.getByRole('table', { name: 'Team members' });
   await expect(table.getByRole('columnheader', { name: 'Permission Level' })).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: 'Reports To' })).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: 'Team', exact: true })).toBeVisible();
   await expect(table.getByRole('row')).toHaveCount(2);
+  await expect(table.getByRole('row').nth(1)).toContainText('Priya Raman');
+  await expect(table.getByRole('row').nth(1)).toContainText('Enterprise Sales');
   await expect(table).toContainText('Charlotte, NC');
 });
 
