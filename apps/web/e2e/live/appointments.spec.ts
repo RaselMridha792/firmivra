@@ -978,10 +978,6 @@ test.describe('Appointments (Owner)', () => {
     await expect(page.getByLabel('Start Time *')).toHaveValue('09:00');
     await shot(page, TAB, 'B10-timezone', info);
     // The firm's own setting is unchanged.
-    const api = await pageApi(page);
-    const opts = (await ok(await api.get('business/appointments/options'), 'options')) as {
-      timezone: string;
-    };
     expect(opts.timezone).toBe('America/Chicago');
   });
 
@@ -1732,8 +1728,8 @@ async function cancelStaffLiveCheckLeftovers(
     (await ok(
       await api.get(
         `business/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&staffUserId=${staffId}`,
-        'staff leftovers',
       ),
+      'staff leftovers',
     )) as { items: { id: string; status: string }[] }
   ).items;
   for (const a of items.filter((x) => x.status !== 'CANCELLED')) {
@@ -3615,19 +3611,21 @@ test.describe('Review Two verification (her steps)', () => {
             actual['view'] = await outcome(api.get(`business/appointments/${later.id}/record`));
             actual['edit'] = await outcome(
               api.patch(`business/appointments/${later.id}/details`, {
-                version: record.version,
-                internalNotes: `${r.tag} P10 ${p.label} edit`,
+                data: {
+                  version: record.version,
+                  internalNotes: `${r.tag} P10 ${p.label} edit`,
+                },
               }),
             );
             const moved = Date.parse(instant(r.tz, later.slot.day, later.slot.start)) + HOUR;
             actual['reschedule'] = await outcome(
               api.post(`business/appointments/${later.id}/reschedule`, {
-                startsAt: new Date(moved).toISOString(),
+                data: { startsAt: new Date(moved).toISOString() },
               }),
             );
             actual['cancel'] = await outcome(
               api.post(`business/appointments/${later.id}/cancel`, {
-                reason: `${r.tag} P10 ${p.label}`,
+                data: { reason: `${r.tag} P10 ${p.label}` },
               }),
             );
             actual['complete'] = await outcome(
@@ -3680,8 +3678,8 @@ test.describe('Review Two verification (her steps)', () => {
             (await ok(
               await api.get(
                 `business/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&staffUserId=${qaPerf}`,
-                'QA Perf 2028 appointments',
               ),
+              'QA Perf 2028 appointments',
             )) as { items: { id: string; startsAt: string; status: string }[] }
           ).items;
           for (const a of items.filter((x) => x.status !== 'CANCELLED')) {
