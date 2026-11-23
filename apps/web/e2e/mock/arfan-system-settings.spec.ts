@@ -346,3 +346,10 @@ test('a missing local settings endpoint shows labelled design data instead of a 
   }
   await screenshot(page, 'local-preview');
 });
+
+test('View Audit Logs opens the System Settings event filter', async ({ page }) => {
+  await page.goto(`${url}/general`);
+  await expect(
+    page.getByTestId('quick-links').getByRole('link', { name: 'View Audit Logs' }),
+  ).toHaveAttribute('href', '/audit-security?view=settings');
+});

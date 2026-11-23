@@ -60,6 +60,7 @@ export const AdminAuditView = z.enum([
   'data',
   'integrations',
   'policies',
+  'settings',
 ]);
 export type AdminAuditView = z.infer<typeof AdminAuditView>;
 

@@ -176,6 +176,8 @@ export function viewWhere(view: AdminAuditView): Prisma.AuditLogWhereInput {
       return {
         OR: [{ action: { startsWith: 'policy.' } }, { action: { startsWith: 'audit.policy' } }],
       };
+    case 'settings':
+      return { action: { startsWith: 'system_settings.' } };
   }
 }
 

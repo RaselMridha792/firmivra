@@ -53,6 +53,7 @@ export const AUDIT_VIEWS = [
   'data',
   'integrations',
   'policies',
+  'settings',
 ] as const;
 export type AuditView = (typeof AUDIT_VIEWS)[number];
 export const RESPONSE_ACTIONS = [
@@ -640,6 +641,8 @@ function inView(event: AuditEvent, view: AuditView): boolean {
       return event.category === 'INTEGRATION';
     case 'policies':
       return event.type === 'policy.changed';
+    case 'settings':
+      return event.type.startsWith('system_settings.');
     default:
       return true;
   }

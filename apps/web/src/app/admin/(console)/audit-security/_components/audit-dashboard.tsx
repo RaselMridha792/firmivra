@@ -114,6 +114,12 @@ const VIEWS: { id: AuditView; label: string; icon: Icon; text: string }[] = [
     icon: Shield,
     text: "Changes to security policies, by Firmivra and by firm admins. Change the platform's policies in Security Settings.",
   },
+  {
+    id: 'settings',
+    label: 'System Settings',
+    icon: GearSix,
+    text: 'Changes to platform system settings, including features, notifications and maintenance.',
+  },
 ];
 
 type SortId = NonNullable<AuditEventQuery['sort']>;

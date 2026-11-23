@@ -40,6 +40,13 @@ test('the dashboard shows its cards and log, and the filters and tabs narrow it'
   await expect(page.getByTestId('event-title')).toContainText('Login Failed');
 });
 
+test('System Settings view is addressable and explains its event filter', async ({ page }) => {
+  await page.goto(admin('/audit-security?view=settings'));
+  await expect(page).toHaveURL(/view=settings/);
+  await expect(page.getByTestId('view-intro')).toContainText('System Settings');
+  await expect(page.getByTestId('view-intro')).toContainText('platform system settings');
+});
+
 test('Export Logs downloads the filtered rows and logs the export', async ({ page }) => {
   await page.goto(admin('/audit-security'));
   await expect(

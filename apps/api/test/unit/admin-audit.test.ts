@@ -13,6 +13,7 @@ import {
   classify,
   deviceOf,
   referenceOf,
+  viewWhere,
 } from '../../src/admin-audit/classify.js';
 
 const bare = (action: string) => ({ action, category: null, severity: null, outcome: null });
@@ -44,6 +45,10 @@ describe('classify', () => {
 });
 
 describe('the event view helpers', () => {
+  it('filters System Settings to platform setting events', () => {
+    expect(viewWhere('settings')).toEqual({ action: { startsWith: 'system_settings.' } });
+  });
+
   it('labels, references and devices', () => {
     expect(actionLabel('auth.sign_in_failed')).toBe('Sign In Failed');
     expect(actionLabel('policy.changed')).toBe('Changed');
