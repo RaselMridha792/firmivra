@@ -113,6 +113,12 @@ export function AuditKpis({ query }: { query: UseQueryResult<AuditSummary> }) {
                 </p>
               )}
               {metric ? <Trend metric={metric} spec={spec} /> : null}
+              {spec.key === 'activeSessions' && query.isSuccess && !metric ? (
+                <p className="text-sm text-muted">
+                  Admin sessions not tracked yet. Firm staff sessions are visible only within their
+                  own firm.
+                </p>
+              ) : null}
             </div>
           </Card>
         );
