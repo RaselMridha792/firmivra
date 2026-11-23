@@ -31,7 +31,7 @@ const inFirm: RequestStore = {
   requestId: 'req-1',
   ip: '203.0.113.5',
   userAgent: 'Fake/1.0',
-  auth: { userId: owner, cognitoSub: 'sub-1', pool: 'STAFF' },
+  auth: { userId: owner, cognitoSub: 'sub-1', pool: 'STAFF', session: 'fake-raw-session' },
   tenant: { businessId: firm, role: 'OWNER', kind: 'staff' },
 };
 const where = (writes: { scope: string; data: Record<string, unknown> }[]) =>
@@ -49,7 +49,7 @@ describe('AuditService: where a row goes', () => {
         'auth.signed_in',
         { type: 'user', id: owner },
         {},
-        { actorRole: 'SUPER_ADMIN', sessionId: 'hashed-session', authMethod: 'PASSWORD+MFA' },
+        { actorRole: 'SUPER_ADMIN', sessionId: 'hashed-session', authMethod: 'password_mfa' },
       );
     });
     expect(where(writes)).toEqual([
@@ -66,11 +66,12 @@ describe('AuditService: where a row goes', () => {
       ip: '203.0.113.5',
       userAgent: 'Fake/1.0',
       requestId: 'req-1',
+      sessionId: null,
     });
     expect(writes[3]?.data).toMatchObject({
       actorRole: 'SUPER_ADMIN',
       sessionId: 'hashed-session',
-      authMethod: 'PASSWORD+MFA',
+      authMethod: 'password_mfa',
     });
   });
 

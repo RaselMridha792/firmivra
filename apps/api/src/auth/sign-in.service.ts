@@ -24,6 +24,9 @@ import { deriveKey, poolSecrets } from './sealed.js';
 import type { SessionTokens, SignInPlace } from './site.js';
 import { TokenService } from './token.service.js';
 
+/** Values written to audit_logs.auth_method must use lowercase snake case. */
+type SignInAuditMethod = 'password' | 'password_mfa' | 'password_mfa_setup';
+
 /** Failed resets are audited; the per-email limit counts those rows (shared by every API task). */
 const RESET_FAILED = 'auth.password_reset_failed';
 const RESET = {
@@ -370,7 +373,7 @@ export class SignInService {
       place,
       c.userId,
       tokens,
-      c.step === 'MFA' ? 'PASSWORD+MFA' : 'PASSWORD+MFA_SETUP',
+      c.step === 'MFA' ? 'password_mfa' : 'password_mfa_setup',
     );
     if (c.step !== 'MFA') await this.mfaEnrolled(place, c.userId);
     return { kind: 'signed-in', userId: c.userId, username: c.username, tokens };
@@ -755,11 +758,9 @@ export class SignInService {
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
     userId: string,
     tokens: SessionTokens,
-    authMethod: string,
+    authMethod: SignInAuditMethod,
   ) {
-    const claims = tokens.idToken
-      ? await this.tokens.verify(tokens.idToken).catch(() => null)
-      : null;
+    const claims = await this.tokens.verify(tokens.accessToken).catch(() => null);
     const sessionId = claims?.session
       ? place.businessId
         ? sessionKey(place.businessId, claims.session)
@@ -771,12 +772,13 @@ export class SignInService {
       'auth.signed_in',
       { type: 'user', id: userId },
       { pool: place.pool },
-      { userId, pool: place.pool, ...(sessionId ? { session: sessionId } : {}) },
+      { userId, pool: place.pool },
       { actorRole, sessionId, authMethod },
     );
   }
 
   private async roleAtSignIn(place: Pick<SignInPlace, 'pool' | 'businessId'>, userId: string) {
+    if (place.pool === 'CLIENT') return 'CLIENT';
     if (place.pool === 'ADMIN') {
       return (
         (
@@ -795,7 +797,7 @@ export class SignInService {
         )?.role ?? null
       );
     }
-    return place.pool === 'CLIENT' ? 'CLIENT' : place.pool === 'STAFF' ? 'STAFF' : null;
+    return 'STAFF';
   }
 
   /**
@@ -807,7 +809,7 @@ export class SignInService {
     action: string,
     entity: AuditEntity,
     metadata: Record<string, unknown>,
-    actor?: Pick<AuthContext, 'userId' | 'pool' | 'session'>,
+    actor?: Pick<AuthContext, 'userId' | 'pool'>,
     auditAt: Pick<AuditAt, 'actorRole' | 'sessionId' | 'authMethod'> = {},
   ): Promise<void> {
     const store = requestContext.getStore() ?? { requestId: randomUUID() };
@@ -866,7 +868,7 @@ export class SignInService {
         if (step.tokens.refreshToken) await this.identity.revoke(pool, step.tokens.refreshToken);
         throw new Error(`Refused a ${pool} sign-in that skipped MFA: check the pool's MFA setting`);
       }
-      await this.succeeded(place, userId, step.tokens, 'PASSWORD');
+      await this.succeeded(place, userId, step.tokens, 'password');
       return { kind: 'signed-in', userId, username: step.username, tokens: step.tokens };
     }
     const session = await this.challenges.seal({

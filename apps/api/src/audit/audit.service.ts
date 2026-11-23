@@ -21,6 +21,7 @@ export interface AuditAt {
   businessId?: string | null;
   actorUserId?: string;
   actorRole?: string | null;
+  /** An audit-safe session identifier, never the token or its raw revocation ID. */
   sessionId?: string | null;
   authMethod?: string | null;
   /** Leaves out the IP and user agent, for a row the actor's audience must not trace to them. */
@@ -164,7 +165,7 @@ export class AuditService {
         at.businessId === null ? null : (at.businessId ?? store?.tenant?.businessId ?? null),
       actorUserId: at.actorUserId ?? store?.auth?.userId ?? null,
       actorRole: at.actorRole ?? store?.platform?.role ?? store?.tenant?.role ?? null,
-      sessionId: at.sessionId ?? store?.auth?.session ?? null,
+      sessionId: at.sessionId ?? null,
       authMethod: at.authMethod ?? null,
       action,
       entityType: entity.type,
