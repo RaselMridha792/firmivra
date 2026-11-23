@@ -1622,6 +1622,10 @@ async function book(
 
 async function pickContact(page: Page, name: string) {
   await page.getByLabel('Client / Lead *').fill(name);
+  // The contact search is debounced; wait for the matching result before clicking.
+  await expect(
+    page.getByTestId('contact-results').getByRole('button', { name }).first(),
+  ).toBeVisible({ timeout: 15_000 });
   await page.getByTestId('contact-results').getByRole('button', { name }).first().click();
 }
 /** A multi-pick (Assigned Staff, Equipment): exactly `names` chosen. */
