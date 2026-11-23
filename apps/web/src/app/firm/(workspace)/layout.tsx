@@ -269,7 +269,7 @@ function FirmShell({
   children: ReactNode;
 }) {
   // V5: the New menu follows the member's own grants, not the role's default grid.
-  const can = useMyGrants(role);
+  const can = useMyGrants();
   // The portal's public info is the one place every role can read the firm's logo and motto.
   const info = useApiQuery(['firm', firm.id, 'branding'], () => portalAuth(firm.slug).info());
   const unread = useApiQuery(['messages', 'unread-count'], () => api.messages.unreadCount());
