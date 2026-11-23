@@ -82,6 +82,25 @@ test('Opportunity: dismissing needs a reason', async ({ page }) => {
   await expect(page.getByText('Dismissed.')).toBeVisible();
 });
 
+test('Preview as Client opens a read-only client view with no staff notes', async ({ page }) => {
+  await page.goto(`${base}/plans/new`);
+  await page
+    .getByTestId('step-client')
+    .getByLabel('Client')
+    .selectOption({ label: 'Marcus Johnson' });
+  await page.getByLabel('Plan Name').fill('Preview Test Plan');
+  await page.getByRole('button', { name: 'Save as Draft' }).first().click();
+  await expect(page.getByTestId('plan-editor')).toBeVisible();
+  await page.getByTestId('preview-as-client').click();
+  const preview = page.getByTestId('client-preview');
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText('Preview Test Plan');
+  await expect(preview).toContainText('Read-only');
+  // Staff-only internal notes must not appear.
+  await expect(preview).not.toContainText('Internal notes');
+  await expect(preview).not.toContainText('Assigned To');
+});
+
 test('Plan: create it, enter figures, override an estimate, finalize it', async ({ page }) => {
   const year = new Date().getFullYear();
   await page.goto(`${base}/plans/new`);
