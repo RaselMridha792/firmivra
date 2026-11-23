@@ -50,6 +50,15 @@ test('System Settings view is addressable and explains its event filter', async 
   await expect(page.getByTestId('view-intro')).toContainText('platform system settings');
 });
 
+test('platform actor and affected firm are shown separately', async ({ page }) => {
+  await page.goto(admin('/audit-security/events/0199d1a0-0e01-7000-8000-000000000007'));
+  const info = page.getByTestId('event-information');
+  await expect(info).toContainText('Actor');
+  await expect(info).toContainText('Firmivra (platform)');
+  await expect(info).toContainText('Affected firm');
+  await expect(info).toContainText('Firmivra');
+});
+
 test('Export Logs downloads the filtered rows and logs the export', async ({ page }) => {
   await page.goto(admin('/audit-security'));
   await expect(

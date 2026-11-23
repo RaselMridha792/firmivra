@@ -125,12 +125,15 @@ export function OverviewTab({ query }: { query: DetailQuery }) {
           {({ event, account }) => {
             const { device } = event;
             const own = account?.userId === event.actor.id ? account : null;
+            const actorName =
+              event.actor.type === 'PLATFORM' ? 'Firmivra (platform)' : event.actor.name;
+            const actor = { ...event.actor, name: actorName };
             return (
               <div className="grid gap-x-8 gap-y-3 md:grid-cols-2">
                 <InfoList
                   rows={[
-                    { label: 'User', value: <Person actor={event.actor} /> },
-                    { label: 'Firm', value: event.firm.name },
+                    { label: 'Actor', value: <Person actor={actor} /> },
+                    { label: 'Affected firm', value: event.firm.name },
                     {
                       label: 'Date & Time',
                       value: <time dateTime={event.at}>{formatStamp(event.at)}</time>,
@@ -329,15 +332,17 @@ export function AffectedDataTab({ query }: { query: DetailQuery }) {
         <Loaded query={query} rows={5}>
           {({ event, account }) => {
             const own = account?.userId === event.actor.id ? account : null;
+            const actorName =
+              event.actor.type === 'PLATFORM' ? 'Firmivra (platform)' : event.actor.name;
             return (
               <FactTable
                 rows={[
-                  { label: 'Name', value: event.actor.name },
+                  { label: 'Name', value: actorName },
                   event.actor.email
                     ? { label: 'Email', value: event.actor.email }
                     : { label: 'Type', value: ACTOR_TYPE_LABELS[event.actor.type] },
                   { label: 'Role', value: event.actor.role ?? 'Not recorded' },
-                  { label: 'Firm', value: event.firm.name },
+                  { label: 'Affected firm', value: event.firm.name },
                   ...(own
                     ? [
                         { label: 'Account Status', value: <AccountBadge status={own.status} /> },
