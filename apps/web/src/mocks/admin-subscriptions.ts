@@ -228,7 +228,7 @@ export const STATUS_LABELS: Record<SubscriptionStatus, string> = {
 export const CYCLE_LABELS: Record<BillingCycle, string> = { MONTHLY: 'Monthly', ANNUAL: 'Annual' };
 
 /** Statuses that count towards MRR: paid and not ended (Past Due is still a live subscription). */
-export const PAYING: readonly SubscriptionStatus[] = ['ACTIVE', 'PAST_DUE', 'NON_RENEWING'];
+export const PAYING: readonly SubscriptionStatus[] = ['ACTIVE', 'NON_RENEWING'];
 /** Statuses where plan, seat and add-on changes are allowed. */
 export const CHANGEABLE: readonly SubscriptionStatus[] = [
   'TRIAL',

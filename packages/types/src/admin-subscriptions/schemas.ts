@@ -107,10 +107,9 @@ export const SUBSCRIPTION_STATUS_ORDER: readonly SubscriptionStatus[] = [
   'EXPIRED',
   'CANCELLED',
 ];
-/** Paid and not ended: counted in MRR (Past Due is still a live subscription). */
+/** Paid and in service: only Active and paid-through Non-Renewing subscriptions count in MRR. */
 export const SUBSCRIPTION_PAYING_STATUSES: readonly SubscriptionStatus[] = [
   'ACTIVE',
-  'PAST_DUE',
   'NON_RENEWING',
 ];
 /** Plan, seat and location changes, and Pause / Suspend. */

@@ -27,6 +27,14 @@ test('a KPI card filters the table to the same count', async ({ page }) => {
   await expect(page.getByRole('row', { name: /Example Maple Ledger/ })).toHaveCount(0);
 });
 
+test('the Paying filter excludes past-due subscriptions', async ({ page }) => {
+  await page.goto(admin('/subscriptions'));
+  await page.getByLabel('Status', { exact: true }).selectOption('PAYING');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByRole('row', { name: /Example Maple Ledger/ })).toHaveCount(0);
+  await expect(page.getByRole('row', { name: /Sample Blue Ridge Tax/ })).toContainText('Active');
+});
+
 test('search and the status filter apply on Apply, and Clear resets them', async ({ page }) => {
   await page.goto(admin('/subscriptions'));
   await expect(page.getByTestId('open-subscription').first()).toBeVisible();
