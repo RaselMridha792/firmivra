@@ -39,7 +39,6 @@ import {
 //   recorded or empty;
 //   recommendations are the category's guidance.
 
-const DAY_MS = 86_400_000;
 const TONES: Record<AdminAuditEvent['severity'], AuditTone> = {
   INFO: 'info',
   LOW: 'success',
@@ -174,31 +173,21 @@ function apiQuery(query: AuditEventQuery): AdminAuditEventQuery {
   ) as AdminAuditEventQuery;
 }
 
-const metric = (range: AdminAuditSummary['openAlerts'], week: AdminAuditSummary['openAlerts']) => ({
+const metric = (range: AdminAuditSummary['openAlerts']) => ({
   value: range.value,
-  current: week.value,
-  previous: week.previous,
+  current: range.value,
+  previous: range.previous,
 });
 
 const real = {
   facets: (): Promise<AuditFacets> => api.adminAudit.facets(),
   summary: async (range: { from?: string; to?: string }): Promise<AuditSummary> => {
-    const end = range.to ?? new Date().toISOString();
-    const [selected, week] = await Promise.all([
-      api.adminAudit.summary(range),
-      api.adminAudit.summary({
-        from: new Date(new Date(end).getTime() - 7 * DAY_MS).toISOString(),
-        to: end,
-      }),
-    ]);
+    const selected = await api.adminAudit.summary(range);
     return {
-      securityAlerts: metric(selected.openAlerts, week.openAlerts),
-      failedLogins: metric(selected.failedLogins, week.failedLogins),
-      highRiskEvents: metric(selected.highRiskEvents, week.highRiskEvents),
-      activeSessions:
-        selected.activeSessions && week.activeSessions
-          ? metric(selected.activeSessions, week.activeSessions)
-          : null,
+      securityAlerts: metric(selected.openAlerts),
+      failedLogins: metric(selected.failedLogins),
+      highRiskEvents: metric(selected.highRiskEvents),
+      activeSessions: selected.activeSessions ? metric(selected.activeSessions) : null,
     };
   },
   events: async (query: AuditEventQuery = {}): Promise<AuditEventPage> => {

@@ -62,7 +62,7 @@ const METRICS: Metric[] = [
 /** "↑ 2 from last 7 days": the range's last 7 days against the 7 days before. */
 function Trend({ metric, spec }: { metric: AuditMetric; spec: Metric }) {
   const change = metric.current - metric.previous;
-  if (!change) return <span className="text-sm text-muted">No change from last 7 days</span>;
+  if (!change) return <span className="text-sm text-muted">No change from previous range</span>;
   const up = change > 0;
   const amount =
     spec.change === 'percent' && metric.previous
@@ -75,7 +75,7 @@ function Trend({ metric, spec }: { metric: AuditMetric; spec: Metric }) {
     >
       <Arrow aria-hidden weight="bold" className="size-3.5" />
       <span className="sr-only">{up ? 'Up' : 'Down'} </span>
-      {amount} from last 7 days
+      {amount} from previous range
     </span>
   );
 }
