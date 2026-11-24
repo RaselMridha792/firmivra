@@ -484,8 +484,9 @@ export class LeadConvertService {
             taxYear: lead.taxYear,
           });
         }
-        if (carry.campaign) {
-          // Row 17: carry the lead's campaign audience membership forward to the client.
+        if (carry.attribution) {
+          // Row 17: campaign is part of source/campaign attribution — carry the lead's campaign
+          // audience membership forward to the client.
           const leadCampaigns = await tx.communicationAudienceEntry.findMany({
             where: { businessId, kind: 'LEAD', leadId: id },
             select: { communicationId: true },
