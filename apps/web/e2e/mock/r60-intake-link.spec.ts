@@ -33,12 +33,13 @@ test('Publish on a main form shows Share & Publish: the Begin Online page and it
   const link = dialog.getByLabel('Link', { exact: true });
   await expect(link).toHaveValue(/\/lvp\/begin\/annual-tax$/);
   const url = await link.inputValue();
-  // A website button that opens the link (an inline embed needs framing enabled for the site).
-  const button = dialog.getByLabel('Embed code', { exact: true });
-  await expect(button).toHaveValue(new RegExp(`^<a href="${url}" target="_blank" rel="noopener"`));
-  await expect(button).toHaveValue(/>Personal Tax Intake Form<\/a>$/);
-  await expect(dialog).toContainText(
-    'An inline embed will be available once enabled for your site.',
+  // The public Begin Online route has an inline frame and a separate new-tab button.
+  await expect(dialog.getByLabel('Embed code', { exact: true })).toHaveValue(/^<iframe id=/);
+  await expect(dialog.getByLabel('Button code', { exact: true })).toHaveValue(
+    new RegExp(`^<a href="${url}" target="_blank" rel="noopener"`),
+  );
+  await expect(dialog.getByLabel('Portal sign-in link', { exact: true })).toHaveValue(
+    'http://portal.localhost:3000/lvp/sign-in',
   );
   await expect(dialog.getByTestId('public-link-notice')).toHaveCount(0);
 

@@ -24,6 +24,7 @@ import {
   type UpdateSupportTicketRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
+import { auditChanges } from '../audit/audit-changes.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AdminPrisma } from '../firm-applications/admin-prisma.js';
 import { DAYS, dueTime, inDays, rescheduledDue, slaOf } from './sla.js';
@@ -390,8 +391,14 @@ export class SupportTicketsService {
   update(id: string, body: Out<typeof UpdateSupportTicketRequest>): Promise<SupportTicket> {
     return this.change(id, body.version, async (tx, ctx, row) => {
       const data: Prisma.SupportTicketUncheckedUpdateManyInput = {};
-      const changed: string[] = [];
       const before = ctx.priorities.find((p) => p.id === row.priorityId);
+      const previousCategory = ctx.categories.find((c) => c.id === row.categoryId);
+      const beforeAudit = {
+        status: row.status,
+        priority: before?.name ?? null,
+        category: previousCategory?.name ?? null,
+      };
+      const afterAudit = { ...beforeAudit };
       let target = before?.targetMinutes ?? 480;
       const newPriority = body.priorityId && body.priorityId !== row.priorityId;
       if (newPriority) {
@@ -400,7 +407,7 @@ export class SupportTicketsService {
         data.priorityId = next.id;
         target = next.targetMinutes;
         await event(tx, row, 'ticket.priority_changed', ctx.me.id, before?.name ?? null, next.name);
-        changed.push('priority');
+        afterAudit.priority = next.name;
       }
       if (body.status && body.status !== row.status) {
         if (row.mergedIntoTicketId)
@@ -411,7 +418,7 @@ export class SupportTicketsService {
         await event(tx, row, 'ticket.status_changed', ctx.me.id, row.status, body.status);
         if (!isActive(row.status) && isActive(body.status))
           await event(tx, row, 'ticket.reopened', ctx.me.id, null, null);
-        changed.push('status');
+        afterAudit.status = body.status;
       } else if (newPriority && row.firstResponseDueAt) {
         // The time already used counts against the new priority's target.
         data.firstResponseDueAt = new Date(
@@ -428,17 +435,10 @@ export class SupportTicketsService {
         const next = ctx.categories.find((c) => c.id === body.categoryId && c.active);
         if (!next) throw supportError(409, 'INACTIVE_CHOICE', 'Select an active category');
         data.categoryId = next.id;
-        await event(
-          tx,
-          row,
-          'ticket.category_changed',
-          ctx.me.id,
-          ctx.categories.find((c) => c.id === row.categoryId)?.name ?? null,
-          next.name,
-        );
-        changed.push('category');
+        await event(tx, row, 'ticket.category_changed', ctx.me.id, beforeAudit.category, next.name);
+        afterAudit.category = next.name;
       }
-      await this.log(tx, 'support.ticket_updated', row, { changed, status: body.status ?? null });
+      await this.log(tx, 'support.ticket_updated', row, auditChanges(beforeAudit, afterAudit));
       return data;
     });
   }

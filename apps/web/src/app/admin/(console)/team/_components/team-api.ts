@@ -695,7 +695,7 @@ async function sendToMember(
           ? { conversationId: first.conversationId }
           : { contact: { type: 'TEAM' as const, userId: person.id } }),
         channel: channel === 'EMAIL' ? 'EMAIL' : 'SMS',
-        ...(channel === 'EMAIL' ? { subject: body.subject.trim() } : {}),
+        ...(channel === 'EMAIL' ? { subject: body.subject.trim() || 'Team message' } : {}),
         body: channel === 'EMAIL' ? body.body : text,
         mode: 'SEND',
         idempotencyKey: crypto.randomUUID(),

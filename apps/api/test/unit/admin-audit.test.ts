@@ -1,18 +1,22 @@
 // Super Admin Audit & Security (R55): the classification of rows written before the normalized
 // fields, labels, references, devices, masked changes, and the security policy's mapping.
 import { describe, expect, it } from 'vitest';
-import { ADMIN_SECURITY_DEFAULTS } from '@firmivra/types';
+import { ADMIN_SECURITY_DEFAULTS, AdminAuditEventQuery } from '@firmivra/types';
 import {
   diffOf,
+  integrationPolicyOf,
   sectionsOf,
   settingsOf,
 } from '../../src/admin-audit/admin-security-policy.service.js';
+import { responseActionReason } from '../../src/admin-audit/admin-audit.service.js';
 import {
   actionLabel,
   changesOf,
   classify,
   deviceOf,
+  eventReferenceWhere,
   referenceOf,
+  viewWhere,
 } from '../../src/admin-audit/classify.js';
 
 const bare = (action: string) => ({ action, category: null, severity: null, outcome: null });
@@ -44,6 +48,37 @@ describe('classify', () => {
 });
 
 describe('the event view helpers', () => {
+  it('explains response action availability for the affected event type', () => {
+    expect(
+      responseActionReason('RESET_PASSWORD', {
+        target: { type: 'client_account', id: 'user-1', name: 'Account' },
+        subjectUserId: null,
+      }),
+    ).toContain('managed from the firm');
+    expect(
+      responseActionReason('DISABLE_INTEGRATION', {
+        target: { type: 'client_account', id: 'user-1', name: 'Account' },
+        subjectUserId: null,
+      }),
+    ).toBe('This event does not involve an integration.');
+    expect(
+      responseActionReason('DISABLE_INTEGRATION', {
+        target: { type: 'integration', id: 'integration-1', name: 'Integration' },
+        subjectUserId: null,
+      }),
+    ).toBe('Integrations are disabled from the Integrations module.');
+  });
+
+  it('accepts IP and device event filters', () => {
+    expect(
+      AdminAuditEventQuery.parse({ ip: '192.0.2.', device: 'Chrome', page: '1', pageSize: '25' }),
+    ).toMatchObject({ ip: '192.0.2.', device: 'Chrome' });
+  });
+
+  it('filters System Settings to platform setting events', () => {
+    expect(viewWhere('settings')).toEqual({ action: { startsWith: 'system_settings.' } });
+  });
+
   it('labels, references and devices', () => {
     expect(actionLabel('auth.sign_in_failed')).toBe('Sign In Failed');
     expect(actionLabel('policy.changed')).toBe('Changed');
@@ -58,7 +93,22 @@ describe('the event view helpers', () => {
     expect(deviceOf(null).label).toBe('Unknown device');
   });
 
+  it('matches an EVT reference by its date and exact id suffix', () => {
+    expect(eventReferenceWhere('EVT-20261014-1A2B3C')).toEqual({
+      createdAt: {
+        gte: new Date('2026-10-14T00:00:00Z'),
+        lt: new Date('2026-10-15T00:00:00Z'),
+      },
+      idSuffix: '1a2b3c',
+    });
+    expect(eventReferenceWhere('EVT-20260230-1A2B3C')).toBeNull();
+  });
+
   it('shows metadata as changes, masking secrets and personal details', () => {
+    const textChange = changesOf({ note: { from: 'private note', to: 'updated note' } })[0]!;
+    expect(textChange.masked).toBe(true);
+    expect(textChange.before).not.toContain('private note');
+    expect(textChange.after).not.toContain('updated note');
     expect(
       changesOf({
         role: { from: 'STAFF', to: 'ADMIN' },
@@ -71,6 +121,16 @@ describe('the event view helpers', () => {
       { field: 'email', before: null, after: '••••', masked: true },
       { field: 'apiToken', before: null, after: '••••', masked: true },
       { field: 'fields', before: null, after: '["name"]', masked: false },
+    ]);
+    expect(
+      changesOf({
+        businessId: 'synthetic-firm-id',
+        fields: ['status', 'subject'],
+        changes: { status: { from: 'RESOLVED', to: 'CLOSED' }, subject: 'changed' },
+      }),
+    ).toEqual([
+      { field: 'status', before: 'RESOLVED', after: 'CLOSED', masked: false },
+      { field: 'subject', before: null, after: 'changed', masked: true },
     ]);
     expect(changesOf(null)).toEqual([]);
   });
@@ -128,6 +188,11 @@ describe('the security policy mapping', () => {
       session: { idleTimeoutMinutes: 30, reauthSensitive: true, reauthWindowMinutes: 10 },
       ip: { mode: 'ANY', allowList: [] },
       retention: { retentionDays: 2555, archiveAfterDays: 365 },
+    });
+    expect(integrationPolicyOf(row)).toEqual({
+      apiKeySecretsMasked: true,
+      apiKeyTokenLifetimeDays: 90,
+      webhookEnabled: false,
     });
   });
 

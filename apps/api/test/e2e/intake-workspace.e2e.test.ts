@@ -17,11 +17,14 @@ import {
   IntakeFormDetail,
   IntakeFormLibrarySummary,
   IntakeFormList,
+  IntakeRecordsCheck,
   IntakeSettings,
   IntakeSettingsChangeList,
   INTAKE_FORMS,
   INTAKE_MAX_FILE_SIZE_MB,
-  publicEmbedCode,
+  publicButtonCode,
+  publicIntakeEmbedCode,
+  publicPortalEntryUrl,
   PublicLink,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -378,7 +381,7 @@ describe('the form library', () => {
     expect(d).toMatchObject({ id: ids.template, version: 1, status: 'PUBLISHED' });
     expect(d.sections.length).toBeGreaterThan(0);
     expect(d.sections[0]?.questions.length).toBeGreaterThan(0);
-    expect(d.settings).toMatchObject({ requireSignature: true, showProgressBar: true });
+    expect(d.settings).toMatchObject({ requireSignature: false, showProgressBar: true });
     expect(d.publishedAt).toBeTruthy();
   });
 
@@ -1093,8 +1096,7 @@ describe('the settings', () => {
         }),
       ),
     );
-    // Intake Review 2 23-h (lead, Nov 17): Require e-signature is always on; a false sent stays on.
-    expect(kept.general.requireSignature).toBe(true);
+    expect(kept.general.requireSignature).toBe(false);
     expect(kept.security).toMatchObject({ maxFileSizeMb: 25, consentRequired: false });
     const still = IntakeSettings.parse(
       ok(
@@ -1132,6 +1134,34 @@ describe('the settings', () => {
       tx.intakeSettings.findUniqueOrThrow({ where: { businessId: firms.a } }),
     );
     expect(row.maxFileSizeMb).toBe(100);
+    expect(row.requireSignature).toBe(false);
+  });
+
+  it('Require e-signature starts off and saves either switch state', async () => {
+    const defaults = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    expect(defaults.general.requireSignature).toBe(false);
+    const on = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: defaults.version,
+          general: { requireSignature: true },
+        }),
+      ),
+    );
+    expect(on.general.requireSignature).toBe(true);
+    expect(
+      IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA))).general
+        .requireSignature,
+    ).toBe(true);
+    const off = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: on.version,
+          general: { requireSignature: false },
+        }),
+      ),
+    );
+    expect(off.general.requireSignature).toBe(false);
   });
 
   it('is changed by Owner and Admin only', async () => {
@@ -1241,7 +1271,9 @@ describe('the public link (I3)', () => {
       kind: 'INTAKE_FORM',
       itemId: fixture('template'),
       url,
-      embedCode: publicEmbedCode(url, 'Annual Tax Intake'),
+      embedCode: publicIntakeEmbedCode(url, 'Annual Tax Intake'),
+      buttonCode: publicButtonCode(url, 'Annual Tax Intake'),
+      portalEntryUrl: publicPortalEntryUrl(portal, `r55i-a-${run}`),
       state: 'HIDDEN',
     });
     expect(url).toMatch(/\/begin\/annual-tax$/);
@@ -1307,6 +1339,48 @@ describe('the public link (I3)', () => {
       404,
       'NOT_FOUND',
     );
+  });
+});
+
+describe('the records check (Review Two 18c)', () => {
+  it('counts templates, versions and assigned forms so they reconcile with the database', async () => {
+    const check = IntakeRecordsCheck.parse(
+      ok(await call('get', '/intake-forms/records-check', ownerA)),
+    );
+    const stored = await asOwner({ kind: 'business', businessId: firms.a }, async (tx) => ({
+      templates: await tx.intakeTemplate.count({ where: { businessId: firms.a } }),
+      versions: await tx.intakeForm.count({ where: { businessId: firms.a } }),
+      intakes: await tx.intake.count({ where: { businessId: firms.a } }),
+      archived: await tx.intake.count({ where: { businessId: firms.a, status: 'ARCHIVED' } }),
+    }));
+    expect(check.totals).toMatchObject({
+      templates: stored.templates,
+      versions: stored.versions,
+      assignedForms: stored.intakes,
+      archivedAssignedForms: stored.archived,
+      deleted: null,
+      reconciled: true,
+    });
+    expect(check.totals.archivedAssignedForms).toBeGreaterThan(0);
+    expect(check.totals.liveTemplates + check.totals.archivedTemplates).toBe(
+      check.totals.templates,
+    );
+    const mine = check.templates.find((t) => t.id === ids.template)!;
+    expect(mine.versions.map((v) => v.version)).toEqual([1]);
+    expect(mine.assigned).toBe(mine.versions.reduce((n, v) => n + v.assigned, 0));
+    // Every record's identity holds together in the fixture.
+    expect(check.issues).toEqual([]);
+    // Counts and ids only: no client address in the answer.
+    expect(JSON.stringify(check)).not.toContain('@');
+  });
+
+  it('is for the Owner and Admin only, and another firm sees only its own', async () => {
+    expectError(await call('get', '/intake-forms/records-check', people.staffA), 403, 'FORBIDDEN');
+    const theirs = IntakeRecordsCheck.parse(
+      ok(await call('get', '/intake-forms/records-check', ownerB, undefined, 'b')),
+    );
+    expect(theirs.totals).toMatchObject({ assignedForms: 0, versions: 0, reconciled: true });
+    expect(theirs.templates.map((t) => t.id)).not.toContain(ids.template);
   });
 });
 

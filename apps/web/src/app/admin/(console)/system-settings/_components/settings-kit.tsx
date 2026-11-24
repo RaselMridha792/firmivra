@@ -270,7 +270,7 @@ const LINKS: { label: string; text: string; href: string; icon: Icon }[] = [
   {
     label: 'View Audit Logs',
     text: 'See recent changes to system settings',
-    href: '/audit-security?view=policies',
+    href: '/audit-security?view=settings',
     icon: ClockCounterClockwise,
   },
 ];

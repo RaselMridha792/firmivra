@@ -282,7 +282,7 @@ export class TeamInviteService {
 
   // ---------- Helpers ----------
 
-  private async sent(userId: string, channel: string, send: () => Promise<void>) {
+  private async sent(userId: string, channel: string, send: () => Promise<unknown>) {
     try {
       await send();
       return true;

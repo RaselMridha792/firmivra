@@ -206,7 +206,7 @@ export function TeamScreen() {
     <div data-testid="team-screen" className="flex min-w-0 flex-col gap-5">
       <PageHeader
         title="Team"
-        subtitle="Manage your team, roles, and access. Empowering people to keep Firmivra running smoothly."
+        subtitle="Manage team members, departments, roles, reporting relationships, and access permissions."
         actions={
           <>
             <Button variant="outline" onClick={() => setMessage({ variant: 'channels' })}>

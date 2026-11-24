@@ -83,6 +83,21 @@ export function mockNoView(): ReadonlySet<string> {
   }
 }
 
+/** Modules whose EDIT grant a mock member has lost through a custom role or member override. */
+export function mockNoEdit(): ReadonlySet<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    return new Set(
+      (window.sessionStorage.getItem('fv-mock-no-edit') ?? '')
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 /** Waits like a real request, so loading states show in mock mode too. */
 export const mockDelay = (ms = 250) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 

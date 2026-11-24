@@ -856,8 +856,7 @@ export function checkMessage(input: SendTeamMessage): MessageFieldErrors {
   const errors: MessageFieldErrors = {};
   if (input.audience !== 'COMPANY' && input.targets.length === 0)
     errors.targets = 'Choose at least one recipient';
-  if (!input.subject.trim()) errors.subject = 'Enter a subject';
-  else if (input.subject.trim().length > 150) errors.subject = 'Use 150 characters or fewer';
+  if (input.subject.trim().length > 150) errors.subject = 'Use 150 characters or fewer';
   const length = plainText(input.body).length;
   if (length === 0) errors.body = 'Write a message';
   else if (length > MESSAGE_LIMIT)
