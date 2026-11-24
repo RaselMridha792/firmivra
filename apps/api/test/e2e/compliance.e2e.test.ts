@@ -2937,15 +2937,20 @@ describe('recurring definitions', () => {
     }
   });
 
-  it('Audit Log R03: a changed description is logged old to new, not just "changed"', async () => {
+  it('Audit Log R03: a changed description is logged old to new, and updating with a blank description clears it to null', async () => {
     const r = await mk();
     const patch = (body: object) =>
       call('patch', `/compliance/recurrences/${r.id}`, people.ownerA, body);
     expect((await patch({ description: 'Fake first words' })).status).toBe(200);
-    expect((await patch({ description: 'Fake second words' })).status).toBe(200);
+    expect((await patch({ description: '   ' })).status).toBe(200);
+    const updated = exact(
+      ComplianceRecurrence,
+      await call('get', `/compliance/recurrences/${r.id}`, people.ownerA),
+    );
+    expect(updated.description).toBeNull();
     const rows = await auditMetadata(r.id, 'compliance.recurrence.updated');
     const last = rows.at(-1)?.['changes'] as Record<string, unknown>;
-    expect(last['description']).toEqual({ from: 'Fake first words', to: 'Fake second words' });
+    expect(last['description']).toEqual({ from: 'Fake first words', to: null });
   });
 
   it('edits a definition, checking the whole of it', async () => {

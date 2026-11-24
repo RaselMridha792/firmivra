@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
 import { FederalClassification } from './classifications.js';
-import { SearchText, text } from '../clients/text.js';
+import { clearable, SearchText, text } from '../clients/text.js';
 import {
   ApplicabilityDecision,
   ApplicabilityOutcome,
@@ -121,7 +121,7 @@ function checkShape(b: Shape, ctx: z.RefinementCtx) {
 const recurrenceFields = {
   name: text(200),
   type: DeadlineType,
-  description: text(2000, 'many').nullable().optional(),
+  description: clearable(text(2000, 'many')),
   agency: text(120).nullable().optional(),
   relatedForm: text(60).nullable().optional(),
   jurisdiction: JurisdictionLevel.nullable().optional(),
