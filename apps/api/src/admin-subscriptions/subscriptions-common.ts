@@ -252,7 +252,6 @@ export async function loadSubscriptions(
     const facts = factsOf(sub);
     const prices = pricesOf(plan, facts);
     const seatsUsed = usedOf.get(sub.businessId) ?? null;
-    const startedOn = dayOf(sub.startedAt ?? sub.trialStartedAt ?? sub.createdAt);
     const row: SubscriptionRow = {
       id: sub.id,
       firm: {
@@ -280,8 +279,6 @@ export async function loadSubscriptions(
       monthlyCents: prices.monthlyCents,
       creditCents: creditOf.get(sub.businessId) ?? 0,
       autoRenew: sub.autoRenew,
-      startedOn,
-      renewalOn: dayOrNull(sub.currentPeriodEnd),
       nextBillingOn: nextBillingOf(facts),
       accessEndsOn: accessEndsOf(facts),
       trialEndsOn: sub.status === 'TRIAL' ? facts.trialEndsOn : null,
@@ -289,6 +286,7 @@ export async function loadSubscriptions(
       createdAt: sub.createdAt.toISOString(),
       updatedAt: sub.updatedAt.toISOString(),
     };
+    const startedOn = dayOf(sub.startedAt ?? sub.trialStartedAt ?? sub.createdAt);
     const endedOn =
       sub.status === 'CANCELLED'
         ? dayOf(sub.closedAt ?? sub.updatedAt)

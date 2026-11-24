@@ -61,23 +61,11 @@ const FIT_CLASSES = [
 
 /** Next billing, or when a non-renewing subscription ends, or when an ended one ended. */
 export function NextBilling({ row }: { row: SubscriptionListItem }) {
-  if (row.endsOn && !row.autoRenew)
-    return (
-      <span>
-        Ends{' '}
-        <time dateTime={row.endsOn} className="whitespace-nowrap">
-          {dayText(row.endsOn)}
-        </time>
-      </span>
-    );
   if (row.nextBillingOn)
     return (
-      <span>
-        {row.autoRenew ? 'Renews' : 'Bills'}{' '}
-        <time dateTime={row.nextBillingOn} className="whitespace-nowrap">
-          {dayText(row.nextBillingOn)}
-        </time>
-      </span>
+      <time dateTime={row.nextBillingOn} className="whitespace-nowrap">
+        {dayText(row.nextBillingOn)}
+      </time>
     );
   if (!row.endsOn) return <span className="text-muted">—</span>;
   const ended = row.status === 'CANCELLED' || row.status === 'CLOSED' || row.status === 'EXPIRED';

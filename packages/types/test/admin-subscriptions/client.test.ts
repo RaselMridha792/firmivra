@@ -76,8 +76,6 @@ const row = (): SubscriptionRow => ({
   monthlyCents: 20_800,
   creditCents: 0,
   autoRenew: true,
-  startedOn: '2026-03-05',
-  renewalOn: '2026-11-05',
   nextBillingOn: '2026-11-05',
   accessEndsOn: null,
   trialEndsOn: null,

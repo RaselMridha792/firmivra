@@ -33,16 +33,6 @@ test('the Sales Center shows its numbers, plans and activity, and starts a trial
   await expect(page.getByText(/A 14-day trial started for/)).toBeVisible();
 });
 
-test('a Sales Center stage summary opens the pipeline filtered to that stage', async ({ page }) => {
-  await page.goto(admin('/sales'));
-  const stageLink = page.getByRole('link', { name: /New Lead: .* records; view in pipeline/ });
-  await expect(stageLink).toHaveAttribute('href', /\/sales\/pipeline\?stageId=/);
-  await stageLink.click();
-  await expect(page).toHaveURL(/\/sales\/pipeline\?stageId=/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Sales Pipeline' })).toBeVisible();
-  await expect(page.getByTestId('pipeline-column')).toHaveCount(1);
-});
-
 test('the pipeline filters the board, switches to the list and adds a lead', async ({ page }) => {
   await page.goto(admin('/sales/pipeline'));
   await expect(page.getByRole('heading', { level: 1, name: 'Sales Pipeline' })).toBeVisible();

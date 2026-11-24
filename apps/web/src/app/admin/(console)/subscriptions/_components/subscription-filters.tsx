@@ -28,16 +28,8 @@ export interface Filters {
   cycle: BillingCycle | '';
   /** The reporting period; null is this month. */
   period: DateRange | null;
-  dateBy: 'START' | 'RENEWAL' | 'NEXT_BILLING' | '';
 }
-export const NO_FILTERS: Filters = {
-  search: '',
-  plan: '',
-  status: '',
-  cycle: '',
-  period: null,
-  dateBy: '',
-};
+export const NO_FILTERS: Filters = { search: '', plan: '', status: '', cycle: '', period: null };
 
 /** The statuses, then the KPI cards' groups. */
 const statusOptions = [{ value: '', label: 'All Statuses' }, ...STATUS_FILTERS];
@@ -60,14 +52,12 @@ export function SubscriptionFilters({
   onDraft,
   onApply,
   onClear,
-  onReversedChange,
 }: {
   draft: Filters;
   thisMonth: DateRange;
   onDraft: (filters: Filters) => void;
   onApply: () => void;
   onClear: () => void;
-  onReversedChange?: (message: string | null) => void;
 }) {
   // The plans are the API's (meta), in display order; until they load only "All Plans".
   const meta = useApiQuery([KEY, 'meta'], () => adminSubscriptions.meta());
@@ -144,13 +134,6 @@ export function SubscriptionFilters({
             <DateRangePicker
               label="Reporting period"
               value={draft.period ?? thisMonth}
-              strict
-              reversedMessage="Choose a start date on or before the end date."
-              onReversedChange={(reversed) =>
-                onReversedChange?.(
-                  reversed ? 'Choose a start date on or before the end date.' : null,
-                )
-              }
               onChange={(period) => onDraft({ ...draft, period })}
             />
           </div>
@@ -159,25 +142,6 @@ export function SubscriptionFilters({
             label="Reset the period to this month"
             className="mb-1"
             onClick={() => onDraft({ ...draft, period: null })}
-          />
-        </div>
-        <div className="w-full sm:w-48">
-          <Select
-            label="Filter table by"
-            hideLabel
-            options={[
-              { value: '', label: 'Table date: In period' },
-              { value: 'START', label: 'Start date' },
-              { value: 'RENEWAL', label: 'Renewal date' },
-              { value: 'NEXT_BILLING', label: 'Next billing date' },
-            ]}
-            value={draft.dateBy}
-            onChange={(event) =>
-              onDraft({
-                ...draft,
-                dateBy: event.target.value as Filters['dateBy'],
-              })
-            }
           />
         </div>
         <div className="ml-auto flex items-center gap-2">

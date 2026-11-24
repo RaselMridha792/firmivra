@@ -689,13 +689,12 @@ function CreditNoteForm({
               onChange={(event) => set({ keepAvailable: event.target.checked })}
             />
             <p className="pl-8 text-sm text-muted">
-              If not selected, any amount left after applying the credit is refunded. If you do not
-              choose an invoice, the full credit is refunded when issued.
+              If not selected, the credit will be marked as refunded or closed after applying.
               {draft.keepAvailable
                 ? ''
                 : invoice
-                  ? ` The credit is applied to ${invoice.number} and the remainder is refunded.`
-                  : ''}
+                  ? ` On issue it is applied to ${invoice.number} and any rest is refunded.`
+                  : ' On issue the whole credit is refunded.'}
             </p>
           </div>
         </section>

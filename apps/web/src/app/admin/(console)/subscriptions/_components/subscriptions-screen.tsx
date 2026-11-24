@@ -87,22 +87,11 @@ export function SubscriptionsScreen() {
     plan: applied.plan,
     status: applied.status,
     cycle: applied.cycle,
-    dateBy: applied.dateBy || undefined,
     from,
     to,
   };
   const list = useApiQuery(
-    [
-      KEY,
-      'list',
-      applied.search,
-      applied.plan,
-      applied.status,
-      applied.cycle,
-      from,
-      to,
-      applied.dateBy,
-    ],
+    [KEY, 'list', applied.search, applied.plan, applied.status, applied.cycle, from, to],
     () => adminSubscriptions.subscriptions(query),
   );
   const stats = useApiQuery([KEY, 'stats', from, to], () => adminSubscriptions.stats({ from, to }));
@@ -118,7 +107,6 @@ export function SubscriptionsScreen() {
   const support = rows.find((row) => row.supportViewUntil);
 
   function apply() {
-    if (periodError) return;
     const period = draft.period;
     if (period && (!period.from || !period.to || period.from > period.to)) {
       setPeriodError('Choose a start date on or before the end date.');
@@ -246,7 +234,6 @@ export function SubscriptionsScreen() {
           onDraft={setDraft}
           onApply={apply}
           onClear={clear}
-          onReversedChange={setPeriodError}
         />
         {periodError ? (
           <p role="alert" className="text-sm text-danger">

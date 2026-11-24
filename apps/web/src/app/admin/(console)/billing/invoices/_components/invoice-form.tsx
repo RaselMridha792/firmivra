@@ -911,7 +911,7 @@ function InvoiceForm({
                 onChange={(event) => set({ sendNow: event.target.checked })}
               />
               <Checkbox
-                label="Allow online payment (pay by link)"
+                label="Allow online payment (AutoPay)"
                 checked={draft.allowOnlinePayment}
                 onChange={(event) => set({ allowOnlinePayment: event.target.checked })}
               />

@@ -34,7 +34,6 @@ import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { ANNUAL_TAX_FORM, type UploadTicket } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
-import { SubscriptionTrialExpiryJob } from '../../src/admin-subscriptions/subscription-trial-expiry.job.js';
 import { WaitlistJob } from '../../src/appointments/waitlist.job.js';
 import { AutomationJob } from '../../src/automations/automation.job.js';
 import { BeginOnlineSweep } from '../../src/begin-online/begin-online-sweep.js';
@@ -636,14 +635,12 @@ function timedJobs(businessIds: string[]): [string, () => Promise<unknown>][] {
     ['e-sign lifecycle', () => job(EsignLifecycleJob).run({ now, businessIds })],
     ['location actions', () => job(LocationActionsJob).run({ businessIds })],
     ['platform rollups', () => job(PlatformRollupJob).run({ now, businessIds })],
-    ['subscription trial expiry', () => job(SubscriptionTrialExpiryJob).run({ now })],
     ['firm keys', () => job(FirmKeyJob).sweep()],
   ];
 }
 
 /** The source files of every timed job this proof runs (relative to apps/api/src). */
 const JOB_FILES = [
-  'admin-subscriptions/subscription-trial-expiry.job.ts',
   'appointments/waitlist.job.ts',
   'automations/automation.job.ts',
   'begin-online/begin-online-sweep.ts',

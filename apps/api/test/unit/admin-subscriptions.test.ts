@@ -309,7 +309,6 @@ describe('the table', () => {
     expect(matchesStatus(soon, 'RENEWING_SOON', TODAY)).toBe(true);
     expect(renewsSoon(row({ id: 'b', nextBillingOn: '2026-11-20' }), TODAY)).toBe(false);
     expect(matchesStatus(row({ id: 'c', status: 'NON_RENEWING' }), 'PAYING', TODAY)).toBe(true);
-    expect(matchesStatus(row({ id: 'past-due', status: 'PAST_DUE' }), 'PAYING', TODAY)).toBe(false);
     expect(matchesStatus(row({ id: 'd', status: 'TRIAL' }), 'PAYING', TODAY)).toBe(false);
     expect(matchesStatus(row({ id: 'e', status: 'TRIAL' }), 'TRIAL', TODAY)).toBe(true);
   });

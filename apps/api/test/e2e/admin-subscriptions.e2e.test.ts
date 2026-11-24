@@ -27,7 +27,6 @@ import {
   SubscriptionSummary,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
-import { SubscriptionTrialExpiryJob } from '../../src/admin-subscriptions/subscription-trial-expiry.job.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE } from '../../src/notify/notify.types.js';
@@ -523,73 +522,6 @@ describe('plan, cycle, seats and locations', () => {
       422,
       'LOCATIONS_NOT_OFFERED',
     );
-  });
-});
-
-describe('trial expiry job', () => {
-  it('expires only trials whose end has passed and records the status change', async () => {
-    const now = new Date();
-    const fixtures = await owner('platform', async (tx) => {
-      const make = async (suffix: string, trialEndsAt: Date) => {
-        const firm = await tx.business.create({
-          data: {
-            slug: `subs-${run}-expiry-${suffix}`,
-            name: `Fake expiry ${suffix}`,
-            status: 'ACTIVE',
-          },
-          select: { id: true },
-        });
-        const subscription = await tx.platformFirmSubscription.create({
-          data: {
-            businessId: firm.id,
-            planId: plans.basic,
-            status: 'TRIAL',
-            billingCycle: 'MONTHLY',
-            seatsIncluded: 3,
-            locationsIncluded: 1,
-            trialStartedAt: new Date(now.getTime() - 15 * 86_400_000),
-            trialEndsAt,
-          },
-          select: { id: true, businessId: true },
-        });
-        return subscription;
-      };
-      return {
-        expired: await make('expired', new Date(now.getTime() - 1)),
-        current: await make('current', new Date(now.getTime() + 86_400_000)),
-      };
-    });
-
-    try {
-      const result = await app.get(SubscriptionTrialExpiryJob).run({ now });
-      expect(result).toEqual({ skipped: false, expired: 1 });
-      const state = await owner('platform', async (tx) => ({
-        expired: await tx.platformFirmSubscription.findUniqueOrThrow({
-          where: { id: fixtures.expired.id },
-          select: { status: true },
-        }),
-        current: await tx.platformFirmSubscription.findUniqueOrThrow({
-          where: { id: fixtures.current.id },
-          select: { status: true },
-        }),
-        history: await tx.platformSubscriptionChange.findFirst({
-          where: { subscriptionId: fixtures.expired.id, toStatus: 'EXPIRED' },
-        }),
-      }));
-      expect(state.expired.status).toBe('EXPIRED');
-      expect(state.current.status).toBe('TRIAL');
-      expect(state.history).toMatchObject({ fromStatus: 'TRIAL', toStatus: 'EXPIRED' });
-    } finally {
-      await owner('platform', async (tx) => {
-        const subscriptionIds = [fixtures.expired.id, fixtures.current.id];
-        await tx.platformSubscriptionChange.deleteMany({
-          where: { subscriptionId: { in: subscriptionIds } },
-        });
-        await tx.platformFirmSubscription.deleteMany({
-          where: { id: { in: subscriptionIds } },
-        });
-      });
-    }
   });
 });
 

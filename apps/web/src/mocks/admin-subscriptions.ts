@@ -228,7 +228,7 @@ export const STATUS_LABELS: Record<SubscriptionStatus, string> = {
 export const CYCLE_LABELS: Record<BillingCycle, string> = { MONTHLY: 'Monthly', ANNUAL: 'Annual' };
 
 /** Statuses that count towards MRR: paid and not ended (Past Due is still a live subscription). */
-export const PAYING: readonly SubscriptionStatus[] = ['ACTIVE', 'NON_RENEWING'];
+export const PAYING: readonly SubscriptionStatus[] = ['ACTIVE', 'PAST_DUE', 'NON_RENEWING'];
 /** Statuses where plan, seat and add-on changes are allowed. */
 export const CHANGEABLE: readonly SubscriptionStatus[] = [
   'TRIAL',
@@ -422,7 +422,6 @@ export interface SubscriptionQuery {
   plan?: PlanId | '';
   status?: StatusFilter | '';
   cycle?: BillingCycle | '';
-  dateBy?: 'START' | 'RENEWAL' | 'NEXT_BILLING';
   /** The reporting period (YYYY-MM-DD); empty means this month. */
   from?: string;
   to?: string;
@@ -1842,17 +1841,8 @@ export const adminSubscriptions = {
                   : status === 'ENDED'
                     ? row.status === 'CANCELLED' || row.status === 'CLOSED'
                     : row.status === status)) &&
-          (query.dateBy
-            ? (() => {
-                const day =
-                  query.dateBy === 'START'
-                    ? row.startedOn
-                    : query.dateBy === 'RENEWAL'
-                      ? (row.paidThroughOn ?? row.endsOn)
-                      : row.nextBillingOn;
-                return day !== null && day >= period.from && day <= period.to;
-              })()
-            : row.startedOn <= period.to && (!row.endedOn || row.endedOn >= period.from)),
+          row.startedOn <= period.to &&
+          (!row.endedOn || row.endedOn >= period.from),
       )
       .map((row) => listItem(row, today));
     return { items, total: items.length, all: rows.length };

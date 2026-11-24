@@ -322,15 +322,6 @@ export function BillingDashboard() {
               setMore(NO_MORE);
               setPage(1);
             }}
-            onReset={() => {
-              setSearch('');
-              setStatus('');
-              setPeriod('all');
-              setDraft(NO_MORE);
-              setMore(NO_MORE);
-              setPage(1);
-            }}
-            resetLabel="Clear all"
             more={
               <>
                 <FilterGroup title="Client">

@@ -160,9 +160,6 @@ test('Credit Notes shows totals and refunds the credit left on a note', async ({
 test('Create Credit Note checks the form, totals live and issues the note', async ({ page }) => {
   await page.goto(admin('/billing/credit-notes/new'));
   await expect(page.getByTestId('page-title')).toHaveText('Create Credit Note');
-  await expect(
-    page.getByText(/If not selected, any amount left after applying the credit is refunded/),
-  ).toBeVisible();
   await page.getByRole('button', { name: 'Issue Credit Note' }).click();
   await expect(page.locator('#credit-customer')).toHaveAttribute('aria-invalid', 'true');
   await expect(page.locator('#credit-reason')).toHaveAttribute('aria-invalid', 'true');

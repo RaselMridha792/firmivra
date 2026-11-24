@@ -39,7 +39,6 @@ export function Sidebar({
   brand,
   onNavigate,
   collapsed = false,
-  collapsible = false,
   onToggle,
 }: {
   /** The firm workspace: firm logo and motto, the blue pill for the open page, no user block. */
@@ -51,12 +50,10 @@ export function Sidebar({
   onNavigate?: () => void;
   /** The firm menu as icons alone, each named on hover and focus (Overview guide 18). */
   collapsed?: boolean;
-  /** Whether this sidebar can collapse without a firm brand. */
-  collapsible?: boolean;
   /** Shows the collapse button on the sidebar's edge. */
   onToggle?: () => void;
 }) {
-  const slim = Boolean((brand || collapsible) && collapsed);
+  const slim = Boolean(brand && collapsed);
   // The name of the icon under the pointer or focus, beside the slim menu (outside its scroller).
   const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
   const showTip = (label: string, el: HTMLElement) => {
@@ -139,9 +136,9 @@ export function Sidebar({
     <nav
       aria-label="Main"
       data-collapsed={slim ? 'true' : undefined}
-      className={`relative flex h-full flex-col bg-navigation text-on-navigation transition-[width] ${brand ? (slim ? 'w-18' : 'w-61.5') : slim ? 'w-18' : 'w-72'}`}
+      className={`relative flex h-full flex-col bg-navigation text-on-navigation transition-[width] ${brand ? (slim ? 'w-18' : 'w-61.5') : 'w-72'}`}
     >
-      {onToggle && (brand || collapsible) ? (
+      {onToggle && brand ? (
         <button
           type="button"
           onClick={() => {
@@ -186,12 +183,6 @@ export function Sidebar({
               className={`block h-auto w-full object-contain ${slim ? 'max-h-12 object-center' : 'max-h-[100px] object-left'}`}
             />
           ) : null}
-        </div>
-      ) : slim ? (
-        <div className="flex shrink-0 justify-center px-2 pb-4 pt-4" aria-label="Firmivra">
-          <span className="flex size-10 items-center justify-center rounded-lg bg-brand-500 text-xl font-bold text-white">
-            F
-          </span>
         </div>
       ) : (
         <div className="px-6 pb-4 pt-3">

@@ -923,7 +923,7 @@ const PAGE = 100;
 
 type ListFilters = Pick<
   SubscriptionsQuery,
-  'search' | 'planId' | 'status' | 'billingCycle' | 'from' | 'to' | 'dateBy'
+  'search' | 'planId' | 'status' | 'billingCycle' | 'from' | 'to'
 >;
 
 /** Both days or neither (the API's current month). */
@@ -945,7 +945,6 @@ function listQuery(query: SubscriptionQuery): ListFilters | null {
     planId: plan?.id,
     status,
     billingCycle: query.cycle || undefined,
-    dateBy: query.dateBy || undefined,
     ...periodOf(query),
   };
 }
