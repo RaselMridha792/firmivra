@@ -26,9 +26,10 @@ import {
 } from '@phosphor-icons/react';
 import { useOriginNavigate } from '../../../../../components/origin-link';
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { ACCOUNT_TYPES, dateText, formatPhone } from './client-parts';
+import { useFirmZone, zonedDay } from '../../../../../lib/firm-zone';
+import { ACCOUNT_TYPES, formatPhone } from './client-parts';
 import { activityText, money, PAGE_SIZES, shortName, STAGES, timeText } from './list-parts';
 
 export type RowAction = 'ARCHIVE' | 'RESTORE';
@@ -141,8 +142,10 @@ function Balance({ client }: { client: ClientListRow }) {
 }
 
 function LastActivity({ at }: { at: string | null }) {
+  const timeZone = useFirmZone();
+  const [now] = useState(() => new Date());
   if (!at) return <span className="text-muted">—</span>;
-  const { day, time } = activityText(at);
+  const { day, time } = activityText(at, now, timeZone);
   return (
     <time dateTime={at} className="flex flex-col leading-tight text-muted">
       <span>{day}</span>
@@ -152,6 +155,7 @@ function LastActivity({ at }: { at: string | null }) {
 }
 
 function NextAppointment({ at }: { at: string | null }) {
+  const timeZone = useFirmZone();
   if (!at) {
     return (
       <span className="whitespace-nowrap [&>span]:!rounded-md [&>span]:!px-2 [&>span]:!py-0.5 [&>span]:!leading-4 [&>span]:!font-medium">
@@ -161,8 +165,8 @@ function NextAppointment({ at }: { at: string | null }) {
   }
   return (
     <time dateTime={at} className="flex flex-col leading-tight whitespace-nowrap text-text">
-      <span>{dateText(at)}</span>
-      <span>{timeText(at)}</span>
+      <span>{zonedDay(at, timeZone)}</span>
+      <span>{timeText(at, timeZone)}</span>
     </time>
   );
 }

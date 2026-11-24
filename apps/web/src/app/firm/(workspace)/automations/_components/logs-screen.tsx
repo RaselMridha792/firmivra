@@ -28,7 +28,7 @@ import {
 import Link from 'next/link';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { useFirmZone } from '../../../../../lib/firm-zone';
+import { useFirmZone, zonedTime } from '../../../../../lib/firm-zone';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { SettingsDialog } from './automation-dialogs';
@@ -422,6 +422,7 @@ function LogDetails({
   onRerun: () => void;
   failed: boolean;
 }) {
+  const zone = useFirmZone();
   const [tab, setTab] = useState<'log' | 'config' | 'related'>('log');
   const q = useApiQuery([...AUTOMATIONS_KEY, 'run', id ?? 'none'], async () =>
     id ? api.automations.runDetail(id) : null,
@@ -513,7 +514,7 @@ function LogDetails({
                   {d.actions.map((a) => (
                     <tr key={a.actionKey} className="border-t border-divider">
                       <td className="px-3 py-2 whitespace-nowrap">
-                        {a.startedAt ? new Date(a.startedAt).toLocaleTimeString('en-US') : '—'}
+                        {a.startedAt ? zonedTime(a.startedAt, zone) : '—'}
                       </td>
                       <td className="px-3 py-2">{a.label}</td>
                       <td className="px-3 py-2">

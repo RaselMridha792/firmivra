@@ -2,6 +2,7 @@
 import { INVOICE_ERRORS, type InvoiceHistoryKind, type InvoiceListItem } from '@firmivra/types';
 import { Button, Modal, Textarea } from '@firmivra/ui';
 import { useState } from 'react';
+import { useFirmZone, zonedWhen } from '../../../../../lib/firm-zone';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -95,6 +96,7 @@ const LABEL: Record<string, string> = {
 
 /** The invoice page's History card: the firm's notes and logged activity, newest first. */
 export function InvoiceHistoryCard({ invoiceId }: { invoiceId: string }) {
+  const timeZone = useFirmZone();
   const q = useApiQuery([...INV_KEY, 'history', invoiceId], () => api.invoices.history(invoiceId));
   const items = q.data?.items ?? [];
   return (
@@ -115,10 +117,7 @@ export function InvoiceHistoryCard({ invoiceId }: { invoiceId: string }) {
               <p className="text-sm text-heading">{i.body}</p>
               <p className="text-xs text-muted">
                 {LABEL[i.type] ?? i.type} · {i.actor?.name ?? 'Firmivra'} ·{' '}
-                {new Date(i.createdAt).toLocaleString('en-US', {
-                  dateStyle: 'medium',
-                  timeStyle: 'short',
-                })}
+                {zonedWhen(i.createdAt, timeZone)}
               </p>
             </li>
           ))}

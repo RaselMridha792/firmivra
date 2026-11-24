@@ -22,6 +22,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
+import { useFirmZone, zonedWhen } from '../../../../../lib/firm-zone';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -299,6 +300,7 @@ const ACTION_WORD: Record<string, string> = {
 
 /** /invoices/recurring/[id]: one recurring invoice. */
 export function RecurringDetailScreen({ id }: { id: string }) {
+  const timeZone = useFirmZone();
   const { role } = useFirm();
   const canChange = role === 'OWNER' || role === 'ADMIN';
   const qc = useQueryClient();
@@ -462,7 +464,7 @@ export function RecurringDetailScreen({ id }: { id: string }) {
         <ul className="flex flex-col gap-1 text-sm text-heading">
           {d.history.map((h, i) => (
             <li key={`${h.at}${i}`}>
-              {ACTION_WORD[h.action] ?? h.action} · {new Date(h.at).toLocaleString('en-US')}
+              {ACTION_WORD[h.action] ?? h.action} · {zonedWhen(h.at, timeZone)}
               {h.by ? ` · ${h.by}` : ''}
             </li>
           ))}

@@ -65,7 +65,12 @@ export function dateAndTime(iso: string, timeZone: string): [string, string] {
   const d = new Date(iso);
   return [
     d.toLocaleDateString('en-US', { timeZone, month: 'short', day: 'numeric', year: 'numeric' }),
-    d.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit' }),
+    d.toLocaleTimeString('en-US', {
+      timeZone,
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    }),
   ];
 }
 
