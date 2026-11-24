@@ -610,6 +610,7 @@ export const RecordSignUpChecksRequest = z.strictObject({
   identityResult: SignupIdentityResult,
   /** The client's permission and what it covers; null when not given. */
   permissionScope: SignupPermissionScope.nullable(),
+  ...SignUpWrite,
 });
 export type RecordSignUpChecksRequest = z.input<typeof RecordSignUpChecksRequest>;
 
