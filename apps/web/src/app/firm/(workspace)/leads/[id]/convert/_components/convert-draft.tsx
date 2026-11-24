@@ -36,6 +36,7 @@ export const CARRY_OVER_KEYS: CarryOverKey[] = [
   'intakeForms',
   'tags',
   'attribution',
+  'campaign',
 ];
 
 /** The draft a lead starts with: its own details, services and assigned staff; carry everything. */

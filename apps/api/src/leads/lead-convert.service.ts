@@ -420,6 +420,7 @@ export class LeadConvertService {
           tasks: 0,
           documents: 0,
           intakeForms: 0,
+          campaigns: 0,
         };
         if (carry.appointments) {
           // P4-1: the lead's own appointments take the client (the lead stays on each).
@@ -482,6 +483,40 @@ export class LeadConvertService {
             intakeId: firstIntake?.id ?? null,
             taxYear: lead.taxYear,
           });
+        }
+        if (carry.campaign) {
+          // Row 17: carry the lead's campaign audience membership forward to the client.
+          const leadCampaigns = await tx.communicationAudienceEntry.findMany({
+            where: { businessId, kind: 'LEAD', leadId: id },
+            select: { communicationId: true },
+          });
+          const campaignIds = [...new Set(leadCampaigns.map((e) => e.communicationId))];
+          if (campaignIds.length > 0) {
+            // Only campaigns that have not gone out yet: a SENT campaign keeps its
+            // audience as history, the client does not replace the lead there.
+            const activeCampaigns = await tx.communication.findMany({
+              where: {
+                businessId,
+                id: { in: campaignIds },
+                archivedAt: null,
+                status: 'DRAFT',
+              },
+              select: { id: true },
+            });
+            const activeCampaignIds = activeCampaigns.map((c) => c.id);
+            if (activeCampaignIds.length > 0) {
+              await tx.communicationAudienceEntry.createMany({
+                data: activeCampaignIds.map((communicationId) => ({
+                  businessId,
+                  communicationId,
+                  kind: 'CLIENT' as const,
+                  clientId,
+                })),
+                skipDuplicates: true,
+              });
+              carried.campaigns = activeCampaignIds.length;
+            }
+          }
         }
         const out = { clientId, engagementIds, inviteSent: false, carried };
         await tx.leadActivity.create({

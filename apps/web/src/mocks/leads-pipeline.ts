@@ -1452,6 +1452,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
             tasks: 0,
             documents: 0,
             intakeForms: 0,
+            campaigns: 0,
           },
         };
       }
@@ -1481,6 +1482,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
           tasks: c.tasks ? l.tasks.length : 0,
           documents: c.documents && l.profile.beginOnline ? 1 : 0,
           intakeForms: c.intakeForms && l.profile.beginOnline ? 1 : 0,
+          campaigns: 0,
         },
       };
     },

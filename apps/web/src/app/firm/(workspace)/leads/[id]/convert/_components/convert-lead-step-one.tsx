@@ -114,6 +114,13 @@ const CARRY_OVER = [
     tone: 'bg-success-soft text-success',
     label: 'Source / campaign attribution',
   },
+  {
+    id: 'campaign',
+    key: 'campaign' as const,
+    icon: UsersThree,
+    tone: 'bg-info-soft text-info',
+    label: 'Campaign audience (client stays in the lead’s campaigns)',
+  },
 ];
 
 const AFTER_CONVERSION = [

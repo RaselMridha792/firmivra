@@ -700,6 +700,7 @@ export const CarryOver = z.strictObject({
   intakeForms: z.boolean().default(true),
   tags: z.boolean().default(true),
   attribution: z.boolean().default(true),
+  campaign: z.boolean().default(true),
 });
 export type CarryOver = z.input<typeof CarryOver>;
 
@@ -742,6 +743,7 @@ export const ConvertLeadToClientResult = z.object({
     tasks: z.number().int(),
     documents: z.number().int(),
     intakeForms: z.number().int(),
+    campaigns: z.number().int(),
   }),
 });
 export type ConvertLeadToClientResult = z.infer<typeof ConvertLeadToClientResult>;
