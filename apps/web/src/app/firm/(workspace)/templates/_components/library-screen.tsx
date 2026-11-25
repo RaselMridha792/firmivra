@@ -23,7 +23,7 @@ import { pageOf, writeListQuery } from '../../../../../lib/list-query';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { TemplateMenu, UseTemplate } from './template-actions';
 import { LIBRARY_VIEW, UUID, viewOf } from './list-view';
-import { CategoriesDialog, ImportDialog, PreviewDialog } from './template-dialogs';
+import { CategoriesDialog, DialogLead, ImportDialog, PreviewDialog } from './template-dialogs';
 import { TemplateHelp } from './template-help';
 import {
   KindTile,
@@ -698,6 +698,9 @@ function TagDialog({ onClose, onApply }: { onClose: () => void; onApply: (tag: s
         </>
       }
     >
+      <DialogLead area="tags">
+        Tags group templates across kinds. A tag is 1 to 40 characters.
+      </DialogLead>
       <Input label="Tag" value={v} maxLength={40} onChange={(e) => setV(e.target.value)} />
     </Modal>
   );
