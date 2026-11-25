@@ -130,7 +130,7 @@ export function RulesTab() {
       label: 'On',
       cell: (r) => (
         <Toggle
-          label={`${r.name} is on`}
+          label={`${r.name} ${r.active ? 'is on' : 'is off'}`}
           checked={r.active}
           onChange={(active) => toggle.mutate({ id: r.id, active }, { onError: fail })}
         />
