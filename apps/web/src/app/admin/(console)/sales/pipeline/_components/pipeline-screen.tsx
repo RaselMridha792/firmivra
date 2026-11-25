@@ -135,11 +135,15 @@ function queryOf(filters: PipelineFilters, range: DateRange, search: string): Op
  * Sales Pipeline (docx §4–§12): KPI row, filters, the card and list views of one dataset, and
  * Recent Activity, Upcoming Appointments and Pipeline Analytics underneath.
  */
-export function PipelineScreen() {
+export function PipelineScreen({ initialStageId = '' }: { initialStageId?: string }) {
   const meta = useSalesMeta();
   const pipelines = usePipelines();
   const [pipelineChoice, setPipelineChoice] = useState<string | null>(null);
-  const [filters, setFilters] = useState<PipelineFilters>(NO_FILTERS);
+  const [filters, setFilters] = useState<PipelineFilters>(() =>
+    initialStageId
+      ? { ...NO_FILTERS, stageId: initialStageId, range: { from: '', to: '' } }
+      : NO_FILTERS,
+  );
   const [viewChoice, setViewChoice] = useState<SalesView | null>(null);
   const [adding, setAdding] = useState<{ mode: 'LEAD' | 'OPPORTUNITY'; stageId?: string } | null>(
     null,

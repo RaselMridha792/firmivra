@@ -47,10 +47,21 @@ test('the Billing dashboard lists invoices with totals, tabs, filters and quick 
   }
   await expect(page.getByTestId('kpi-invoiced')).toContainText('Across 4 invoices');
 
+  await page.getByRole('searchbox', { name: 'Search invoices' }).fill('Taylor');
+  await page.getByRole('combobox', { name: 'Status', exact: true }).selectOption('OVERDUE');
+  await page.getByRole('button', { name: 'Clear all' }).click();
+  await expect(page.getByRole('searchbox', { name: 'Search invoices' })).toHaveValue('');
+  await expect(page.getByRole('combobox', { name: 'Status', exact: true })).toHaveValue('');
+  await expect(rows).toHaveCount(10);
+
   await expect(page.getByRole('heading', { name: 'Quick Actions' })).toBeVisible();
   await expect(page.getByRole('link', { name: /Billing Settings/ })).toHaveAttribute(
     'href',
     '/billing/settings',
+  );
+  await expect(page.getByRole('link', { name: /View Reports/ })).toHaveAttribute(
+    'href',
+    '/reports/revenue',
   );
 });
 
@@ -72,6 +83,7 @@ test('a row menu records a payment on an open invoice', async ({ page }) => {
 test('Create Invoice checks the form, previews live and saves a draft', async ({ page }) => {
   await page.goto(admin('/billing/invoices/new'));
   await expect(page.getByTestId('page-title')).toHaveText('Create Invoice');
+  await expect(page.getByLabel('Allow online payment (pay by link)')).toBeVisible();
   await expect(page.locator('#invoice-number')).toHaveValue('INV-0027');
 
   await page.getByRole('button', { name: 'Save as Draft' }).click();

@@ -255,7 +255,7 @@ export function RecurringForm({
       </div>
       <div>
         <Checkbox
-          label="Allow online payment (AutoPay)"
+          label="Allow online payment (pay by link)"
           checked={online}
           onChange={(event) => setOnline(event.target.checked)}
         />
