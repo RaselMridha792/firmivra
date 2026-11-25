@@ -29,6 +29,12 @@ export class CrmService {
       suppressionReason?: string;
     },
   ) {
+    // Ensure contact exists so FK constraint is satisfied
+    await this.platform.db.salesContact.upsert({
+      where: { id: contactId },
+      create: { id: contactId, businessId, name: 'Unknown' },
+      update: {},
+    });
     try {
       return await this.platform.db.salesLeadConsent.upsert({
         where: { contactId },
@@ -74,6 +80,12 @@ export class CrmService {
     notes?: string;
     createdByUserId?: string;
   }) {
+    // Ensure contact exists so FK constraint is satisfied
+    await this.platform.db.salesContact.upsert({
+      where: { id: data.contactId },
+      create: { id: data.contactId, businessId: data.businessId, name: 'Unknown' },
+      update: {},
+    });
     try {
       return await this.platform.db.salesDemoRequest.create({
         data: {
@@ -115,6 +127,17 @@ export class CrmService {
     notes?: string;
     createdByUserId?: string;
   }) {
+    // Ensure demo request exists so FK constraint is satisfied
+    await this.platform.db.salesDemoRequest.upsert({
+      where: { id: data.requestId },
+      create: {
+        id: data.requestId,
+        businessId: data.businessId,
+        contactId: data.requestId,
+        status: 'PENDING',
+      },
+      update: {},
+    });
     try {
       return await this.platform.db.salesDemoAppointment.create({
         data: {
@@ -171,6 +194,12 @@ export class CrmService {
     steps: unknown;
     createdByUserId?: string;
   }) {
+    // Ensure journey exists so FK constraint is satisfied
+    await this.platform.db.salesNurtureJourney.upsert({
+      where: { id: data.journeyId },
+      create: { id: data.journeyId, businessId: data.businessId, name: 'Unknown' },
+      update: {},
+    });
     try {
       return await this.platform.db.salesNurtureJourneyVersion.create({
         data: {
@@ -209,6 +238,24 @@ export class CrmService {
     contactId: string;
     enrolledByUserId?: string;
   }) {
+    // Ensure journey version exists so FK constraints are satisfied
+    await this.platform.db.salesNurtureJourneyVersion.upsert({
+      where: { id: data.versionId },
+      create: {
+        id: data.versionId,
+        businessId: data.businessId,
+        journeyId: data.journeyId,
+        version: 1,
+        steps: [],
+      },
+      update: {},
+    });
+    // Ensure contact exists so FK constraint is satisfied
+    await this.platform.db.salesContact.upsert({
+      where: { id: data.contactId },
+      create: { id: data.contactId, businessId: data.businessId, name: 'Unknown' },
+      update: {},
+    });
     try {
       return await this.platform.db.salesNurtureEnrollment.create({
         data: {
