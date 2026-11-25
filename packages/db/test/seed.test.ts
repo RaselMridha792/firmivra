@@ -51,6 +51,8 @@ describe('seed', () => {
       // Tax Planning Review 2 (Nov 14): no plan history or firm resource until a firm acts.
       'tax_plan_events',
       'tax_planning_resources',
+      // Staff sign-off is recorded only after a member approves a finalized plan version.
+      'tax_plan_staff_approvals',
       'platform_firm_subscriptions',
       'platform_member_permission_overrides',
       // Stage B3: no subscription, so no subscription history (no backfill, change C).
@@ -112,13 +114,26 @@ describe('seed', () => {
       'firm_application_response_files',
       // Firm application response codes (Nov 10): none until an applicant opens a request's link.
       'firm_application_response_codes',
-      // Firm closure (Nov 10): no grant, log or exceptional-access request until a firm closes or a
-      // request is made.
+      // Firm closure (Nov 10) and Q32: no grant, code, log or exceptional-access request until a
+      // firm closes, a code is sent or a request is made.
       // Review 2 (R1's handoff, Nov 14): none until staff enter an account's opening balance.
       'bookkeeping_opening_balances',
       'firm_data_download_grants',
+      'firm_data_download_codes',
       'firm_data_download_log',
       'firm_exceptional_access_requests',
+      // Q36 task collaboration: acknowledgement and discussion rows appear only after task activity.
+      'task_acknowledgements',
+      'task_comments',
+      // Q35 CRM (Nov 25): no consent, journey, enrollment, step, demo request or appointment
+      // until the Super Admin team uses the CRM.
+      'sales_lead_consents',
+      'sales_nurture_journeys',
+      'sales_nurture_journey_versions',
+      'sales_nurture_enrollments',
+      'sales_nurture_executions',
+      'sales_demo_requests',
+      'sales_demo_appointments',
     ];
     const empty: string[] = [];
     for (const t of tables) {

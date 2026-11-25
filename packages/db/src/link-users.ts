@@ -250,13 +250,26 @@ export const HARNESS_PORTAL_CLIENT_EMAIL = 'success+qa-perf-client-b@simulator.a
  * fixture clients, whose account the link creates (Nov 14). `exact`: single further addresses the
  * firm takes, here only the harness's own client (Nov 18).
  */
-const CLIENT_FIRMS: Record<string, { domain: string; create: boolean; exact?: readonly string[] }> =
-  {
-    demo: { domain: '@demo.test', create: false },
-    'test-firm-b': { domain: '@example.test', create: true, exact: [HARNESS_PORTAL_CLIENT_EMAIL] },
-  };
+const CLIENT_FIRMS: Record<
+  string,
+  { domain: string; create: boolean; exact?: readonly string[]; takesEnvAddress?: boolean }
+> = {
+  demo: { domain: '@demo.test', create: false },
+  'test-firm-b': {
+    domain: '@example.test',
+    create: true,
+    exact: [HARNESS_PORTAL_CLIENT_EMAIL],
+    // One more exact address, from the task's own LINK_ALLOW_EXACT_EMAIL (Nov 19): the live-check
+    // harness's client on a real test inbox. The address is never in the repo.
+    takesEnvAddress: true,
+  },
+};
 
-export function parseLinkClient(json: string): LinkClientEntry {
+/**
+ * `allowExact`: the value of LINK_ALLOW_EXACT_EMAIL, one single address. It adds that exact address
+ * for Test Firm B only; no other firm, no wildcard, no list, nothing else.
+ */
+export function parseLinkClient(json: string, allowExact?: string): LinkClientEntry {
   let data: unknown;
   try {
     data = JSON.parse(json);
@@ -283,7 +296,21 @@ export function parseLinkClient(json: string): LinkClientEntry {
     );
   }
   const email = typeof accountEmail === 'string' ? accountEmail.trim().toLowerCase() : '';
-  const allowed = email.endsWith(rule.domain) || (rule.exact ?? []).includes(email);
+  let envAddress: string[] = [];
+  if (allowExact !== undefined && allowExact.trim() !== '') {
+    const one = allowExact.trim().toLowerCase();
+    // A single plain address: a pattern, a list or a stray character is refused (the value is
+    // never put in the message).
+    if (!EMAIL.test(one) || /[*,;\s]/.test(one)) {
+      throw new Error('LINK_ALLOW_EXACT_EMAIL must be one plain email address');
+    }
+    if (!rule.takesEnvAddress) {
+      throw new Error(`LINK_ALLOW_EXACT_EMAIL is not allowed for the firm ${firmSlug}`);
+    }
+    envAddress = [one];
+  }
+  const allowed =
+    email.endsWith(rule.domain) || [...(rule.exact ?? []), ...envAddress].includes(email);
   if (!EMAIL.test(email) || !allowed) {
     const also = rule.exact?.length ? ` or ${rule.exact.join(', ')}` : '';
     throw new Error(

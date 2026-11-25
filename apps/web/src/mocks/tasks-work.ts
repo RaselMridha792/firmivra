@@ -48,6 +48,7 @@ import { mockStaff } from './clients';
 import { taskEngagementRef } from './service-engagements';
 import { mockDeadlineRef } from './compliance';
 import { mockPlanRef } from './tax-planning';
+import { taxReturnMockOf, taxReturnMockRef } from './tax-return-workspace';
 
 /**
  * Mock data for `api.taskWork` (R55 contract, the Tasks module). Synthetic people and tasks only,
@@ -171,6 +172,7 @@ const rowFields = (t: Partial<TaskDetail> & { id: string; title: string }): Task
     service: null,
     deadline: null,
     taxPlan: null,
+    taxReturn: null,
     relatedText: null,
     priority: 'MEDIUM',
     status: 'OPEN',
@@ -510,6 +512,16 @@ function makeSeries(
 
 let stores: Map<string, Store> | undefined;
 
+export function mockTaskWorkStore(): TaskDetail[] {
+  stores ??= new Map();
+  let store = stores.get('full');
+  if (!store) {
+    store = seed(false);
+    stores.set('full', store);
+  }
+  return store.tasks;
+}
+
 /** `api.taskWork` in mock mode. */
 export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
   const role = options.role ?? 'OWNER';
@@ -658,6 +670,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     engagement: t.engagement,
     taxPlan: t.taxPlan,
     deadline: t.deadline,
+    taxReturn: t.taxReturn,
     relatedText: t.relatedText,
     progress: t.progress,
     startOn: t.startOn,
@@ -711,6 +724,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       engagementId?: string | null | undefined;
       taxPlanId?: string | null | undefined;
       deadlineId?: string | null | undefined;
+      taxReturnId?: string | null | undefined;
       relatedText?: string | null | undefined;
     },
   ) => {
@@ -731,6 +745,17 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     if (b.deadlineId !== undefined && b.deadlineId !== t.deadline?.id) {
       const d = b.deadlineId ? record(mockDeadlineRef(b.deadlineId), (r) => !r.archived) : null;
       t.deadline = d ? { id: d.id, name: d.name } : null;
+    }
+    // F03 (R56), as the API: one of the client's own returns (the returns the workspace opens).
+    if (b.taxReturnId !== undefined && b.taxReturnId !== t.taxReturn?.id) {
+      if (b.taxReturnId) {
+        if (!clientId) throw fail(400, 'VALIDATION_FAILED', 'Choose the client first');
+        const ref = taxReturnMockOf(clientId, b.taxReturnId)
+          ? taxReturnMockRef(b.taxReturnId)
+          : null;
+        if (!ref) throw fail(404, 'NOT_FOUND', 'Not found');
+        t.taxReturn = { id: b.taxReturnId, name: `Tax return ${ref.taxYear}` };
+      } else t.taxReturn = null;
     }
     if (b.relatedText !== undefined) t.relatedText = b.relatedText;
     if (t.engagement && t.relatedText)

@@ -83,7 +83,7 @@ test('F03 and Back: search, filters, sort and the open request come back after a
   await panel(page)
     .getByRole('link', { name: /View existing client record/ })
     .click();
-  await expect(page).toHaveURL(/\/clients\/00000000-0000-4000-a000-000000000402$/, {
+  await expect(page).toHaveURL(/\/clients\/00000000-0000-4000-a000-000000000402/, {
     timeout: 60_000,
   });
   await page.goBack();

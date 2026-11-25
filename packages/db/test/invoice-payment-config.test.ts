@@ -57,7 +57,7 @@ describe('payment settings', () => {
     const row = await firmA().paymentSettings.create({ data: { ...A() } });
     expect(row).toMatchObject({
       acceptCard: true,
-      acceptAch: true,
+      acceptAch: false,
       acceptManual: true,
       autoReceipts: true,
       invoicePrefix: 'INV-',

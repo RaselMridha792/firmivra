@@ -786,6 +786,24 @@ describe('the generation job', () => {
     expect(JSON.stringify(audit.map((a) => a.metadata))).not.toContain('Snapshot details');
   });
 
+  it('Next Occurrences leaves out a date already made (Bookkeeping Review 2, N05)', async () => {
+    const day = (offset: number) =>
+      new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const s = await mkSeries({
+      title: mark('Daily upcoming'),
+      recurrence: { unit: 'DAY', startOn: day(-2) },
+    });
+    // A run as of today makes today's task; the series' preview then starts after it.
+    await runJob(day(0));
+    const made = await occurrences(s.id, '&state=GENERATED');
+    expect(made.items.length).toBeGreaterThan(0);
+    const detail = series(await call('get', `/task-series/${s.id}`, people.ownerA));
+    const madeDates = new Set(made.items.map((o) => o.scheduledOn));
+    expect(detail.upcoming.length).toBeGreaterThan(0);
+    expect(detail.upcoming.some((u) => madeDates.has(u.scheduledOn))).toBe(false);
+    expect(detail.upcoming).toHaveLength(6);
+  });
+
   it('is the same however the occurrence is reached: two at once make one task', async () => {
     const s = await mkSeries({ recurrence: { unit: 'DAY', startOn: '2030-03-01' } });
     await runJob('2030-03-01');

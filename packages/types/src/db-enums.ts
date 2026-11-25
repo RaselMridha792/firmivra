@@ -296,6 +296,14 @@ export type AutomationRunStatus = z.infer<typeof AutomationRunStatus>;
 export const ActionExecutionStatus = z.enum(['PENDING', 'RUNNING', 'SUCCESS', 'FAILED', 'SKIPPED']);
 export type ActionExecutionStatus = z.infer<typeof ActionExecutionStatus>;
 
+/** Automations Review Two R11 (R56, Nov 19): what is done with what fell due while the engine could not run. RUN_ONCE runs each missed occurrence once on recovery (today's behaviour, the default); SKIP drops it; REPLAY_WINDOW replays only what fell due within missed_run_window_days. */
+export const AutomationMissedRunPolicy = z.enum(['RUN_ONCE', 'SKIP', 'REPLAY_WINDOW']);
+export type AutomationMissedRunPolicy = z.infer<typeof AutomationMissedRunPolicy>;
+
+/** Automations Review Two R12 (R56, Nov 19): two rules asking for incompatible changes to one record in the same scan. PRIORITY_THEN_OLDEST: the higher priority rule wins, then the older one, and the other's action is skipped and logged (the default); SKIP_BOTH: neither changes it, both logged. */
+export const AutomationConflictPolicy = z.enum(['PRIORITY_THEN_OLDEST', 'SKIP_BOTH']);
+export type AutomationConflictPolicy = z.infer<typeof AutomationConflictPolicy>;
+
 /** A bookkeeping client's workflow status (the Bookkeeping status tabs). Set by staff (MANUAL) or by the firm's status rules from due dates, missing documents and sync problems (AUTOMATIC). */
 export const BookkeepingStatus = z.enum([
   'ON_TRACK',
@@ -430,6 +438,7 @@ export const TaxPlanEventKind = z.enum([
   'CLIENT_REQUEST',
   'APPROVED',
   'DELIVERED',
+  'STAFF_APPROVED',
 ]);
 export type TaxPlanEventKind = z.infer<typeof TaxPlanEventKind>;
 
@@ -2365,6 +2374,32 @@ export type SalesImportRowOutcome = z.infer<typeof SalesImportRowOutcome>;
 export const SalesImportMatch = z.enum(['EMAIL', 'PHONE', 'EMAIL_AND_PHONE']);
 export type SalesImportMatch = z.infer<typeof SalesImportMatch>;
 
+export const SalesNurtureJourneyStatus = z.enum(['DRAFT', 'ACTIVE', 'PAUSED', 'ARCHIVED']);
+export type SalesNurtureJourneyStatus = z.infer<typeof SalesNurtureJourneyStatus>;
+
+export const SalesNurtureEnrollmentStatus = z.enum(['ACTIVE', 'COMPLETED', 'STOPPED', 'FAILED']);
+export type SalesNurtureEnrollmentStatus = z.infer<typeof SalesNurtureEnrollmentStatus>;
+
+export const SalesNurtureExecutionStatus = z.enum(['PENDING', 'SENT', 'FAILED', 'SKIPPED']);
+export type SalesNurtureExecutionStatus = z.infer<typeof SalesNurtureExecutionStatus>;
+
+export const SalesDemoRequestStatus = z.enum([
+  'PENDING',
+  'SCHEDULED',
+  'COMPLETED',
+  'CANCELLED',
+  'NO_SHOW',
+]);
+export type SalesDemoRequestStatus = z.infer<typeof SalesDemoRequestStatus>;
+
+export const SalesDemoAppointmentStatus = z.enum([
+  'SCHEDULED',
+  'COMPLETED',
+  'CANCELLED',
+  'NO_SHOW',
+]);
+export type SalesDemoAppointmentStatus = z.infer<typeof SalesDemoAppointmentStatus>;
+
 export const PlatformLegalDocumentKind = z.enum([
   'TERMS_OF_SERVICE',
   'PRIVACY_POLICY',
@@ -2414,7 +2449,7 @@ export const ClientTimelineKind = z.enum([
 ]);
 export type ClientTimelineKind = z.infer<typeof ClientTimelineKind>;
 
-export const LeadContactKind = z.enum(['EMAIL', 'PHONE']);
+export const LeadContactKind = z.enum(['EMAIL', 'PHONE', 'ADDRESS', 'WEBSITE', 'OTHER']);
 export type LeadContactKind = z.infer<typeof LeadContactKind>;
 
 export const FirmApplicationInfoRequestStatus = z.enum(['OPEN', 'RESPONDED', 'SUPERSEDED']);

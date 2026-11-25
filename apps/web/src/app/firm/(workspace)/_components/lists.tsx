@@ -5,7 +5,6 @@ import {
   appointmentWith,
   type DashboardSummary,
   type MessageThreadList,
-  roleCan,
 } from '@firmivra/types';
 import { Button, Modal } from '@firmivra/ui';
 import { MapPin, Phone, VideoCamera } from '@phosphor-icons/react';
@@ -13,9 +12,9 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import { DashboardLink as Link, useDashboardNavigate } from './dashboard-link';
 import { useState } from 'react';
-import { useFirm } from '../../../../components/firm-context';
 import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
+import { useMyGrants } from '../../../../lib/my-grants';
 import { useApiMutation } from '../../../../lib/query';
 import type { Ask } from '../calendar/[id]/_components/detail-screen';
 import { LOCATION_LABELS } from '../calendar/_components/shared';
@@ -104,9 +103,10 @@ export function RecentMessages({
 }
 
 export function TasksDue({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
-  const { role } = useFirm();
-  const canComplete = role ? roleCan(role, 'TASKS', 'EDIT') : false;
-  const canOpenClient = role ? roleCan(role, 'CLIENTS', 'VIEW') : false;
+  // V5: the member's own grants (custom role, own change), not the role's default grid.
+  const can = useMyGrants();
+  const canComplete = can('TASKS', 'EDIT');
+  const canOpenClient = can('CLIENTS', 'VIEW');
   // A checkbox before each task marks it done, as the design draws the list (R1, Oct 20), after
   // asking (Octavia's T5): Cancel changes nothing; Complete marks it done once.
   const [asking, setAsking] = useState<{ id: string; title: string }>();
@@ -229,7 +229,7 @@ export function UpcomingAppointments({
   list: UseQueryResult<Awaited<ReturnType<typeof api.appointments.list>>>;
 }) {
   const go = useDashboardNavigate();
-  const { role } = useFirm();
+  const can = useMyGrants();
   const [ask, setAsk] = useState<{ ask: Ask; a: Appointment }>();
   const [message, setMessage] = useState<string>();
   const remind = useApiMutation((id: string) => api.scheduling.sendReminder(id), {
@@ -246,7 +246,7 @@ export function UpcomingAppointments({
   // Octavia's A3: the actions the member may take (appointment-actions.ts), through the calendar's
   // own pages and calls.
   const menu = (a: Appointment): RowMenuItem[] =>
-    rowActions(role, a).map((action): RowMenuItem => {
+    rowActions(can, a).map((action): RowMenuItem => {
       switch (action) {
         case 'view':
           return { label: 'View Details', onSelect: () => go(`/calendar/${a.id}`) };

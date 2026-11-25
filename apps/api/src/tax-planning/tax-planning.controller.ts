@@ -67,6 +67,7 @@ import {
   UpdatePlanRequestBody,
   DuplicatePlanBody,
   UpdateResourceBody,
+  CreateResourceBody,
   CreateStrategyBody,
   FinalizeBody,
   OpportunitiesQuery,
@@ -647,7 +648,18 @@ export class TaxPlanningController {
     return { items: await this.overview.resources(w.businessId, w.tenant, w.userId, q) };
   }
 
-  /** C17 (Review 2): the firm's own words for a built-in resource. */
+  /** Tax Planning resources (audit, Nov 20): the firm's own (Add Resource, Create Checklist). */
+  @Post('resources')
+  createResource(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(CreateResourceBody)) body: Out<typeof CreateResourceBody>,
+  ): Promise<PlanningResource> {
+    const w = who(auth, tenant);
+    return this.overview.createResource(w.businessId, w.tenant, w.userId, body);
+  }
+
+  /** C17 (Review 2): the firm's own words for a built-in resource, or the firm's own resource. */
   @Put('resources/:key')
   updateResource(
     @CurrentAuth() auth: AuthContext,

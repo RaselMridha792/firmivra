@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
-import type { Database, Prisma, TxClient } from '@firmivra/db';
+import type { Database, LeadContactKind, Prisma, TxClient } from '@firmivra/db';
 import type {
   DismissLeadDuplicateRequest,
   LeadDuplicatePair,
@@ -108,6 +108,8 @@ export class LeadMergeService {
         add('PHONE', phoneKey(l.phone), l.id);
         add('NAME', nameKey(l.firstName, l.lastName), l.id);
         for (const c of l.contactPoints) {
+          // Duplicates are found by email and phone only; the other kinds (R2 9) don't count.
+          if (c.kind !== 'EMAIL' && c.kind !== 'PHONE') continue;
           add(c.kind, c.kind === 'EMAIL' ? emailKey(c.value) : phoneKey(c.value), l.id);
         }
       }
@@ -286,10 +288,17 @@ export class LeadMergeService {
       const email = (data.email as string | undefined) ?? kept.email;
       const phone = data.phone === undefined ? kept.phone : (data.phone as string | null);
       const have = new Set([`EMAIL:${emailKey(email)}`, `PHONE:${phoneKey(phone)}`]);
-      const others: { kind: 'EMAIL' | 'PHONE'; value: string; label: string | null }[] = [];
-      const offer = (kind: 'EMAIL' | 'PHONE', value: string | null, label: string | null) => {
+      const others: { kind: LeadContactKind; value: string; label: string | null }[] = [];
+      const offer = (kind: LeadContactKind, value: string | null, label: string | null) => {
         if (!value) return;
-        const key = `${kind}:${kind === 'EMAIL' ? emailKey(value) : (phoneKey(value) ?? value)}`;
+        // Every kind of other contact is kept (R2 9); each is once, by its own sameness.
+        const same =
+          kind === 'EMAIL'
+            ? emailKey(value)
+            : kind === 'PHONE'
+              ? (phoneKey(value) ?? value)
+              : value.trim().toLowerCase();
+        const key = `${kind}:${same}`;
         if (have.has(key)) return;
         have.add(key);
         others.push({ kind, value: kind === 'EMAIL' ? value.trim().toLowerCase() : value, label });

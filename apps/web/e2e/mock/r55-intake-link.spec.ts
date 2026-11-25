@@ -73,7 +73,7 @@ async function fillStep(page: Page) {
     for (const select of await root.locator('select:visible').all()) {
       if (!(await select.inputValue())) await select.selectOption({ index: 1 });
     }
-    for (const set of await root.locator('fieldset:visible').all()) {
+    for (const set of await root.locator('fieldset:visible, [role="group"]:visible').all()) {
       const choices = set.locator('input[type=radio], input[type=checkbox]');
       if ((await choices.count()) === 0 || (await set.locator('input:checked').count()) > 0) {
         continue;
@@ -103,4 +103,32 @@ test('takes a file in an upload field through the link, and removes it', async (
   await expect(slot.getByText('Uploading…')).toHaveCount(0);
   await item.getByRole('button', { name: /Remove/ }).click();
   await expect(item).toHaveCount(0);
+});
+
+test('a lead can save filled answers and an uploaded file from the emailed link', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(portal(`/lvp/form#token=${TOKEN}`));
+  const screen = page.getByTestId('intake-link');
+  await expect(screen).toContainText('Hi Pat');
+
+  await fillStep(page);
+  await screen.getByTestId('intake-next').click();
+
+  const slot = screen.locator('[data-slot]').first();
+  await expect(slot).toBeVisible({ timeout: 20_000 });
+  await slot.locator('input[type=file]').setInputFiles({
+    name: 'synthetic-income.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4 synthetic'),
+  });
+  await expect(
+    slot.getByRole('listitem').filter({ hasText: 'synthetic-income.pdf' }),
+  ).toBeVisible();
+  await expect(slot.getByText('Uploading…')).toHaveCount(0);
+  await fillStep(page);
+  await screen.getByRole('button', { name: 'Save and Continue Later' }).click();
+  await expect(screen.getByRole('status')).toContainText('Your answers are saved');
 });

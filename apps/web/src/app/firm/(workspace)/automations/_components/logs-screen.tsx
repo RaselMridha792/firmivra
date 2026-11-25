@@ -1,6 +1,6 @@
 'use client';
 
-import type { AutomationRunRow, AutomationRunsQuery } from '@firmivra/types';
+import { notificationLink, type AutomationRunRow, type AutomationRunsQuery } from '@firmivra/types';
 import {
   Button,
   type Column,
@@ -28,6 +28,7 @@ import {
 import Link from 'next/link';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { useFirmZone } from '../../../../../lib/firm-zone';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { SettingsDialog } from './automation-dialogs';
@@ -36,11 +37,12 @@ import {
   AUTOMATION_ERRORS,
   RunStatusPill,
   card,
-  dayText,
+  DayText,
   outlined,
   quiet,
   seconds,
   stamp,
+  Stamp,
   subtle,
 } from './automations-shared';
 
@@ -62,6 +64,19 @@ const fromDays = (days: string) =>
   days ? new Date(Date.now() - Number(days) * 86_400_000).toISOString().slice(0, 10) : undefined;
 
 /** /automations/logs: every run, filters, the run's details with its action log, and the rule behind it. */
+/**
+ * Automations Review Two R07: where a related record opens in the firm workspace, or null when it
+ * has no page there (it stays plain text). Each page checks access again, so a record the member
+ * may not see answers there, never here.
+ */
+function relatedHref(kind: string, id: string, clientId: string | null): string | null {
+  if (kind === 'client') return `/clients/${id}`;
+  if (kind === 'lead') return `/leads/${id}`;
+  if (kind === 'deadline') return `/compliance/${id}`;
+  if (kind === 'note') return clientId ? `/clients/${clientId}` : null;
+  return notificationLink({ kind, id, clientId }, { site: 'firm' });
+}
+
 export function LogsScreen({
   ruleId,
   runId,
@@ -69,6 +84,7 @@ export function LogsScreen({
   ruleId: string | undefined;
   runId?: string | undefined;
 }) {
+  const zone = useFirmZone();
   const [range, setRange] = useState('30');
   const [rule, setRule] = useState(ruleId ?? '');
   const [tab, setTab] = useState<NonNullable<AutomationRunsQuery['tab']>>('all');
@@ -129,7 +145,11 @@ export function LogsScreen({
     {
       id: 'when',
       label: 'Date/Time',
-      cell: (r) => <span className="block min-w-24">{stamp(r.createdAt)}</span>,
+      cell: (r) => (
+        <span className="block min-w-24">
+          <Stamp iso={r.createdAt} />
+        </span>
+      ),
     },
     {
       id: 'rule',
@@ -157,7 +177,7 @@ export function LogsScreen({
       cell: (r) => (
         <button
           type="button"
-          aria-label={`View ${r.rule.name} ${stamp(r.createdAt)}`}
+          aria-label={`View ${r.rule.name} ${stamp(r.createdAt, zone)}`}
           onClick={() => setPicked(r.id)}
           className="font-medium text-link hover:underline"
         >
@@ -425,7 +445,9 @@ function LogDetails({
               <p className="flex flex-wrap items-center gap-2 text-base font-bold text-heading">
                 {d.rule.name} <RunStatusPill status={d.status} />
               </p>
-              <p className="text-sm text-muted">{stamp(d.createdAt)}</p>
+              <p className="text-sm text-muted">
+                <Stamp iso={d.createdAt} />
+              </p>
             </div>
             {d.canRerun ? (
               <button type="button" className={outlined} onClick={onRerun} data-testid="rerun">
@@ -461,29 +483,19 @@ function LogDetails({
               {d.rerun.lastReason}
             </p>
           ) : null}
-          <div
-            role="tablist"
-            aria-label="Log sections"
-            className="relative mt-3 flex border-b border-divider"
-          >
-            {(
-              [
-                ['log', 'Action Log'],
-                ['config', 'Rule Configuration'],
-                ['related', 'Related Records'],
-              ] as const
-            ).map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                role="tab"
-                aria-selected={tab === k}
-                onClick={() => setTab(k)}
-                className={`-mb-px min-h-10 border-b-2 px-3 text-sm ${tab === k ? 'border-action font-semibold text-action' : 'border-transparent text-heading'}`}
-              >
-                {label}
-              </button>
-            ))}
+          {/* R10: the shared tabs, with arrow-key movement. */}
+          <div className="mt-3">
+            <Tabs
+              label="Log sections"
+              variant="underline"
+              value={tab}
+              onChange={(id) => setTab(id as typeof tab)}
+              items={[
+                { id: 'log', label: 'Action Log' },
+                { id: 'config', label: 'Rule Configuration' },
+                { id: 'related', label: 'Related Records' },
+              ]}
+            />
           </div>
           {tab === 'log' ? (
             <div className="relative mt-2 overflow-x-auto rounded-lg border border-divider">
@@ -547,14 +559,23 @@ function LogDetails({
               {d.related.length === 0 ? (
                 <li className="text-muted">No related records.</li>
               ) : (
-                d.related.map((r) => (
-                  <li
-                    key={r.id}
-                    className="border-t border-divider py-1.5 first:border-t-0 text-link"
-                  >
-                    {r.label}
-                  </li>
-                ))
+                d.related.map((r) => {
+                  const href = relatedHref(r.kind, r.id, d.client?.id ?? null);
+                  return (
+                    <li
+                      key={`${r.kind}:${r.id}`}
+                      className="border-t border-divider py-1.5 first:border-t-0"
+                    >
+                      {href ? (
+                        <Link href={href} className="text-link hover:underline">
+                          {r.label}
+                        </Link>
+                      ) : (
+                        <span className="text-text">{r.label}</span>
+                      )}
+                    </li>
+                  );
+                })
               )}
             </ul>
           ) : null}
@@ -602,9 +623,13 @@ function RuleInformation({ id }: { id: string | undefined }) {
           <dt className="text-text">Created By:</dt>
           <dd className="text-heading">{r.owner?.name ?? '—'}</dd>
           <dt className="text-text">Date Created:</dt>
-          <dd className="text-heading">{dayText(r.createdAt)}</dd>
+          <dd className="text-heading">
+            <DayText iso={r.createdAt} />
+          </dd>
           <dt className="text-text">Last Modified:</dt>
-          <dd className="text-heading">{dayText(r.updatedAt)}</dd>
+          <dd className="text-heading">
+            <DayText iso={r.updatedAt} />
+          </dd>
         </dl>
       )}
     </section>

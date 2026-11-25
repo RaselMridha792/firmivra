@@ -14,7 +14,6 @@ import Image from 'next/image';
 import { useId, useState } from 'react';
 import {
   FixedRow,
-  SIGN_NOTE,
   InputRow,
   SelectRow,
   SettingsCard,
@@ -129,8 +128,13 @@ export function GeneralFields({
             disabled={readOnly}
             onChange={(on) => set('general', { allowSaveAndResume: on })}
           />
-          {/* Intake Review 2 23-h (lead, Nov 17): fixed, like encryption. */}
-          <FixedRow label="Require e-signature" value="Always on" width={w} note={SIGN_NOTE} />
+          <ToggleRow
+            label="Require e-signature"
+            width={w}
+            checked={g.requireSignature}
+            disabled={readOnly}
+            onChange={(on) => set('general', { requireSignature: on })}
+          />
           <ToggleRow
             label="Auto-generate submission ID"
             width={w}
@@ -764,7 +768,13 @@ export function SubmissionRulesFields({ draft, set, errors, readOnly }: FieldsPr
   if (!g || !s) return null;
   return (
     <>
-      <FixedRow label="Require e-signature" value="Always on" width="w-20" note={SIGN_NOTE} />
+      <ToggleRow
+        label="Require e-signature"
+        width="w-20"
+        checked={g.requireSignature}
+        disabled={readOnly}
+        onChange={(on) => set('general', { requireSignature: on })}
+      />
       <ToggleRow
         label="Consent checkbox required"
         width="w-20"

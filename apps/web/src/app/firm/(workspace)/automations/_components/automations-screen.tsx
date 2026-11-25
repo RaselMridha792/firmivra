@@ -1,7 +1,7 @@
 'use client';
 
 import type { AutomationModule, AutomationRuleRow, AutomationRulesQuery } from '@firmivra/types';
-import { type Column, KpiCard, Select, Table, Toast, Toggle } from '@firmivra/ui';
+import { type Column, KpiCard, Select, Table, Tabs, Toast, Toggle } from '@firmivra/ui';
 import {
   ArrowLeft,
   CheckCircle,
@@ -33,12 +33,12 @@ import {
   AUTOMATION_ERRORS,
   MODULE_ICON,
   card,
-  dayText,
+  DayText,
   hoursText,
   linkBtn,
   outlined,
   quiet,
-  stamp,
+  Stamp,
 } from './automations-shared';
 import { useRouter } from 'next/navigation';
 
@@ -215,7 +215,7 @@ export function AutomationsScreen({
       id: 'last',
       label: 'Last Run',
       cell: (r) => (
-        <span className="whitespace-nowrap">{r.lastRunAt ? stamp(r.lastRunAt) : '—'}</span>
+        <span className="whitespace-nowrap">{r.lastRunAt ? <Stamp iso={r.lastRunAt} /> : '—'}</span>
       ),
     },
   ];
@@ -281,27 +281,18 @@ export function AutomationsScreen({
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
 
-      <nav
-        aria-label="Automation views"
-        role="tablist"
-        className="relative flex overflow-x-auto border-b border-divider"
-      >
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => {
-              setTab(t.id);
-              setPage(1);
-            }}
-            className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${tab === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      {/* Automations Review Two R10: the shared tabs: arrow keys, Home and End move between
+          them, with one tab in the Tab order and a visible focus. */}
+      <Tabs
+        label="Automation views"
+        variant="underline"
+        value={tab}
+        onChange={(id) => {
+          setTab(id as TabId);
+          setPage(1);
+        }}
+        items={TABS.map((t) => ({ id: t.id, label: t.label }))}
+      />
 
       <ul
         data-testid="automation-kpis"
@@ -722,7 +713,9 @@ export function AutomationsScreen({
                 key={r.id}
                 className="flex flex-wrap items-center justify-between gap-2 border-t border-divider py-2 text-sm first:border-t-0"
               >
-                <span className="text-muted">{dayText(r.createdAt)}</span>
+                <span className="text-muted">
+                  <DayText iso={r.createdAt} />
+                </span>
                 <span className="min-w-0 flex-1 truncate font-medium text-heading">
                   {r.rule.name}
                 </span>

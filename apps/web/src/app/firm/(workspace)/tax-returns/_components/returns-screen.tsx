@@ -95,6 +95,7 @@ const SORTS: Record<string, NonNullable<TaxReturnsQuery['sort']>> = {
   year: 'year',
   status: 'status',
   updated: 'updated',
+  due: 'due',
 };
 const thisYear = new Date().getFullYear();
 const YEARS = Array.from({ length: 8 }, (_, i) => String(thisYear - i));
@@ -356,6 +357,12 @@ export function ReturnsScreen({
     },
     { id: 'type', label: 'Return Type', cell: (r) => <ReturnKind row={r} /> },
     { id: 'year', label: 'Tax Year', sortable: true, cell: (r) => r.taxYear },
+    {
+      id: 'due',
+      label: 'Due Date',
+      sortable: true,
+      cell: (r) => (r.dueOn ? numericDay(r.dueOn) : '—'),
+    },
     {
       id: 'status',
       label: 'Status',

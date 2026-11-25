@@ -15,8 +15,9 @@ import {
   placeOf,
 } from '../../_components/appointments-parts';
 import { AppointmentsSide } from '../../_components/appointments-side';
-import { localParts, todayIn, toInstant } from '../../_components/time';
+import { localParts, todayIn } from '../../_components/time';
 import { BackToDashboard } from '../../../../../../components/back-to-dashboard';
+import { todayAgendaItems, todayAgendaRange } from './today-agenda';
 
 /** The day's rows, 8 AM to 6 PM, as the design's calendar; earlier or later ones go first or last. */
 const HOURS = Array.from({ length: 11 }, (_, i) => 8 + i);
@@ -35,15 +36,11 @@ export function TodayScreen({ fromDashboard = false }: { fromDashboard?: boolean
   const options = useApiQuery([...SCHEDULING, 'options'], () => api.scheduling.options());
   const tz = options.data?.timezone ?? 'America/New_York';
   const today = todayIn(tz);
-  const query = {
-    from: toInstant(today, '00:00', tz),
-    to: toInstant(today, '23:59', tz),
-    limit: 200,
-  };
+  const query = { ...todayAgendaRange(today, tz), limit: 200 };
   const agenda = useApiQuery([...SCHEDULING, 'agenda', 'today', today], () =>
     api.scheduling.agenda(query),
   );
-  const items = agenda.data?.items ?? [];
+  const items = todayAgendaItems(agenda.data?.items ?? [], fromDashboard);
   const hourOf = (a: AgendaEntry) => Number(localParts(a.startsAt, tz).time.slice(0, 2));
   // Review 2 (Appointments B6): an all-day appointment says All Day, in its own first row.
   const allDayOf = (a: AgendaEntry) => 'allDay' in a && a.allDay;

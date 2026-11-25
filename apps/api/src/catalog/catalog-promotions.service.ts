@@ -1,12 +1,43 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type { Promotion, PromotionStatus, SavePromotionRequest } from '@firmivra/types';
+import type {
+  CheckPromotionCodeRequest,
+  Promotion,
+  PromotionCodeCheck,
+  PromotionStatus,
+  SavePromotionRequest,
+} from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE, TenantPrisma } from '../database/database.module.js';
+import { CatalogPackagesService } from './catalog-packages.service.js';
+import { CatalogServicesService } from './catalog-services.service.js';
 import { diff, errors, inFirm, isUniqueViolation, iso, lockRow } from './catalog.shared.js';
+import {
+  type PromotionItem,
+  type PromotionRules,
+  promotionEligibility,
+} from './promotion-eligibility.js';
 
 type SaveBody = z.output<typeof SavePromotionRequest>;
+type CheckBody = z.output<typeof CheckPromotionCodeRequest>;
+
+/** A promotion row as the eligibility rule reads it. */
+const rulesOf = (
+  p: Prisma.PromotionGetPayload<{ include: { targets: true } }>,
+): PromotionRules => ({
+  id: p.id,
+  name: p.name,
+  status: p.status,
+  startsAt: p.startsAt,
+  endsAt: p.endsAt,
+  appliesTo: p.appliesTo,
+  targets: p.targets,
+  allowStacking: p.allowStacking,
+  discountType: p.discountType,
+  discountPercent: p.discountPercent === null ? null : Number(p.discountPercent),
+  discountCents: p.discountCents,
+});
 
 const promotionInclude = {
   targets: true,
@@ -66,7 +97,93 @@ export class CatalogPromotionsService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly tenantPrisma: TenantPrisma,
     private readonly audit: AuditService,
+    private readonly services: CatalogServicesService,
+    private readonly packages: CatalogPackagesService,
   ) {}
+
+  /**
+   * R9/R13 (decided Nov 19), "Check a Code": whether `code` applies to one of the firm's services
+   * or packages today, by the shared rule (promotion-eligibility.ts). Staff only; it orders,
+   * charges and counts nothing, so it writes no audit entry. 404 for an item that is not the
+   * firm's; an unknown code is an answer (UNKNOWN_CODE), never a 404.
+   */
+  async checkCode(businessId: string, body: CheckBody): Promise<PromotionCodeCheck> {
+    const db = this.tenantPrisma.db;
+    const item: PromotionItem =
+      body.itemType === 'SERVICE'
+        ? await this.services.get(businessId, body.itemId).then((s) => ({
+            kind: 'SERVICE' as const,
+            id: s.id,
+            categoryId: s.category?.id ?? null,
+            priceCents: s.price.type === 'CUSTOM_QUOTE' ? null : s.price.amountCents,
+          }))
+        : await this.packages.get(businessId, body.itemId).then((p) => ({
+            kind: 'PACKAGE' as const,
+            id: p.id,
+            categoryId: p.category?.id ?? null,
+            priceCents: p.pricing.packagePriceCents,
+          }));
+    const p = await db.promotion.findFirst({
+      where: { businessId, promoCode: body.code },
+      include: { targets: true },
+    });
+    if (!p) {
+      return {
+        result: 'UNKNOWN_CODE',
+        promotion: null,
+        priceCents: item.priceCents,
+        discountCents: null,
+        conflict: null,
+        scope: [],
+      };
+    }
+    const automatic = await db.promotion.findMany({
+      where: { businessId, status: 'ACTIVE', promoCode: null, id: { not: p.id } },
+      include: { targets: true },
+    });
+    const verdict = promotionEligibility(rulesOf(p), item, new Date(), automatic.map(rulesOf));
+    return {
+      result: verdict.result,
+      promotion: {
+        id: p.id,
+        name: p.name,
+        startsOn: dayOf(p.startsAt),
+        endsOn: dayOf(p.endsAt),
+        eligibility: p.eligibility,
+      },
+      priceCents: item.priceCents,
+      discountCents: verdict.discountCents,
+      conflict: verdict.conflict,
+      scope: verdict.result.startsWith('WRONG_') ? await this.scopeOf(businessId, p.targets) : [],
+    };
+  }
+
+  /** The names of what a promotion is for (its categories, services or packages). */
+  private async scopeOf(
+    businessId: string,
+    targets: { categoryId: string | null; serviceId: string | null; packageId: string | null }[],
+  ): Promise<string[]> {
+    const db = this.tenantPrisma.db;
+    const ids = (pick: (t: (typeof targets)[number]) => string | null) =>
+      targets.map(pick).filter((x): x is string => !!x);
+    const [categories, services, packages] = await Promise.all([
+      db.serviceCategory.findMany({
+        where: { businessId, id: { in: ids((t) => t.categoryId) } },
+        select: { name: true },
+      }),
+      db.service.findMany({
+        where: { businessId, id: { in: ids((t) => t.serviceId) } },
+        select: { name: true },
+      }),
+      db.servicePackage.findMany({
+        where: { businessId, id: { in: ids((t) => t.packageId) } },
+        select: { name: true },
+      }),
+    ]);
+    return [...categories, ...services, ...packages]
+      .map((r) => r.name)
+      .sort((a, b) => a.localeCompare(b));
+  }
 
   async list(businessId: string): Promise<Promotion[]> {
     const rows = await this.tenantPrisma.db.promotion.findMany({

@@ -34,9 +34,7 @@ test('Payroll: Create Task is prefilled, Back asks first, and the new task is li
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
   await page.getByRole('button', { name: 'Save Task' }).click();
-  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}\?from=/);
-  // The new task's page keeps Back to the workspace.
-  await page.getByTestId('back-to-origin').click();
+  // Save returns to the workspace it was opened from (Bookkeeping Review 2, N05 original).
   await expect(page).toHaveURL(`${app}/payroll/clients/${GREEN}`);
   const panel = page.getByTestId('panel-tasks');
   await expect(panel.getByRole('link', { name: 'Fake: collect the Q4 timesheets' })).toBeVisible();

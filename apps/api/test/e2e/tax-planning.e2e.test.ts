@@ -640,6 +640,27 @@ describe('plans', () => {
     // C06 (test gap): the as-of date is kept, read back with the plan.
     const reread = await plan(id);
     expect(reread.inputs?.find((i) => i.key === 'custom_home_office_costs')?.asOf).toBe(asOf);
+    // C06 (audit, Nov 20): a named item keeps its name exactly as typed (capitals, punctuation),
+    // read back with the plan; one saved without a name is still labelled from its key.
+    const named = TaxPlanDetail.parse(
+      ok(
+        await saveInputs(id, [
+          {
+            ...money('custom_home_office_costs_2024', 90_000),
+            textValue: 'Home office costs (2024)',
+            source: 'Client estimate',
+            asOf,
+          },
+        ]),
+      ),
+    );
+    expect(named.inputs?.find((i) => i.key === 'custom_home_office_costs_2024')).toMatchObject({
+      label: 'Home office costs (2024)',
+      amountCents: 90_000,
+    });
+    expect(
+      (await plan(id)).inputs?.find((i) => i.key === 'custom_home_office_costs_2024')?.label,
+    ).toBe('Home office costs (2024)');
     expectError(await saveInputs(id, [money('custom_', 1_000)]), 400, 'VALIDATION_FAILED');
   });
 });
@@ -1891,6 +1912,75 @@ describe("a plan's work and the firm's resources (Review 2 C12, C15, C17)", () =
       400,
       'VALIDATION_FAILED',
     );
+  });
+
+  it('adds the firm’s own resource and checklist: listed, edited, sent with what they contain', async () => {
+    const checklist = {
+      title: mark('Our document checklist'),
+      category: 'Checklists',
+      kind: 'CHECKLIST',
+      summary: 'What to bring (fake).',
+      body: 'Last year’s return\nW-2 forms\nCharity receipts',
+      clientFacing: true,
+    };
+    // Owner and Admin (and who manage strategies); Staff is refused, and a bad body too.
+    expectError(await call('post', '/resources', staffA, checklist), 403, 'FORBIDDEN');
+    expectError(
+      await call('post', '/resources', ownerA, { ...checklist, body: 'x'.repeat(8_001) }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const own = PlanningResource.parse(
+      ok(await call('post', '/resources', ownerA, checklist), 201),
+    );
+    expect(own).toMatchObject({
+      title: checklist.title,
+      kind: 'CHECKLIST',
+      body: checklist.body,
+      own: true,
+      edited: false,
+    });
+    expect(own.key).toMatch(/^firm-[0-9a-f-]{36}$/);
+    const listed = PlanningResourceList.parse(ok(await call('get', '/resources', ownerA))).items;
+    expect(listed.find((r) => r.key === own.key)).toMatchObject({
+      own: true,
+      body: checklist.body,
+    });
+    // Edited in place; firm B never sees it, nor changes it.
+    const edited = PlanningResource.parse(
+      ok(
+        await call('put', `/resources/${own.key}`, ownerA, {
+          ...checklist,
+          body: `${checklist.body}\n1099 forms`,
+        }),
+      ),
+    );
+    expect(edited.body).toContain('1099 forms');
+    const bList = PlanningResourceList.parse(
+      ok(await call('get', '/resources', ownerB, undefined, 'b')),
+    ).items;
+    expect(bList.some((r) => r.key === own.key)).toBe(false);
+    expectError(
+      await call('put', `/resources/${own.key}`, ownerB, checklist, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    // Sent, the client gets the summary and then the checklist's lines.
+    ok(
+      await call('post', `/resources/${own.key}/send`, ownerA, {
+        clientId: clients.c1,
+        channel: 'PORTAL_MESSAGE',
+      }),
+    );
+    const thread = await inFirm('a', (tx) =>
+      tx.messageThread.findFirstOrThrow({
+        where: { clientId: clients.c1, subject: checklist.title },
+        include: { messages: true },
+      }),
+    );
+    expect(thread.messages[0]?.body).toContain('What to bring (fake).');
+    expect(thread.messages[0]?.body).toContain('Charity receipts');
+    expect(thread.messages[0]?.body).toContain('1099 forms');
   });
 });
 

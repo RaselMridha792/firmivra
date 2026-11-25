@@ -3,7 +3,7 @@ import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import { HttpsUrl } from '../content/schemas.js';
 import { ServiceKind } from '../db-enums.js';
-import { AppointmentEvent, checkMeetingMethods, TimeOfDay } from './schemas.js';
+import { AppointmentEvent, checkMeetingMethods, SeriesScope, TimeOfDay } from './schemas.js';
 
 // Appointments workspace (R42 contract, for Tumit's screens): the overview's KPIs, the Calendar /
 // List / Today views with search, the full Schedule Appointment form (Create New and Edit
@@ -85,6 +85,13 @@ export const AppointmentContact = z.object({
    * they are offered Convert to New client when completing it; absent on other answers.
    */
   leadReach: z.boolean().optional(),
+  /**
+   * Review 2 (B9), a CLIENT in the contact search: the client has an active portal login, and
+   * agreed to appointment texts (their primary login's SMS choice for Appointments). Schedule
+   * Appointment starts its "Show client instructions in" from them. Absent on other answers.
+   */
+  portal: z.boolean().optional(),
+  textOptIn: z.boolean().optional(),
 });
 export type AppointmentContact = z.infer<typeof AppointmentContact>;
 
@@ -269,7 +276,12 @@ export const RelatedItemsInput = z.strictObject({
   bookkeepingEngagementId: z.uuid().nullable().optional(),
   invoiceId: z.uuid().nullable().optional(),
   taskId: z.uuid().nullable().optional(),
-  /** "Send Intake Form Before Appointment". */
+  /**
+   * "Send Intake Form Before Appointment" (Review 2 row 9), on Schedule only: one of the firm's
+   * published forms (`SchedulingOptions.intakeForms`) goes to the client's portal, linked to the
+   * appointment; null sends none; left out, the type's required form goes. 404 for a form that is
+   * not the firm's; 400 for an unpublished one or a lead (no portal). Edit refuses it (400).
+   */
   intakeFormId: z.uuid().nullable().optional(),
   /** "Require Documents Before Appointment": the document request to wait for. */
   documentRequestId: z.uuid().nullable().optional(),
@@ -384,7 +396,17 @@ export type SaveAppointmentDraftRequest = z.input<typeof SaveAppointmentDraftReq
  * time, staff, place or link sends an update notice. `version` catches a concurrent edit.
  */
 export const UpdateAppointmentDetailsRequest = z
-  .strictObject({ version: z.string().min(1).max(100), ...scheduleFields })
+  .strictObject({
+    version: z.string().min(1).max(100),
+    ...scheduleFields,
+    /**
+     * Review 2 (R2): a repeating appointment's other occurrences this change reaches too
+     * (FOLLOWING: the scheduled ones after it; SERIES: every scheduled one not yet started).
+     * Each gets the same fields, and a new time moves each by the same amount. The repeat itself
+     * changes on one appointment only (400 with another scope).
+     */
+    scope: SeriesScope,
+  })
   .partial()
   .required({ version: true });
 export type UpdateAppointmentDetailsRequest = z.input<typeof UpdateAppointmentDetailsRequest>;
@@ -466,8 +488,17 @@ export const SchedulingOptions = z.object({
       serviceId: z.uuid().nullable(),
       /** The meeting methods the type offers, in order (A1): the form's Method choices. */
       methods: z.array(MeetingMethod),
+      /** A9: the intake form the type asks for (Manage Appointment Types), if any. */
+      requiredIntakeFormId: z.uuid().nullable().default(null),
     }),
   ),
+  /**
+   * Review 2 (row 9): the firm's published intake forms, each with its service; `serviceDefault`
+   * is the service's default form, which Send Intake Form Before Appointment picks first.
+   */
+  intakeForms: z
+    .array(NamedItem.extend({ serviceId: z.uuid(), serviceDefault: z.boolean() }))
+    .default([]),
   /**
    * Advisory Review 2 A-04/A-10: each service's kind, so a workspace's Schedule Meeting can pick
    * the type for its kind of service (Business Advisory: BUSINESS_DEVELOPMENT).

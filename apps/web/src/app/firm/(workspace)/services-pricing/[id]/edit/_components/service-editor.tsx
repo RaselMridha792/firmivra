@@ -31,6 +31,7 @@ import { activationGap, CATALOG_ERRORS, recurringPrice } from '../../../_compone
 import { lineCents, serviceTotalCents } from '../../../_components/service-total';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { useListReturn } from '../../../_components/list-return';
+import { ServiceReadiness } from '../../../_components/service-readiness';
 import { CatalogHeader, ClientPreview, IconPicker, money, Panel, TextList } from './service-parts';
 
 type Values = CreateCatalogServiceRequest;
@@ -136,7 +137,22 @@ export function ServiceEditor({
   const save = useApiMutation((body: Values) => onSaved(body), {
     invalidate: ['services-pricing'],
   });
-  const submit = (activate: boolean) => {
+  // R12: a price change on a service that packages include is confirmed first, with what changes.
+  const usage = useApiQuery(['services-pricing', 'usage', initial?.id ?? 'new'], async () =>
+    initial ? api.servicesPricing.usage(initial.id) : null,
+  );
+  const [priceAsk, setPriceAsk] = useState<boolean | null>(null);
+  const linked = (usage.data?.packages ?? []).filter((p) => p.status !== 'ARCHIVED');
+  const priceChanged =
+    !!initial &&
+    (value.pricingType !== initial.price.type ||
+      serviceTotalCents(value) !== initial.price.amountCents);
+  const submit = (activate: boolean, confirmed = false) => {
+    if (priceChanged && linked.length > 0 && !confirmed) {
+      setPriceAsk(activate);
+      return;
+    }
+    setPriceAsk(null);
     setValue('activate', activate);
     void handleSubmit((body) =>
       save.mutate(body, {
@@ -509,6 +525,7 @@ export function ServiceEditor({
               fullDescription={value.fullDescription}
             />
             <ServiceAddOns items={value.addOns ?? []} onChange={(next) => put('addOns', next)} />
+            <ServiceReadiness value={value} status={initial?.status ?? null} />
             <Panel title="Internal Settings" marker={<Gear weight="fill" className="size-4" />}>
               <Textarea
                 label="Internal Notes (Not Visible to Clients)"
@@ -565,6 +582,41 @@ export function ServiceEditor({
           </div>
         </aside>
       </form>
+      <Modal
+        open={priceAsk !== null}
+        title={`Change the price of ${value.name || 'this service'}?`}
+        subtitle="Packages that include it show the new price at once."
+        onClose={() => setPriceAsk(null)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPriceAsk(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => submit(priceAsk ?? false, true)}
+              data-testid="price-change-confirm"
+            >
+              Save the New Price
+            </Button>
+          </>
+        }
+      >
+        <ul
+          className="list-disc space-y-1 pl-5 text-sm text-text"
+          data-testid="price-change-impact"
+        >
+          <li>
+            In {linked.length === 1 ? '1 package' : `${linked.length} packages`}:{' '}
+            {linked.map((p) => p.name).join(', ')}. Their total of included services and the client
+            savings change.
+          </li>
+          <li>
+            A package keeps the price it is sold at; a draft package whose price comes from its
+            discount is worked out again.
+          </li>
+          <li>Invoices already sent keep their amounts.</li>
+        </ul>
+      </Modal>
       <Modal
         open={cancel}
         title="Unsaved changes"

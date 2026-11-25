@@ -6,7 +6,22 @@ import { join } from 'node:path';
  * Everything the live checks need from outside the repo. Credentials come only from environment
  * variables set by the runner; never print them, put them in a test title, or attach them.
  */
-export type Role = 'owner' | 'admin' | 'staff' | 'client';
+export type Role =
+  | 'owner'
+  | 'admin'
+  | 'staff'
+  | 'client'
+  // Appointments P10 (lead, Nov 19): one harness login per other built-in role, and two custom roles.
+  | 'manager'
+  | 'bookkeeper'
+  | 'preparer'
+  | 'support'
+  | 'consultant'
+  | 'readonly'
+  | 'custom1'
+  | 'custom2'
+  // Appointments 8, P7, P8 (lead, Nov 19): the inbox client's portal login (a real test inbox).
+  | 'inbox';
 
 const need = (name: string): string => {
   const value = process.env[name];
@@ -46,7 +61,19 @@ const PREFIX: Record<Role, string> = {
   admin: 'LIVE_ADMIN',
   staff: 'LIVE_STAFF',
   client: 'LIVE_CLIENT',
+  manager: 'LIVE_MANAGER',
+  bookkeeper: 'LIVE_BOOKKEEPER',
+  preparer: 'LIVE_PREPARER',
+  support: 'LIVE_SUPPORT',
+  consultant: 'LIVE_CONSULTANT',
+  readonly: 'LIVE_READONLY',
+  custom1: 'LIVE_CUSTOM1',
+  custom2: 'LIVE_CUSTOM2',
+  inbox: 'LIVE_INBOX',
 };
+
+/** The roles that sign in to the client portal (the others sign in to the firm workspace). */
+export const portalRole = (role: Role) => role === 'client' || role === 'inbox';
 
 /** The role's login, or undefined when the runner did not provide one. */
 export function login(role: Role): Login | undefined {

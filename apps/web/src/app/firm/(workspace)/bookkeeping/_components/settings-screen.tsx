@@ -119,7 +119,8 @@ function SettingsForm({ initial }: { initial: BookkeepingSettings }) {
               </p>
             </div>
             <Input
-              label="Overdue after (days)"
+              label="Overdue after (days past the due date)"
+              hint="The clock starts on the due date of a month-end close or a report. A client turns Overdue once that many days have passed since it, and Overdue outranks every other status. 0 means the day after the due date."
               type="number"
               value={String(s.statusRules.overdueAfterDays ?? '')}
               onChange={(e) =>

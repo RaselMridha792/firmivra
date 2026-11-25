@@ -72,7 +72,7 @@ const SECOND_ROW: QuickAction[] = [
   {
     title: 'View Reports',
     text: 'Download billing reports',
-    href: '/reports',
+    href: '/reports/revenue',
     icon: ChartBar,
     tone: 'grey',
   },

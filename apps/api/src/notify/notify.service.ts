@@ -12,6 +12,7 @@ import {
   type NotifyMessage,
   type NotifyService,
   type NotifyTemplate,
+  type SendResult,
   TEMPLATE_CATEGORY,
   TEMPLATE_CHANNEL,
   TEMPLATE_SENDER,
@@ -93,7 +94,7 @@ export class SendingNotifyService implements NotifyService {
     this.logger = deps.logger ?? new Logger('NotifyService');
   }
 
-  async send<T extends NotifyTemplate>(message: NotifyMessage<T>): Promise<void> {
+  async send<T extends NotifyTemplate>(message: NotifyMessage<T>): Promise<SendResult | void> {
     const { template, businessId } = message;
     const channel = TEMPLATE_CHANNEL[template] as NotifyChannel | undefined;
     if (!channel) throw new NotifyTemplateError(`Unknown template ${template}`);
@@ -148,7 +149,7 @@ export class SendingNotifyService implements NotifyService {
         // Firm emails carry the firm's name (as the email shows it); Firmivra's own carry
         // EMAIL_FROM's name.
         const name = branding.isFirm ? rendered.fromName : (email.from.name ?? rendered.fromName);
-        await email.transport.send({
+        const providerMessageId = await email.transport.send({
           from: { name, address: email.from.address },
           to,
           replyTo,
@@ -156,6 +157,8 @@ export class SendingNotifyService implements NotifyService {
           text: rendered.text,
           html: rendered.html,
         });
+        this.logger.log(`${what} sent`);
+        return { providerMessageId: providerMessageId || null };
       } else {
         if (!this.deps.sms) {
           this.logger.log(`${what} written to the log only (no registered SMS number)`);

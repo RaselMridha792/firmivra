@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
+import { AuditService } from '../audit/audit.service.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
@@ -9,6 +10,9 @@ import { leadNotice, type LeadNoticeTemplate, noticeWords } from './notice-words
 
 export type AppointmentNotice =
   'appointment.booked' | 'appointment.changed' | 'appointment.reminder';
+
+/** Review 2 (B8): the audit action a booking's confirmation notice leaves (notice history). */
+export const CONFIRMATION_SENT = 'appointment.confirmation_sent';
 
 /** Who a notice reaches. */
 export interface NoticeTo {
@@ -35,6 +39,7 @@ export class AppointmentNotices {
     @Inject(DATABASE) private readonly database: Database,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
     @Inject(ENV) private readonly env: Env,
+    private readonly audit: AuditService,
   ) {}
 
   async send(
@@ -51,11 +56,27 @@ export class AppointmentNotices {
       this.logger.warn(`Could not send ${template} for appointment ${appointmentId}`);
       return;
     }
+    let delivered = false;
     for (const message of messages) {
       try {
         await this.notify.send(message);
+        delivered = true;
       } catch {
         this.logger.warn(`Could not send ${template} for appointment ${appointmentId}`);
+      }
+    }
+    // Review 2 (B8): a booking's confirmation (and its request to confirm) is listed in the
+    // appointment's notice history, as a reminder is. Ids and the outcome only.
+    if (template === 'appointment.booked' && messages.length > 0) {
+      try {
+        await this.audit.log(
+          CONFIRMATION_SENT,
+          { type: 'appointment', id: appointmentId },
+          { channels: ['EMAIL'], delivered, count: messages.length },
+          { businessId },
+        );
+      } catch {
+        // The booking stands; the audit service logged the lost row.
       }
     }
   }

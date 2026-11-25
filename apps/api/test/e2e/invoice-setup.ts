@@ -309,5 +309,17 @@ export async function startInvoiceApp(tag: string, stripe?: StripeGateway | null
     return Invoice.parse(expectOk(await firm('get', `/${id}`, people.ownerA)).body);
   };
 
-  return { app, run, people, ids, firm, portal, inScope, draft, files, appUrl: fx.appUrl };
+  return {
+    app,
+    run,
+    people,
+    ids,
+    firm,
+    portal,
+    inScope,
+    draft,
+    files,
+    tokenFor,
+    appUrl: fx.appUrl,
+  };
 }

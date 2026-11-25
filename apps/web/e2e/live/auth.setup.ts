@@ -7,6 +7,7 @@ import {
   firmSlug,
   login,
   portal,
+  portalRole,
   portalUrl,
   serverSkew,
   stateDir,
@@ -21,17 +22,32 @@ import {
  * still live (staff sessions end after 15 idle minutes). Cognito takes a TOTP code only once, so a
  * role never signs in twice in one 30-second step.
  */
-const roles: Role[] = ['owner', 'admin', 'staff', 'client'];
+const roles: Role[] = [
+  'owner',
+  'admin',
+  'staff',
+  'client',
+  // Appointments P10: the other roles, each signed in only when the runner gives its login.
+  'manager',
+  'bookkeeper',
+  'preparer',
+  'support',
+  'consultant',
+  'readonly',
+  'custom1',
+  'custom2',
+  'inbox',
+];
 
 async function stillSignedIn(role: Role): Promise<boolean> {
   const path = statePath(role);
   if (!existsSync(path)) return false;
-  const base = role === 'client' ? portalUrl : appUrl;
+  const base = portalRole(role) ? portalUrl : appUrl;
   const ctx = await request.newContext({ storageState: path, extraHTTPHeaders: { origin: base } });
   // A firm route, not GET /me: staff sessions are per firm and only firm routes check them, so a
   // session the firm ended (idle 15 minutes, SEC-4) still answers /me while its token lasts.
   const check = () =>
-    role === 'client'
+    portalRole(role)
       ? ctx.get(`${portalUrl}/api/v1/portal/${firmSlug}/me/tabs`)
       : ctx.get(`${appUrl}/api/v1/business`);
   try {
@@ -40,7 +56,7 @@ async function stillSignedIn(role: Role): Promise<boolean> {
     // A new sign-in past a member's session limit ends the oldest session (SM12), which is the one
     // the other lanes are using (the Owner's limit is 1 and only another member may raise it).
     const refreshed = await ctx.post(
-      role === 'client'
+      portalRole(role)
         ? `${portalUrl}/api/v1/portal/${firmSlug}/auth/refresh`
         : `${appUrl}/api/v1/auth/refresh`,
     );
@@ -75,7 +91,7 @@ async function nextCode(role: Role, secret: string): Promise<string> {
 
 async function signIn(page: Page, role: Role) {
   const l = login(role)!;
-  const staff = role !== 'client';
+  const staff = !portalRole(role);
   await page.goto(staff ? app('/sign-in') : portal('/sign-in'));
   await page.getByLabel('Email Address').fill(l.email);
   await page.getByLabel('Password', { exact: true }).fill(l.password);

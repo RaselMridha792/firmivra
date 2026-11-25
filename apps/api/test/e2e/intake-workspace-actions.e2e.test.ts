@@ -24,6 +24,7 @@ import {
   addDays,
   zonedInstant,
   AppointmentTypeConfig,
+  SchedulingOptions,
 } from '@firmivra/types';
 import { z } from 'zod';
 import { AppModule } from '../../src/app.module.js';
@@ -284,7 +285,8 @@ beforeAll(async () => {
       send: (message: NotifyMessage) => {
         if (failMail) return Promise.reject(new Error('Throttling'));
         mail.push(message);
-        return Promise.resolve();
+        // The mail service's own id for what it accepted (SES MessageId).
+        return Promise.resolve({ providerMessageId: `0100019aabcdef${mail.length}-fake` });
       },
     })
     .compile();
@@ -409,6 +411,9 @@ describe('send a form', () => {
       to: 'Client portal',
       portalNotice: true,
       reason: null,
+      // No email went out, so the mail service has no evidence to give.
+      acceptedAt: null,
+      providerRef: null,
     });
     // A form sent in the portal sends no email of its own.
     expect(mail.filter((m) => m.template === 'intake.sent')).toEqual([]);
@@ -454,11 +459,13 @@ describe('send a form', () => {
       to: `e***@client.test`,
       portalNotice: false,
       reason: expect.stringContaining('no client portal login') as string,
+      acceptedAt: null,
+      providerRef: null,
     });
     ids.emailed = res.form.id;
   });
 
-  it('19b: by email to a client with a portal login, the email opens the exact form, and the result says the mail service accepted it', async () => {
+  it('19b: by email to a client with a portal login, the result reports acceptance without claiming delivery', async () => {
     const before = mail.length;
     const res = SendIntakeFormResult.parse(
       ok(
@@ -482,7 +489,13 @@ describe('send a form', () => {
       to: 'm***@client.test',
       portalNotice: true,
       reason: null,
+      // 19b: the provider's handoff evidence: when it was accepted and its short reference.
+      acceptedAt: expect.any(String),
+      providerRef: '0100019a',
     });
+    expect(Math.abs(Date.now() - new Date(res.delivery.acceptedAt!).getTime())).toBeLessThan(
+      60_000,
+    );
     const sentMail = mail.slice(before).filter((m) => m.template === 'intake.sent');
     expect(sentMail).toHaveLength(1);
     expect(sentMail[0]).toMatchObject({
@@ -502,10 +515,12 @@ describe('send a form', () => {
     const rows = await inFirm('a', (tx) =>
       tx.notificationDelivery.findMany({
         where: { businessId: firms.a, channel: 'EMAIL', notification: { entityId: res.form.id } },
-        select: { status: true, attempts: true },
+        select: { status: true, attempts: true, providerMessageId: true },
       }),
     );
-    expect(rows).toEqual([{ status: 'SENT', attempts: 1 }]);
+    expect(rows).toEqual([
+      { status: 'SENT', attempts: 1, providerMessageId: expect.stringMatching(/^0100019a/) },
+    ]);
 
     // The mail service refuses a reminder: its row is FAILED with the reason, for the retry job.
     failMail = true;
@@ -1105,7 +1120,7 @@ describe('one form', () => {
     const sent = AssignedFormRecord.parse(
       ok(await call('post', `/intakes/${ids.sent}/remind`, ownerA)),
     );
-    expect(sent.delivery).toEqual({ status: 'SENT', reason: null });
+    expect(sent.delivery).toMatchObject({ status: 'SENT', reason: null });
     expect(sent.history.at(-1)?.label).toBe('Reminder sent');
     // By email to a client with no portal login: nothing reached them, and both say why.
     for (const [path, label] of [
@@ -1115,7 +1130,7 @@ describe('one form', () => {
       const missed = AssignedFormRecord.parse(
         ok(await call('post', `/intakes/${ids.emailed}/${path}`, ownerA)),
       );
-      expect(missed.delivery).toEqual({
+      expect(missed.delivery).toMatchObject({
         status: 'FAILED',
         reason: expect.stringContaining('no client portal login') as string,
       });
@@ -2102,5 +2117,190 @@ describe("Clients Review Two N8-25: a sent form links the client's existing acti
       { id: f.otherService, status: 'ACTIVE' },
     ]);
     expect(after.requested).toBe(0);
+  });
+});
+
+// Last in the file: it adds services and forms to firm A that earlier tests assume are absent.
+describe('Review 2 (row 9): Send Intake Form Before Appointment', () => {
+  it("sends the form Schedule chose instead of the type's, none when it chose none; refuses another firm's, an unpublished form or a lead, booking nothing", async () => {
+    const cy = { id: randomUUID(), email: `r60-cy-${run}@r60.test` };
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: cy.id, cognitoSub: cy.id, pool: 'CLIENT', email: cy.email, name: 'Fake Cy' },
+      }),
+    );
+    const def = INTAKE_FORMS.ANNUAL_TAX;
+    if (!def) throw new Error('the built-in annual tax form is missing');
+    const made = await inFirm('a', async (tx) => {
+      const businessId = firms.a;
+      const books = await tx.service.create({
+        data: { businessId, kind: 'BOOKKEEPING', name: `Row 9 books ${run}`, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      const form = (title: string, serviceId: string, status: 'PUBLISHED' | 'DRAFT') =>
+        tx.intakeForm.create({
+          data: {
+            businessId,
+            serviceId,
+            version: 1,
+            title,
+            definition: def as object,
+            status,
+            ...(status === 'PUBLISHED' ? { publishedAt: new Date() } : {}),
+          },
+          select: { templateId: true },
+        });
+      const booksForm = await form('Books Intake (fake)', books.id, 'PUBLISHED');
+      // The type's own required form, on a service of its own: no other test changes it.
+      const typeService = await tx.service.create({
+        data: { businessId, kind: 'OTHER', name: `Row 9 type form ${run}`, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      const typeForm = await form('Type Intake (fake)', typeService.id, 'PUBLISHED');
+      const draftService = await tx.service.create({
+        data: { businessId, kind: 'PAYROLL', name: `Row 9 payroll ${run}`, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      const draft = await form('Payroll Intake draft (fake)', draftService.id, 'DRAFT');
+      const client = await tx.client.create({
+        data: { businessId, displayName: 'Cy Chosen (fake)', email: `cy-${run}@client.test` },
+        select: { id: true },
+      });
+      for (const serviceId of [books.id, typeService.id]) {
+        await tx.engagement.create({
+          data: { businessId, clientId: client.id, serviceId, title: 'Cy work' },
+        });
+      }
+      await tx.clientAccount.create({
+        data: {
+          businessId,
+          userId: cy.id,
+          clientId: client.id,
+          email: cy.email,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      const type = await tx.appointmentType.create({
+        data: {
+          businessId,
+          name: `Fake row 9 ${run}`,
+          durationMinutes: 30,
+          requiredIntakeTemplateId: typeForm.templateId as string,
+        },
+        select: { id: true },
+      });
+      const lead = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: ids.service!,
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          firstName: 'Lu',
+          lastName: 'Chosen (fake)',
+          email: `lu-${run}@lead.test`,
+        },
+        select: { id: true },
+      });
+      return {
+        client: client.id,
+        type: type.id,
+        lead: lead.id,
+        books: booksForm.templateId as string,
+        typeForm: typeForm.templateId as string,
+        draft: draft.templateId as string,
+      };
+    });
+    const theirs = await inFirm('b', async (tx) => {
+      const service = await tx.service.create({
+        data: { businessId: firms.b, kind: 'ANNUAL_TAX', name: `B tax ${run}`, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      const f = await tx.intakeForm.create({
+        data: {
+          businessId: firms.b,
+          serviceId: service.id,
+          version: 1,
+          title: 'B Intake (fake)',
+          definition: def as object,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+        },
+        select: { templateId: true },
+      });
+      return f.templateId as string;
+    });
+    // The Schedule form lists the firm's published forms only, each with its service.
+    const options = SchedulingOptions.parse(ok(await call('get', '/appointments/options', ownerA)));
+    const listed = options.intakeForms.map((f) => f.id);
+    expect(listed).toEqual(expect.arrayContaining([made.typeForm, made.books]));
+    expect(listed).not.toContain(made.draft);
+    expect(listed).not.toContain(theirs);
+    expect(options.types.find((t) => t.id === made.type)?.requiredIntakeFormId).toBe(made.typeForm);
+
+    const base = 700 + Math.floor(Math.random() * 300);
+    const on = (n: number, time: string) =>
+      zonedInstant(addDays('2031-01-01', base + n), time, NY).toISOString();
+    const schedule = (contact: object, n: number, intakeFormId: string | null) =>
+      call('post', '/appointments/schedule', ownerA, {
+        idempotencyKey: randomUUID(),
+        contact,
+        typeId: made.type,
+        startsAt: on(n, '18:00'),
+        endsAt: on(n, '18:30'),
+        method: 'VIDEO',
+        staffUserIds: [ownerA.id],
+        overrideConflicts: { reason: 'Fake: outside working hours' },
+        related: { intakeFormId },
+      });
+    const client = { kind: 'CLIENT', id: made.client };
+    const booked = () =>
+      inFirm('a', (tx) =>
+        tx.appointment.count({ where: { businessId: firms.a, typeId: made.type } }),
+      );
+
+    // Refused before anything is booked.
+    expectError(await schedule(client, 1, theirs), 404, 'NOT_FOUND');
+    expectError(await schedule(client, 1, randomUUID()), 404, 'NOT_FOUND');
+    expectError(await schedule(client, 1, made.draft), 400, 'VALIDATION_FAILED');
+    expectError(
+      await schedule({ kind: 'LEAD', id: made.lead }, 1, made.books),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect(await booked()).toBe(0);
+
+    // The chosen form goes instead of the type's, linked to the appointment.
+    const chosen = AppointmentRecord.parse(ok(await schedule(client, 2, made.books)));
+    expect(chosen.related.intakeForm).toMatchObject({
+      name: 'Books Intake (fake)',
+      completed: false,
+    });
+    const sent = await inFirm('a', (tx) =>
+      tx.intake.findMany({
+        where: { businessId: firms.a, appointmentId: chosen.id },
+        select: { form: { select: { templateId: true } } },
+      }),
+    );
+    expect(sent.map((i) => i.form.templateId)).toEqual([made.books]);
+
+    // Unchecked: none, though the type asks for one.
+    const none = AppointmentRecord.parse(ok(await schedule(client, 3, null)));
+    expect(none.related.intakeForm).toBeNull();
+    expect(
+      await inFirm('a', (tx) =>
+        tx.intake.count({ where: { businessId: firms.a, appointmentId: none.id } }),
+      ),
+    ).toBe(0);
+
+    // Edit sends no form (400).
+    expectError(
+      await call('patch', `/appointments/${chosen.id}/details`, ownerA, {
+        version: chosen.version,
+        related: { intakeFormId: made.typeForm },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
   });
 });

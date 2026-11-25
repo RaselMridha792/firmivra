@@ -43,6 +43,7 @@ import {
   type WorkingHoursRange,
   type PublicBookingClient,
   publicButtonCode,
+  publicIframeCode,
   publicItemUrl,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
@@ -525,7 +526,8 @@ export function createAppointmentTypesMock(
         kind: 'APPOINTMENT_TYPE',
         itemId: t.id,
         url,
-        embedCode: publicButtonCode(url, `Book ${t.name}`),
+        embedCode: publicIframeCode(url, `Book ${t.name}`),
+        buttonCode: publicButtonCode(url, `Book ${t.name}`),
         state: publicState(t),
       };
     },

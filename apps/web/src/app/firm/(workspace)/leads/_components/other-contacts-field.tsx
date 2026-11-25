@@ -5,20 +5,33 @@ import { Button, Input, Select } from '@firmivra/ui';
 import { Plus, Trash2 } from 'lucide-react';
 
 type Contact = LeadContactPointInput;
+type Kind = Contact['kind'];
 type Problems =
   { message?: string; [index: number]: { value?: { message?: string } } | undefined } | undefined;
 
-const KINDS = [
-  { value: 'PHONE', label: 'Phone' },
-  { value: 'EMAIL', label: 'Email' },
-];
+/**
+ * Leads R2 9: each kind of other contact detail, as the form names it, with its field's type and
+ * the length the database keeps (an address or other detail 300, a website 2048).
+ */
+const KIND: Record<
+  Kind,
+  { label: string; field: string; type: string; max: number; noun: string }
+> = {
+  PHONE: { label: 'Phone', field: 'Phone number', type: 'tel', max: 40, noun: 'phone' },
+  EMAIL: { label: 'Email', field: 'Email', type: 'email', max: 254, noun: 'email' },
+  ADDRESS: { label: 'Address', field: 'Address', type: 'text', max: 300, noun: 'address' },
+  WEBSITE: { label: 'Website', field: 'Website', type: 'url', max: 2048, noun: 'website' },
+  OTHER: { label: 'Other', field: 'Contact detail', type: 'text', max: 300, noun: 'detail' },
+};
+const KINDS = (Object.keys(KIND) as Kind[]).map((value) => ({ value, label: KIND[value].label }));
 /** At most this many, as the API allows. */
 const MAX = 10;
 
 /**
- * Leads R2 9: a lead's other phones and emails, each with an optional label ("Work", "Mobile").
- * The Email and Phone fields above stay the lead's primary ones; these are listed beside them on
- * Contact Information. Used by Add New Lead and Edit Lead; the whole list is saved together.
+ * Leads R2 9: a lead's other contact details (more phones and emails, and addresses, websites or
+ * any other detail), each with an optional label ("Work", "Mobile"). The Email and Phone fields
+ * above stay the lead's primary ones; these are listed beside them on Contact Information. Used by
+ * Add New Lead and Edit Lead; the whole list is saved together.
  */
 export function OtherContactsField({
   value,
@@ -33,47 +46,49 @@ export function OtherContactsField({
     onChange(value.map((c, i) => (i === index ? ({ ...c, ...patch } as Contact) : c)));
   return (
     <fieldset className="flex flex-col gap-2" data-testid="lead-other-contacts">
-      <legend className="mb-1 text-sm font-medium text-text">Other phones and emails</legend>
+      <legend className="mb-1 text-sm font-medium text-text">Other contact details</legend>
       <p className="-mt-1 text-xs text-muted">
         The Email and Phone above stay the lead&apos;s primary contact details.
       </p>
-      {value.map((contact, index) => (
-        <div
-          key={index}
-          className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_9rem_auto] sm:items-end"
-        >
-          <Select
-            label="Type"
-            options={KINDS}
-            value={contact.kind}
-            onChange={(event) =>
-              change(index, { kind: event.target.value as Contact['kind'], value: '' })
-            }
-          />
-          <Input
-            label={contact.kind === 'EMAIL' ? 'Email' : 'Phone number'}
-            type={contact.kind === 'EMAIL' ? 'email' : 'tel'}
-            maxLength={contact.kind === 'EMAIL' ? 254 : 40}
-            value={contact.value}
-            error={errors?.[index]?.value?.message}
-            onChange={(event) => change(index, { value: event.target.value })}
-          />
-          <Input
-            label="Label (optional)"
-            placeholder="Work, Mobile"
-            maxLength={40}
-            value={contact.label ?? ''}
-            onChange={(event) => change(index, { label: event.target.value })}
-          />
-          <Button
-            variant="ghost"
-            aria-label={`Remove ${contact.kind === 'EMAIL' ? 'email' : 'phone'} ${index + 1}`}
-            onClick={() => onChange(value.filter((_, i) => i !== index))}
+      {value.map((contact, index) => {
+        const kind = KIND[contact.kind];
+        return (
+          <div
+            key={index}
+            className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_9rem_auto] sm:items-end"
           >
-            <Trash2 aria-hidden className="size-4" />
-          </Button>
-        </div>
-      ))}
+            <Select
+              label="Type"
+              options={KINDS}
+              value={contact.kind}
+              onChange={(event) => change(index, { kind: event.target.value as Kind, value: '' })}
+            />
+            <Input
+              label={kind.field}
+              type={kind.type}
+              maxLength={kind.max}
+              placeholder={contact.kind === 'WEBSITE' ? 'example.com' : undefined}
+              value={contact.value}
+              error={errors?.[index]?.value?.message}
+              onChange={(event) => change(index, { value: event.target.value })}
+            />
+            <Input
+              label="Label (optional)"
+              placeholder="Work, Mobile"
+              maxLength={40}
+              value={contact.label ?? ''}
+              onChange={(event) => change(index, { label: event.target.value })}
+            />
+            <Button
+              variant="ghost"
+              aria-label={`Remove ${kind.noun} ${index + 1}`}
+              onClick={() => onChange(value.filter((_, i) => i !== index))}
+            >
+              <Trash2 aria-hidden className="size-4" />
+            </Button>
+          </div>
+        );
+      })}
       {errors?.message ? (
         <p role="alert" className="text-sm text-danger">
           {errors.message}
@@ -86,7 +101,7 @@ export function OtherContactsField({
             onClick={() => onChange([...value, { kind: 'PHONE', value: '', label: '' }])}
           >
             <Plus aria-hidden className="size-4" />
-            Add phone or email
+            Add contact detail
           </Button>
         </div>
       ) : null}

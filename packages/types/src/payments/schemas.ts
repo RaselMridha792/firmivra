@@ -371,8 +371,8 @@ const AmountDetail = {
   /** IP-F03: files from the client's documents (shared with the client, clean), oldest first. */
   attachments: z.array(InvoiceAttachment).max(INVOICE_LIMITS.maxAttachments),
   /**
-   * IP-F04: the firm asks for payment before the due date; the client's invoice says so. Nothing
-   * is blocked and no extra email goes out.
+   * IP-F04, withdrawn by Invoices Review 2 I-D01: whether an older invoice was set to ask for
+   * payment before the due date. Shown nowhere now; it never blocked anything or sent an email.
    */
   requirePaymentBeforeDue: z.boolean(),
   /**
@@ -633,9 +633,8 @@ const DraftFields = {
    */
   allowTip: z.boolean().optional(),
   /**
-   * IP-F04: ask for payment before the due date, while Settings > Payments' "Require payment
-   * before due date" is on (409 OPTION_NOT_ENABLED otherwise; a draft keeps its own). Left out:
-   * kept, off on create.
+   * Invoices Review 2 I-D01: withdrawn. Still accepted, because requests are strict and an older
+   * screen sends it, but ignored: the invoice's stored value never changes.
    */
   requirePaymentBeforeDue: z.boolean().optional(),
   /**

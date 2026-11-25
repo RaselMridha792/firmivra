@@ -49,11 +49,14 @@ test('dashboard uses the firm applications mock and fits a 375 px screen', async
   // Platform Growth draws new applications per day; firms and revenue have no history yet.
   await expect(page.getByTestId('platform-growth').getByRole('img')).toHaveCount(1);
   await expect(page.getByTestId('platform-growth')).toContainText('Active Firms');
-  await expect(page.getByLabel('Range')).toHaveValue('30');
+  await expect(page.getByLabel('Range')).toHaveValue('LAST_30');
   const chart = page.getByTestId('platform-growth').getByRole('img');
-  await expect(chart).toHaveAttribute('aria-label', /last 30 days: [1-9]\d* in total/);
-  await page.getByLabel('Range').selectOption('7');
-  await expect(chart).toHaveAttribute('aria-label', /last 7 days: \d+ in total/);
+  await expect(chart).toHaveAttribute(
+    'aria-label',
+    /^Last 30 Days, per day: [1-9]\d* applications/,
+  );
+  await page.getByLabel('Range').selectOption('LAST_7');
+  await expect(chart).toHaveAttribute('aria-label', /^Last 7 Days, per day: \d+ applications/);
   await expect(
     page.getByRole('button', { name: 'Notifications' }).locator('.bg-danger'),
   ).toHaveCount(0);

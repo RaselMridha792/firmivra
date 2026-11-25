@@ -79,6 +79,26 @@ describe('auditChanges', () => {
     });
   });
 
+  it('quote writes a configuration description old to new, but never a note, and never past the cap', () => {
+    const long = 'y'.repeat(300);
+    const result = auditChanges(
+      { description: 'Federal return due', notes: 'a client said' },
+      { description: 'Federal return due, extended', notes: 'another note' },
+      { quote: ['description'] },
+    );
+    expect(result.changes).toEqual({
+      description: { from: 'Federal return due', to: 'Federal return due, extended' },
+      notes: 'changed',
+    });
+    expect(
+      auditChanges({ description: 'a' }, { description: long }, { quote: ['description'] }).changes,
+    ).toEqual({ description: 'changed' });
+    // A secret under a quoted key is still masked.
+    expect(
+      auditChanges({ password: 'one' }, { password: 'two' }, { quote: ['password'] }).changes,
+    ).toEqual({ password: { from: '[redacted]', to: '[redacted]' } });
+  });
+
   it('masks as decided: secrets never, tax ids to their last 4, bank and card numbers never', () => {
     const { changes } = auditChanges(
       {

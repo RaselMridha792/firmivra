@@ -75,6 +75,14 @@ export interface DeliveryOutcome {
   reason: string | null;
   /** Why, as a code History can keep (no address or mail-service text in the audit). */
   code?: DeliveryCode;
+  /** 19b: when the mail service accepted the email, and its short reference (no address). */
+  acceptedAt?: Date | null;
+  providerRef?: string | null;
+}
+
+/** The short form of a provider message id: the first 8 characters. */
+export function shortRef(id: string | null | undefined): string | null {
+  return id ? id.replace(/[<>]/g, '').slice(0, 8) : null;
 }
 
 /** Why a delivery did not (yet) reach the recipient, for History (19b). */
@@ -344,14 +352,17 @@ export class IntakeSendService {
    * longer scheduled, or whatever the send itself refuses (no active portal login, the form
    * already open for the client, a form no longer published). The booking stands either way: a
    * form not sent is audited on the appointment with its reason code only. Null when the type asks
-   * for no form.
+   * for no form. Review 2 (row 9): `chosen` is the form Schedule Appointment chose (its Send Intake
+   * Form Before Appointment): that one instead of the type's, and null sends none.
    */
   async sendForAppointment(
     businessId: string,
     appointmentId: string,
     /** The member who booked it; null when the client booked it in the portal. */
     bookedByUserId: string | null,
+    chosen?: string | null,
   ): Promise<{ intakeId: string } | { skipped: AppointmentFormSkip } | null> {
+    if (chosen === null) return null;
     let plan: { skipped: AppointmentFormSkip } | { formId: string; clientId: string } | null;
     try {
       plan = await this.inBusiness(businessId, async (tx) => {
@@ -364,7 +375,7 @@ export class IntakeSendService {
             _count: { select: { intakes: true } },
           },
         });
-        const formId = a?.type?.requiredIntakeTemplateId;
+        const formId = chosen ?? a?.type?.requiredIntakeTemplateId;
         if (!a || !formId) return null;
         if (!a.clientId) return { skipped: 'LEAD_APPOINTMENT' as const };
         if (a.status !== 'SCHEDULED') return { skipped: 'NOT_SCHEDULED' as const };
@@ -663,6 +674,8 @@ export class IntakeSendService {
         to: row.deliveryChannel === 'PORTAL' ? 'Client portal' : maskEmail(form.recipient.email),
         portalNotice: outcome.portalNotice,
         reason: outcome.reason,
+        acceptedAt: outcome.acceptedAt?.toISOString() ?? null,
+        providerRef: outcome.providerRef ?? null,
       },
     };
   }
@@ -744,9 +757,17 @@ export class IntakeSendService {
     const email = await db.notificationDelivery.findFirst({
       where: { businessId, channel: 'EMAIL', notificationId: { in: mine.map((n) => n.id) } },
       orderBy: { createdAt: 'desc' },
-      select: { status: true, lastError: true },
+      select: { status: true, lastError: true, sentAt: true, providerMessageId: true },
     });
-    if (email?.status === 'SENT') return { status: 'SENT', portalNotice: true, reason: null };
+    if (email?.status === 'SENT') {
+      return {
+        status: 'SENT',
+        portalNotice: true,
+        reason: null,
+        acceptedAt: email.sentAt,
+        providerRef: shortRef(email.providerMessageId),
+      };
+    }
     if (email?.status === 'QUEUED' || email?.status === 'FAILED') {
       return {
         status: 'RETRYING',

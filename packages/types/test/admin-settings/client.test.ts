@@ -4,6 +4,7 @@ import {
   AdminEmailStatus,
   AdminSystemHealth,
   AdminGeneralSettings,
+  SaveAdminEmailRequest,
   ApiRequestError,
   CreateAdminLegalHoldRequest,
   CreateAdminMaintenanceRequest,
@@ -70,6 +71,41 @@ describe('admin settings schemas', () => {
       }).success,
     ).toBe(true);
     expect(SetAdminSecretRefRequest.safeParse({ reference: 'hunter2' }).success).toBe(false);
+  });
+
+  it('requires an administrator recipient for billing and security alerts', () => {
+    const value = {
+      fromName: 'Firmivra',
+      fromEmail: null,
+      replyTo: null,
+      cc: null,
+      signature: null,
+      includeSignature: true,
+      channels: { email: true, inApp: true, sms: false, push: false },
+      digest: false,
+      recipients: {
+        systemAlerts: 'NOBODY',
+        firmApplications: 'NOBODY',
+        billing: 'SUPER_ADMINS',
+        securityAlerts: 'SUPER_ADMINS',
+      },
+      maxRetries: 3,
+      retryBackoffMinutes: 15,
+      dailyCapPerRecipient: 50,
+    } as const;
+    expect(SaveAdminEmailRequest.safeParse({ version: 1, value }).success).toBe(true);
+    expect(
+      SaveAdminEmailRequest.safeParse({
+        version: 1,
+        value: { ...value, recipients: { ...value.recipients, billing: 'NOBODY' } },
+      }).success,
+    ).toBe(false);
+    expect(
+      SaveAdminEmailRequest.safeParse({
+        version: 1,
+        value: { ...value, recipients: { ...value.recipients, securityAlerts: 'NOBODY' } },
+      }).success,
+    ).toBe(false);
   });
 
   it('holds exactly one target, and ends a window after it starts', () => {

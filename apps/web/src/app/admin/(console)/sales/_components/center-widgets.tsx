@@ -64,15 +64,21 @@ export function CenterPipelineCard({ period }: { period: SalesPeriod }) {
             <ul aria-label="Records per stage" className="flex flex-col gap-2">
               {stages.map((stage) => (
                 <li key={stage.stageId}>
-                  <BarRow
-                    label={stage.name}
-                    value={stage.count}
-                    max={max}
-                    fillClass={STAGE_STYLE[stage.tone].bar}
-                    labelClass="w-34"
-                    barClass="h-4"
-                    numberAfterBar
-                  />
+                  <Link
+                    href={`/sales/pipeline?stageId=${encodeURIComponent(stage.stageId)}`}
+                    aria-label={`${stage.name}: ${stage.count} records; view in pipeline`}
+                    className="block rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                  >
+                    <BarRow
+                      label={stage.name}
+                      value={stage.count}
+                      max={max}
+                      fillClass={STAGE_STYLE[stage.tone].bar}
+                      labelClass="w-34"
+                      barClass="h-4"
+                      numberAfterBar
+                    />
+                  </Link>
                 </li>
               ))}
             </ul>

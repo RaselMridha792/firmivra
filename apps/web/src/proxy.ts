@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { buildCsp, CSP_HEADER, newNonce } from './lib/csp';
+import { bookingFrameAncestors, publicEmbedFrameAncestors } from './lib/embed';
 import { type Area, areaForHost, INTERNAL_PREFIXES } from './lib/hosts';
 
 /**
@@ -10,6 +11,7 @@ function withCsp(
   request: NextRequest,
   area: Area | null,
   make: (init: { headers: Headers }) => NextResponse,
+  pathname = '',
 ) {
   const nonce = newNonce();
   const policy = buildCsp({ nonce, area, dev: process.env.NODE_ENV === 'development' });
@@ -18,6 +20,11 @@ function withCsp(
   headers.set(CSP_HEADER, policy);
   const response = make({ headers });
   response.headers.set(CSP_HEADER, policy);
+  // The booking page alone may be framed, by the allowed websites (lib/embed.ts): an ENFORCED
+  // frame-ancestors, which browsers prefer over CloudFront's X-Frame-Options. No other route has one.
+  const frame = bookingFrameAncestors(area, pathname);
+  const publicFrame = publicEmbedFrameAncestors(area, pathname);
+  if (frame || publicFrame) response.headers.set('Content-Security-Policy', frame ?? publicFrame!);
   return response;
 }
 
@@ -51,7 +58,7 @@ export function proxy(request: NextRequest) {
 
   const url = request.nextUrl.clone();
   url.pathname = `/${area}${pathname === '/' ? '' : pathname}`;
-  return withCsp(request, area, (init) => NextResponse.rewrite(url, { request: init }));
+  return withCsp(request, area, (init) => NextResponse.rewrite(url, { request: init }), pathname);
 }
 
 export const config = {

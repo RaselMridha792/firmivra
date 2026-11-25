@@ -1066,10 +1066,12 @@ export function createTemplatesMock({
         const r = find(templateId);
         if (!r.d.attachments.some((a) => a.id === attachmentId))
           throw fail(404, 'NOT_FOUND', 'That attachment was not found.');
-        return {
-          url: `mock:download/${attachmentId}`,
-          expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-        };
+        // As the API (the scan gap): no download until the file's virus check is recorded.
+        throw fail(
+          409,
+          'SCAN_PENDING',
+          'This file is waiting for its virus check. It can be downloaded once it is checked.',
+        );
       }),
     removeAttachment: (templateId, attachmentId) =>
       run(() => {

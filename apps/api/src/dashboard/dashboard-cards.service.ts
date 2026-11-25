@@ -16,12 +16,14 @@ import {
   type DashboardCardSettings,
   type DashboardCardStatusKey,
   type DashboardCardTemplate,
+  type DashboardPermissions,
   type DashboardRange,
   type DashboardServiceCard,
   DEFAULT_DASHBOARD_CARDS,
   dashboardCardProblem,
   type OrderDashboardCardsRequest,
-  type PermissionModule,
+  PermissionCapability,
+  PermissionModule,
   type PreviewDashboardCardRequest,
   type ServiceKind,
   TAX_RETURN_IN_PROGRESS_STATUSES,
@@ -341,6 +343,33 @@ export class DashboardCardsService {
   ): Promise<Set<PermissionModule>> {
     const can = await Promise.all(modules.map((m) => this.mayView(tenant, userId, m)));
     return new Set(modules.filter((_, i) => can[i]));
+  }
+
+  /**
+   * Dashboard Review 2, V5: every module's capabilities the member holds, resolved in the role
+   * guard's order (their own change, their custom role, their role's grid; an Owner everything).
+   */
+  async myGrants(tenant: TenantContext, userId: string): Promise<DashboardPermissions> {
+    const modules = PermissionModule.options;
+    const caps = PermissionCapability.options;
+    type Grants = DashboardPermissions['grants'];
+    if (tenant.kind !== 'staff') {
+      return { grants: Object.fromEntries(modules.map((m) => [m, []])) as unknown as Grants };
+    }
+    const entries = await Promise.all(
+      modules.map(async (m) => {
+        const held = await Promise.all(
+          caps.map(async (c) => {
+            if (tenant.role === 'OWNER') return true;
+            const own = await this.grants.memberCell(tenant.businessId, userId, m, c);
+            if (own !== undefined) return own;
+            return this.grants.canTenant(tenant, m, c);
+          }),
+        );
+        return [m, caps.filter((_, i) => held[i])] as const;
+      }),
+    );
+    return { grants: Object.fromEntries(entries) as unknown as Grants };
   }
 
   /**

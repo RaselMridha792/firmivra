@@ -2,12 +2,13 @@
 
 import { ApiRequestError, type Promotion, type SavePromotionRequest } from '@firmivra/types';
 import { Badge, Button, Checkbox, Input, Modal, Select, Toast } from '@firmivra/ui';
-import { PencilSimple, Plus, Prohibit, Tag } from '@phosphor-icons/react';
+import { MagnifyingGlass, PencilSimple, Plus, Prohibit, Tag } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { CatalogFrame } from './catalog-frame';
+import { CheckCodeDialog } from './check-code-dialog';
 import { CATALOG_ERRORS, CATALOG_KEY, Quiet, money } from './catalog-shared';
 
 const PROMOS = [...CATALOG_KEY, 'promotions'];
@@ -39,6 +40,7 @@ const range = (p: Promotion) =>
 export function PromotionsScreen() {
   const list = useApiQuery(PROMOS, () => api.servicesPricing.promotions());
   const [editing, setEditing] = useState<Promotion | 'new' | null>(null);
+  const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const rows = list.data ?? [];
   const end = useApiMutation((id: string) => api.servicesPricing.endPromotion(id), {
@@ -74,11 +76,21 @@ export function PromotionsScreen() {
               <p className="text-sm text-muted">
                 Changes apply to future use only. Completed invoices keep their price.
               </p>
+              {/* R9/R13 (decided Nov 19): said plainly, with the way to test a code. */}
+              <p className="text-sm text-muted" data-testid="promotions-redeem-note">
+                Promo codes are not yet redeemed at payment. Use Check a Code to test whether a code
+                applies to a service or package.
+              </p>
             </div>
           </div>
-          <Button onClick={() => setEditing('new')}>
-            <Plus aria-hidden weight="bold" className="size-4" /> Create Promotion
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setChecking(true)}>
+              <MagnifyingGlass aria-hidden weight="bold" className="size-4" /> Check a Code
+            </Button>
+            <Button onClick={() => setEditing('new')}>
+              <Plus aria-hidden weight="bold" className="size-4" /> Create Promotion
+            </Button>
+          </div>
         </header>
         {rows.length === 0 ? (
           <Quiet>{state}</Quiet>
@@ -157,6 +169,7 @@ export function PromotionsScreen() {
           </div>
         )}
       </section>
+      {checking ? <CheckCodeDialog onClose={() => setChecking(false)} /> : null}
       {editing ? (
         <PromotionDialog
           promotion={editing === 'new' ? null : editing}

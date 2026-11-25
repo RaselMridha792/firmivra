@@ -54,6 +54,10 @@ export interface NotifyTemplates {
     replyBy: string | null;
     link: string;
   };
+  /** Q32 (SA-FRM-F07/F08): one-time email code for a closed-firm download link. */
+  'platform.firm-download-code': { code: string };
+  /** Q32: a download-only closed-firm link sent to its verified owner. */
+  'platform.firm-download-link': { name: string; link: string; startsAt: Date; expiresAt: Date };
 
   // ----- Client portal (R3) -----
   /** The 6-digit code that verifies a sign-up's email. */
@@ -405,6 +409,8 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'staff.mfa-reset': 'email',
   'platform.mfa-enrolled': 'email',
   'platform.firm-info-request': 'email',
+  'platform.firm-download-code': 'email',
+  'platform.firm-download-link': 'email',
   'client.signup-email-code': 'email',
   'client.signup-sms-code': 'sms',
   'client.already-registered': 'email',
@@ -473,6 +479,8 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'staff.mfa-reset': 'firm',
   'platform.mfa-enrolled': 'platform',
   'platform.firm-info-request': 'platform',
+  'platform.firm-download-code': 'platform',
+  'platform.firm-download-link': 'platform',
   'client.signup-email-code': 'firm',
   'client.signup-sms-code': 'firm',
   'client.already-registered': 'firm',
@@ -581,6 +589,8 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'staff.mfa-reset': 'ACCOUNT',
   'platform.mfa-enrolled': 'ACCOUNT',
   'platform.firm-info-request': 'ACCOUNT',
+  'platform.firm-download-code': 'ACCOUNT',
+  'platform.firm-download-link': 'ACCOUNT',
   'client.signup-email-code': 'ACCOUNT',
   'client.signup-sms-code': 'ACCOUNT',
   'client.already-registered': 'ACCOUNT',
@@ -659,6 +669,11 @@ export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
   data: NotifyTemplates[T];
 }
 
+/** What a send that reached a provider can tell: the provider's own message id (email only). */
+export interface SendResult {
+  providerMessageId: string | null;
+}
+
 export interface NotifyService {
   /**
    * Sends one message. Resolves once the provider (or, in a log mode, the API log) has it.
@@ -668,7 +683,7 @@ export interface NotifyService {
    * The caller decides what a failure means: usually its own flow stands, and it logs a warning
    * with its record's id (as R4 does), never the address.
    */
-  send<T extends NotifyTemplate>(message: NotifyMessage<T>): Promise<void>;
+  send<T extends NotifyTemplate>(message: NotifyMessage<T>): Promise<SendResult | void>;
 }
 
 /** Nest injection token: `@Inject(NOTIFY_SERVICE) private readonly notify: NotifyService`. */

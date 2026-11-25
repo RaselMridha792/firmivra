@@ -64,6 +64,18 @@ const expired = () =>
   new GoneException({ code: 'UPLOAD_EXPIRED', message: 'This upload has expired' });
 const refused = (code: string) =>
   new ConflictException({ code, message: 'The file can’t be used' });
+const scanPending = () =>
+  new ConflictException({
+    code: 'SCAN_PENDING',
+    message: 'This file is waiting for its virus check. It can be downloaded once it is checked.',
+  });
+
+/**
+ * The scan gap (Nov 19): a template's file is downloaded only once its virus check is recorded as
+ * CLEAN. Its scan status column comes with the db PR (message_template_attachments.scan_status);
+ * until then no file has a recorded verdict, so none is handed out (409 SCAN_PENDING).
+ */
+const scannedClean = (_file: { id: string }): boolean => false;
 const unavailable = () =>
   new ServiceUnavailableException({
     code: 'SERVICE_UNAVAILABLE',
@@ -236,6 +248,7 @@ export class TemplateAttachmentsService {
       if (!a) throw notFound();
       return a;
     });
+    if (!scannedClean(file)) throw scanPending();
     const stored = await this.s3(() => this.storage.head(file.s3Key));
     if (stored?.sizeBytes !== file.sizeBytes || stored.contentEncoding !== null) {
       this.logger.warn(`Template attachment ${file.id}: the stored file is not the confirmed one`);

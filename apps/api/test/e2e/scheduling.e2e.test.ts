@@ -15,6 +15,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { z } from 'zod';
 import {
   AgendaPage,
+  Appointment,
   AppointmentDraft,
   AppointmentDraftList,
   AppointmentNoticeSettings,
@@ -679,6 +680,7 @@ describe('options', () => {
       color: '#2563eb',
       serviceId: ids.serviceA,
       methods: ['VIDEO', 'IN_PERSON', 'PHONE'],
+      requiredIntakeFormId: null,
     });
     expect(o.types.find((t) => t.id === ids.typeA2)?.methods).toEqual(['VIDEO']);
     expect(o.types.map((t) => t.id)).not.toContain(ids.typeB);
@@ -744,6 +746,9 @@ describe('contacts', () => {
       email: `jamie-${run}@sample.test`,
       phone: '555-0101',
       clientType: 'INDIVIDUAL',
+      // Review 2 (B9): no portal login, so no texts either.
+      portal: false,
+      textOptIn: false,
     });
     expect((await find('555-0101')).map((c) => c.id)).toEqual([ids.c1]);
     expect((await find(`riley-${run}@`)).map((c) => c.id)).toEqual([ids.c2]);
@@ -789,6 +794,59 @@ describe('contacts', () => {
   });
 });
 
+describe('contacts (Review 2, B9): portal and texts', () => {
+  it('a client with an active portal login is marked portal; textOptIn follows its Appointments SMS choice', async () => {
+    const find = async (q: string) =>
+      exact(
+        ContactSearchResult,
+        await call('get', `/appointments/contacts?search=${encodeURIComponent(q)}`, people.ownerA),
+      ).items;
+    const login = { id: randomUUID(), email: `b9-${run}@client.test` };
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      await runInScope(owner, { kind: 'platform' }, (tx) =>
+        tx.user.create({
+          data: {
+            id: login.id,
+            cognitoSub: login.id,
+            pool: 'CLIENT',
+            email: login.email,
+            name: 'Fake B9 login',
+          },
+        }),
+      );
+    } finally {
+      await owner.$disconnect();
+    }
+    const client = await asOwner(ids.firmA, async (tx) => {
+      const c = await tx.client.create({
+        data: { businessId: ids.firmA, displayName: `B9 Portal ${run} (fake)` },
+        select: { id: true },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId: ids.firmA,
+          userId: login.id,
+          clientId: c.id,
+          email: login.email,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      return c.id;
+    });
+    const [before] = await find(`B9 Portal ${run}`);
+    expect(before).toMatchObject({ id: client, portal: true, textOptIn: false });
+    await asOwner(ids.firmA, (tx) =>
+      tx.notificationPreference.create({
+        data: { businessId: ids.firmA, userId: login.id, category: 'APPOINTMENTS', sms: true },
+      }),
+    );
+    const [after] = await find(`B9 Portal ${run}`);
+    expect(after).toMatchObject({ id: client, portal: true, textOptIn: true });
+  });
+});
+
 describe('schedule', () => {
   it('books one appointment and answers the record the screens read', async () => {
     const body = schedule({
@@ -822,7 +880,8 @@ describe('schedule', () => {
       clientInstructions: 'Join from the link',
       seriesId: null,
       recurrence: null,
-      notices: [],
+      // Review 2 (B8): the confirmation it sent, as a fresh read below shows it.
+      notices: [{ kind: 'CONFIRMATION', channel: 'EMAIL', status: 'SENT' }],
     });
     expect(record.reminders).toEqual([
       { channel: 'EMAIL', amount: 1, unit: 'DAYS' },
@@ -1160,8 +1219,9 @@ describe('schedule', () => {
     await refused({ contact: { kind: 'CONTACT', name: 'New Person', email: 'new@sample.test' } });
     await refused({ staffUserIds: [people.staffA.id, people.staffA2.id] });
     await refused({ method: 'OTHER' });
-    // Review 2 (TX-F06): Link to Tax Return is kept now; the other related items still are not.
-    await refused({ related: { intakeFormId: randomUUID() } });
+    // Review 2 (TX-F06, row 9): Link to Tax Return and the intake form are kept now; the other
+    // related items still are not.
+    await refused({ related: { taskId: randomUUID() } });
     await refused({ recurrence: { frequency: 'CUSTOM', interval: 1, count: 3 } });
     await refused({ color: '#123456' });
     await refused({ timezone: 'Not/AZone' });
@@ -1453,6 +1513,309 @@ describe('schedule', () => {
     const text = JSON.stringify(rows);
     for (const secret of ['SECRET-NOTE', 'SECRET-INSTRUCTION', 'secret-link', 'Jamie'])
       expect(text).not.toContain(secret);
+  });
+});
+
+describe('Review 2 (R2): edit and cancel a series', () => {
+  const login = { id: randomUUID(), email: `r2-${run}@client.test` };
+  let clientId: string;
+  let nextSeriesDay = 500;
+
+  beforeAll(async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      await runInScope(owner, { kind: 'platform' }, (tx) =>
+        tx.user.create({
+          data: {
+            id: login.id,
+            cognitoSub: login.id,
+            pool: 'CLIENT',
+            email: login.email,
+            name: 'Fake series client',
+          },
+        }),
+      );
+      clientId = await asOwner(ids.firmA, async (tx) => {
+        const client = await tx.client.create({
+          data: { businessId: ids.firmA, displayName: 'Fake series client' },
+          select: { id: true },
+        });
+        await tx.clientAccount.create({
+          data: {
+            businessId: ids.firmA,
+            userId: login.id,
+            clientId: client.id,
+            email: login.email,
+            portalRole: 'PRIMARY',
+            status: 'ACTIVE',
+          },
+        });
+        return client.id;
+      });
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  const series = async () => {
+    // Reserve four weeks for each case, outside the dates the other scheduling tests book.
+    const n = nextSeriesDay;
+    nextSeriesDay += 28;
+    const r = await scheduled({
+      contact: { kind: 'CLIENT', id: clientId },
+      startsAt: at(n, '10:00'),
+      endsAt: at(n, '10:30'),
+      recurrence: { frequency: 'WEEKLY', interval: 1, count: 4 },
+      sendConfirmation: false,
+    });
+    const rows = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findMany({
+        where: { businessId: ids.firmA, seriesId: r.seriesId },
+        orderBy: { startsAt: 'asc' },
+        select: { id: true },
+      }),
+    );
+    expect(rows).toHaveLength(4);
+    return { n, ids: rows.map((x) => x.id) };
+  };
+  const state = async (seriesIds: string[]) =>
+    asOwner(ids.firmA, (tx) =>
+      tx.appointment.findMany({
+        where: { businessId: ids.firmA, id: { in: seriesIds } },
+        orderBy: { startsAt: 'asc' },
+        select: { status: true, startsAt: true, internalNotes: true },
+      }),
+    );
+
+  const expectNotices = (
+    since: number,
+    template: 'appointment.changed' | 'appointment.cancelled',
+    dates: number[],
+    time: string,
+  ) => {
+    const messages = outbox.slice(since).filter((notice) => notice.template === template);
+    expect(messages).toHaveLength(dates.length);
+    expect(messages).toEqual(
+      expect.arrayContaining(
+        dates.map((date) =>
+          expect.objectContaining({
+            to: login.email,
+            data: expect.objectContaining({ startsAt: new Date(at(date, time)) }),
+          }),
+        ),
+      ),
+    );
+  };
+
+  it('Edit: This and later moves each later one by the same amount and gives them the change; the repeat changes on one alone', async () => {
+    const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
+    const second = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${s[1]}/record`, people.ownerA),
+    );
+    expectError(
+      await call('patch', `/appointments/${s[1]}/details`, people.ownerA, {
+        version: second.version,
+        scope: 'SERIES',
+        recurrence: { frequency: 'WEEKLY', interval: 1, count: 6 },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${s[1]}/details`, people.ownerA, {
+        version: second.version,
+        scope: 'FOLLOWING',
+        startsAt: at(n + 7, '10:30'),
+        endsAt: at(n + 7, '11:00'),
+        internalNotes: 'Fake: moved half an hour',
+      }),
+    );
+    expect(await state(s)).toEqual([
+      { status: 'SCHEDULED', startsAt: new Date(at(n, '10:00')), internalNotes: null },
+      ...[7, 14, 21].map((d) => ({
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n + d, '10:30')),
+        internalNotes: 'Fake: moved half an hour',
+      })),
+    ]);
+    expectNotices(beforeNotices, 'appointment.changed', [n + 7, n + 14, n + 21], '10:30');
+  });
+
+  it('Edit: SERIES moves every scheduled occurrence by the same amount', async () => {
+    const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
+    const second = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${s[1]}/record`, people.ownerA),
+    );
+    exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${s[1]}/details`, people.ownerA, {
+        version: second.version,
+        scope: 'SERIES',
+        startsAt: at(n + 7, '11:00'),
+        endsAt: at(n + 7, '11:30'),
+        internalNotes: 'Fake: whole series moved',
+      }),
+    );
+    expect(await state(s)).toEqual([
+      {
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n, '11:00')),
+        internalNotes: 'Fake: whole series moved',
+      },
+      ...[7, 14, 21].map((d) => ({
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n + d, '11:00')),
+        internalNotes: 'Fake: whole series moved',
+      })),
+    ]);
+    expectNotices(beforeNotices, 'appointment.changed', [n, n + 7, n + 14, n + 21], '11:00');
+  });
+
+  it('Edit: THIS changes only that one occurrence in a series', async () => {
+    const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
+    const second = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${s[1]}/record`, people.ownerA),
+    );
+    exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${s[1]}/details`, people.ownerA, {
+        version: second.version,
+        scope: 'THIS',
+        startsAt: at(n + 7, '11:00'),
+        endsAt: at(n + 7, '11:30'),
+        internalNotes: 'Fake: only this one',
+      }),
+    );
+    expect(await state(s)).toEqual([
+      { status: 'SCHEDULED', startsAt: new Date(at(n, '10:00')), internalNotes: null },
+      {
+        status: 'SCHEDULED',
+        startsAt: new Date(at(n + 7, '11:00')),
+        internalNotes: 'Fake: only this one',
+      },
+      { status: 'SCHEDULED', startsAt: new Date(at(n + 14, '10:00')), internalNotes: null },
+      { status: 'SCHEDULED', startsAt: new Date(at(n + 21, '10:00')), internalNotes: null },
+    ]);
+    expectNotices(beforeNotices, 'appointment.changed', [n + 7], '11:00');
+  });
+
+  it.each([
+    {
+      transition: 'spring forward',
+      occurrences: [
+        ['2031-02-23', '-06:00'],
+        ['2031-03-01', '-06:00'],
+        ['2031-03-08', '-06:00'],
+        ['2031-03-15', '-05:00'],
+      ],
+    },
+    {
+      transition: 'fall back',
+      occurrences: [
+        ['2031-10-19', '-05:00'],
+        ['2031-10-25', '-05:00'],
+        ['2031-11-01', '-05:00'],
+        ['2031-11-08', '-06:00'],
+      ],
+    },
+  ] as const)(
+    'Edit: This and later keeps wall-clock times during $transition',
+    async ({ occurrences }) => {
+      const timezone = 'America/Chicago';
+      const local = ([date, offset]: readonly [string, string], time: string) =>
+        new Date(`${date}T${time}:00${offset}`);
+      // The firm uses Asia/Kolkata. Book four Sundays in Chicago with the transition on the
+      // third. Move the second and later to Saturdays, crossing the offset change on that one.
+      const [first, selected] = occurrences;
+      const overrideConflicts = { reason: 'Fake: test a time outside firm working hours' };
+      const r = await scheduled({
+        startsAt: local(first, '10:00').toISOString(),
+        endsAt: local(first, '10:30').toISOString(),
+        timezone,
+        overrideConflicts,
+        recurrence: { frequency: 'WEEKLY', interval: 1, count: 4 },
+        sendConfirmation: false,
+      });
+      expect(r.timezone).toBe(timezone);
+      const rows = await asOwner(ids.firmA, (tx) =>
+        tx.appointment.findMany({
+          where: { businessId: ids.firmA, seriesId: r.seriesId },
+          orderBy: { startsAt: 'asc' },
+          select: { id: true },
+        }),
+      );
+      expect(rows).toHaveLength(4);
+      const second = exact(
+        AppointmentRecord,
+        await call('get', `/appointments/${rows[1]?.id}/record`, people.ownerA),
+      );
+      exact(
+        AppointmentRecord,
+        await call('patch', `/appointments/${rows[1]?.id}/details`, people.ownerA, {
+          version: second.version,
+          scope: 'FOLLOWING',
+          overrideConflicts,
+          startsAt: local(selected, '10:30').toISOString(),
+          endsAt: local(selected, '11:00').toISOString(),
+        }),
+      );
+      const after = await asOwner(ids.firmA, (tx) =>
+        tx.appointment.findMany({
+          where: { businessId: ids.firmA, seriesId: r.seriesId },
+          orderBy: { startsAt: 'asc' },
+          select: { startsAt: true, endsAt: true },
+        }),
+      );
+      expect(after).toEqual(
+        occurrences.map((occurrence, i) => ({
+          startsAt: local(occurrence, i === 0 ? '10:00' : '10:30'),
+          endsAt: local(occurrence, i === 0 ? '10:30' : '11:00'),
+        })),
+      );
+    },
+  );
+
+  it.each([
+    {
+      label: 'THIS',
+      scope: 'THIS',
+      statuses: ['SCHEDULED', 'CANCELLED', 'SCHEDULED', 'SCHEDULED'],
+    },
+    {
+      label: 'FOLLOWING',
+      scope: 'FOLLOWING',
+      statuses: ['SCHEDULED', 'CANCELLED', 'CANCELLED', 'CANCELLED'],
+    },
+    {
+      label: 'SERIES',
+      scope: 'SERIES',
+      statuses: ['CANCELLED', 'CANCELLED', 'CANCELLED', 'CANCELLED'],
+    },
+    {
+      label: 'default',
+      scope: undefined,
+      statuses: ['SCHEDULED', 'CANCELLED', 'SCHEDULED', 'SCHEDULED'],
+    },
+  ])('Cancel: $label cancels exactly the intended occurrences', async ({ scope, statuses }) => {
+    const { n, ids: s } = await series();
+    const beforeNotices = outbox.length;
+    const cancelled = exact(
+      Appointment,
+      await call('post', `/appointments/${s[1]}/cancel`, people.ownerA, { scope }),
+    );
+    expect(cancelled).toMatchObject({ id: s[1], status: 'CANCELLED' });
+    expect((await state(s)).map((x) => x.status)).toEqual(statuses);
+    const cancelledDates = statuses.flatMap((status, index) =>
+      status === 'CANCELLED' ? [n + index * 7] : [],
+    );
+    expectNotices(beforeNotices, 'appointment.cancelled', cancelledDates, '10:00');
   });
 });
 
@@ -1813,9 +2176,16 @@ describe('send reminder', () => {
       AppointmentRecord,
       await call('get', `/appointments/${r.id}/record`, people.staffA),
     );
-    expect(record.notices).toHaveLength(1);
+    // Newest first: the reminder, then the booking's confirmation (and its request to confirm).
+    expect(record.notices).toHaveLength(2);
     expect(record.notices[0]).toMatchObject({ kind: 'REMINDER', channel: 'EMAIL', status: 'SENT' });
+    expect(record.notices[1]).toMatchObject({
+      kind: 'CONFIRMATION',
+      channel: 'EMAIL',
+      status: 'SENT',
+    });
     expect(record.notices[0]!.recipient).not.toContain('Jamie');
+    expect(record.notices[1]!.recipient).not.toContain('Jamie');
   });
 
   it("carries the firm's own words and the instructions the appointment shows in email (Review 2, B7, B9)", async () => {
@@ -1885,6 +2255,7 @@ describe('send reminder', () => {
         .notices,
     ).toMatchObject([
       { kind: 'REMINDER', channel: 'PORTAL', status: 'FAILED', recipient: 'Client portal' },
+      { kind: 'CONFIRMATION', channel: 'EMAIL', status: 'SENT' },
     ]);
     await call('post', `/appointments/${r.id}/cancel`, people.ownerA, {});
     expect(
@@ -2032,12 +2403,13 @@ describe('notes', () => {
     );
     expect(two.internalNotes?.split('\n\n')).toHaveLength(3);
     const first = await scheduled();
-    expect(
-      exact(
-        AppointmentRecord,
-        await call('post', `/appointments/${first.id}/notes`, people.ownerA, { text: 'Only' }),
-      ).internalNotes,
-    ).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} · Fake R58 ownerA: Only$/);
+    const only = exact(
+      AppointmentRecord,
+      await call('post', `/appointments/${first.id}/notes`, people.ownerA, { text: 'Only' }),
+    );
+    expect(only.internalNotes).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} · Fake R58 ownerA: Only$/);
+    // Review 2 (B8): the answer keeps the notices sent (here the booking's confirmation).
+    expect(only.notices).toMatchObject([{ kind: 'CONFIRMATION', channel: 'EMAIL' }]);
     const audit = await asOwner(ids.firmA, (tx) =>
       tx.auditLog.findMany({
         where: { businessId: ids.firmA, action: 'appointment.note_added', entityId: r.id },
@@ -3487,7 +3859,7 @@ describe('a planning discussion (Tax Planning Review 2 C12)', () => {
 });
 
 describe('Review 2 (TX-F06): Link to Tax Return', () => {
-  it("keeps one of the client's returns (as its engagement), shows it, and takes it off", async () => {
+  it("keeps one of the client's returns, shows it, and takes it off; the return's service too", async () => {
     const fx = await asOwner(ids.firmA, async (tx) => {
       const A = { businessId: ids.firmA };
       const e = await tx.engagement.create({
@@ -3503,22 +3875,47 @@ describe('Review 2 (TX-F06): Link to Tax Return', () => {
           formType: '1040',
         },
       });
+      // F06 (R56): a second return on the same service, made later (so its newest).
+      const sameService = await tx.taxReturn.create({
+        data: {
+          ...A,
+          clientId: ids.c1,
+          engagementId: e.id,
+          taxYear: 2025,
+          quarter: 3,
+          filingType: 'INDIVIDUAL',
+          formType: '1040-ES',
+        },
+      });
       const bare = await tx.taxReturn.create({
         data: { ...A, clientId: ids.c1, taxYear: 2024, filingType: 'INDIVIDUAL', formType: '1040' },
       });
       const theirs = await tx.taxReturn.create({
         data: { ...A, clientId: ids.c2, taxYear: 2025, filingType: 'INDIVIDUAL', formType: '1040' },
       });
-      return { linked: linked.id, bare: bare.id, theirs: theirs.id, engagement: e.id };
+      return {
+        linked: linked.id,
+        sameService: sameService.id,
+        bare: bare.id,
+        theirs: theirs.id,
+        engagement: e.id,
+      };
     });
+    // F06 (R56, Nov 20): the exact return is kept, not the service's newest return.
     const r = await scheduled({ related: { taxReturnId: fx.linked } });
     expect(r.related.taxReturn).toEqual({ id: fx.linked, name: '2025 1040 Return' });
     const stored = await asOwner(ids.firmA, (tx) =>
-      tx.appointment.findUniqueOrThrow({ where: { id: r.id }, select: { engagementId: true } }),
+      tx.appointment.findUniqueOrThrow({
+        where: { id: r.id },
+        select: { engagementId: true, taxReturnId: true },
+      }),
     );
-    expect(stored.engagementId).toBe(fx.engagement);
+    expect(stored).toEqual({ engagementId: fx.engagement, taxReturnId: fx.linked });
 
-    // Another client's return: 404; a return without its service yet: 400 at the field.
+    // F06 (R56): a return without a service links all the same (her case), with no service.
+    const bare = await scheduled({ related: { taxReturnId: fx.bare } });
+    expect(bare.related.taxReturn).toEqual({ id: fx.bare, name: '2024 1040 Return' });
+    // Another client's return: 404.
     expectError(
       await call(
         'post',
@@ -3528,16 +3925,6 @@ describe('Review 2 (TX-F06): Link to Tax Return', () => {
       ),
       404,
       'NOT_FOUND',
-    );
-    expectError(
-      await call(
-        'post',
-        '/appointments/schedule',
-        people.ownerA,
-        schedule({ related: { taxReturnId: fx.bare } }),
-      ),
-      400,
-      'VALIDATION_FAILED',
     );
 
     const off = exact(

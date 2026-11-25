@@ -17,13 +17,16 @@ import {
   dashboardCardProblem,
   OrderDashboardCardsRequest,
   parseInput,
+  PermissionCapability,
+  PermissionModule,
   PreviewDashboardCardRequest,
   rangeOf,
   revenueRangeOf,
+  roleCan,
   shapeOf,
   UpdateDashboardCardRequest,
 } from '@firmivra/types';
-import { mockDelay, mockNoView } from '../lib/mock';
+import { MOCK_ROLE, mockDelay, mockNoEdit, mockNoView } from '../lib/mock';
 
 const ME = { userId: '0199b6a0-0000-7000-8000-0000000000f0', name: 'Mock User' };
 
@@ -265,6 +268,24 @@ export function createDashboardMock(): DashboardClient {
     services: servicesOf(),
   });
   return {
+    // V5: the role's grid, less the modules taken away (a custom role or the member's own change).
+    permissions: async () => {
+      await mockDelay();
+      const no = mockNoView();
+      const noEdit = mockNoEdit();
+      return {
+        grants: Object.fromEntries(
+          PermissionModule.options.map((m) => [
+            m,
+            no.has(m)
+              ? []
+              : PermissionCapability.options.filter(
+                  (c) => roleCan(MOCK_ROLE, m, c) && !(c === 'EDIT' && noEdit.has(m)),
+                ),
+          ]),
+        ) as Record<PermissionModule, PermissionCapability[]>,
+      };
+    },
     // V5, as the API: a number whose list the member may not view is left out.
     summary: async (query = {}) => {
       await mockDelay();

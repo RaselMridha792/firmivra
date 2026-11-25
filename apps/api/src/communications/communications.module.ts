@@ -9,6 +9,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { ReportsModule } from '../reports/reports.module.js';
+import { ScanRouterModule } from '../storage/scan-queue/scan-router.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
 import {
   createS3Client,
@@ -31,6 +32,7 @@ import { CommunicationResultsService } from './communications-results.service.js
 import { CommunicationSegmentsService } from './communications-segments.service.js';
 import { CommunicationsController } from './communications.controller.js';
 import { CommunicationsService } from './communications.service.js';
+import { CommunicationsScanHandler } from './communications-scan-handler.js';
 import {
   CAMPAIGN_MAILER,
   type CampaignMailer,
@@ -46,7 +48,8 @@ import {
  * file store (tenant/<business>/reports/).
  */
 @Module({
-  imports: [ReportsModule, TemplatesModule, NotificationsModule],
+  // ScanRouterModule: the communications prefix's scan results (CommunicationsScanHandler).
+  imports: [ReportsModule, TemplatesModule, NotificationsModule, ScanRouterModule],
   controllers: [CommunicationsController],
   providers: [
     CommunicationSegmentsService,
@@ -54,6 +57,7 @@ import {
     CommunicationsService,
     CommunicationResultsService,
     CommunicationExtrasService,
+    CommunicationsScanHandler,
     CommunicationDelivery,
     // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
