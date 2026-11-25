@@ -28,6 +28,7 @@ import {
   DownloadSimple,
   Lightbulb,
   MagnifyingGlass,
+  PencilSimple,
   Printer,
   Funnel,
 } from '@phosphor-icons/react';
@@ -43,7 +44,7 @@ import { type FilterDraft, type FilterField, conditionsOf } from './filter-rules
 import { CustomRangeDialog } from './report-date-controls';
 import { datesFrom } from './report-dates';
 import { unpack } from './report-drafts';
-import { SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
+import { RenameReportDialog, SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
 import { FilterRows } from './report-filters';
 import {
   BarChart,
@@ -140,7 +141,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const [sort, setSort] = useState<{ id: string; descending: boolean } | undefined>(view?.sort);
   const [hidden, setHidden] = useState<string[]>(view?.hidden ?? []);
   const [extra, setExtra] = useState<Extra>(view?.extra ?? NO_EXTRA);
-  const [dialog, setDialog] = useState<'save' | 'schedule' | 'filters' | 'custom'>();
+  const [dialog, setDialog] = useState<'save' | 'schedule' | 'filters' | 'custom' | 'rename'>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useDeferredValue(search.trim());
   // RP-Y09: Print gathers every row first, then prints the report's print copy.
@@ -935,14 +936,27 @@ export function ReportDetail({ reportId }: { reportId: string }) {
                 <Printer aria-hidden weight="bold" className="size-4" /> Print
               </button>
               {canSaveChanges ? (
-                <button
-                  type="button"
-                  className={subtle}
-                  disabled={!r}
-                  onClick={() => void saveChanges()}
-                >
-                  <Bookmark aria-hidden weight="bold" className="size-4" /> Save Changes
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className={subtle}
+                    disabled={!r}
+                    onClick={() => setDialog('rename')}
+                  >
+                    <PencilSimple aria-hidden weight="bold" className="size-4" /> Rename
+                  </button>
+                  <Link href={`/reports/builder?edit=${reportId}`} className={subtle}>
+                    <PencilSimple aria-hidden weight="bold" className="size-4" /> Edit Definition
+                  </Link>
+                  <button
+                    type="button"
+                    className={subtle}
+                    disabled={!r}
+                    onClick={() => void saveChanges()}
+                  >
+                    <Bookmark aria-hidden weight="bold" className="size-4" /> Save Changes
+                  </button>
+                </>
               ) : null}
               <button
                 type="button"
@@ -1074,6 +1088,20 @@ export function ReportDetail({ reportId }: { reportId: string }) {
         </aside>
       </div>
 
+      {dialog === 'rename' && savedOne.data ? (
+        <RenameReportDialog
+          initialName={savedOne.data.name}
+          onClose={() => setDialog(undefined)}
+          onSave={async (newName) => {
+            await api.reports.updateSaved(savedOne.data!.id, {
+              name: newName,
+              etag: savedOne.data!.etag,
+            });
+            await client.invalidateQueries({ queryKey: [...RP_KEY] });
+            notice('Report renamed.', 'success');
+          }}
+        />
+      ) : null}
       {dialog === 'save' && r ? (
         <SaveReportDialog
           definition={screenDefinition() ?? r.definition}

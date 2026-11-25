@@ -20,6 +20,7 @@ import {
   MagnifyingGlass,
   X,
 } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
@@ -71,6 +72,11 @@ export function ReportBuilder() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const editId = params.get('edit');
+  const qc = useQueryClient();
+  const savedOne = useApiQuery([...RP_KEY, 'saved-one', editId ?? ''], () =>
+    editId ? api.reports.savedReport(editId) : Promise.resolve(null),
+  );
   // RP-F14 (Octavia, Oct 28): Back from the report Run Report opened brings the builder back as it
   // was: its work is in the address (`?d=`), read once when the builder opens.
   const [opened] = useState(() => draftFrom(params.get('d')));
@@ -97,6 +103,7 @@ export function ReportBuilder() {
   const [chart, setChart] = useState(opened.chart);
   // RP-F15: a change of data source that would reset fields and filters asks first.
   const [switching, setSwitching] = useState<{ category: string; sourceKey: string }>();
+
   const draft: BuilderDraft = {
     name,
     category,
@@ -115,6 +122,47 @@ export function ReportBuilder() {
   };
   // RP-F05: unsaved work asks Save, Discard or Keep Editing before a link or a close loses it.
   const guard = useUnsavedGuard(draft);
+
+  const [syncedId, setSyncedId] = useState<string | null>(null);
+  if (editId && savedOne.data && syncedId !== editId) {
+    const s = savedOne.data;
+    const d = s.definition;
+    setName(s.name);
+    setCategory(s.category);
+    setSourceKey(d.dataSource);
+    setColumns(d.columns);
+    setPreset(d.date.rule === 'ROLLING' ? d.date.preset : 'this_year');
+    setFixed(d.date.rule === 'FIXED' ? { from: d.date.from, to: d.date.to } : undefined);
+    setConds((d.filters.conditions as FilterDraft[]) ?? []);
+    setGroupBy(d.groupBy ?? '');
+    setSortBy(d.sortBy ?? '');
+    setDesc(d.sortDescending);
+    setTotals(d.showTotals);
+    setPct(d.showPercentage);
+    setCompare(d.compareTo !== 'NONE');
+    setChart(d.chartType);
+    setSyncedId(editId);
+    guard.rebase();
+  }
+
+  const canEdit = !editId || (!!savedOne.data?.canEdit && !savedOne.data?.archived);
+
+  const saveDefinition = async () => {
+    if (!definition || !savedOne.data || !editId) return;
+    try {
+      await api.reports.updateSaved(editId, {
+        name: name.trim(),
+        definition: definition as never,
+        etag: savedOne.data.etag,
+      });
+      await qc.invalidateQueries({ queryKey: [...RP_KEY] });
+      guard.allow();
+      router.push(`/reports/${editId}`);
+    } catch (e) {
+      const detail = e instanceof ApiRequestError ? e.details?.[0]?.message : undefined;
+      notice(detail ?? errorMessage(e, RP_ERRORS), 'error');
+    }
+  };
   const resetsSomething = columns.length > 0 || conds.length > 0 || !!groupBy || !!sortBy;
   const switchTo = (next: { category: string; sourceKey: string }) => {
     setCategory(next.category);
@@ -220,16 +268,35 @@ export function ReportBuilder() {
         <div className="flex min-w-0 items-center gap-4">
           <CategoryTile category={category} />
           <div className="min-w-0">
-            <h1 className="font-display text-3xl font-bold text-heading">Create Custom Report</h1>
+            <h1 className="font-display text-3xl font-bold text-heading">
+              {editId ? `Edit Definition: ${savedOne.data?.name ?? name}` : 'Create Custom Report'}
+            </h1>
             <p className="text-base text-muted">
-              Choose your data, set filters, select what to display, and generate a custom report.
+              {editId
+                ? 'Editing definition for saved report. Existing report ID and schedules will be preserved.'
+                : 'Choose your data, set filters, select what to display, and generate a custom report.'}
             </p>
           </div>
         </div>
-        <Link href="/reports" className={outlined}>
-          ← Back to Reports
+        <Link
+          href={editId ? `/reports/${editId}` : '/reports'}
+          className={outlined}
+          onClick={() => guard.allow()}
+        >
+          {editId ? 'Cancel' : '← Back to Reports'}
         </Link>
       </header>
+      {editId && savedOne.data && !canEdit ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-danger/30 bg-danger-soft p-4 text-sm text-danger"
+          data-testid="edit-denied"
+        >
+          {savedOne.data.archived
+            ? 'Archived reports cannot be edited. Restore the report first.'
+            : 'You do not have permission to edit this report definition.'}
+        </div>
+      ) : null}
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
@@ -591,51 +658,74 @@ export function ReportBuilder() {
             role="group"
             aria-label="Report actions"
           >
-            <button
-              type="button"
-              className={outlined}
-              disabled={!definition}
-              onClick={() => {
-                // RP-F14: the full report of this unsaved definition, with every control; the
-                // builder's address keeps its work so Back finds it as it was.
-                const d = definition && pack(definition);
-                const here = pack(draft);
-                if (!d || !here) {
-                  notice(
-                    'This report is too large to open from the builder. Save it first.',
-                    'error',
-                  );
-                  return;
-                }
-                const builder = `${pathname}?d=${here}`;
-                router.replace(builder, { scroll: false });
-                guard.allow();
-                router.push(
-                  withOrigin(
-                    `/reports/custom?d=${d}&name=${encodeURIComponent(name.slice(0, 120))}`,
-                    builder,
-                  ),
-                );
-              }}
-            >
-              Run Report
-            </button>
-            <button
-              type="button"
-              className={subtle}
-              disabled={!definition}
-              onClick={() => setDialog('save')}
-            >
-              Save Report
-            </button>
-            <button
-              type="button"
-              className={primary}
-              disabled={!definition}
-              onClick={() => setDialog('schedule')}
-            >
-              <CalendarBlank aria-hidden weight="bold" className="size-4" /> Save &amp; Schedule
-            </button>
+            {editId && savedOne.data ? (
+              <>
+                <button
+                  type="button"
+                  className={primary}
+                  disabled={!definition || !canEdit}
+                  onClick={() => void saveDefinition()}
+                >
+                  Save Changes
+                </button>
+                <button
+                  type="button"
+                  className={subtle}
+                  disabled={!definition}
+                  onClick={() => setDialog('save')}
+                >
+                  Save As
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={outlined}
+                  disabled={!definition}
+                  onClick={() => {
+                    // RP-F14: the full report of this unsaved definition, with every control; the
+                    // builder's address keeps its work so Back finds it as it was.
+                    const d = definition && pack(definition);
+                    const here = pack(draft);
+                    if (!d || !here) {
+                      notice(
+                        'This report is too large to open from the builder. Save it first.',
+                        'error',
+                      );
+                      return;
+                    }
+                    const builder = `${pathname}?d=${here}`;
+                    router.replace(builder, { scroll: false });
+                    guard.allow();
+                    router.push(
+                      withOrigin(
+                        `/reports/custom?d=${d}&name=${encodeURIComponent(name.slice(0, 120))}`,
+                        builder,
+                      ),
+                    );
+                  }}
+                >
+                  Run Report
+                </button>
+                <button
+                  type="button"
+                  className={subtle}
+                  disabled={!definition}
+                  onClick={() => setDialog('save')}
+                >
+                  Save Report
+                </button>
+                <button
+                  type="button"
+                  className={primary}
+                  disabled={!definition}
+                  onClick={() => setDialog('schedule')}
+                >
+                  <CalendarBlank aria-hidden weight="bold" className="size-4" /> Save &amp; Schedule
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
