@@ -3453,6 +3453,135 @@ describe('applicability rules and suggestions', () => {
     expect(ev2.needsReview[0]?.reason).toContain('election');
   });
 
+  it('R08 and R09: fiscal year and prior-year tax liability are stored and evaluated in applicability rules', async () => {
+    // 1. Update client c1 profile with fiscal year end (Month 6 / June 30) and prior-year liability $5,000
+    const profileRes = await call('put', `/clients/${s.c1}/profile`, people.ownerA, {
+      fiscalYearEndMonth: 6,
+      priorYearTaxLiabilityCents: 500000,
+      priorYearTaxYear: 2025,
+      priorYearTaxLiabilitySource: 'Form 1120-S line 22c',
+      priorYearTaxLiabilityAsOf: '2026-03-15',
+    });
+    expect(profileRes.status).toBe(200);
+
+    // 2. Read back client record and verify fields
+    const clientRec = (await call('get', `/clients/${s.c1}`, people.ownerA)).body as {
+      profile: {
+        fiscalYearEndMonth: number | null;
+        fiscalYearEndDay: number | null;
+        priorYearTaxLiabilityCents: number | null;
+        priorYearTaxYear: number | null;
+        priorYearTaxLiabilitySource: string | null;
+        priorYearTaxLiabilityAsOf: string | null;
+      };
+    };
+    expect(clientRec.profile).toMatchObject({
+      fiscalYearEndMonth: 6,
+      fiscalYearEndDay: 30,
+      priorYearTaxLiabilityCents: 500000,
+      priorYearTaxYear: 2025,
+      priorYearTaxLiabilitySource: 'Form 1120-S line 22c',
+      priorYearTaxLiabilityAsOf: new Date().toISOString().slice(0, 10),
+    });
+
+    // 3. R09: Rule with priorYearLiabilityOverCents ($1,000 = 100000 cents)
+    const liabilityRule = await mkRule({
+      name: `R09 Liability Rule ${run}`,
+      priorYearLiabilityOverCents: 100000,
+    });
+    const evalMatch = exact(
+      ComplianceRuleEvaluation,
+      await call(
+        'post',
+        `/compliance/applicability-rules/${liabilityRule.id}/evaluate`,
+        people.ownerA,
+      ),
+    );
+    // Client c1 has $5,000 > $1,000 threshold -> MATCH!
+    expect(evalMatch.matching.map((c) => c.id)).toContain(s.c1);
+
+    // Update client c1 to $0 liability -> NO_MATCH (not REVIEW, distinguishing $0 from unknown)
+    await call('put', `/clients/${s.c1}/profile`, people.ownerA, {
+      priorYearTaxLiabilityCents: 0,
+      priorYearTaxYear: 2025,
+    });
+    const evalZero = exact(
+      ComplianceRuleEvaluation,
+      await call(
+        'post',
+        `/compliance/applicability-rules/${liabilityRule.id}/evaluate`,
+        people.ownerA,
+      ),
+    );
+    expect(evalZero.matching.map((c) => c.id)).not.toContain(s.c1);
+    expect(evalZero.needsReview.map((r) => r.client.id)).not.toContain(s.c1);
+
+    // Clear client c1 liability to null -> REVIEW (unknown)
+    await call('put', `/clients/${s.c1}/profile`, people.ownerA, {
+      priorYearTaxLiabilityCents: null,
+      priorYearTaxYear: null,
+    });
+    const evalUnknown = exact(
+      ComplianceRuleEvaluation,
+      await call(
+        'post',
+        `/compliance/applicability-rules/${liabilityRule.id}/evaluate`,
+        people.ownerA,
+      ),
+    );
+    expect(evalUnknown.needsReview.map((r) => r.client.id)).toContain(s.c1);
+    expect(evalUnknown.needsReview.find((r) => r.client.id === s.c1)?.reason).toContain(
+      'prior-year tax liability is not recorded',
+    );
+
+    // 4. R08: Rule with fiscalYearEndMonth = 6
+    const fiscalRule = await mkRule({
+      name: `R08 Fiscal Rule ${run}`,
+      criteria: { fiscalYearEndMonth: 6 },
+    });
+    // Client c1 still has fiscalYearEndMonth = 6 -> MATCH!
+    const evalFiscalMatch = exact(
+      ComplianceRuleEvaluation,
+      await call(
+        'post',
+        `/compliance/applicability-rules/${fiscalRule.id}/evaluate`,
+        people.ownerA,
+      ),
+    );
+    expect(evalFiscalMatch.matching.map((c) => c.id)).toContain(s.c1);
+
+    // Change client c1 to December (12) -> NO_MATCH
+    await call('put', `/clients/${s.c1}/profile`, people.ownerA, {
+      fiscalYearEndMonth: 12,
+    });
+    const evalFiscalDiff = exact(
+      ComplianceRuleEvaluation,
+      await call(
+        'post',
+        `/compliance/applicability-rules/${fiscalRule.id}/evaluate`,
+        people.ownerA,
+      ),
+    );
+    expect(evalFiscalDiff.matching.map((c) => c.id)).not.toContain(s.c1);
+
+    // Clear client c1 fiscal year end -> REVIEW
+    await call('put', `/clients/${s.c1}/profile`, people.ownerA, {
+      fiscalYearEndMonth: null,
+    });
+    const evalFiscalUnknown = exact(
+      ComplianceRuleEvaluation,
+      await call(
+        'post',
+        `/compliance/applicability-rules/${fiscalRule.id}/evaluate`,
+        people.ownerA,
+      ),
+    );
+    expect(evalFiscalUnknown.needsReview.map((r) => r.client.id)).toContain(s.c1);
+    expect(evalFiscalUnknown.needsReview.find((r) => r.client.id === s.c1)?.reason).toContain(
+      'fiscal year end is not recorded',
+    );
+  });
+
   it('records suggestions and flags clients for review, once per rule and date', async () => {
     const res = exact(GenerateSuggestionsResult, await generate(rule.id));
     expect(res).toEqual({

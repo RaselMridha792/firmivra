@@ -56,3 +56,10 @@ export const clearable = <T>(value: z.ZodType<T, string>) =>
     .pipe(value.nullable())
     .nullable()
     .optional();
+
+/** An optional integer field: leave it out to keep it; `null` or `''` clears it; number or numeric string accepted. */
+export const clearableInt = (min: number, max: number) =>
+  z.preprocess(
+    (v) => (v === undefined ? undefined : v === '' || v === null ? null : Number(v)),
+    z.number().int().min(min).max(max).nullable().optional(),
+  );

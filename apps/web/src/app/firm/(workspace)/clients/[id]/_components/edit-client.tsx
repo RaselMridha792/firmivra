@@ -43,7 +43,12 @@ type Values = Record<
   | (typeof PARTY_FIELDS)[number]
   | 'ssn'
   | 'ein'
-  | 'einStatus',
+  | 'einStatus'
+  | 'fiscalYearEndMonth'
+  | 'priorYearTaxLiability'
+  | 'priorYearTaxYear'
+  | 'priorYearTaxLiabilitySource'
+  | 'priorYearTaxLiabilityAsOf',
   string
 >;
 
@@ -84,6 +89,15 @@ function initial(client: ClientRecord): Values {
     rpName: profile.responsibleParty?.name ?? '',
     rpEmail: profile.responsibleParty?.email ?? '',
     rpPhone: formatPhone(profile.responsibleParty?.phone ?? null) ?? '',
+    fiscalYearEndMonth: profile.fiscalYearEndMonth ? String(profile.fiscalYearEndMonth) : '',
+    priorYearTaxLiability:
+      profile.priorYearTaxLiabilityCents !== null &&
+      profile.priorYearTaxLiabilityCents !== undefined
+        ? String(profile.priorYearTaxLiabilityCents / 100)
+        : '',
+    priorYearTaxYear: profile.priorYearTaxYear ? String(profile.priorYearTaxYear) : '',
+    priorYearTaxLiabilitySource: profile.priorYearTaxLiabilitySource ?? '',
+    priorYearTaxLiabilityAsOf: profile.priorYearTaxLiabilityAsOf ?? '',
   };
 }
 
@@ -107,6 +121,26 @@ function bodies(client: ClientRecord, values: Values) {
       ? { ein: values.ein }
       : {}),
     ...(values.einStatus !== was.einStatus ? { einStatus: values.einStatus || null } : {}),
+    ...(values.fiscalYearEndMonth !== was.fiscalYearEndMonth
+      ? { fiscalYearEndMonth: values.fiscalYearEndMonth ? Number(values.fiscalYearEndMonth) : null }
+      : {}),
+    ...(values.priorYearTaxLiability !== was.priorYearTaxLiability
+      ? {
+          priorYearTaxLiabilityCents:
+            values.priorYearTaxLiability !== ''
+              ? Math.round(Number(values.priorYearTaxLiability) * 100)
+              : null,
+        }
+      : {}),
+    ...(values.priorYearTaxYear !== was.priorYearTaxYear
+      ? { priorYearTaxYear: values.priorYearTaxYear ? Number(values.priorYearTaxYear) : null }
+      : {}),
+    ...(values.priorYearTaxLiabilitySource !== was.priorYearTaxLiabilitySource
+      ? { priorYearTaxLiabilitySource: values.priorYearTaxLiabilitySource || null }
+      : {}),
+    ...(values.priorYearTaxLiabilityAsOf !== was.priorYearTaxLiabilityAsOf
+      ? { priorYearTaxLiabilityAsOf: values.priorYearTaxLiabilityAsOf || null }
+      : {}),
     ...(Object.keys(address).length ? { address } : {}),
     ...party,
   };
@@ -357,6 +391,48 @@ export function EditClient({
               <Input label="Their phone *" type="tel" autoComplete="off" {...field('rpPhone')} />
             </fieldset>
           ) : null}
+          <fieldset className="grid gap-4 sm:grid-cols-2" data-testid="tax-compliance-fields">
+            <legend className="mb-2 text-sm font-semibold text-text">Tax &amp; Compliance</legend>
+            <Select
+              label="Fiscal year end"
+              {...field('fiscalYearEndMonth')}
+              options={[
+                { value: '', label: 'Not set (unknown)' },
+                { value: '12', label: 'December 31 (Calendar Year)' },
+                { value: '1', label: 'January 31' },
+                { value: '2', label: 'February 28/29' },
+                { value: '3', label: 'March 31' },
+                { value: '4', label: 'April 30' },
+                { value: '5', label: 'May 31' },
+                { value: '6', label: 'June 30' },
+                { value: '7', label: 'July 31' },
+                { value: '8', label: 'August 31' },
+                { value: '9', label: 'September 30' },
+                { value: '10', label: 'October 31' },
+                { value: '11', label: 'November 30' },
+              ]}
+            />
+            <Input
+              label="Prior year tax liability ($)"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="e.g. 5000"
+              {...field('priorYearTaxLiability')}
+            />
+            <Input
+              label="Tax year"
+              type="number"
+              placeholder={String(new Date().getFullYear() - 1)}
+              {...field('priorYearTaxYear')}
+            />
+            <Input
+              label="Liability source"
+              placeholder="e.g. Form 1120-S line 22c"
+              {...field('priorYearTaxLiabilitySource')}
+            />
+            <Input label="As-of date" type="date" {...field('priorYearTaxLiabilityAsOf')} />
+          </fieldset>
           <fieldset className="grid gap-4">
             <legend className="mb-2 text-sm font-semibold text-text">Firm details</legend>
             <Input label="Referral source" {...field('referralSource')} />

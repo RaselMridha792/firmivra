@@ -36,7 +36,12 @@ type Field =
   | 'rpName'
   | 'rpEmail'
   | 'rpPhone'
-  | 'assignedUserId';
+  | 'assignedUserId'
+  | 'fiscalYearEndMonth'
+  | 'priorYearTaxLiability'
+  | 'priorYearTaxYear'
+  | 'priorYearTaxLiabilitySource'
+  | 'priorYearTaxLiabilityAsOf';
 const EMPTY_FORM: Record<Field, string> = {
   accountType: 'INDIVIDUAL',
   displayName: '',
@@ -51,6 +56,11 @@ const EMPTY_FORM: Record<Field, string> = {
   rpEmail: '',
   rpPhone: '',
   assignedUserId: '',
+  fiscalYearEndMonth: '',
+  priorYearTaxLiability: '',
+  priorYearTaxYear: '',
+  priorYearTaxLiabilitySource: '',
+  priorYearTaxLiabilityAsOf: '',
 };
 const STATE_OPTIONS = [
   { value: '', label: 'Choose a state' },
@@ -140,6 +150,19 @@ export function AddClientDialog({
           state: values.state,
           postalCode: values.postalCode,
         },
+        ...(values.fiscalYearEndMonth
+          ? { fiscalYearEndMonth: Number(values.fiscalYearEndMonth) }
+          : {}),
+        ...(values.priorYearTaxLiability
+          ? { priorYearTaxLiabilityCents: Math.round(Number(values.priorYearTaxLiability) * 100) }
+          : {}),
+        ...(values.priorYearTaxYear ? { priorYearTaxYear: Number(values.priorYearTaxYear) } : {}),
+        ...(values.priorYearTaxLiabilitySource.trim()
+          ? { priorYearTaxLiabilitySource: values.priorYearTaxLiabilitySource.trim() }
+          : {}),
+        ...(values.priorYearTaxLiabilityAsOf.trim()
+          ? { priorYearTaxLiabilityAsOf: values.priorYearTaxLiabilityAsOf.trim() }
+          : {}),
       },
     };
     const check = NewClientForm.safeParse(body);
@@ -229,6 +252,48 @@ export function AddClientDialog({
               {zipWarning}
             </p>
           ) : null}
+        </fieldset>
+        <fieldset className="grid gap-4 sm:grid-cols-2" data-testid="tax-compliance-fields">
+          <legend className="mb-2 text-sm font-semibold text-heading">Tax &amp; Compliance</legend>
+          <Select
+            label="Fiscal year end"
+            {...field('fiscalYearEndMonth')}
+            options={[
+              { value: '', label: 'Not set (unknown)' },
+              { value: '12', label: 'December 31 (Calendar Year)' },
+              { value: '1', label: 'January 31' },
+              { value: '2', label: 'February 28/29' },
+              { value: '3', label: 'March 31' },
+              { value: '4', label: 'April 30' },
+              { value: '5', label: 'May 31' },
+              { value: '6', label: 'June 30' },
+              { value: '7', label: 'July 31' },
+              { value: '8', label: 'August 31' },
+              { value: '9', label: 'September 30' },
+              { value: '10', label: 'October 31' },
+              { value: '11', label: 'November 30' },
+            ]}
+          />
+          <Input
+            label="Prior year tax liability ($)"
+            type="number"
+            min="0"
+            step="1"
+            placeholder="e.g. 5000"
+            {...field('priorYearTaxLiability')}
+          />
+          <Input
+            label="Tax year"
+            type="number"
+            placeholder={String(new Date().getFullYear() - 1)}
+            {...field('priorYearTaxYear')}
+          />
+          <Input
+            label="Liability source"
+            placeholder="e.g. Form 1120-S line 22c"
+            {...field('priorYearTaxLiabilitySource')}
+          />
+          <Input label="As-of date" type="date" {...field('priorYearTaxLiabilityAsOf')} />
         </fieldset>
         {business ? (
           <fieldset className="grid gap-4 sm:grid-cols-2" data-testid="responsible-party">

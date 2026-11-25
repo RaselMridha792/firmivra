@@ -14,7 +14,7 @@ import {
 } from '../db-enums.js';
 import { US_STATES } from '../intake/options.js';
 import { ClientAccountStatus } from '../schemas.js';
-import { clearable, SearchText, text } from './text.js';
+import { clearable, clearableInt, SearchText, text } from './text.js';
 
 // Database enums, also exported from here as before db-enums.ts (other modules import them).
 export { ClientAccountType, ClientPortalRole, ContactMethod };
@@ -472,6 +472,12 @@ export const ClientProfile = z.object({
   preferredContactMethod: ContactMethod.nullable(),
   referralSource: z.string().nullable(),
   additionalInfo: z.string().nullable(),
+  fiscalYearEndMonth: z.number().int().min(1).max(12).nullable().optional(),
+  fiscalYearEndDay: z.number().int().min(1).max(31).nullable().optional(),
+  priorYearTaxLiabilityCents: z.number().int().min(0).nullable().optional(),
+  priorYearTaxYear: z.number().int().min(1900).max(2100).nullable().optional(),
+  priorYearTaxLiabilitySource: z.string().nullable().optional(),
+  priorYearTaxLiabilityAsOf: CalendarDate.nullable().optional(),
   /**
    * Octavia's E5: a BUSINESS client's responsible party, the person linked to the business (not
    * replacing it): full name, email and E.164 phone, all three or none.
@@ -563,6 +569,12 @@ const ProfileFields = z.strictObject({
   preferredContactMethod: clearable(ContactMethod),
   referralSource: clearable(text(200)),
   additionalInfo: clearable(text(2000, 'many')),
+  fiscalYearEndMonth: clearableInt(1, 12),
+  fiscalYearEndDay: clearableInt(1, 31),
+  priorYearTaxLiabilityCents: clearableInt(0, 2_000_000_000),
+  priorYearTaxYear: clearableInt(1900, 2100),
+  priorYearTaxLiabilitySource: clearable(text(200)),
+  priorYearTaxLiabilityAsOf: clearable(CalendarDate),
   /** E5: a Business client's responsible party, all three together; `null` clears it. */
   responsibleParty: z
     .strictObject({

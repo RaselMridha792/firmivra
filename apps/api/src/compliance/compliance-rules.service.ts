@@ -94,6 +94,12 @@ interface ClientFacts {
   accountType: string;
   status: string;
   profile: { entityType: string | null; state: string | null } | null;
+  complianceFacts?: {
+    fiscalYearEndMonth: number | null;
+    fiscalYearEndDay: number | null;
+    priorYearTaxLiabilityCents: number | null;
+    priorYearTaxYear: number | null;
+  } | null;
   engagements: { service: { kind: string } }[];
 }
 
@@ -167,10 +173,33 @@ export function decide(
     parts.push(`service ${hit}`);
   }
   if (rule.priorYearLiabilityOverCents !== null) {
-    unknown.push("the client's prior-year tax liability is not recorded");
+    const cents = client.complianceFacts?.priorYearTaxLiabilityCents;
+    if (cents === null || cents === undefined) {
+      unknown.push("the client's prior-year tax liability is not recorded");
+    } else if (cents <= rule.priorYearLiabilityOverCents) {
+      return { kind: 'NO_MATCH' };
+    } else {
+      parts.push(
+        `prior-year liability over $${(rule.priorYearLiabilityOverCents / 100).toLocaleString('en-US')}`,
+      );
+    }
   }
-  const criteria = Object.keys((rule.criteria ?? {}) as object);
-  if (criteria.length > 0) unknown.push(`staff must check ${criteria.slice(0, 5).join(', ')}`);
+  const criteriaObj = (rule.criteria ?? {}) as Record<string, unknown>;
+  const criteria = Object.keys(criteriaObj);
+  const ruleFiscalMonth = criteriaObj['fiscalYearEndMonth'] ?? criteriaObj['fiscalYear'];
+  if (ruleFiscalMonth !== undefined) {
+    const clientFiscalMonth = client.complianceFacts?.fiscalYearEndMonth;
+    if (clientFiscalMonth === null || clientFiscalMonth === undefined) {
+      unknown.push("the client's fiscal year end is not recorded");
+    } else if (Number(ruleFiscalMonth) !== clientFiscalMonth) {
+      return { kind: 'NO_MATCH' };
+    } else {
+      parts.push(`fiscal year end month ${clientFiscalMonth}`);
+    }
+  }
+  const otherCriteria = criteria.filter((c) => c !== 'fiscalYearEndMonth' && c !== 'fiscalYear');
+  if (otherCriteria.length > 0)
+    unknown.push(`staff must check ${otherCriteria.slice(0, 5).join(', ')}`);
   if (unknown.length > 0) return { kind: 'REVIEW', reason: `${tag(rule)}: ${unknown[0]}` };
   return {
     kind: 'MATCH',
@@ -346,6 +375,14 @@ export class ComplianceRulesService {
         ...clientRefSelect,
         status: true,
         profile: { select: { entityType: true, state: true } },
+        complianceFacts: {
+          select: {
+            fiscalYearEndMonth: true,
+            fiscalYearEndDay: true,
+            priorYearTaxLiabilityCents: true,
+            priorYearTaxYear: true,
+          },
+        },
         engagements: {
           where: { status: 'ACTIVE' },
           select: { service: { select: { kind: true } } },

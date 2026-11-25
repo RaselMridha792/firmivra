@@ -75,6 +75,11 @@ test('D1: each format is checked, and a complete client is created with its addr
   await party.getByLabel('Full name *').fill('Fake Owner');
   await party.getByLabel('Their email *').fill('fake.owner@fake-bakery.test');
   await party.getByLabel('Their phone *').fill('404 555 0101');
+
+  // R08 & R09: Tax & Compliance fields (Fiscal year end and prior-year tax liability)
+  await dialog.getByLabel('Fiscal year end').selectOption('6');
+  await dialog.getByLabel('Prior year tax liability ($)').fill('5000');
+
   await dialog.getByRole('button', { name: 'Add Client' }).click();
   await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}$/, { timeout: 60_000 });
   // The record keeps what the form sent: the business's name, contact and address.
@@ -82,6 +87,12 @@ test('D1: each format is checked, and a complete client is created with its addr
   await expect(page.getByText('owner@fake-bakery.test').first()).toBeVisible();
   await expect(page.getByText('1 Fake Street').first()).toBeVisible();
   await expect(page.getByText(/Faketown,? GA 30301/).first()).toBeVisible();
+
+  // Edit details reopens with fiscal year and prior year tax liability preserved
+  await page.getByRole('button', { name: 'Edit details' }).click();
+  const editModal = page.getByRole('dialog', { name: /Edit/ });
+  await expect(editModal.getByLabel('Fiscal year end')).toHaveValue('6');
+  await expect(editModal.getByLabel('Prior year tax liability ($)')).toHaveValue('5000');
 });
 
 test("D3: Report a Problem says exactly what goes in the report, and sends the page's path only", async ({
