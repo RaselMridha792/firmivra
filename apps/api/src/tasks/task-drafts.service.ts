@@ -298,6 +298,7 @@ export class TaskDraftsService {
         data: { status: 'OPEN', createdAt: now, updatedAt: now },
       });
       if (count !== 1) throw notFound();
+      await this.writer.afterAssignment(tx, businessId, actor, draft.id);
       const task = await this.reader.read(tx, businessId, null, draft.id);
       // With the publish: `published` reads who published from this row.
       await this.audit.logIn(

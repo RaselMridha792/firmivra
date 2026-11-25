@@ -217,6 +217,19 @@ export const NOTIFICATION_EVENTS = {
    */
   'task.reminder': { category: 'SERVICES', kind: 'task', to: 'staff' },
   /**
+   * Tasks Review Two T-C01 (Q36): an acknowledgment of an assignment was not given within one
+   * business day. One bell item to the assignee and to the member who assigned it (the caller
+   * names them). It opens the task, where the assignee acknowledges.
+   */
+  'task.acknowledgement-reminder': { category: 'SERVICES', kind: 'task', to: 'staff' },
+  /** T-C01: the assignee acknowledged. A bell item to the member who assigned the task. */
+  'task.acknowledged': { category: 'SERVICES', kind: 'task', to: 'staff' },
+  /**
+   * T-C02 (Q36): a new comment in the task's internal discussion. A bell item to the task's
+   * assignees and the staff the comment mentions (the caller names them), never the author.
+   */
+  'task.comment': { category: 'SERVICES', kind: 'task', to: 'staff' },
+  /**
    * P4-8 (Tax Planning Review 2): the client asked a question, requested a revision or a meeting,
    * or approved the plan in the portal. To the plan's assigned staff (the caller names them).
    */

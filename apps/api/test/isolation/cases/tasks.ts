@@ -132,6 +132,56 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /**
+   * Q36 T-C01: a task the firm's Owner must acknowledge (the positive control acknowledges it),
+   * and T-C02: a task with a comment of the Owner's to change and one to delete.
+   */
+  taskAckOwner: task(({ owner }) => ({ assignedUserId: owner.id })),
+  taskAckRow: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const taskId = await get('taskAckOwner');
+      await tx.taskAcknowledgement.create({
+        data: {
+          businessId,
+          taskId,
+          assigneeUserId: owner.id,
+          required: true,
+          dueAt: new Date(Date.now() + 86_400_000),
+        },
+      });
+      return taskId;
+    },
+  },
+  taskWithComment: task(),
+  taskCommentEdit: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const row = await tx.taskComment.create({
+        data: {
+          businessId,
+          taskId: await get('taskWithComment'),
+          authorUserId: owner.id,
+          body: 'Fake comment',
+        },
+      });
+      return row.id;
+    },
+  },
+  taskCommentDelete: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const row = await tx.taskComment.create({
+        data: {
+          businessId,
+          taskId: await get('taskWithComment'),
+          authorUserId: owner.id,
+          body: 'Fake comment to delete',
+        },
+      });
+      return row.id;
+    },
+  },
   /** A task type tasks are made with, and one the type routes change. */
   taskType: {
     async create({ tx, businessId }) {
@@ -302,6 +352,22 @@ export const cases: CaseModule['cases'] = {
   },
   [`DELETE ${BASE}/tasks/:id/attachments/:attachmentId`]: {
     params: { id: 'taskWithAttachmentDelete', attachmentId: 'taskAttachmentDelete' },
+  },
+  // Q36 T-C01 acknowledgment and T-C02 discussion.
+  [`GET ${BASE}/tasks/acknowledgements/pending`]: { params: {} },
+  [`GET ${BASE}/tasks/:id/acknowledgements`]: { params: { id: 'task' } },
+  [`POST ${BASE}/tasks/:id/acknowledge`]: { params: { id: 'taskAckRow' } },
+  [`GET ${BASE}/tasks/:id/comments`]: { params: { id: 'taskWithComment' } },
+  [`POST ${BASE}/tasks/:id/comments`]: {
+    params: { id: 'taskWithComment' },
+    body: { body: 'Fake comment from the case' },
+  },
+  [`PATCH ${BASE}/tasks/:id/comments/:commentId`]: {
+    params: { id: 'taskWithComment', commentId: 'taskCommentEdit' },
+    body: { body: 'Fake comment, changed' },
+  },
+  [`DELETE ${BASE}/tasks/:id/comments/:commentId`]: {
+    params: { id: 'taskWithComment', commentId: 'taskCommentDelete' },
   },
   [`POST ${BASE}/tasks/bulk`]: {
     params: {},

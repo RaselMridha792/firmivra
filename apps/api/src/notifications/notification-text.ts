@@ -265,6 +265,19 @@ const TEXT: Record<NotificationEvent, Writer> = {
     const title = text(p, 'title') ?? 'A task';
     return { title: 'Task reminder', body: at ? `${title}, due ${at}` : withDue(p, 'A task') };
   },
+  // Q36 T-C01 and T-C02: the task's title only; never the comment's words.
+  'task.acknowledgement-reminder': (p) => ({
+    title: 'Acknowledgment pending',
+    body: `${text(p, 'title') ?? 'A task'}: the assignment has not been acknowledged yet.`,
+  }),
+  'task.acknowledged': (p) => ({
+    title: 'Task acknowledged',
+    body: `${text(p, 'title') ?? 'A task'} was acknowledged by its assignee.`,
+  }),
+  'task.comment': (p) => ({
+    title: 'New task comment',
+    body: `New comment on ${text(p, 'title') ?? 'a task'}.`,
+  }),
   // P4-8: the plan's name and its client, never what the client wrote (the plan shows it).
   'tax-plan.client-request': (p) => ({
     title: 'Client request on a tax plan',
