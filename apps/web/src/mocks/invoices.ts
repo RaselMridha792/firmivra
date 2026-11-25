@@ -8,6 +8,8 @@ import {
   Invoice,
   type InvoiceHistoryItem,
   InvoiceId,
+  INVOICE_LIMITS,
+  PayInvoiceRequest,
   type InvoiceListItem,
   type InvoiceRefund,
   type InvoicesClient,
@@ -211,6 +213,8 @@ function built() {
     }),
     row(2, {
       number: 'INV-2026-0102',
+      // Q22: offers a tip at Pay Now while Tipping is on.
+      allowTip: true,
       engagementId: service(1),
       lines: lines(
         ['Individual tax preparation (Form 1040)', 1, 40_000],
@@ -262,7 +266,8 @@ function built() {
       issuedAt: noonOn('2026-03-01'),
       dueOn: '2026-03-15',
       paidAt: noonOn('2026-03-10'),
-      payments: [paid(6, 25_000, '2026-03-10')],
+      // Q22: paid with a 15% tip at Pay Now.
+      payments: [{ ...paid(6, 25_000, '2026-03-10'), tipCents: 3_750 }],
     }),
     row(7, {
       number: 'INV-2026-0012',
@@ -509,7 +514,10 @@ const refunded = (p: Payment) =>
 /** What a new refund may take: the amount less refunds that are not FAILED, while SUCCEEDED. */
 const refundable = (p: Payment) =>
   p.status === 'SUCCEEDED'
-    ? p.amountCents - sum(p.refunds.filter((x) => x.status !== 'FAILED').map((x) => x.amountCents))
+    ? // Q22: the tip is refundable with the payment.
+      p.amountCents +
+      (p.tipCents ?? 0) -
+      sum(p.refunds.filter((x) => x.status !== 'FAILED').map((x) => x.amountCents))
     : 0;
 /** The firm's view of a payment. */
 const firmPayment = (p: Payment): FirmInvoicePayment => ({
@@ -633,6 +641,20 @@ function toInvoice(r: Row, day: string): Invoice {
   });
 }
 
+/**
+ * Q22: Settings > Payments' Tipping. A portal spec turns it on for its tab with sessionStorage
+ * 'firmivra-mock:tipping' = 'on' (the portal runs without the firm's settings page).
+ */
+function mockTipping(): boolean {
+  try {
+    if (typeof window !== 'undefined' && sessionStorage.getItem('firmivra-mock:tipping') === 'on')
+      return true;
+  } catch {
+    // No storage: the settings' switch.
+  }
+  return mockLivePreferences().taxesAndFees.tippingEnabled;
+}
+
 /** The client's view; only for invoices the portal shows. */
 function toMine(r: Row, day: string, paymentsEnabled: boolean): MyInvoice {
   const status = myInvoiceStatus(r, day);
@@ -657,7 +679,7 @@ function toMine(r: Row, day: string, paymentsEnabled: boolean): MyInvoice {
     paymentProcessing,
     canPay: r.status === 'OPEN' && f.balanceDueCents > 0 && !paymentProcessing && paymentsEnabled,
     // Q22: as the API, the invoice allows a tip and Settings > Payments' Tipping is on now.
-    tipOffered: !!r.allowTip && mockLivePreferences().taxesAndFees.tippingEnabled,
+    tipOffered: !!r.allowTip && mockTipping(),
   };
 }
 
@@ -1607,9 +1629,10 @@ export function createMyInvoicesMock(
       const day = today();
       return toMyDetail(findMine(parseInput(InvoiceId, id), day), day, paymentsEnabled);
     },
-    pay: async (id) => {
+    pay: async (id, body = {}) => {
       await mockDelay();
       const day = today();
+      const { tipCents = 0 } = parseInput(PayInvoiceRequest, body);
       const r = findMine(parseInput(InvoiceId, id), day);
       const m = toMine(r, day, paymentsEnabled);
       if (r.status !== 'OPEN' || m.balanceDueCents === 0) {
@@ -1620,6 +1643,22 @@ export function createMyInvoicesMock(
       }
       if (!paymentsEnabled) {
         throw fail(409, 'PAYMENTS_NOT_SET_UP', 'Online payment is not available yet');
+      }
+      // Q22, as the API: a tip only where one is offered, at most the balance.
+      if (tipCents > 0 && !m.tipOffered) {
+        throw fail(409, 'TIP_NOT_OFFERED', 'A tip cannot be added to this invoice');
+      }
+      if (tipCents > m.balanceDueCents || m.balanceDueCents + tipCents > INVOICE_LIMITS.maxCents) {
+        throw fail(400, 'VALIDATION_FAILED', 'The tip can be at most the balance due');
+      }
+      // A spec reads what Pay Now sent (there is no Stripe to look at).
+      try {
+        sessionStorage.setItem(
+          'firmivra-mock:last-checkout',
+          JSON.stringify({ invoice: r.number, tipCents }),
+        );
+      } catch {
+        // No storage: nothing to read back.
       }
       // No Stripe behind it: the link opens nothing, and nothing is charged or marked paid. The
       // API's Checkout Sessions last 60 minutes.
