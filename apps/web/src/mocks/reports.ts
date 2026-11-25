@@ -210,24 +210,10 @@ function buildRows(empty: boolean) {
       refund: ((i * 211) % 4000) * 100,
     });
   }
-  for (let i = 0; i < 24; i += 1) {
-    rows.bookkeeping!.push({
-      clientName: NAMES[i % NAMES.length]!,
-      software: ['QuickBooks Online', 'Xero', 'FreshBooks'][i % 3]!,
-      status: ['On Track', 'Needs Attention', 'Overdue'][i % 3]!,
-      updatedAt: at(i * 3),
-      transactions: 120 + i * 9,
-    });
-  }
-  for (let i = 0; i < 18; i += 1) {
-    rows.payroll!.push({
-      clientName: NAMES[i % NAMES.length]!,
-      employees: 3 + (i % 9),
-      payrollTotal: (4000 + i * 530) * 100,
-      status: i % 6 === 0 ? 'Processing' : 'On Track',
-      runDate: at(i * 8),
-    });
-  }
+  // R03: Bookkeeping, Payroll and Communications have no connected live provider yet (zero fake data).
+  rows.bookkeeping = [];
+  rows.payroll = [];
+  rows.communications = [];
   const SRC = ['Website', 'Referral', 'Social Media', 'Event', 'Google Ads'];
   for (let i = 0; i < 60; i += 1) {
     rows.leads!.push({
@@ -236,16 +222,6 @@ function buildRows(empty: boolean) {
       status: ['New', 'Contacted', 'Appointment', 'Converted'][i % 4]!,
       createdAt: at(i * 3),
       value: (500 + (i % 7) * 300) * 100,
-    });
-  }
-  for (let i = 0; i < 16; i += 1) {
-    rows.communications!.push({
-      campaign: `Campaign ${i + 1}`,
-      channel: i % 3 ? 'Email' : 'Text',
-      sent: 200 + i * 17,
-      opened: 90 + i * 8,
-      clicked: 30 + i * 3,
-      sentAt: at(i * 9),
     });
   }
   // SM3: the team as it stands (the API's Staff & Team source).
@@ -1462,6 +1438,16 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         owner: person,
         at: nowIso(),
       });
+    const notices: string[] = [];
+    if (['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(d.category)) {
+      notices.push(
+        d.category === 'BOOKKEEPING'
+          ? 'Not Connected: Accounting software is not connected yet. Connect QuickBooks Online or Xero in Integrations.'
+          : d.category === 'PAYROLL'
+            ? 'Not Connected: Payroll provider is not connected yet. Connect Gusto or ADP in Integrations.'
+            : 'Not Connected: Messaging provider is not connected yet. Connect Twilio or SendGrid in Integrations.',
+      );
+    }
     return {
       title,
       target,
@@ -1469,7 +1455,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       definition: d,
       range,
       comparisonRange: cmpRange,
-      notices: [],
+      notices,
       kpis,
       chart,
       breakdown: breakdownChart(src, cur, q.breakdownBy ?? d.groupBy ?? undefined),
@@ -1676,23 +1662,26 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
           card('revenue-summary', 'invoices_payments', 'total-revenue', 'Total Revenue'),
           card('returns-by-filing-status', 'returns', 'returns-filed', 'Returns Filed'),
         ];
-        const categories = (Object.keys(CATEGORY_LABEL) as Category[]).map((category) => {
-          const s = SYSTEM.find((x) => x.category === category)!;
-          const src = srcs[s.source]!;
-          const cur = apply(src, defOf(s.key), range);
-          const hk = kpisOf(src, cur, null)[0] ?? null;
-          return {
-            category,
-            label: CATEGORY_LABEL[category],
-            headline: hk,
-            chart: breakdownChart(src, cur),
-            reportKey: s.key,
-            allowed: !(
-              role === 'STAFF' &&
-              (category === 'TEAM_PRODUCTIVITY' || category === 'FINANCIAL')
-            ),
-          };
-        });
+        const categories = (Object.keys(CATEGORY_LABEL) as Category[])
+          .filter((cat) => cat !== 'ADVISORY')
+          .map((category) => {
+            const s = SYSTEM.find((x) => x.category === category)!;
+            const src = srcs[s.source]!;
+            const isDisconnected = ['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(category);
+            const cur = isDisconnected ? [] : apply(src, defOf(s.key), range);
+            const hk = isDisconnected ? null : (kpisOf(src, cur, null)[0] ?? null);
+            return {
+              category,
+              label: CATEGORY_LABEL[category],
+              headline: hk,
+              chart: isDisconnected ? null : breakdownChart(src, cur),
+              reportKey: s.key,
+              allowed: !(
+                role === 'STAFF' &&
+                (category === 'TEAM_PRODUCTIVITY' || category === 'FINANCIAL')
+              ),
+            };
+          });
         const insights: ReportInsight[] = [];
         for (const s of SYSTEM.slice(0, 3)) {
           const src = srcs[s.source]!;

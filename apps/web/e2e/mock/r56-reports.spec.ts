@@ -672,3 +672,47 @@ test('R06: Returning from a record preserves date/filter/sort/page context and n
   await expect(page.getByTestId('report-table')).toContainText('Showing 1 –');
   await expect(page.getByTestId('row-link').first()).toBeVisible();
 });
+
+test('R03: Bookkeeping, Payroll, and Communications report categories show Not Connected empty states', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. Dashboard: all categories present, disconnected categories show Not Connected state
+  await page.goto(base);
+  const cards = page.getByTestId('category-cards');
+  await expect(cards.getByRole('heading', { name: 'Bookkeeping Reports' })).toBeVisible();
+  await expect(cards.getByRole('heading', { name: 'Payroll Reports' })).toBeVisible();
+  await expect(cards.getByRole('heading', { name: 'Communications Reports' })).toBeVisible();
+
+  await expect(page.getByTestId('not-connected-bookkeeping')).toBeVisible();
+  await expect(page.getByTestId('not-connected-payroll')).toBeVisible();
+  await expect(page.getByTestId('not-connected-communications')).toBeVisible();
+
+  // 2. Report Detail for disconnected category shows clear banner and empty state, zero fake data
+  await page.goto(`${base}/bookkeeping-status`);
+  await expect(page.getByTestId('category-not-connected-banner')).toBeVisible();
+  await expect(
+    page.getByText('Bookkeeping reports require QuickBooks Online or Xero'),
+  ).toBeVisible();
+  await expect(page.getByTestId('report-table')).toContainText('Provider Not Connected');
+
+  await page.goto(`${base}/payroll-summary`);
+  await expect(page.getByTestId('category-not-connected-banner')).toBeVisible();
+  await expect(page.getByText('Payroll reports require Gusto or ADP')).toBeVisible();
+  await expect(page.getByTestId('report-table')).toContainText('Provider Not Connected');
+
+  // 3. Report Builder: categories and layouts selectable, preview shows Not Connected guidance
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Report Category').selectOption('BOOKKEEPING');
+  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
+  await expect(page.getByTestId('selected-columns')).toContainText('Accounting Software');
+
+  await page.getByLabel('Report Category').selectOption('PAYROLL');
+  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
+  await expect(page.getByTestId('selected-columns')).toContainText('Employees');
+
+  await page.getByLabel('Report Category').selectOption('COMMUNICATIONS');
+  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
+  await expect(page.getByTestId('selected-columns')).toContainText('Channel');
+});

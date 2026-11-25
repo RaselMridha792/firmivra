@@ -520,6 +520,25 @@ export function ReportBuilder() {
                 The preview could not run: {previewError}
               </p>
             ) : null}
+            {['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(category) ? (
+              <div
+                className="mb-3 flex flex-col items-center justify-center gap-2 rounded-xl border border-divider bg-canvas p-6 text-center"
+                data-testid="builder-not-connected"
+              >
+                <p className="font-semibold text-heading">Provider Not Connected</p>
+                <p className="max-w-sm text-xs text-muted">
+                  {category === 'BOOKKEEPING'
+                    ? 'Connect QuickBooks Online or Xero in Integrations.'
+                    : category === 'PAYROLL'
+                      ? 'Connect Gusto or ADP in Integrations.'
+                      : 'Connect Twilio or SendGrid in Integrations.'}{' '}
+                  You can configure fields and filters; live data appears once connected.
+                </p>
+                <Link href="/integrations" className="text-xs font-semibold text-link underline">
+                  Connect in Integrations →
+                </Link>
+              </div>
+            ) : null}
             <ul
               hidden={!parts.kpis}
               style={!parts.kpis ? { display: 'none' } : undefined}
