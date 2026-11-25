@@ -612,6 +612,7 @@ enum TaxPlanEventKind {
   CLIENT_REQUEST
   APPROVED
   DELIVERED
+  STAFF_APPROVED
 }
 
 /// R1 (Nov 14, Review 2 C17, S6): a planning resource's kind (the catalog's kinds).
@@ -1265,6 +1266,7 @@ model Membership {
   taxPlans                     TaxPlan[]                     @relation("TaxPlanAssignee")
   taxPlansReviewing            TaxPlan[]                     @relation("TaxPlanReviewer")
   taxPlanApprovalsRecorded     TaxPlanApproval[]             @relation("TaxPlanApprovalRecordedBy")
+  taxPlanStaffApprovals        TaxPlanStaffApproval[]        @relation("TaxPlanStaffApprover")
   taxPlanRequestsMade          TaxPlanRequest[]              @relation("TaxPlanRequestRequestedBy")
   taxOpportunities             TaxOpportunity[]
   projectDeadlinesOwned        ProjectDeadline[]             @relation("ProjectDeadlineOwner")
@@ -11441,8 +11443,9 @@ model TaxPlanVersion {
   createdByUserId String?          @map("created_by_user_id") @db.Uuid
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  plan      TaxPlan           @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
-  approvals TaxPlanApproval[]
+  plan           TaxPlan                @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  approvals      TaxPlanApproval[]
+  staffApprovals TaxPlanStaffApproval[]
 
   @@unique([businessId, planId, version])
   @@map("tax_plan_versions")
@@ -11469,6 +11472,22 @@ model TaxPlanEvent {
 
   @@index([businessId, planId, createdAt])
   @@map("tax_plan_events")
+}
+
+/// Q13: immutable staff sign-off for a finalized snapshot, separate from client approval.
+model TaxPlanStaffApproval {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  businessId       String   @map("business_id") @db.Uuid
+  planId           String   @map("plan_id") @db.Uuid
+  version          Int
+  approvedByUserId String   @map("approved_by_user_id") @db.Uuid
+  approvedAt       DateTime @default(now()) @map("approved_at") @db.Timestamptz(3)
+
+  planVersion TaxPlanVersion @relation(fields: [businessId, planId, version], references: [businessId, planId, version], onDelete: Restrict)
+  approvedBy  Membership     @relation("TaxPlanStaffApprover", fields: [businessId, approvedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, planId, version])
+  @@map("tax_plan_staff_approvals")
 }
 
 /// R1 (Nov 14, Tax Planning Review 2 approved workflow): how the client's approval came.
@@ -13341,8 +13360,11 @@ model SalesContact {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  opportunities SalesOpportunity[]
-  importRows    SalesLeadImportRow[]
+  opportunities      SalesOpportunity[]
+  importRows         SalesLeadImportRow[]
+  consent            SalesLeadConsent?
+  nurtureEnrollments SalesNurtureEnrollment[]
+  demoRequests       SalesDemoRequest[]
 
   @@index([emailNormalized])
   @@index([phoneNormalized])
@@ -13400,6 +13422,7 @@ model SalesOpportunity {
   followUps         SalesFollowUp[]
   notes             SalesNote[]
   importRows        SalesLeadImportRow[]
+  demoRequests      SalesDemoRequest[]
 
   @@index([pipelineId, stageId])
   @@index([assignedToUserId])
@@ -13522,9 +13545,10 @@ model SalesFollowUp {
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  opportunity SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
-  assignee    PlatformAdmin?   @relation("SalesFollowUpAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
-  activities  SalesActivity[]
+  opportunity      SalesOpportunity       @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  assignee         PlatformAdmin?         @relation("SalesFollowUpAssignee", fields: [assignedToUserId], references: [userId], onDelete: SetNull)
+  activities       SalesActivity[]
+  demoAppointments SalesDemoAppointment[]
 
   @@index([opportunityId, dueAt])
   @@index([status, dueAt])
@@ -15500,6 +15524,208 @@ model SalesLeadImportRow {
   @@index([contactId])
   @@index([opportunityId])
   @@map("sales_lead_import_rows")
+}
+
+// ---------- Q35 CRM: platform acquisition CRM (consent, nurture journeys, demos) ----------
+// Platform data like the other sales_* tables: no firm column and no firm scope reaches them
+// (app_is_sales_team()). Leads are SalesContact / SalesOpportunity records; these tables add
+// consent and suppression, versioned nurture journeys with explicit enrollment, and demos.
+
+enum SalesNurtureJourneyStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum SalesNurtureEnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  STOPPED
+  FAILED
+}
+
+enum SalesNurtureExecutionStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum SalesDemoRequestStatus {
+  PENDING
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum SalesDemoAppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+/// A contact's consent and suppression (one row per contact). Audience eligibility reads it
+/// before any campaign or journey send: a suppressed contact gets nothing.
+model SalesLeadConsent {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  contactId         String    @unique @map("contact_id") @db.Uuid
+  consented         Boolean   @default(false)
+  consentedAt       DateTime? @map("consented_at") @db.Timestamptz(3)
+  /// Where consent was captured, e.g. "website_form" or "manual".
+  consentSource     String?   @map("consent_source")
+  suppressed        Boolean   @default(false)
+  suppressedAt      DateTime? @map("suppressed_at") @db.Timestamptz(3)
+  /// Why, e.g. "unsubscribe", "bounce" or "manual".
+  suppressionReason String?   @map("suppression_reason")
+  updatedByUserId   String?   @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  contact SalesContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([suppressed])
+  @@map("sales_lead_consents")
+}
+
+/// A nurture journey. Its steps live in versions; a published version never changes, and
+/// enrollments name the version they follow. Paused: no new enrollments.
+model SalesNurtureJourney {
+  id               String                    @id @default(uuid(7)) @db.Uuid
+  name             String
+  description      String?
+  status           SalesNurtureJourneyStatus @default(DRAFT)
+  /// The published version new enrollments follow (null until the first publish); always a
+  /// version of this journey (the database checks it).
+  currentVersionId String?                   @map("current_version_id") @db.Uuid
+  createdByUserId  String?                   @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  versions    SalesNurtureJourneyVersion[]
+  enrollments SalesNurtureEnrollment[]
+
+  @@index([status])
+  @@map("sales_nurture_journeys")
+}
+
+/// One version of a journey's steps. Once published (published_at set) the database refuses
+/// any change to it.
+model SalesNurtureJourneyVersion {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  journeyId       String    @map("journey_id") @db.Uuid
+  /// 1, 2, 3 ... within the journey.
+  version         Int
+  /// [{ delayDays, templateId, channel }]
+  steps           Json
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  journey     SalesNurtureJourney      @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  enrollments SalesNurtureEnrollment[]
+
+  @@unique([journeyId, id])
+  @@unique([journeyId, version])
+  @@map("sales_nurture_journey_versions")
+}
+
+/// A contact on a journey, on one version of it (always a version of that journey). Explicit:
+/// someone enrolls the contact. One enrollment per journey and contact.
+model SalesNurtureEnrollment {
+  id               String                       @id @default(uuid(7)) @db.Uuid
+  journeyId        String                       @map("journey_id") @db.Uuid
+  versionId        String                       @map("version_id") @db.Uuid
+  contactId        String                       @map("contact_id") @db.Uuid
+  status           SalesNurtureEnrollmentStatus @default(ACTIVE)
+  enrolledAt       DateTime                     @default(now()) @map("enrolled_at") @db.Timestamptz(3)
+  completedAt      DateTime?                    @map("completed_at") @db.Timestamptz(3)
+  stoppedAt        DateTime?                    @map("stopped_at") @db.Timestamptz(3)
+  /// e.g. "converted", "unsubscribed" or "manual".
+  stopReason       String?                      @map("stop_reason")
+  enrolledByUserId String?                      @map("enrolled_by_user_id") @db.Uuid
+  createdAt        DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  journey    SalesNurtureJourney        @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  version    SalesNurtureJourneyVersion @relation(fields: [journeyId, versionId], references: [journeyId, id], onDelete: Restrict)
+  contact    SalesContact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  executions SalesNurtureExecution[]
+
+  @@unique([journeyId, contactId])
+  @@index([status])
+  @@index([contactId])
+  @@map("sales_nurture_enrollments")
+}
+
+/// One step of one enrollment: when it is due, its outcome and retries. The scheduler picks
+/// up PENDING rows.
+model SalesNurtureExecution {
+  id           String                      @id @default(uuid(7)) @db.Uuid
+  enrollmentId String                      @map("enrollment_id") @db.Uuid
+  /// 0-based index into the version's steps.
+  stepIndex    Int                         @map("step_index")
+  status       SalesNurtureExecutionStatus @default(PENDING)
+  scheduledAt  DateTime                    @map("scheduled_at") @db.Timestamptz(3)
+  sentAt       DateTime?                   @map("sent_at") @db.Timestamptz(3)
+  retryCount   Int                         @default(0) @map("retry_count")
+  lastError    String?                     @map("last_error")
+  createdAt    DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  enrollment SalesNurtureEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, stepIndex])
+  @@index([status, scheduledAt])
+  @@map("sales_nurture_executions")
+}
+
+/// A lead's demo request (website form or added by the team), optionally on an opportunity.
+model SalesDemoRequest {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  contactId       String                 @map("contact_id") @db.Uuid
+  opportunityId   String?                @map("opportunity_id") @db.Uuid
+  topic           String?
+  status          SalesDemoRequestStatus @default(PENDING)
+  /// The lead's preferred window, as they wrote it.
+  preferredTime   String?                @map("preferred_time")
+  notes           String?
+  createdByUserId String?                @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  contact      SalesContact           @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  opportunity  SalesOpportunity?      @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  appointments SalesDemoAppointment[]
+
+  @@index([status])
+  @@index([contactId])
+  @@map("sales_demo_requests")
+}
+
+/// A booked demo: time, length (5 to 480 minutes), video link, outcome, and the DEMO
+/// follow-up it is on.
+model SalesDemoAppointment {
+  id              String                     @id @default(uuid(7)) @db.Uuid
+  requestId       String                     @map("request_id") @db.Uuid
+  scheduledAt     DateTime                   @map("scheduled_at") @db.Timestamptz(3)
+  durationMinutes Int                        @default(30) @map("duration_minutes")
+  videoLink       String?                    @map("video_link")
+  status          SalesDemoAppointmentStatus @default(SCHEDULED)
+  notes           String?
+  followUpId      String?                    @map("follow_up_id") @db.Uuid
+  createdByUserId String?                    @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  request  SalesDemoRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  followUp SalesFollowUp?   @relation(fields: [followUpId], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledAt])
+  @@index([requestId])
+  @@map("sales_demo_appointments")
 }
 
 // ---------- R0 stage D4: Firmivra's own legal documents ----------
