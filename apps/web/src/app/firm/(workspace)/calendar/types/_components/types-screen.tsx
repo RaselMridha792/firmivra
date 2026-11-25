@@ -24,11 +24,13 @@ import { ArrowLeft, GearSix, ListChecks, Plus } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
+import { LeaveGuard } from '../../../../../../components/leave-guard';
 import { PublicLinkSection } from '../../../../../../components/public-link';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { publicLinkText } from '../../../../../../lib/public-link';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { hasUnsavedChanges, useUnsavedChanges } from '../../../../../../lib/unsaved';
 import { BackToWorkflow } from '../../../settings/workflow/_components/back-to-workflow';
 import { RowMenu } from '../../../team/_components/row-menu';
 import { METHOD_LABELS, NOT_LOADED, SCHEDULING } from '../../_components/appointments-parts';
@@ -143,6 +145,13 @@ export function TypesScreen({
   );
   const list = types.data ?? [];
   const selected = list.find((t) => t.id === picked) ?? list.find((t) => !t.archivedAt);
+  // Settings C (G-WF-4): another type's settings replace this form, so unsaved edits ask first.
+  const [switching, setSwitching] = useState<AppointmentType | null>(null);
+  const pick = (t: AppointmentType) => {
+    if (t.id === selected?.id) return;
+    if (hasUnsavedChanges()) setSwitching(t);
+    else setPicked(t.id);
+  };
 
   // Review 2 (row 3): the type's own link, on the portal host from config. A link that takes no
   // bookings is still copied (it stays the same), with what the client will see.
@@ -239,7 +248,7 @@ export function TypesScreen({
                   <button
                     type="button"
                     aria-pressed={t.id === selected?.id}
-                    onClick={() => setPicked(t.id)}
+                    onClick={() => pick(t)}
                     className="text-left font-semibold text-heading hover:underline"
                   >
                     {t.name}
@@ -275,7 +284,7 @@ export function TypesScreen({
                 label={`Actions for ${t.name}`}
                 items={[
                   ...(manages ? [{ label: 'Edit', onSelect: () => setEditing(t) }] : []),
-                  { label: 'Settings', onSelect: () => setPicked(t.id) },
+                  { label: 'Settings', onSelect: () => pick(t) },
                   // Review 2 (row 3): every type, for everyone at the firm.
                   { label: 'Copy Booking Link', onSelect: () => copyBookingLink(t) },
                   { label: 'Copy Embed Code', onSelect: () => setEmbedding(t) },
@@ -340,6 +349,36 @@ export function TypesScreen({
         />
       ) : null}
       {embedding ? <EmbedDialog type={embedding} onClose={() => setEmbedding(null)} /> : null}
+      {switching ? (
+        <Modal
+          open
+          title="Discard your changes?"
+          onClose={() => setSwitching(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setSwitching(null)}>
+                Keep Editing
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setPicked(switching.id);
+                  setSwitching(null);
+                }}
+              >
+                Discard Changes
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text" data-testid="type-switch-discard">
+            Your changes to {selected?.name ?? 'this type'} settings are not saved. Discard them and
+            open {switching.name}?
+          </p>
+        </Modal>
+      ) : null}
+      {/* G-WF-4: a link out of the page (Back, the sidebar) or a reload asks first. */}
+      <LeaveGuard />
     </div>
   );
 }
@@ -472,8 +511,39 @@ function TypeModal({
     },
     { invalidate: TYPES_KEY },
   );
+  // Settings C (G-WF-4): Cancel, the close button or Escape with edits asks before discarding.
+  const entries = JSON.stringify([name, minutes, location, bookable, cutoff]);
+  const [loaded] = useState(entries);
+  const dirty = entries !== loaded && !save.isSuccess;
+  useUnsavedChanges(dirty);
+  const [asking, setAsking] = useState(false);
+  const close = () => (dirty ? setAsking(true) : onClose());
+  if (asking)
+    return (
+      <Modal
+        open
+        title="Discard your changes?"
+        onClose={() => setAsking(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAsking(false)}>
+              Keep Editing
+            </Button>
+            <Button variant="danger" onClick={onClose}>
+              Discard Changes
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text" data-testid="type-modal-discard">
+          {type
+            ? `Your changes to ${type.name} are not saved. Discard them?`
+            : 'This new appointment type is not added yet. Discard it?'}
+        </p>
+      </Modal>
+    );
   return (
-    <Modal open title={type ? `Edit ${type.name}` : 'Add Appointment Type'} onClose={onClose}>
+    <Modal open title={type ? `Edit ${type.name}` : 'Add Appointment Type'} onClose={close}>
       <form
         noValidate
         className="flex flex-col gap-4"
@@ -544,7 +614,7 @@ function TypeModal({
           </p>
         ) : null}
         <div className="flex justify-end gap-3">
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={close}>
             Cancel
           </Button>
           <Button type="submit" disabled={save.isPending}>
@@ -620,8 +690,25 @@ function SettingsForm({
     (f) => f.id === c.requiredIntakeFormId || !c.serviceId || f.service?.id === c.serviceId,
   );
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<SettingField, string>>>({});
+  // Settings C (G-WF-4): the entries as they were loaded or last saved; any difference is unsaved
+  // work, so leaving the page or choosing another type asks first (LeaveGuard, TypesScreen).
+  const entries = JSON.stringify([
+    description,
+    confirmation,
+    [...methods].sort(),
+    platform,
+    before,
+    after,
+    notice,
+    windowChoice,
+    reminders,
+    intakeForm,
+  ]);
+  const [kept, setKept] = useState(entries);
+  useUnsavedChanges(manages && entries !== kept);
   const save = useApiMutation(
     async () => {
+      const sent = entries;
       await api.scheduling.setTypeConfig(type.id, {
         description: description.trim() || null,
         confirmationMessage: confirmation.trim() || null,
@@ -637,6 +724,8 @@ function SettingsForm({
         defaultReminders: remindersFromRows(reminders),
         requiredIntakeFormId: intakeForm || null,
       });
+      // Saved: nothing is unsaved from the moment "Settings saved." shows, before the reload.
+      setKept(sent);
       onSaved('Settings saved.');
     },
     { invalidate: TYPES_KEY },
@@ -768,8 +857,10 @@ function SettingsForm({
           value={after}
           onChange={(e) => setAfter(e.target.value)}
         />
+        {/* Settings C (G-WF-2): what the two booking limits mean, in the guide's words. */}
         <Select
           label="Minimum notice"
+          hint="How far ahead a client must book. 2 hours: at 10 a.m., noon is the earliest start."
           disabled={off}
           options={withCurrent([0, 2, 6, 12, 24, 48, 72], Number(notice)).map((h) => ({
             value: String(h),
@@ -780,6 +871,7 @@ function SettingsForm({
         />
         <Select
           label="Booking window"
+          hint="How far into the future clients can book. 1 day ahead: up to 24 hours away."
           disabled={off}
           options={windowChoices(windowChoice)}
           value={windowChoice}
