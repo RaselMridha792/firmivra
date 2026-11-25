@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@firmivra/db';
 import { PlatformPrisma } from '../database/database.module.js';
 
 /**
@@ -157,7 +158,7 @@ export class CrmService {
         businessId: data.businessId,
         journeyId: data.journeyId,
         version: data.version,
-        steps: data.steps as Record<string, unknown>[],
+        steps: data.steps as Prisma.InputJsonValue,
         createdByUserId: data.createdByUserId ?? null,
       },
     });
