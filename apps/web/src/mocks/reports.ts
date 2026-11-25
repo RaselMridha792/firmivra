@@ -938,6 +938,25 @@ const shiftRange = (
 const delta = (a: number | null, b: number | null) =>
   a === null || b === null || b === 0 ? null : Math.round(((a - b) / Math.abs(b)) * 1000) / 10;
 
+const SAVED_STORAGE_KEY = 'firmivra-mock:saved-reports';
+const loadSavedReports = (): SavedReportDetail[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = sessionStorage.getItem(SAVED_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as SavedReportDetail[]) : [];
+  } catch {
+    return [];
+  }
+};
+const persistSavedReports = (list: SavedReportDetail[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    // ignore
+  }
+};
+
 export function createReportsMock({ role = 'OWNER', empty = false }: Options = {}): ReportsClient {
   let next = 4000;
   const id = (block: string) => uuid(block, next++);
@@ -958,7 +977,8 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
     timezone: 'America/New_York',
     updatedAt: null,
   };
-  const savedReports: SavedReportDetail[] = [];
+  if (empty) persistSavedReports([]);
+  const savedReports: SavedReportDetail[] = empty ? [] : loadSavedReports();
   const schedules: ReportScheduleDetail[] = [];
   const recent: RecentReportRow[] = [];
   const runs = new Map<string, ReportRunStatusView>();
@@ -1401,9 +1421,11 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       );
     list = [];
     const total = tableRows.length;
+    const maxPage = Math.max(1, Math.ceil(total / q.pageSize));
+    const effectivePage = !q.preview && total > 0 && q.page > maxPage ? 1 : q.page;
     const pageRows = q.preview
       ? tableRows.slice(0, 10)
-      : tableRows.slice((q.page - 1) * q.pageSize, q.page * q.pageSize);
+      : tableRows.slice((effectivePage - 1) * q.pageSize, effectivePage * q.pageSize);
     // As the API words them (RP-F09): money in dollars, a range as "between A and B".
     const chips = [
       ...(d.filters.conditions as { field: string; op: string; value?: unknown }[]),
@@ -1450,9 +1472,9 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       notices: [],
       kpis,
       chart,
-      breakdown: breakdownChart(src, cur, q.breakdownBy),
+      breakdown: breakdownChart(src, cur, q.breakdownBy ?? d.groupBy ?? undefined),
       chips,
-      table: { columns, rows: pageRows, totals, total, page: q.page, pageSize: q.pageSize },
+      table: { columns, rows: pageRows, totals, total, page: effectivePage, pageSize: q.pageSize },
       insights: insightsOf(src, cur, kpis, range),
       preview: !!q.preview,
       generatedAt: nowIso(),
@@ -1610,6 +1632,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       etag: `e${next++}`,
     };
     savedReports.unshift(r);
+    persistSavedReports(savedReports);
     return r;
   };
   const findSaved = (sid: string) => {
@@ -1861,6 +1884,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         if (input.definition) r.definition = viewOf(input.definition as never);
         r.etag = `e${next++}`;
         r.updatedAt = nowIso();
+        persistSavedReports(savedReports);
         return r;
       }),
     duplicateSaved: (sid, body = {}) =>
@@ -1882,6 +1906,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
           etag: `e${next++}`,
         };
         savedReports.unshift(c);
+        persistSavedReports(savedReports);
         return c;
       }),
     archiveSaved: (sid) =>
@@ -1889,6 +1914,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         manage();
         const r = findSaved(sid);
         r.archived = true;
+        persistSavedReports(savedReports);
         return r;
       }),
     restoreSaved: (sid) =>
@@ -1896,6 +1922,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         manage();
         const r = findSaved(sid);
         r.archived = false;
+        persistSavedReports(savedReports);
         return r;
       }),
     favorite: (sid) =>
