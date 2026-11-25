@@ -70,8 +70,12 @@ describe('client compliance facts', () => {
       elections: ['s_corp_2553'],
       priorYearTaxLiabilityCents: 1_200_000,
       priorYearTaxYear: 2025,
+      priorYearTaxLiabilitySource: 'Form 1120-S',
+      priorYearTaxLiabilityAsOf: new Date('2026-03-15T00:00:00.000Z'),
       verifiedAt: new Date('2020-01-01'),
     });
+    expect(ok.priorYearTaxLiabilitySource).toBe('Form 1120-S');
+    expect(ok.priorYearTaxLiabilityAsOf).toEqual(new Date('2026-03-15T00:00:00.000Z'));
     expect(ok.verifiedAt!.getTime()).toBeGreaterThan(Date.now() - 60_000);
     expect(
       await failure(A().clientComplianceFacts.deleteMany({ where: { clientId: f.clientA } })),
