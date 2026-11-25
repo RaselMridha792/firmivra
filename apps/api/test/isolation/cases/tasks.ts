@@ -360,6 +360,8 @@ export const cases: CaseModule['cases'] = {
   [`GET ${BASE}/tasks/:id/comments`]: { params: { id: 'taskWithComment' } },
   [`POST ${BASE}/tasks/:id/comments`]: {
     params: { id: 'taskWithComment' },
+    // The staff a comment mentions: members of the firm the case acts in.
+    bodyIds: { mentionUserIds: 'adminUser' },
     body: { body: 'Fake comment from the case' },
   },
   [`PATCH ${BASE}/tasks/:id/comments/:commentId`]: {

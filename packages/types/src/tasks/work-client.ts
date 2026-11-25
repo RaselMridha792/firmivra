@@ -57,6 +57,15 @@ import {
   UpdateTaskDraftRequest,
 } from './drafts.js';
 import { TaskId } from './schemas.js';
+import {
+  CreateTaskCommentRequest,
+  PendingTaskAcknowledgements,
+  TaskAcknowledgements,
+  TaskComment,
+  TaskCommentId,
+  TaskComments,
+  UpdateTaskCommentRequest,
+} from './collab.js';
 
 const TASKS = '/business/tasks';
 const task = (id: string) => `${TASKS}/${parseInput(TaskId, id)}`;
@@ -161,6 +170,39 @@ export function createTaskWorkClient(request: ApiRequest) {
       ),
     removeAttachment: async (id: string, attachmentId: string): Promise<OkResponse> =>
       request(OkResponse, `${task(id)}/attachments/${parseInput(TaskAttachmentId, attachmentId)}`, {
+        method: 'DELETE',
+      }),
+
+    // ----- Q36: acknowledgment (T-C01) and discussion (T-C02), ./collab.ts -----
+    acknowledgements: async (id: string): Promise<TaskAcknowledgements> =>
+      request(TaskAcknowledgements, `${task(id)}/acknowledgements`),
+    /** 409 NOTHING_TO_ACKNOWLEDGE when the member has no acknowledgment to give. */
+    acknowledge: async (id: string): Promise<TaskAcknowledgements> =>
+      request(TaskAcknowledgements, `${task(id)}/acknowledge`, post()),
+    pendingAcknowledgements: async (): Promise<PendingTaskAcknowledgements> =>
+      request(PendingTaskAcknowledgements, `${TASKS}/acknowledgements/pending`),
+    comments: async (id: string): Promise<TaskComments> =>
+      request(TaskComments, `${task(id)}/comments`),
+    /** 422 INVALID_MENTION when a mentioned person is not an active member. */
+    addComment: async (id: string, body: CreateTaskCommentRequest): Promise<TaskComment> =>
+      request(
+        TaskComment,
+        `${task(id)}/comments`,
+        post(parseInput(CreateTaskCommentRequest, body)),
+      ),
+    /** 403 NOT_AUTHOR; 409 EDIT_WINDOW_CLOSED after 15 minutes. */
+    editComment: async (
+      id: string,
+      commentId: string,
+      body: UpdateTaskCommentRequest,
+    ): Promise<TaskComment> =>
+      request(TaskComment, `${task(id)}/comments/${parseInput(TaskCommentId, commentId)}`, {
+        method: 'PATCH',
+        body: parseInput(UpdateTaskCommentRequest, body),
+      }),
+    /** 403 NOT_AUTHOR. */
+    deleteComment: async (id: string, commentId: string): Promise<OkResponse> =>
+      request(OkResponse, `${task(id)}/comments/${parseInput(TaskCommentId, commentId)}`, {
         method: 'DELETE',
       }),
 

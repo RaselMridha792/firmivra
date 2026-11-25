@@ -3,6 +3,7 @@
 import type { BulkTaskResult, TaskOverviewQuery, TaskProgress, TaskRow } from '@firmivra/types';
 import {
   ActionMenu,
+  Badge,
   BulkBar,
   Button,
   type Column,
@@ -51,6 +52,7 @@ import {
 } from './task-shared';
 import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
 import { relatedLabel, relatedLinks } from './new-task-href';
+import { usePendingAcknowledgements } from './task-collab';
 
 type Dialog =
   | { kind: 'reassign' | 'due' | 'priority' | 'progress'; ids: string[] }
@@ -214,20 +216,29 @@ export function TaskTable({
   const size = Number(query.pageSize ?? 10);
   const sort = { id: query.sort ?? 'due', descending: query.direction === 'desc' };
 
+  const pendingAcks = usePendingAcknowledgements();
   const columns: Column<TaskRow>[] = [
     {
       id: 'title',
       label: 'Task Name',
       sortable: true,
       cell: (t) => (
-        <Link
-          href={`/tasks/${t.id}`}
-          data-testid="task-link"
-          title={t.title}
-          className="block max-w-56 truncate font-medium text-heading hover:underline"
-        >
-          {t.title}
-        </Link>
+        <div className="flex max-w-72 items-center gap-2">
+          <Link
+            href={`/tasks/${t.id}`}
+            data-testid="task-link"
+            title={t.title}
+            className="block max-w-56 truncate font-medium text-heading hover:underline"
+          >
+            {t.title}
+          </Link>
+          {/* Q36 T-C01: the signed-in member still has to acknowledge this assignment. */}
+          {pendingAcks.has(t.id) ? (
+            <span data-testid="ack-badge">
+              <Badge tone="warning">Acknowledge</Badge>
+            </span>
+          ) : null}
+        </div>
       ),
     },
     {

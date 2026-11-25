@@ -150,7 +150,7 @@ beforeAll(async () => {
   for (const [firm, userId, role] of members) {
     await inFirm(firm, (tx) =>
       tx.membership.create({
-        data: { businessId: firms[firm], userId, role, status: 'ACTIVE', joinedAt: new Date() },
+        data: { businessId: firms[firm], userId, role, status: 'ACTIVE' },
       }),
     );
   }
