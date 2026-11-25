@@ -13,6 +13,7 @@ test('the page opens with its KPIs and the subscriptions table', async ({ page }
   await expect(page.getByTestId('kpi-mrr-value')).toHaveText(/^\$[\d,]+$/);
   await expect(page.getByTestId('kpi-churn-value')).toHaveText(/^\d+\.\d%$/);
   await expect(page.getByRole('row', { name: /Sample Blue Ridge Tax/ })).toContainText('Team Pro');
+  await expect(page.getByRole('row', { name: /Sample Blue Ridge Tax/ })).toContainText('Renews');
   await expect(page.getByText(/Showing 1 – 8 of \d+ subscriptions/)).toBeVisible();
 });
 
@@ -24,6 +25,14 @@ test('a KPI card filters the table to the same count', async ({ page }) => {
   await expect(page.getByTestId('kpi-active')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText(new RegExp(`of ${value} subscriptions`))).toBeVisible();
   await expect(page.getByRole('row', { name: /Example Maple Ledger/ })).toHaveCount(0);
+});
+
+test('the Paying filter excludes past-due subscriptions', async ({ page }) => {
+  await page.goto(admin('/subscriptions'));
+  await page.getByLabel('Status', { exact: true }).selectOption('PAYING');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByRole('row', { name: /Example Maple Ledger/ })).toHaveCount(0);
+  await expect(page.getByRole('row', { name: /Sample Blue Ridge Tax/ })).toContainText('Active');
 });
 
 test('search and the status filter apply on Apply, and Clear resets them', async ({ page }) => {
@@ -42,6 +51,51 @@ test('search and the status filter apply on Apply, and Clear resets them', async
   await expect(page.getByRole('row', { name: /Sample Blue Ridge Tax/ })).toHaveCount(0);
 });
 
+test('a reversed reporting period is rejected before it is applied', async ({ page }) => {
+  await page.goto(admin('/subscriptions'));
+  await page.getByLabel('Reporting period: From, start date').fill('2026-10-10');
+  await page.getByLabel('Reporting period: To, end date').fill('2026-10-01');
+  const filters = page.getByRole('search', { name: 'Filter subscriptions' });
+  await expect(filters.getByRole('alert')).toHaveText(
+    'Choose a start date on or before the end date.',
+  );
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(filters.getByRole('alert')).toHaveText(
+    'Choose a start date on or before the end date.',
+  );
+});
+
+test('the reporting range filters the table by the selected subscription date, not the KPIs', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'));
+  await page.goto(admin('/subscriptions'));
+  const kpi = await page.getByTestId('kpi-mrr-value').textContent();
+  const table = page.getByRole('search', { name: 'Filter subscriptions' });
+  await table.getByLabel('Reporting period: From, start date').fill('2020-01-01');
+  await table.getByLabel('Reporting period: To, end date').fill('2030-01-01');
+  await page.getByLabel('Filter table by').selectOption('START');
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByText(/of \d+ subscriptions/)).toBeVisible();
+  const startCount = Number(
+    (await page.getByText(/of \d+ subscriptions/).textContent())?.match(
+      /of (\d+) subscriptions/,
+    )?.[1],
+  );
+  expect(startCount).toBeGreaterThan(0);
+  await expect(page.getByTestId('kpi-mrr-value')).toHaveText(kpi ?? '');
+
+  await page.getByLabel('Filter table by').selectOption('NEXT_BILLING');
+  await page.getByRole('button', { name: 'Apply' }).click();
+  const billingCount = Number(
+    (await page.getByText(/of \d+ subscriptions/).textContent())?.match(
+      /of (\d+) subscriptions/,
+    )?.[1],
+  );
+  expect(billingCount).toBeGreaterThan(0);
+  expect(billingCount).toBeLessThanOrEqual(startCount);
+});
+
 test('the detail panel changes a plan and shows the price impact first', async ({ page }) => {
   await page.goto(admin('/subscriptions'));
   await page.getByRole('button', { name: 'Sample Blue Ridge Tax', exact: true }).click();
@@ -57,6 +111,18 @@ test('the detail panel changes a plan and shows the price impact first', async (
 
   await expect(page.getByTestId('subscription-toast')).toContainText('Plan changed');
   await expect(panel.getByText('Business (Annual)', { exact: true })).toBeVisible();
+});
+
+test('the discount preview explains the percent against the base plan', async ({ page }) => {
+  await page.goto(admin('/subscriptions'));
+  await page.getByRole('button', { name: 'Sample Blue Ridge Tax', exact: true }).click();
+  const panel = page.getByTestId('subscription-panel');
+  await panel.getByRole('button', { name: 'More Actions' }).click();
+  await page.getByRole('menuitem', { name: 'Apply Credit / Discount' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Apply Credit / Discount' });
+  await expect(dialog.getByTestId('discount-impact')).toContainText(
+    /10% off base plan \$[\d,]+\.\d{2}\/mo/,
+  );
 });
 
 test('Auto-Renew off needs the client request confirmation, source and notes', async ({ page }) => {
