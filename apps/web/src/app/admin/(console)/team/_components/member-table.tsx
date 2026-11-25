@@ -48,6 +48,8 @@ export function MemberTable({
     },
     { id: 'department', label: 'Department', sortable: true, cell: (m) => m.departmentName },
     { id: 'jobTitle', label: 'Job Title', sortable: true, cell: (m) => m.jobTitle },
+    { id: 'reportsTo', label: 'Reports To', cell: (m) => m.reportsTo?.name ?? '—' },
+    { id: 'team', label: 'Team', cell: (m) => m.teamName ?? '—' },
     {
       id: 'accessLevel',
       label: 'Permission Level',

@@ -2,6 +2,10 @@ import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { UploadPutTicket } from '../documents/schemas.js';
 import {
   AdminDashboard,
+  AdminGrowth,
+  AdminGrowthQuery,
+  AdminSearchQuery,
+  AdminSearchResult,
   ApplicationResponseRequestView,
   ApplicationResponseSession,
   CreateApplicationResponseUploadRequest,
@@ -15,6 +19,8 @@ import {
   ApproveFirmApplicationRequest,
   AssignFirmReviewerRequest,
   DeclineFirmApplicationRequest,
+  FirmAccountActionRequest,
+  type FirmAccountAction,
   FirmApplicationCounts,
   FirmApplicationFileLink,
   FirmApplicationId,
@@ -28,6 +34,7 @@ import {
   ListFirmsQuery,
   ListFirmsResponse,
   RequestFirmInfoRequest,
+  RequestFirmInformationRequest,
   SaveFirmNotesRequest,
   SubmitFirmApplicationRequest,
   SubmitFirmApplicationResponse,
@@ -170,9 +177,43 @@ export function createFirmApplicationsClient(request: ApiRequest) {
     firmCounts: async (): Promise<FirmCounts> => request(FirmCounts, `${FIRMS}/counts`),
     getFirm: async (id: string): Promise<FirmRecord> =>
       request(FirmRecord, `${FIRMS}/${parseInput(FirmId, id)}`),
+    /**
+     * SA-FRM-F03, F04, Y10: Suspend, Reactivate or Close the firm's account, with a reason. Answers
+     * the firm page. 409 FIRM_STATUS_CHANGED when its status no longer allows the action.
+     */
+    /**
+     * SA-FRM-F06: Request Information: a Support ticket and an email to the firm's owner. Answers
+     * the firm page. 409 FIRM_CANNOT_ANSWER unless the firm is Active with an active owner.
+     */
+    requestFirmInformation: async (
+      id: string,
+      body: RequestFirmInformationRequest,
+    ): Promise<FirmRecord> =>
+      request(FirmRecord, `${FIRMS}/${parseInput(FirmId, id)}/request-info`, {
+        method: 'POST',
+        body: parseInput(RequestFirmInformationRequest, body),
+      }),
+    firmAction: async (
+      id: string,
+      action: FirmAccountAction,
+      body: FirmAccountActionRequest,
+    ): Promise<FirmRecord> =>
+      request(FirmRecord, `${FIRMS}/${parseInput(FirmId, id)}/${action}`, {
+        method: 'POST',
+        body: parseInput(FirmAccountActionRequest, body),
+      }),
 
     /** The Super Admin dashboard's counts. */
     dashboard: async (): Promise<AdminDashboard> => request(AdminDashboard, '/admin/dashboard'),
+    /** SA-DSH-F01: the header search: firms and applications (never people). */
+    search: async (query: AdminSearchQuery): Promise<AdminSearchResult> =>
+      request(AdminSearchResult, `/admin/search${toQuery(parseInput(AdminSearchQuery, query))}`),
+    /** SA-DSH-F06: Platform Growth for a range of US Eastern days. */
+    growth: async (query: AdminGrowthQuery): Promise<AdminGrowth> =>
+      request(
+        AdminGrowth,
+        `/admin/dashboard/growth${toQuery(parseInput(AdminGrowthQuery, query))}`,
+      ),
     /** Storage, email and portal checks for the System Status card. */
     systemStatus: async (): Promise<AdminSystemStatus> =>
       request(AdminSystemStatus, '/admin/system-status'),

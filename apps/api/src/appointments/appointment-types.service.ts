@@ -7,6 +7,7 @@ import {
   type PublicBookingType,
   type PublicLink,
   publicButtonCode,
+  publicIframeCode,
   publicItemUrl,
   type UpdateAppointmentTypeRequest,
 } from '@firmivra/types';
@@ -86,10 +87,11 @@ export class AppointmentTypesService {
   }
 
   /**
-   * Review 2 (Appointments row 3): the type's public booking link (`publicItemUrl`, on the
-   * portal host from config) and a button for the firm's website (`publicButtonCode`, in the
-   * firm's button colour, else its brand colour). Not an iframe: booking needs the portal's
-   * sign-in, which browsers keep out of another site's frame. Read only, so nothing is audited.
+   * Review 2 (Appointments row 3, D3): the type's public booking link (`publicItemUrl`, on the
+   * portal host from config), the inline booking frame for the firm's website (`embedCode`,
+   * `publicIframeCode`; it shows only on the websites in EMBED_ALLOWED_ORIGINS) and, as a second
+   * choice, a button (`buttonCode`, `publicButtonCode`, in the firm's button colour, else its
+   * brand colour). Read only, so nothing is audited.
    */
   async publicLink(businessId: string, id: string): Promise<PublicLink> {
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
@@ -111,7 +113,8 @@ export class AppointmentTypesService {
         kind: 'APPOINTMENT_TYPE',
         itemId: type.id,
         url,
-        embedCode: publicButtonCode(
+        embedCode: publicIframeCode(url, `Book ${type.name}`),
+        buttonCode: publicButtonCode(
           url,
           `Book ${type.name}`,
           settings?.buttonColor ?? settings?.brandColor,

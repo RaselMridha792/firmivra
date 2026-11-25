@@ -27,13 +27,17 @@ import {
   type FirmApplicationListItem,
   FirmApplicationRecord,
   type FirmApplicationReviewStatus,
+  type FirmAccountEvent,
   type FirmCounts,
   type FirmListItem,
+  type FirmSort,
   type FirmRecord,
   ListFirmApplicationsQuery,
   type ListFirmApplicationsResponse,
   ListFirmsQuery,
   type ListFirmsResponse,
+  AdminSearchQuery,
+  type AdminSearchResult,
   RESERVED_FIRM_SLUGS,
   websiteHost,
 } from '@firmivra/types';
@@ -51,6 +55,8 @@ import {
   type NotifyTemplate,
 } from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
+import { FIRM_ACCOUNT_AUDIT, firmAccountCan } from './firm-account.service.js';
+import { FIRM_INFO_REQUESTED } from './firm-info-request.service.js';
 import { FirmKeyJob } from './firm-key-job.js';
 import { openTicketsFor } from '../admin-support/support-context.js';
 import { OWNER_INVITES } from './owner-invites.js';
@@ -76,6 +82,49 @@ export type StoredApplication = z.infer<typeof StoredApplication>;
 type SlugQuery = { where: { slug: { startsWith: string } }; select: { slug: true } };
 type ListQuery = z.output<typeof ListFirmApplicationsQuery>;
 type FirmsQuery = z.output<typeof ListFirmsQuery>;
+type SearchQuery = z.output<typeof AdminSearchQuery>;
+
+/**
+ * SA-DSH-F01: status words the header search takes, as the screens say them. "pending" is a
+ * firm still in setup and an application not yet opened; "inactive" is the Inactive tab.
+ */
+const FIRM_WORDS: Readonly<Record<string, readonly string[]>> = {
+  active: ['ACTIVE'],
+  pending: ['PENDING_SETUP'],
+  'pending setup': ['PENDING_SETUP'],
+  suspended: ['SUSPENDED'],
+  closed: ['CLOSED'],
+  inactive: ['SUSPENDED', 'CLOSED'],
+};
+const APPLICATION_WORDS: Readonly<Record<string, readonly FirmApplication['status'][]>> = {
+  pending: ['PENDING_REVIEW'],
+  'pending review': ['PENDING_REVIEW'],
+  'in review': ['IN_REVIEW'],
+  'awaiting information': ['INFO_REQUESTED'],
+  'awaiting info': ['INFO_REQUESTED'],
+  'info requested': ['INFO_REQUESTED'],
+  approved: ['APPROVED'],
+  declined: ['DECLINED'],
+};
+const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * SA-FRM-Y08: the firms list by name (A to Z, ignoring case) or by approval day (oldest first);
+ * `desc` turns either round. A firm never approved sorts last either way. Ties: newest first.
+ */
+const firmOrder =
+  (sort: FirmSort, order: 'asc' | 'desc') =>
+  (a: FirmListItem, b: FirmListItem): number => {
+    const sign = order === 'desc' ? -1 : 1;
+    if (sort === 'approved' && (a.approvedAt === null) !== (b.approvedAt === null)) {
+      return a.approvedAt === null ? 1 : -1;
+    }
+    const by =
+      sort === 'name'
+        ? a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+        : (a.approvedAt ?? '').localeCompare(b.approvedAt ?? '');
+    return by !== 0 ? sign * by : b.createdAt.localeCompare(a.createdAt);
+  };
 
 /** "This month" on the counts is the calendar month in US Eastern time. */
 const PLATFORM_TIME_ZONE = 'America/New_York';
@@ -472,12 +521,86 @@ export class FirmApplicationsService {
         if (!q.search) return true;
         const term = q.search.toLowerCase();
         return [f.name, f.owner?.name, f.owner?.email].some((v) => v?.toLowerCase().includes(term));
-      });
+      })
+      // SA-FRM-Y08: the plan its application asked for.
+      .filter((f) => !q.plan || f.plan === q.plan);
+    if (q.sort) items.sort(firmOrder(q.sort, q.order ?? 'asc'));
     return {
       items: items.slice((q.page - 1) * q.pageSize, q.page * q.pageSize),
       total: items.length,
       page: q.page,
       pageSize: q.pageSize,
+    };
+  }
+
+  /**
+   * SA-DSH-F01: the header search. Firms and applications only, never people: names, the
+   * owner's or applicant's name and email, an id exactly, or a status word. Newest first, at
+   * most `limit` of each with their totals.
+   */
+  async search(q: SearchQuery): Promise<AdminSearchResult> {
+    const text = q.q.trim();
+    const lower = text.toLowerCase();
+    const word = lower.replace(/\s+/g, ' ');
+    const id = UUID_TEXT.test(lower) ? lower : null;
+    const firmStatuses = FIRM_WORDS[word];
+    const firms = (await this.firmItems()).filter(
+      (f) =>
+        f.id === id ||
+        (firmStatuses?.includes(f.status) ?? false) ||
+        [f.name, f.owner?.name, f.owner?.email].some((v) => v?.toLowerCase().includes(lower)),
+    );
+    // Insensitive contains is ILIKE: `%` and `_` in the text are plain characters.
+    const like = likeEscape(text);
+    const statuses = APPLICATION_WORDS[word];
+    const where: Prisma.FirmApplicationWhereInput = {
+      OR: [
+        ...(['legalName', 'dbaName', 'contactName', 'contactEmail'] as const).map((f) => ({
+          [f]: { contains: like, mode: 'insensitive' as const },
+        })),
+        ...(id ? [{ id }] : []),
+        ...(statuses ? [{ status: { in: [...statuses] } }] : []),
+      ],
+    };
+    const db = this.admin.db;
+    const [total, rows] = await Promise.all([
+      db.firmApplication.count({ where }),
+      db.firmApplication.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: q.limit,
+        select: {
+          id: true,
+          legalName: true,
+          status: true,
+          contactName: true,
+          contactEmail: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+    return {
+      firms: {
+        total: firms.length,
+        items: firms.slice(0, q.limit).map((f) => ({
+          id: f.id,
+          name: f.name,
+          status: f.status,
+          ownerName: f.owner?.name ?? null,
+          ownerEmail: f.owner?.email ?? null,
+        })),
+      },
+      applications: {
+        total,
+        items: rows.map((r) => ({
+          id: r.id,
+          legalName: r.legalName,
+          status: reviewStatus(r.status),
+          contactName: r.contactName,
+          contactEmail: r.contactEmail,
+          submittedAt: r.createdAt.toISOString(),
+        })),
+      },
     };
   }
 
@@ -495,15 +618,102 @@ export class FirmApplicationsService {
   }
 
   async getFirm(id: string): Promise<FirmRecord> {
-    const item = (await this.firmItems(id))[0];
-    if (!item) throw notFound();
-    const application = await this.admin.db.firmApplication.findUnique({
-      where: { businessId: id },
-      select: { id: true },
-    });
-    const record = { ...item, application: application ? await this.record(application.id) : null };
+    const record = await this.firmRecord(id);
     await this.audit.log('business.viewed_by_admin', { type: 'business', id });
     return record;
+  }
+
+  /**
+   * The firm page: its list row, application, Account History and the account actions its status
+   * allows (SA-FRM-F02 to F04, Y07, Y10). Also the answer to an account action (not a view).
+   */
+  async firmRecord(id: string): Promise<FirmRecord> {
+    const item = (await this.firmItems(id))[0];
+    if (!item) throw notFound();
+    const [application, firm, owners] = await Promise.all([
+      this.admin.db.firmApplication.findUnique({ where: { businessId: id }, select: { id: true } }),
+      this.admin.db.business.findUnique({
+        where: { id },
+        select: { activatedAt: true, closedAt: true },
+      }),
+      // SA-FRM-F06: someone to answer a request for information.
+      this.admin.db.membership.count({
+        where: { businessId: id, role: 'OWNER', status: 'ACTIVE' },
+      }),
+    ]);
+    // Read just above (firmItems): the firm's setup and closure times, or none.
+    const times = { activatedAt: firm?.activatedAt ?? null, closedAt: firm?.closedAt ?? null };
+    return {
+      ...item,
+      application: application ? await this.record(application.id) : null,
+      activatedAt: times.activatedAt?.toISOString() ?? null,
+      closedAt: times.closedAt?.toISOString() ?? null,
+      accountHistory: await this.accountHistory(id, times),
+      can: { ...firmAccountCan(item.status), requestInfo: item.status === 'ACTIVE' && owners > 0 },
+    };
+  }
+
+  /**
+   * SA-FRM-F03, F04, Y07, Y10: the account's lifecycle, newest first. Activation is the database's
+   * time; each Suspend, Reactivate and Close is its audit row (who, and the reason). A firm closed
+   * before closures were recorded (or seeded closed) still shows its closure, at the database's
+   * closure time.
+   */
+  private async accountHistory(
+    id: string,
+    firm: { activatedAt: Date | null; closedAt: Date | null },
+  ): Promise<FirmAccountEvent[]> {
+    const rows = await this.admin.db.auditLog.findMany({
+      where: {
+        businessId: null,
+        entityType: 'business',
+        entityId: id,
+        action: { in: [...Object.values(FIRM_ACCOUNT_AUDIT), FIRM_INFO_REQUESTED] },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { action: true, createdAt: true, actorUserId: true, metadata: true },
+    });
+    const admins = await this.adminRefs(rows.map((r) => r.actorUserId));
+    const TYPES: Record<string, FirmAccountEvent['type']> = {
+      [FIRM_ACCOUNT_AUDIT.suspend]: 'SUSPENDED',
+      [FIRM_ACCOUNT_AUDIT.reactivate]: 'REACTIVATED',
+      [FIRM_ACCOUNT_AUDIT.close]: 'CLOSED',
+      [FIRM_INFO_REQUESTED]: 'INFO_REQUESTED',
+    };
+    const events = rows.map((r): FirmAccountEvent => {
+      const m = (r.metadata ?? {}) as {
+        reason?: unknown;
+        subject?: unknown;
+        ticketId?: unknown;
+        number?: unknown;
+      };
+      const type = TYPES[r.action]!;
+      // A request for information: its subject, and the Support ticket it is.
+      const asked = type === 'INFO_REQUESTED';
+      const reason = asked ? m.subject : m.reason;
+      return {
+        type,
+        at: r.createdAt.toISOString(),
+        by: r.actorUserId ? (admins.get(r.actorUserId) ?? null) : null,
+        reason: typeof reason === 'string' ? reason : null,
+        ...(asked && typeof m.ticketId === 'string' && typeof m.number === 'number'
+          ? { ticket: { id: m.ticketId, number: m.number } }
+          : {}),
+      };
+    });
+    if (firm.closedAt && !events.some((e) => e.type === 'CLOSED')) {
+      events.push({ type: 'CLOSED', at: firm.closedAt.toISOString(), by: null, reason: null });
+    }
+    if (firm.activatedAt) {
+      events.push({
+        type: 'ACTIVATED',
+        at: firm.activatedAt.toISOString(),
+        by: null,
+        reason: null,
+      });
+    }
+    // Newest first; a stable sort keeps the audit rows' own order on the same millisecond.
+    return events.sort((a, b) => b.at.localeCompare(a.at));
   }
 
   async dashboard(): Promise<AdminDashboard> {

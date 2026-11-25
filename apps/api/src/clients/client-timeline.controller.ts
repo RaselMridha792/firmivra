@@ -186,7 +186,12 @@ export class ClientTimelineService {
                  'invoice', NULL, i.id::text, i.created_by_user_id::text
             FROM invoices i WHERE i.business_id = ${b}::uuid AND i.client_id = ${c}::uuid
               AND i.issued_at IS NOT NULL
-          UNION ALL SELECT md5('paid:' || i.id::text)::uuid, i.paid_at, 'INVOICE',
+          -- Clients Review 2 (C2-043): the Paid row's own id, stable per invoice. An md5 cast as is
+          -- is not a valid UUID (its variant digit can be 0-7), which failed the Activity page's
+          -- response check for every client with a paid invoice; set the version (5) and the
+          -- variant (8) digits.
+          UNION ALL SELECT overlay(overlay(md5('paid:' || i.id::text) placing '5' from 13 for 1)
+                             placing '8' from 17 for 1)::uuid, i.paid_at, 'INVOICE',
                  'Invoice ' || i.number, 'Paid', 'invoice', NULL, i.id::text, NULL
             FROM invoices i WHERE i.business_id = ${b}::uuid AND i.client_id = ${c}::uuid
               AND i.paid_at IS NOT NULL

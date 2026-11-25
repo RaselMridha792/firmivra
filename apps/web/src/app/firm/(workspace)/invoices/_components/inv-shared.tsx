@@ -1,7 +1,7 @@
 'use client';
 
 import { DUE_SOON_DAYS, type InvoiceListItem } from '@firmivra/types';
-import { Badge } from '@firmivra/ui';
+import { Badge, type BadgeTone } from '@firmivra/ui';
 import { Clock, type Icon, PaperPlaneTilt, Prohibit } from '@phosphor-icons/react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
@@ -79,16 +79,14 @@ export const VIEW_ORDER: InvoiceView[] = [
   'CANCELED',
 ];
 /**
- * Invoices Review 2 I-N07: each pair she found alike reads apart, by colour or icon: Overdue
- * (red) and Canceled (grey, crossed out); Due Today (amber) and Partially Paid (purple);
- * Scheduled (clock) and Sent (paper plane). Draft and Not Sent may share, as she accepted.
+ * Invoices Review 2 I-N07: each pair she found alike reads apart by colour, and by icon too:
+ * Overdue (red) and Canceled (solid navy, crossed out); Due Today (amber) and Partially Paid
+ * (purple); Scheduled (teal, clock) and Sent (blue, paper plane). Draft (grey) and Canceled stay
+ * apart (I-C11). Draft and Not Sent may share, as she accepted.
  */
-const VIEW_TONE: Record<
-  InvoiceView,
-  'success' | 'info' | 'warning' | 'danger' | 'neutral' | 'purple'
-> = {
+const VIEW_TONE: Record<InvoiceView, BadgeTone> = {
   DRAFT: 'neutral',
-  SCHEDULED: 'info',
+  SCHEDULED: 'teal',
   OPEN: 'neutral',
   SENT: 'info',
   PARTIALLY_PAID: 'purple',
@@ -97,7 +95,7 @@ const VIEW_TONE: Record<
   DUE_TODAY: 'warning',
   OVERDUE: 'danger',
   PAID: 'success',
-  CANCELED: 'neutral',
+  CANCELED: 'navy',
 };
 const VIEW_ICON: Partial<Record<InvoiceView, Icon>> = {
   SCHEDULED: Clock,

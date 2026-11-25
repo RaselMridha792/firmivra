@@ -83,6 +83,21 @@ export function mockNoView(): ReadonlySet<string> {
   }
 }
 
+/** Modules whose EDIT grant a mock member has lost through a custom role or member override. */
+export function mockNoEdit(): ReadonlySet<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    return new Set(
+      (window.sessionStorage.getItem('fv-mock-no-edit') ?? '')
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 /** Waits like a real request, so loading states show in mock mode too. */
 export const mockDelay = (ms = 250) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -117,8 +132,15 @@ export function failable<T extends object>(module: string, client: T): T {
         const result = (value as (...a: unknown[]) => unknown).apply(target, args);
         if (failing.includes(`${module}.${prop}@after`))
           return Promise.resolve(result).then(() => Promise.reject(failure()));
+        // A refusal is late too, so a spec sees the loading state whatever the answer is.
         if (failing.includes(`${module}.${prop}@slow`))
-          return Promise.resolve(result).then((answer) => mockDelay(1500).then(() => answer));
+          return Promise.resolve(result).then(
+            (answer) => mockDelay(1500).then(() => answer),
+            (error: unknown) =>
+              mockDelay(1500).then(() => {
+                throw error;
+              }),
+          );
         return result;
       };
     },

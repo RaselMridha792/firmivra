@@ -419,6 +419,73 @@ export class CommunicationAudienceService {
     };
   }
 
+  /**
+   * C20: who All Contacts' "Add all eligible" adds now: the clients that view lists (with its
+   * search), who may get the channel (the reasons the list marks them with) and are not in the
+   * audience yet: chosen one by one, in a chosen segment, or left out by hand. Read a page at a
+   * time; it stops once more than `limit` are found, since that many can never be added.
+   * `chosenClients` is how many clients the audience names one by one now.
+   */
+  async eligibleToAdd(
+    ctx: SegCtx,
+    comm: { id: string; channel: CommunicationChannel },
+    search: string | undefined,
+    limit: number,
+  ): Promise<{ people: Person[]; chosenClients: number }> {
+    const entries = await ctx.tx.communicationAudienceEntry.findMany({
+      where: { businessId: ctx.businessId, communicationId: comm.id },
+      select: { kind: true, segmentId: true, clientId: true },
+    });
+    const inIt = new Set<string>();
+    let chosenClients = 0;
+    for (const e of entries) {
+      if (e.kind === 'SEGMENT' && e.segmentId)
+        (await this.segments.peopleOf(ctx, e.segmentId))?.clientIds.forEach((id) => inIt.add(id));
+      else if ((e.kind === 'CLIENT' || e.kind === 'EXCLUDE_CLIENT') && e.clientId) {
+        inIt.add(e.clientId);
+        if (e.kind === 'CLIENT') chosenClients += 1;
+      }
+    }
+    const sc = this.scope(ctx, {
+      communicationId: comm.id,
+      view: 'CONTACTS',
+      ...(search ? { search } : {}),
+    });
+    if (sc.kind !== 'CLIENT') throw new Error('All Contacts lists clients');
+    const PAGE = 1_000;
+    const people: Person[] = [];
+    let after: string | null = null;
+    for (;;) {
+      const rows: {
+        id: string;
+        displayName: string;
+        email: string | null;
+        phone: string | null;
+      }[] = await ctx.tx.client.findMany({
+        where: { AND: [sc.where, ...(after ? [{ id: { gt: after } }] : [])] },
+        select: { id: true, displayName: true, email: true, phone: true },
+        orderBy: { id: 'asc' },
+        take: PAGE,
+      });
+      const fresh: Person[] = rows
+        .filter((r) => !inIt.has(r.id))
+        .map((c) => ({
+          kind: 'CLIENT',
+          id: c.id,
+          name: c.displayName,
+          email: c.email,
+          phone: c.phone,
+        }));
+      const why = await this.reasons(ctx, comm.channel, fresh);
+      people.push(...fresh.filter((p) => !why.has(keyOf(p))));
+      if (rows.length < PAGE || people.length > limit) break;
+      after = rows[rows.length - 1]?.id ?? null;
+    }
+    // In the list's order, so the picker shows them as All Contacts does.
+    people.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    return { people, chosenClients };
+  }
+
   /** Every eligible record in the filtered scope, at most 1,000. */
   async selectAll(
     ctx: SegCtx,

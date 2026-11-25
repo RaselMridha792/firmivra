@@ -7,14 +7,16 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { FIRM_SETTINGS } from '../../../../setup/_components/shared';
 
+// Tax Returns Review 2 (Rounding): her own words for the two choices.
 const OPTIONS: { value: TaxAmountRounding; label: string }[] = [
-  { value: 'EXACT', label: 'Exact (keep the cents)' },
-  { value: 'ROUND_TO_DOLLAR', label: 'Round to the dollar' },
+  { value: 'EXACT', label: 'Keep exactly as entered' },
+  { value: 'ROUND_TO_DOLLAR', label: 'Round up figures' },
 ];
 
 /**
- * Tax Returns Review 2: how the firm keeps a return's refund and amount due. Round to the dollar
- * stores each amount saved from now on rounded half up; the audit keeps the figure as entered.
+ * Tax Returns Review 2: how the firm keeps a return's refund and amount due. Round up figures
+ * stores each amount saved from now on with any cents taken up to the next whole dollar (never
+ * down); the audit keeps the figure as entered. Amounts are kept to the cent either way.
  * Owner and Admin (the firm settings API checks the role again).
  */
 export function AmountRounding() {
@@ -35,7 +37,7 @@ export function AmountRounding() {
       <div className="sm:w-72">
         <Select
           label="Refunds and amounts due"
-          hint="Applies to amounts saved from now on. The audit keeps each figure as entered."
+          hint="Amounts are kept to the cent. Round up figures takes any cents up to the next whole dollar ($1,482.01 becomes $1,483). Applies to amounts saved from now on; the audit keeps each figure as entered."
           value={firm.data?.taxAmountRounding ?? ''}
           disabled={!firm.data || save.isPending}
           options={

@@ -19,6 +19,7 @@ import {
   OkResponse,
   PackagePricing,
   Promotion,
+  PromotionCodeCheck,
   PromotionList,
   ServiceCategory,
   ServiceCategoryList,
@@ -830,16 +831,23 @@ describe('packages', () => {
       quoteRequired: true,
       savingsCents: null,
     });
-    expectError(
-      await call('post', '/packages/pricing', people.ownerA, {
-        services: [{ serviceId: s1.id, included: true }],
-        packagePriceCents: null,
-        discountType: 'FIXED',
-        discountValue: 99_999,
-      }),
-      400,
-      'INVALID_DISCOUNT',
-    );
+    // R2: the panel reports a discount that cannot work, so the form keeps its totals and shows
+    // the error on the field; saving it is refused (below).
+    expect(
+      exact(
+        PackagePricing,
+        await call('post', '/packages/pricing', people.ownerA, {
+          services: [{ serviceId: s1.id, included: true }],
+          packagePriceCents: null,
+          discountType: 'FIXED',
+          discountValue: 99_999,
+        }),
+      ),
+    ).toMatchObject({
+      totalSelectedCents: 10_000,
+      packagePriceCents: null,
+      discountProblem: 'MORE_THAN_TOTAL',
+    });
 
     expectError(
       await call('post', '/packages', people.ownerA, {
@@ -864,6 +872,138 @@ describe('packages', () => {
     const list = exact(ServicePackageList, await call('get', '/packages', people.staffA)).items;
     expect(list.map((p) => p.id)).toEqual(expect.arrayContaining([pkg.id, discounted.id]));
     exact(ServicePackage, await call('get', `/packages/${pkg.id}`, people.staffA));
+  });
+
+  it('R1-R3: a discount that cannot work is refused with nothing stored; a stored one never stops a read', async () => {
+    const cat = await mkCategory();
+    const s1 = await mkService(cat.id, { basePriceCents: 20_000 });
+    const patch = (id: string, body: object) =>
+      call('patch', `/packages/${id}`, people.ownerA, body);
+    const detailsOf = (res: { body: unknown }) =>
+      (res.body as { error: { details?: { path: string }[] } }).error.details?.map((d) => d.path);
+
+    // A $200 draft with no discount: a $250 fixed discount is refused and the draft is unchanged.
+    const draft = await mkPackage(cat.id, [s1.id], { packagePriceCents: 20_000, activate: false });
+    const tooMuch = await patch(draft.id, {
+      version: draft.version,
+      discountType: 'FIXED',
+      discountValue: 25_000,
+    });
+    expectError(tooMuch, 400, 'INVALID_DISCOUNT');
+    expect(detailsOf(tooMuch)).toEqual(['discountValue']);
+    const kept = exact(ServicePackage, await call('get', `/packages/${draft.id}`, people.staffA));
+    expect([kept.version, kept.status, kept.packagePriceCents, kept.pricing.discountType]).toEqual([
+      draft.version,
+      'DRAFT',
+      20_000,
+      'NONE',
+    ]);
+    // 101% and -1 are refused on the field, never a server error; with the type stored too.
+    for (const body of [
+      { discountType: 'PERCENTAGE', discountValue: 10_100 },
+      { discountType: 'FIXED', discountValue: -1 },
+    ]) {
+      const res = await patch(draft.id, { version: draft.version, ...body });
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(detailsOf(res)).toEqual(['discountValue']);
+    }
+    const percent = exact(
+      ServicePackage,
+      await patch(draft.id, {
+        version: draft.version,
+        packagePriceCents: null,
+        discountType: 'PERCENTAGE',
+        discountValue: 1_000,
+      }),
+    );
+    expectError(
+      await patch(draft.id, { version: percent.version, discountValue: 10_100 }),
+      400,
+      'INVALID_DISCOUNT',
+    );
+
+    // Create too: a draft with a discount that cannot work is not stored.
+    const lost = name('package');
+    expectError(
+      await call('post', '/packages', people.ownerA, {
+        name: lost,
+        categoryId: cat.id,
+        shortDescription: 'x',
+        services: [{ serviceId: s1.id, included: true }],
+        packagePriceCents: null,
+        discountType: 'FIXED',
+        discountValue: 25_000,
+      }),
+      400,
+      'INVALID_DISCOUNT',
+    );
+    const all = async () =>
+      exact(ServicePackageList, await call('get', '/packages?status=all', people.staffA)).items;
+    expect((await all()).some((p) => p.name === lost)).toBe(false);
+
+    // R3: 100% and the whole total are allowed: a $0 package.
+    const free = await mkPackage(cat.id, [s1.id], {
+      packagePriceCents: null,
+      discountType: 'FIXED',
+      discountValue: 20_000,
+    });
+    expect([free.status, free.packagePriceCents, free.pricing.priceFrom]).toEqual([
+      'ACTIVE',
+      0,
+      'DISCOUNT',
+    ]);
+
+    // Q1: a typed price wins; the discount beside it changes nothing.
+    const typed = await mkPackage(cat.id, [s1.id], {
+      packagePriceCents: 8_000,
+      discountType: 'PERCENTAGE',
+      discountValue: 1_000,
+      activate: false,
+    });
+    expect(typed.pricing).toMatchObject({
+      packagePriceCents: 8_000,
+      priceFrom: 'TYPED',
+      savingsCents: 12_000,
+    });
+
+    // R1: a discount stored before saves checked it (or whose services now cost less) is
+    // reported, and the package, the list and the public page still load.
+    const bad = await mkPackage(cat.id, [s1.id], {
+      packagePriceCents: null,
+      discountType: 'FIXED',
+      discountValue: 5_000,
+      activate: false,
+    });
+    await asOwner(ids.firmA, (tx) =>
+      tx.servicePackage.update({ where: { id: bad.id }, data: { discountCents: 30_000 } }),
+    );
+    const read = exact(ServicePackage, await call('get', `/packages/${bad.id}`, people.staffA));
+    expect(read.pricing).toMatchObject({
+      discountProblem: 'MORE_THAN_TOTAL',
+      packagePriceCents: null,
+      savingsCents: null,
+    });
+    expect((await all()).map((p) => p.id)).toEqual(expect.arrayContaining([bad.id, draft.id]));
+    // Its next save has to fix the discount; one that does is stored.
+    expectError(
+      await patch(bad.id, { version: read.version, name: name('package') }),
+      400,
+      'INVALID_DISCOUNT',
+    );
+    const mended = exact(
+      ServicePackage,
+      await patch(bad.id, {
+        version: read.version,
+        packagePriceCents: 18_000,
+        discountType: 'NONE',
+        discountValue: null,
+      }),
+    );
+    expect(mended.pricing).toMatchObject({
+      discountProblem: null,
+      packagePriceCents: 18_000,
+      priceFrom: 'TYPED',
+    });
   });
 
   it('S9: a quote-required service is not counted as $0, and optional extras never count', async () => {
@@ -893,6 +1033,8 @@ describe('packages', () => {
       savingsPercent: null,
       variablePrice: true,
       quoteRequired: true,
+      discountProblem: null,
+      priceFrom: 'TYPED',
     });
     expect(pkg.savingsCents).toBeNull();
 
@@ -1107,17 +1249,23 @@ describe('promotions', () => {
     );
     expect(live.status).toBe('ACTIVE');
 
-    // Same category, same time, neither stacks: refused. Stacking on both is fine.
-    expectError(
-      await call('post', '/promotions', people.ownerA, body({ activate: true })),
-      409,
-      'PROMOTION_CONFLICT',
+    // Same category, same time, neither stacks: refused, naming the other promotion on the
+    // dates. A taken code is its own answer, on the code (Review Two Y3).
+    const overlap = await call('post', '/promotions', people.ownerA, body({ activate: true }));
+    expectError(overlap, 409, 'PROMOTION_CONFLICT');
+    expect((overlap.body as { error: { details: unknown } }).error.details).toEqual([
+      { path: 'startsOn', message: expect.stringContaining(`“${live.name}”`) as string },
+    ]);
+    const taken = await call(
+      'post',
+      '/promotions',
+      people.ownerA,
+      body({ promoCode: live.promoCode }),
     );
-    expectError(
-      await call('post', '/promotions', people.ownerA, body({ promoCode: live.promoCode })),
-      409,
-      'PROMOTION_CONFLICT',
-    );
+    expectError(taken, 409, 'PROMO_CODE_TAKEN');
+    expect((taken.body as { error: { details: unknown } }).error.details).toEqual([
+      { path: 'promoCode', message: expect.any(String) as string },
+    ]);
     // A later window does not overlap, and shows as Scheduled.
     const scheduled = exact(
       Promotion,
@@ -1224,6 +1372,131 @@ describe('summary', () => {
       activePromotions: 0,
       packages: 0,
     });
+  });
+});
+
+// After `summary`: it makes a firm B service, and the summary counts firm B from empty.
+describe('Check a Code (R9/R13)', () => {
+  it('answers for a service or package today, with the one reason a code does not apply', async () => {
+    const cat = await mkCategory();
+    const other = await mkCategory();
+    const svc = await mkService(cat.id, { basePriceCents: 20_000 });
+    const pkg = await mkPackage(cat.id, [svc.id], { packagePriceCents: 15_000 });
+    const RUN = run.toUpperCase();
+    const mk = async (o: object) =>
+      exact(
+        Promotion,
+        await call('post', '/promotions', people.ownerA, {
+          name: name('promo'),
+          discountType: 'PERCENTAGE',
+          value: 1_000,
+          appliesTo: 'SERVICES',
+          targetIds: [svc.id],
+          ...o,
+        }),
+        201,
+      );
+    // Live ones on the same service both stack (the activation check allows no other overlap).
+    const ok = await mk({ promoCode: `OK-${RUN}`, activate: true, stackable: true });
+    await mk({ promoCode: `DRAFT-${RUN}` });
+    await mk({
+      promoCode: `OLD-${RUN}`,
+      activate: true,
+      stackable: true,
+      startsOn: '2020-01-01',
+      endsOn: '2020-01-31',
+    });
+    await mk({
+      promoCode: `SOON-${RUN}`,
+      activate: true,
+      stackable: true,
+      startsOn: '2099-01-01',
+      endsOn: '2099-01-31',
+    });
+    await mk({
+      promoCode: `CAT-${RUN}`,
+      appliesTo: 'CATEGORIES',
+      targetIds: [other.id],
+      activate: true,
+    });
+    await mk({
+      promoCode: `PKG-${RUN}`,
+      appliesTo: 'PACKAGES',
+      targetIds: [pkg.id],
+      activate: true,
+    });
+
+    const check = async (
+      code: string,
+      itemType: 'SERVICE' | 'PACKAGE' = 'SERVICE',
+      itemId = svc.id,
+    ) =>
+      exact(
+        PromotionCodeCheck,
+        await call('post', '/promotions/check', people.staffA, { code, itemType, itemId }),
+      );
+    // Codes are matched in capitals, whatever is typed.
+    expect(await check(`ok-${RUN}`.toLowerCase())).toEqual({
+      result: 'APPLIES',
+      promotion: {
+        id: ok.id,
+        name: ok.name,
+        startsOn: null,
+        endsOn: null,
+        eligibility: 'ALL_CLIENTS',
+      },
+      priceCents: 20_000,
+      discountCents: 2_000,
+      conflict: null,
+      scope: [],
+    });
+    expect(await check(`NOPE-${RUN}`)).toMatchObject({
+      result: 'UNKNOWN_CODE',
+      promotion: null,
+      priceCents: 20_000,
+    });
+    expect((await check(`DRAFT-${RUN}`)).result).toBe('NOT_ACTIVE');
+    expect((await check(`OLD-${RUN}`)).result).toBe('EXPIRED');
+    expect((await check(`SOON-${RUN}`)).result).toBe('NOT_STARTED');
+    expect(await check(`CAT-${RUN}`)).toMatchObject({
+      result: 'WRONG_CATEGORY',
+      scope: [other.name],
+    });
+    expect(await check(`PKG-${RUN}`)).toMatchObject({
+      result: 'WRONG_PACKAGE',
+      discountCents: null,
+      scope: [pkg.name],
+    });
+    expect(await check(`PKG-${RUN}`, 'PACKAGE', pkg.id)).toMatchObject({
+      result: 'APPLIES',
+      priceCents: 15_000,
+      discountCents: 1_500,
+    });
+
+    // Nothing is ordered, counted or logged by a check.
+    const listed = exact(PromotionList, await call('get', '/promotions', people.staffA)).items;
+    expect(listed.find((p) => p.id === ok.id)?.usageCount).toBe(0);
+    expect(await auditActions(ok.id)).toEqual(['catalog.promotion.created']);
+
+    // Another firm's service, or none, is not found; the item is required.
+    const catB = await mkCategory({}, people.ownerB, ids.firmB);
+    const svcB = await mkService(catB.id, {}, ids.firmB);
+    for (const itemId of [svcB.id, randomUUID()]) {
+      expectError(
+        await call('post', '/promotions/check', people.staffA, {
+          code: `OK-${RUN}`,
+          itemType: 'SERVICE',
+          itemId,
+        }),
+        404,
+        'NOT_FOUND',
+      );
+    }
+    expectError(
+      await call('post', '/promotions/check', people.staffA, { code: `OK-${RUN}` }),
+      400,
+      'VALIDATION_FAILED',
+    );
   });
 });
 

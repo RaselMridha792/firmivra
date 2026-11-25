@@ -13,8 +13,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { BookingTypeSelect } from './booking-type-select';
+import { PackageReadiness } from './package-readiness';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
   CATALOG_ERRORS,
@@ -25,8 +26,18 @@ import {
   STATUS_LABEL,
   STATUS_TONE,
   money,
+  percent,
   tone,
 } from './catalog-shared';
+import { FixFields, PriceBreakdown, focusFirst, type FieldProblem } from './package-discount';
+import {
+  DISCOUNT_PROBLEM_TEXT,
+  DISCOUNT_REFUSED,
+  FIELD_ID,
+  PRICE_FROM_DISCOUNT,
+  PRICE_INCLUDES_DISCOUNT,
+  discountFieldError,
+} from './package-discount-rules';
 import {
   PackagePreview,
   Panel,
@@ -89,13 +100,24 @@ function Builder({
   const [description, setDescription] = useState(pkg?.shortDescription ?? '');
   const [icon, setIcon] = useState(pkg?.icon ?? '');
   const [services, setServices] = useState<PackageService[]>(pkg?.services ?? []);
-  const [price, setPrice] = useState(dollars(pkg?.packagePriceCents));
+  // Q1 (decided Nov 19): a typed price wins, and any discount stored beside it changes nothing:
+  // the form shows it off (it goes on the next save). A price the discount works out is not typed.
+  const typed = pkg?.pricing.priceFrom === 'TYPED';
+  const unused =
+    pkg && typed && pkg.pricing.discountType !== 'NONE' && pkg.pricing.discountValue !== null
+      ? pkg.pricing
+      : null;
+  const [price, setPrice] = useState(
+    pkg?.pricing.priceFrom === 'DISCOUNT' ? '' : dollars(pkg?.packagePriceCents),
+  );
   const [discountType, setDiscountType] = useState<DiscountType>(
-    pkg?.pricing.discountType ?? 'NONE',
+    typed ? 'NONE' : (pkg?.pricing.discountType ?? 'NONE'),
   );
   const [discountValue, setDiscountValue] = useState(
-    pkg?.pricing.discountValue == null ? '' : String(pkg.pricing.discountValue / 100),
+    typed || pkg?.pricing.discountValue == null ? '' : String(pkg.pricing.discountValue / 100),
   );
+  const [checked, setChecked] = useState(false);
+  const [refused, setRefused] = useState(false);
   const [addOns, setAddOns] = useState<AddOnRow[]>(
     (pkg?.addOns ?? []).map((a) => ({
       key: a.id,
@@ -115,7 +137,7 @@ function Builder({
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [nextKey, setNextKey] = useState(0);
 
-  const priceCents = toCents(price);
+  const priceCents = discountType === 'NONE' ? toCents(price) : null;
   const discountCents =
     discountType === 'NONE'
       ? null
@@ -142,6 +164,16 @@ function Builder({
           }),
   );
   const panel = pricing.data;
+  // R2: the discount's own error, beside it; a stored one that no longer works shows on opening.
+  const discountError =
+    discountFieldError(discountType, discountValue, panel?.totalSelectedCents ?? null) ??
+    (panel?.discountProblem ? DISCOUNT_PROBLEM_TEXT[panel.discountProblem] : null) ??
+    (refused ? DISCOUNT_REFUSED : null);
+  const problems: FieldProblem[] = [
+    ...(name.trim() ? [] : [{ id: FIELD_ID.name, message: 'Enter the package name.' }]),
+    ...(categoryId ? [] : [{ id: FIELD_ID.categoryId, message: 'Choose a category.' }]),
+    ...(discountError ? [{ id: FIELD_ID.discountValue, message: discountError }] : []),
+  ];
   const included = services.filter((s) => s.included);
   const preview: PreviewData = {
     name,
@@ -193,12 +225,26 @@ function Builder({
     const saved = await api.servicesPricing.updatePackage(id, body());
     return activate ? api.servicesPricing.activatePackage(saved.id) : saved;
   }, options);
-  const ready = !!pkg && name.trim() !== '' && categoryId !== '';
-  const submit = (activate: boolean) =>
+  const ready = !!pkg;
+  // R2: nothing is sent while a field needs fixing; the summary names each and focuses the first.
+  const submit = (activate: boolean) => {
+    setChecked(true);
+    if (problems.length) {
+      focusFirst(problems);
+      return;
+    }
     save.mutate(activate, {
       onSuccess: () => router.push(`/services-pricing/packages/${id}`),
-      onError: (e) => setMessage({ text: errorMessage(e, CATALOG_ERRORS), tone: 'error' }),
+      onError: (e) => {
+        if (errorCode(e) === 'INVALID_DISCOUNT') {
+          setRefused(true);
+          document.getElementById(FIELD_ID.discountValue)?.focus();
+          return;
+        }
+        setMessage({ text: errorMessage(e, CATALOG_ERRORS), tone: 'error' });
+      },
     });
+  };
 
   const setService = (serviceId: string, change: Partial<PackageService>) =>
     setServices((list) => list.map((s) => (s.serviceId === serviceId ? { ...s, ...change } : s)));
@@ -248,6 +294,7 @@ function Builder({
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
+      {checked ? <FixFields problems={problems} /> : null}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_23rem]">
         <div className="flex min-w-0 flex-col gap-4">
           <Panel
@@ -264,14 +311,18 @@ function Builder({
                   Package Name <span className="text-danger">*</span>
                 </span>
                 <input
+                  id={FIELD_ID.name}
                   className={field}
                   value={name}
                   maxLength={120}
+                  aria-invalid={checked && !name.trim() ? true : undefined}
                   onChange={(event) => setName(event.target.value)}
                 />
               </label>
               <Select
+                id={FIELD_ID.categoryId}
                 label="Package Category *"
+                error={checked && !categoryId ? 'Choose a category.' : undefined}
                 value={categoryId}
                 onChange={(event) => setCategoryId(event.target.value)}
                 options={[
@@ -429,21 +480,34 @@ function Builder({
                 </p>
                 <p className="mt-1 text-xs text-muted">Based on current individual prices.</p>
               </div>
-              <label className="flex flex-col gap-1 text-sm font-medium text-text">
-                <span>
-                  Package Price <span className="text-danger">*</span>
-                </span>
-                <span className="flex items-center rounded-control border border-border bg-surface">
-                  <span className="px-3 text-muted">$</span>
-                  <input
-                    aria-label="Package price"
-                    className="min-h-10 w-full bg-transparent pr-3 text-base text-heading outline-none"
-                    inputMode="decimal"
-                    value={price}
-                    onChange={(event) => setPrice(event.target.value)}
-                  />
-                </span>
-              </label>
+              {discountType === 'NONE' ? (
+                <label className="flex flex-col gap-1 text-sm font-medium text-text">
+                  <span>
+                    Package Price <span className="text-danger">*</span>
+                  </span>
+                  <span className="flex items-center rounded-control border border-border bg-surface">
+                    <span className="px-3 text-muted">$</span>
+                    <input
+                      aria-label="Package price"
+                      className="min-h-10 w-full bg-transparent pr-3 text-base text-heading outline-none"
+                      inputMode="decimal"
+                      value={price}
+                      onChange={(event) => setPrice(event.target.value)}
+                    />
+                  </span>
+                </label>
+              ) : (
+                <div className="flex flex-col gap-1 text-sm font-medium text-text">
+                  <span>Package Price</span>
+                  <p
+                    className="rounded-control bg-disabled px-3 py-2 text-base text-heading"
+                    data-testid="builder-price-worked"
+                  >
+                    {panel?.packagePriceCents == null ? '—' : money(panel.packagePriceCents)}
+                  </p>
+                  <span className="text-xs font-normal text-muted">{PRICE_FROM_DISCOUNT}</span>
+                </div>
+              )}
               <div className="flex flex-col gap-1">
                 <p className="text-sm font-medium text-text">Discount (Optional)</p>
                 <div className="grid grid-cols-[1fr_1fr] gap-2">
@@ -451,7 +515,12 @@ function Builder({
                     label="Discount type"
                     hideLabel
                     value={discountType}
-                    onChange={(event) => setDiscountType(event.target.value as DiscountType)}
+                    // Q1: a typed price wins: the discount is off while a price is entered.
+                    disabled={discountType === 'NONE' && price.trim() !== ''}
+                    onChange={(event) => {
+                      setDiscountType(event.target.value as DiscountType);
+                      setRefused(false);
+                    }}
                     options={[
                       { value: 'NONE', label: 'None' },
                       { value: 'PERCENTAGE', label: 'Percentage' },
@@ -459,14 +528,50 @@ function Builder({
                     ]}
                   />
                   <input
+                    id={FIELD_ID.discountValue}
                     aria-label="Discount value"
                     className={field}
                     inputMode="decimal"
                     disabled={discountType === 'NONE'}
                     value={discountValue}
-                    onChange={(event) => setDiscountValue(event.target.value)}
+                    aria-invalid={
+                      discountError && (checked || discountValue.trim()) ? true : undefined
+                    }
+                    aria-describedby={
+                      discountError && (checked || discountValue.trim())
+                        ? `${FIELD_ID.discountValue}-error`
+                        : undefined
+                    }
+                    onChange={(event) => {
+                      setDiscountValue(event.target.value);
+                      setRefused(false);
+                    }}
                   />
                 </div>
+                {discountType === 'NONE' && price.trim() !== '' ? (
+                  <p className="text-xs text-muted" data-testid="discount-off-note">
+                    {PRICE_INCLUDES_DISCOUNT}
+                  </p>
+                ) : null}
+                {discountError && (checked || discountValue.trim() || panel?.discountProblem) ? (
+                  <p
+                    id={`${FIELD_ID.discountValue}-error`}
+                    className="text-sm font-medium text-danger"
+                    data-testid="discount-error"
+                  >
+                    {discountError}
+                  </p>
+                ) : null}
+                {unused ? (
+                  <p className="text-xs text-muted" data-testid="discount-unused">
+                    The{' '}
+                    {unused.discountType === 'PERCENTAGE' && unused.discountValue !== null
+                      ? percent(unused.discountValue)
+                      : money(unused.discountValue)}{' '}
+                    discount saved earlier was never used, because the price you entered wins. It is
+                    removed when you save.
+                  </p>
+                ) : null}
                 <p
                   className="rounded-control bg-success-soft px-3 py-2 text-center text-sm font-semibold text-success"
                   data-testid="builder-savings"
@@ -492,6 +597,12 @@ function Builder({
                 {errorMessage(pricing.error, CATALOG_ERRORS)}
               </p>
             ) : null}
+            <div className="mt-3">
+              <PriceBreakdown
+                pricing={services.length ? panel : null}
+                addOnCount={addOns.filter((a) => a.offered && a.name.trim()).length}
+              />
+            </div>
           </Panel>
 
           <Panel
@@ -633,6 +744,22 @@ function Builder({
               />
             </div>
           </Panel>
+          {/* R8, R11: what it still needs to be activated and seen, and where to set it up. */}
+          <PackageReadiness
+            input={{
+              name,
+              categoryId,
+              description,
+              services,
+              priced: (panel?.packagePriceCents ?? priceCents) !== null,
+              discountError,
+              status: pkg?.status ?? null,
+              visibleToClients: visible,
+              displayOnWebsite: website,
+              bookingTypeId,
+              packageId: id,
+            }}
+          />
         </aside>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-3">

@@ -33,6 +33,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useFirm } from '../../../../../../../components/firm-context';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
@@ -96,6 +97,8 @@ function PermissionsForm({
   notice?: string;
 }) {
   const router = useRouter();
+  // The signed-in firm, named in the notes (never a fixed firm's name).
+  const { firm } = useFirm();
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
   const modules = useApiQuery(['roles', 'modules'], () => api.roles.modules());
   const o = options.data;
@@ -357,8 +360,8 @@ function PermissionsForm({
             surface="plain"
             title="Permission Notes"
           >
-            Permissions control what this staff member can see and do in LVP. For sensitive areas
-            (e.g., Settings, Staff Management), additional approval may be required.
+            Permissions control what this staff member can see and do in {firm.name}. For sensitive
+            areas (e.g., Settings, Staff Management), additional approval may be required.
           </Callout>
           <Callout
             icon={Question}

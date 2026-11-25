@@ -285,7 +285,13 @@ export class AppointmentsController {
     @Param('id', idPipe) id: string,
     @Body(optionalBody(CancelBody)) body: z.output<typeof CancelBody>,
   ): Promise<Appointment> {
-    return this.appointments.cancel(tenant.businessId, firmActor(auth, tenant), id, body.reason);
+    return this.appointments.cancel(
+      tenant.businessId,
+      firmActor(auth, tenant),
+      id,
+      body.reason,
+      body.scope,
+    );
   }
 
   /** P4-2: a lead's own appointment needs its outcome and notes; a client's takes no body. */

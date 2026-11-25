@@ -21,6 +21,7 @@ import {
   AdvisoryMilestoneId,
   type AdvisoryOverview,
   type AdvisoryPlanDetail,
+  type AdvisoryPlanSendPreview,
   AdvisoryPlanId,
   type AdvisoryPlanPage,
   AdvisoryRecommendationId,
@@ -344,6 +345,19 @@ export class AdvisoryController {
   ): Promise<AdvisoryPlanDetail> {
     const w = who(auth, tenant);
     return this.plans.send(w.businessId, w.tenant, w.userId, id, body);
+  }
+
+  /** A-X13: what Send would deliver and to whom, and what would refuse it; nothing is sent. */
+  @Post('plans/:id/send-preview')
+  @HttpCode(200)
+  previewSendPlan(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(SendPlanBody)) body: Out<typeof SendPlanBody>,
+  ): Promise<AdvisoryPlanSendPreview> {
+    const w = who(auth, tenant);
+    return this.plans.sendPreview(w.businessId, w.tenant, w.userId, id, body);
   }
 
   /** B10: a plan in staff review goes to the client's portal for approval before finalization. */

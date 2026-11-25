@@ -1,5 +1,6 @@
 import type { AutomationModule, AutomationRunStatus, AutomationStatus } from '@firmivra/types';
 import { Badge } from '@firmivra/ui';
+import { useFirmZone, zonedDay, zonedWhen } from '../../../../../lib/firm-zone';
 import {
   Briefcase,
   Calendar,
@@ -104,16 +105,17 @@ export function RuleStatusPill({ status }: { status: AutomationStatus }) {
   );
 }
 
-export const stamp = (iso: string) =>
-  new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-export const dayText = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+// Audit Log Review 2, R01 ("across the system"): in the firm's zone, with the zone named.
+export const stamp = (iso: string, zone: string | undefined) => zonedWhen(iso, zone);
+export const dayText = (iso: string, zone: string | undefined) => zonedDay(iso, zone);
+/** The time in the firm's zone, the zone named (a component: it follows the zone once read). */
+export function Stamp({ iso }: { iso: string }) {
+  return <>{stamp(iso, useFirmZone())}</>;
+}
+/** The day in the firm's zone. */
+export function DayText({ iso }: { iso: string }) {
+  return <>{dayText(iso, useFirmZone())}</>;
+}
 export const seconds = (ms: number | null) =>
   ms === null ? '—' : `${Math.max(1, Math.round(ms / 1000))}s`;
 export const hoursText = (minutes: number) =>

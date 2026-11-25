@@ -166,6 +166,17 @@ describe('words, conditions and timing', () => {
         'ANY',
       ),
     ).toBe('Client type is Business or Source is set');
+    // Automations Review Two R05: a tag reads as its name, never its id; an unknown id stays hidden.
+    const tag = '01a14c08-b3bc-71b9-8871-3093128ae2be';
+    const gone = '01a14c08-b3bc-71b9-8871-3093128ae2bf';
+    const tagged = appliesTo(
+      'client.tags_changed',
+      [{ field: 'tags', operator: 'INCLUDES', value: [tag, gone] }],
+      'ALL',
+      new Map([[tag, 'VIP (fake)']]),
+    );
+    expect(tagged).toContain('VIP (fake), a removed choice');
+    expect(tagged).not.toContain(tag);
   });
 
   it('tests a record against conditions', () => {
@@ -426,9 +437,15 @@ describe('loops, stored shapes and templates', () => {
             config: { title: 'x', assigneeUserId: '01a14c08-b3bc-71b9-8871-3093128ae2be' },
           },
         ],
+        // Automations Review Two R04: a condition naming a tag or a person is left out.
+        conditions: [
+          { field: 'clientType', operator: 'IS', value: 'BUSINESS' },
+          { field: 'tags', operator: 'INCLUDES', value: ['01a14c08-b3bc-71b9-8871-3093128ae2be'] },
+        ],
         settings: { notifyOnFailureUserIds: ['01a14c08-b3bc-71b9-8871-3093128ae2be'] },
       }),
     );
+    expect(clean.conditions).toEqual([{ field: 'clientType', operator: 'IS', value: 'BUSINESS' }]);
     expect(clean.actions[0]?.config).toEqual({ subject: 'Hi' });
     expect(clean.actions[1]?.config).toEqual({ title: 'x' });
     expect(clean.settings.notifyOnFailureUserIds).toEqual([]);

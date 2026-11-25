@@ -742,10 +742,22 @@ export const FirmListItem = BusinessSummary.extend({
 });
 export type FirmListItem = z.infer<typeof FirmListItem>;
 
-/** GET /admin/firms. Search matches the firm name, owner name and owner email. Newest first. */
+/** SA-FRM-Y08: the columns the firms list sorts by (firm name; the day Firmivra approved it). */
+export const FirmSort = z.enum(['name', 'approved']);
+export type FirmSort = z.infer<typeof FirmSort>;
+
+/**
+ * GET /admin/firms. Search matches the firm name, owner name and owner email. Newest first, or by
+ * `sort` (SA-FRM-Y08): `order` asc is A to Z or oldest first; a firm never approved (created by
+ * hand) sorts after the approved ones either way. `plan`: the plan its application asked for.
+ */
 export const ListFirmsQuery = z.strictObject({
   status: FirmStatusFilter.optional(),
   search: SearchText.optional(),
+  plan: FirmPlan.optional(),
+  sort: FirmSort.optional(),
+  /** With `sort`: asc (the default) or desc. */
+  order: z.enum(['asc', 'desc']).optional(),
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });
@@ -768,8 +780,82 @@ export type FirmCounts = z.infer<typeof FirmCounts>;
  * (null for a firm created without one, such as the beta firm); notes are saved on the application.
  * An application whose form could not be read has `formReadable` false, as on its review page.
  */
-export const FirmRecord = FirmListItem.extend({ application: FirmApplicationRecord.nullable() });
+/**
+ * One entry of a firm's Account History (SA-FRM-F03, F04, Y07, Y10). ACTIVATED: the owner finished
+ * setup. SUSPENDED, REACTIVATED and CLOSED: a Super Admin's account action, with its reason; a firm
+ * closed before closures were recorded shows CLOSED at its closure time with no one and no reason.
+ */
+export const FirmAccountEvent = z.object({
+  /** INFO_REQUESTED (SA-FRM-F06): a Super Admin asked the owner for information; see `ticket`. */
+  type: z.enum(['ACTIVATED', 'SUSPENDED', 'REACTIVATED', 'CLOSED', 'INFO_REQUESTED']),
+  at: DateTime,
+  /** The Super Admin who acted; null for activation and for older closures. */
+  by: AdminRef.nullable(),
+  /** The reason; for INFO_REQUESTED, the request's subject. */
+  reason: z.string().nullable(),
+  /** INFO_REQUESTED: the Support ticket the request is (Support > the ticket). */
+  ticket: z.object({ id: z.uuid(), number: z.number().int().positive() }).nullable().optional(),
+});
+export type FirmAccountEvent = z.infer<typeof FirmAccountEvent>;
+
+export const FirmRecord = FirmListItem.extend({
+  application: FirmApplicationRecord.nullable(),
+  /** When the owner finished setup (the firm's first Active); null before. */
+  activatedAt: DateTime.nullable().optional(),
+  /** SA-FRM-F03: when the firm was closed (UTC, set by the database); null unless Closed. */
+  closedAt: DateTime.nullable().optional(),
+  /** SA-FRM-F03, F04, Y07, Y10: the account's lifecycle, newest first. */
+  accountHistory: z.array(FirmAccountEvent).optional(),
+  /**
+   * SA-FRM-F02: what the Actions menu offers for the firm's status now (the API refuses the rest
+   * with 409 FIRM_STATUS_CHANGED). Suspend: Active or Pending Setup. Reactivate: Suspended.
+   * Close: any status but Closed.
+   */
+  can: z
+    .object({
+      suspend: z.boolean(),
+      reactivate: z.boolean(),
+      close: z.boolean(),
+      /** SA-FRM-F06: Active, with an active owner to answer (409 FIRM_CANNOT_ANSWER otherwise). */
+      requestInfo: z.boolean().optional(),
+    })
+    .optional(),
+});
 export type FirmRecord = z.infer<typeof FirmRecord>;
+
+/**
+ * POST /admin/firms/{id}/suspend, /reactivate and /close (SA-FRM-F03, F04, Y10): the account
+ * actions, Super Admin only. The reason is kept in the firm's Account History and the audit log;
+ * it is never sent to the firm. Suspend: from Active or Pending Setup; the firm's people are
+ * refused (403 BUSINESS_INACTIVE) until it is reactivated. Reactivate: from Suspended, back to
+ * Active (or Pending Setup if the owner never finished setup). Close: from any status but Closed;
+ * final, and the database records the closure time. 409 FIRM_STATUS_CHANGED when the firm is no
+ * longer in a status the action starts from; 404 for an unknown firm. Answers the firm page.
+ */
+export const FirmAccountActionRequest = z.strictObject({
+  reason: text(1000, 'many', 'Enter the reason'),
+});
+export type FirmAccountActionRequest = z.input<typeof FirmAccountActionRequest>;
+export const FIRM_ACCOUNT_ACTIONS = ['suspend', 'reactivate', 'close'] as const;
+
+/**
+ * POST /admin/firms/{id}/request-info (SA-FRM-F06, Y09): Firmivra asks the firm's owner for
+ * information. It becomes a Support ticket to the owner (subject "Information request: …",
+ * Waiting on Customer, source Internal, assigned to the Super Admin), an Information requested
+ * entry in the firm's Account History, and an email to the owner, who answers in Settings >
+ * Requests from Firmivra. The same `requestId` again answers the same ticket. 409
+ * FIRM_CANNOT_ANSWER unless the firm is Active with an active owner; Support's own refusals
+ * (403 when the Super Admin is not on the support team) pass through. Answers the firm page.
+ */
+export const RequestFirmInformationRequest = z.strictObject({
+  requestId: z.uuid(),
+  subject: text(120, 'one', 'Enter a subject'),
+  message: text(4000, 'many', 'Write what you need from the firm'),
+  /** The day to answer by (YYYY-MM-DD, today or later in US Eastern time); optional. */
+  replyBy: CalendarDate.optional(),
+});
+export type RequestFirmInformationRequest = z.input<typeof RequestFirmInformationRequest>;
+export type FirmAccountAction = (typeof FIRM_ACCOUNT_ACTIONS)[number];
 
 // ---------- Dashboard (Super Admin) ----------
 /** GET /admin/dashboard: the stat cards and "Tasks Requiring Attention". */
@@ -800,6 +886,95 @@ export const AdminDashboard = z.object({
   monthlyRevenueCents: z.number().int().nullable(),
 });
 export type AdminDashboard = z.infer<typeof AdminDashboard>;
+
+// ---------- Header search (SA-DSH-F01) ----------
+
+/**
+ * GET /admin/search: firms and applications, never people (her rule: no employee or user search).
+ * `q` (2 to 100 characters) matches a firm's name, its owner's name and email, an application's
+ * legal and DBA names, its applicant's name and email, either's id exactly, and status words:
+ * firms "active", "pending" (setup), "suspended", "closed", "inactive"; applications "pending",
+ * "in review", "awaiting information", "approved", "declined". Newest first; `limit` per type.
+ */
+export const AdminSearchQuery = z.strictObject({
+  q: SearchText.pipe(z.string().min(2, 'Type at least 2 characters')),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(5),
+});
+export type AdminSearchQuery = z.input<typeof AdminSearchQuery>;
+
+export const AdminSearchFirm = z.object({
+  id: FirmId,
+  name: z.string(),
+  status: BusinessStatus,
+  ownerName: z.string().nullable(),
+  ownerEmail: z.string().nullable(),
+});
+export type AdminSearchFirm = z.infer<typeof AdminSearchFirm>;
+
+export const AdminSearchApplication = z.object({
+  id: FirmApplicationId,
+  legalName: z.string(),
+  status: FirmApplicationReviewStatus,
+  contactName: z.string(),
+  contactEmail: z.string(),
+  submittedAt: DateTime,
+});
+export type AdminSearchApplication = z.infer<typeof AdminSearchApplication>;
+
+export const AdminSearchResult = z.object({
+  firms: z.object({ total: z.number().int().min(0), items: z.array(AdminSearchFirm) }),
+  applications: z.object({
+    total: z.number().int().min(0),
+    items: z.array(AdminSearchApplication),
+  }),
+});
+export type AdminSearchResult = z.infer<typeof AdminSearchResult>;
+
+// ---------- Platform Growth (SA-DSH-F06) ----------
+
+/** The longest range Platform Growth draws: two years and a day (Last Year plus this year). */
+export const GROWTH_MAX_DAYS = 731;
+
+const dayNumber = (day: string) => Date.parse(`${day}T00:00:00Z`) / 86_400_000;
+
+/**
+ * GET /admin/dashboard/growth: from and to are US Eastern calendar days (the platform's), both
+ * included. An end before the start, or more than GROWTH_MAX_DAYS, is 400 VALIDATION_FAILED.
+ */
+export const AdminGrowthQuery = z
+  .strictObject({ from: CalendarDate, to: CalendarDate })
+  .refine((q) => q.to >= q.from, { path: ['to'], message: 'The end date is before the start date' })
+  .refine((q) => dayNumber(q.to) - dayNumber(q.from) + 1 <= GROWTH_MAX_DAYS, {
+    path: ['to'],
+    message: 'Choose two years or less',
+  });
+export type AdminGrowthQuery = z.input<typeof AdminGrowthQuery>;
+
+/**
+ * One point of the chart: a day (31 days or fewer), a week from Monday (up to about six months),
+ * else a calendar month; the first and last are cut to the range.
+ */
+export const AdminGrowthPoint = z.object({
+  start: CalendarDate,
+  end: CalendarDate,
+  /** Applications submitted in the bucket. */
+  applications: z.number().int().min(0),
+  /** Firms whose owner finished setup in the bucket. */
+  activations: z.number().int().min(0),
+  /** Firms set up by the bucket's last day and not closed by then. */
+  activeFirms: z.number().int().min(0),
+  /** Firmivra's payments collected in the bucket, less refunds (cents). */
+  revenueCents: z.number().int(),
+});
+export type AdminGrowthPoint = z.infer<typeof AdminGrowthPoint>;
+
+export const AdminGrowth = z.object({
+  from: CalendarDate,
+  to: CalendarDate,
+  bucket: z.enum(['DAY', 'WEEK', 'MONTH']),
+  points: z.array(AdminGrowthPoint),
+});
+export type AdminGrowth = z.infer<typeof AdminGrowth>;
 
 /** One service's state on the dashboard's System Status card. */
 export const ServiceHealth = z.enum(['online', 'degraded', 'offline']);

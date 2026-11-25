@@ -11,7 +11,8 @@ import { DocumentsHeader } from './documents-header';
 import { DocumentsPagination } from './documents-pagination';
 import { DocumentsStatCards } from './documents-stat-cards';
 import { DocumentsTable } from './documents-table';
-import { FoldersPanel } from './folders-panel';
+import { type DocumentsView, FoldersPanel } from './folders-panel';
+import { KeptDocuments } from './kept-documents';
 import { QuickUploadCard } from './quick-upload-card';
 import { RecentActivityCard } from './recent-activity-card';
 
@@ -62,6 +63,8 @@ export function DocumentsScreen({
   const [pageSize, setPageSize] = useState(10);
   const [sort, setSort] = useState<TableSort>();
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  // Bookkeeping Review 2: Archived and Trash show the chosen client's archived or trashed files.
+  const [view, setView] = useState<DocumentsView>('active');
   const cursor = cursors[cursors.length - 1];
 
   const clients = useApiQuery(['documents', 'clients'], () => api.clients.list({ limit: 100 }));
@@ -91,6 +94,19 @@ export function DocumentsScreen({
       }),
   );
   const client = clients.data?.items.find((c) => c.id === clientId);
+  const keptCount = (scope: 'archived' | 'trash') =>
+    clientId
+      ? api.documentLibrary
+          .list({ scope, clientId, pageSize: 1 })
+          .then((p) => p.total)
+          .catch(() => undefined)
+      : Promise.resolve(undefined);
+  const archivedCount = useApiQuery(['documents', 'kept-count', 'archived', clientId], () =>
+    keptCount('archived'),
+  );
+  const trashCount = useApiQuery(['documents', 'kept-count', 'trash', clientId], () =>
+    keptCount('trash'),
+  );
 
   const filteredRows = useMemo(() => {
     const rows = documents.data?.items ?? [];
@@ -113,6 +129,9 @@ export function DocumentsScreen({
         data-testid="documents-columns"
       >
         <FoldersPanel
+          view={view}
+          onView={setView}
+          counts={clientId ? { archived: archivedCount.data, trash: trashCount.data } : null}
           categories={categories.data ?? []}
           selected={categoryId}
           onSelect={(id) => {
@@ -126,6 +145,7 @@ export function DocumentsScreen({
               clients={clients.data?.items ?? []}
               clientId={clientId}
               onClientChange={(value) => {
+                setView('active');
                 setClientId(value);
                 setServiceId('');
                 setPeriod(undefined);
@@ -188,7 +208,14 @@ export function DocumentsScreen({
                 </span>
               </div>
             ) : null}
-            {!clientId ? (
+            {clientId && view !== 'active' ? (
+              <KeptDocuments
+                view={view}
+                clientId={clientId}
+                clientName={client?.displayName ?? 'this client'}
+                onBack={() => setView('active')}
+              />
+            ) : !clientId ? (
               <p className="py-10 text-center text-sm text-muted" data-testid="documents-no-client">
                 Select a client to view their documents.
               </p>

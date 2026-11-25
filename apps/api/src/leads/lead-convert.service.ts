@@ -23,6 +23,7 @@ import { stopSequences } from './lead-sequence-stop.js';
 import {
   appointmentClash,
   carryLeadAppointments,
+  carryLeadCampaigns,
   carryLeadTimeline,
   isClientClash,
 } from './lead-carry-history.js';
@@ -168,6 +169,8 @@ export class LeadConvertService {
           communications: true,
           notes: true,
         });
+        // Leads Review Two 17: the lead's campaign goes with it to the client.
+        const campaign = await carryLeadCampaigns(tx, businessId, id, clientId);
         const firm = await tx.business.findUniqueOrThrow({
           where: { id: businessId },
           select: { slug: true },
@@ -176,6 +179,7 @@ export class LeadConvertService {
           clientId,
           engagementId: engagement.id,
           carried,
+          campaign,
           invite: {
             name: `${lead.firstName} ${lead.lastName}`,
             email: lead.email,
@@ -206,6 +210,7 @@ export class LeadConvertService {
         engagementId: result.engagementId,
         newClient: !body.clientId,
         documents: result.carried,
+        campaign: result.campaign,
       },
     );
     // Only a new client is invited: an existing one already has (or was offered) a login.
@@ -399,7 +404,14 @@ export class LeadConvertService {
             skipDuplicates: true,
           });
         }
+        // Leads Review Two 17: the lead's source campaign and its campaign audiences follow the
+        // choices of "Source / campaign attribution" and "Communication history".
+        const campaign = await carryLeadCampaigns(tx, businessId, id, clientId, {
+          attribution: carry.attribution,
+          communications: carry.communications,
+        });
         const carried = {
+          campaigns: campaign.enrolments,
           notes: 0,
           // P4-1: the lead's calls, emails and texts, as entries of the client's Activity timeline
           // (its message threads stay on the lead and show in the client's Messages).
@@ -484,6 +496,7 @@ export class LeadConvertService {
         return {
           replay: false as const,
           out,
+          campaign,
           newClient: !body.clientId,
           invite: { name: body.fullName, email, slug: await this.slugOf(tx, businessId) },
         };
@@ -513,6 +526,7 @@ export class LeadConvertService {
         engagementIds: out.engagementIds,
         newClient: result.newClient,
         carried: out.carried,
+        campaign: result.campaign,
       },
     );
     const inviteSent =

@@ -29,6 +29,7 @@ import {
   AdvisoryMilestone,
   AdvisoryOverview,
   AdvisoryPlanDetail,
+  AdvisoryPlanSendPreview,
   AdvisoryPlanPage,
   AdvisoryRecommendationPage,
   AdvisoryRecommendationRow,
@@ -1056,6 +1057,12 @@ describe('business plans', () => {
       403,
       'FORBIDDEN',
     );
+    // A-X13: its preview needs "Send plans" too.
+    expectError(
+      await call('post', `/plans/${id}/send-preview`, preparerA, { channel: 'PORTAL' }),
+      403,
+      'FORBIDDEN',
+    );
 
     const spare = await createPlan(shared.a1, { name: mark('Spare') });
     const archived = AdvisoryPlanDetail.parse(
@@ -2008,6 +2015,82 @@ describe('financial analysis and the Business Health Score', () => {
     ).toBe(0);
   });
 
+  it('A-X09: corrects a row as a new version of its period, with a reason, audited before and after', async () => {
+    // A client of its own, so the other tests' figures stay as they are.
+    const firmClient = await inFirm('a', (tx) =>
+      tx.client.create({
+        data: {
+          businessId: firms.a,
+          displayName: mark('Correction client'),
+          accountType: 'BUSINESS',
+        },
+      }),
+    );
+    const id = (await addClient(firmClient.id, { primaryServiceId: services.s1 })).id;
+    const wrong = AdvisoryFinancialRow.parse(
+      ok(await financial(id, { revenueCents: 1_000_000, expensesCents: 800_000 }), 201),
+    );
+    const fixed = AdvisoryFinancialRow.parse(
+      ok(
+        await financial(id, {
+          revenueCents: 1_100_000,
+          expensesCents: 800_000,
+          corrects: { snapshotId: wrong.id, reason: 'Fake: a missed December invoice' },
+        }),
+        201,
+      ),
+    );
+    expect(fixed).toMatchObject({
+      netProfitCents: 300_000,
+      overridden: false,
+      overrideReason: 'Fake: a missed December invoice',
+    });
+    const corrections = (await auditFor(id)).filter(
+      (r) => r.action === 'advisory_financial.corrected',
+    );
+    expect(corrections).toHaveLength(1);
+    expect(corrections[0]?.metadata).toMatchObject({
+      snapshotId: fixed.id,
+      corrects: wrong.id,
+      changes: {
+        revenueCents: { from: 1_000_000, to: 1_100_000 },
+        netProfitCents: { from: 200_000, to: 300_000 },
+      },
+    });
+    // The correction is the period's figures now; the earlier row is kept, with Show corrections.
+    const ids = async (query: string) =>
+      AdvisoryFinancialPage.parse(
+        ok(await call('get', `/financials?advisoryClientId=${id}${query}`, ownerA)),
+      ).items.map((r) => r.id);
+    expect(await ids('')).toEqual([fixed.id]);
+    expect((await ids('&includeSuperseded=true')).sort()).toEqual([fixed.id, wrong.id].sort());
+    // Another period, another client's row, an unknown row or no reason is refused.
+    expectError(
+      await financial(id, {
+        periodStart: '2024-01-01',
+        periodEnd: '2024-12-31',
+        corrects: { snapshotId: wrong.id, reason: 'Fake' },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await financial(shared.a2, { corrects: { snapshotId: wrong.id, reason: 'Fake' } }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await financial(id, { corrects: { snapshotId: randomUUID(), reason: 'Fake' } }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await financial(id, { corrects: { snapshotId: wrong.id, reason: '' } }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
   it('explains the health score by its factors, re-weights what is missing and shows figures only to who may see them', async () => {
     const d = await advClient(shared.a2);
     // Revenue +20%, margin 25%, positive cash flow, debt under a quarter of revenue, goals at 0%.
@@ -2192,6 +2275,13 @@ describe('plans: finalize, versions and delivery', () => {
       409,
       'PLAN_NOT_READY',
     );
+    // A-X13: the preview says the same, and still names who it would go to.
+    const unready = AdvisoryPlanSendPreview.parse(
+      ok(await call('post', `/plans/${id}/send-preview`, adminA, { channel: 'PORTAL' })),
+    );
+    expect(unready).toMatchObject({ eligible: false, version: 1 });
+    expect(unready.problems.map((x) => x.code)).toEqual(['PLAN_NOT_READY']);
+    expect(unready.to.name).not.toBe('');
     expect(AdvisoryPlanDetail.parse(ok(await finalize())).currentVersion).toBe(2);
 
     // Delivery is recorded on the version: who, when and how. Another delivery is its own record.
@@ -2226,6 +2316,49 @@ describe('plans: finalize, versions and delivery', () => {
       'NOT_FOUND',
     );
     expectError(await call('get', `/plans/${id}/versions/99`, ownerA), 404, 'NOT_FOUND');
+
+    // A-X13: before sending, the preview names the recipient and shows the text exactly; it sends
+    // nothing.
+    const threadsBefore = await inFirm('a', (tx) =>
+      tx.messageThread.count({
+        where: { clientId: clients.c2, subject: { startsWith: 'Your business plan' } },
+      }),
+    );
+    const preview = AdvisoryPlanSendPreview.parse(
+      ok(
+        await call('post', `/plans/${id}/send-preview`, adminA, {
+          channel: 'PORTAL',
+          message: 'See you soon (fake)',
+        }),
+      ),
+    );
+    const c2Name = (
+      await inFirm('a', (tx) =>
+        tx.client.findUniqueOrThrow({ where: { id: clients.c2 }, select: { displayName: true } }),
+      )
+    ).displayName;
+    expect(preview).toMatchObject({
+      channel: 'PORTAL',
+      eligible: true,
+      problems: [],
+      to: { name: c2Name },
+    });
+    expect(preview.subject).toMatch(/^Your business plan/);
+    expect(preview.body).toMatch(/Visible recommendation/);
+    expect(preview.body).toMatch(/See you soon/);
+    expect(preview.body).not.toMatch(/Hidden/);
+    expect(
+      await inFirm('a', (tx) =>
+        tx.messageThread.count({
+          where: { clientId: clients.c2, subject: { startsWith: 'Your business plan' } },
+        }),
+      ),
+    ).toBe(threadsBefore);
+    // A download reaches no one: the preview says so.
+    const download = AdvisoryPlanSendPreview.parse(
+      ok(await call('post', `/plans/${id}/send-preview`, adminA, { channel: 'DOWNLOAD' })),
+    );
+    expect(download.notes.join(' ')).toMatch(/download goes to no one/);
 
     // To the portal: the client-facing plan, without the hidden recommendation or step, or any figure.
     const portal = AdvisoryPlanDetail.parse(
@@ -2270,6 +2403,11 @@ describe('plans: finalize, versions and delivery', () => {
       409,
       'PLAN_ARCHIVED',
     );
+    expect(
+      AdvisoryPlanSendPreview.parse(
+        ok(await call('post', `/plans/${id}/send-preview`, adminA, { channel: 'PORTAL' })),
+      ).problems.map((x) => x.code),
+    ).toEqual(['PLAN_ARCHIVED']);
     expect(
       AdvisoryPlanDetail.parse(ok(await call('post', `/plans/${id}/restore`, ownerA))).status,
     ).toBe('SENT');

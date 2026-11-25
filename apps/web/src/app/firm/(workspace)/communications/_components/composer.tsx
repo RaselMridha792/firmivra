@@ -490,6 +490,8 @@ function ComposerForm({
   );
   const typeLabel = { EMAIL: 'Email', SMS: 'Text Message (SMS)', ANNOUNCEMENT: 'Announcement' };
   const chips = d.audience?.chips.filter((c) => !c.kind.startsWith('EXCLUDE')) ?? [];
+  // C20: Add all eligible can name thousands one by one; the field shows the first few.
+  const CHIPS_SHOWN = 10;
   // CM-F07: only a confirmed save moves the time; a refused one says why.
   const saveState = saving
     ? 'Saving…'
@@ -509,7 +511,7 @@ function ComposerForm({
         {chips.length === 0 ? (
           <span className="px-1 text-sm text-muted">No recipients chosen yet</span>
         ) : null}
-        {chips.map((c) => (
+        {chips.slice(0, CHIPS_SHOWN).map((c) => (
           <span
             key={`${c.kind}${c.id}`}
             className="inline-flex items-center rounded-pill bg-info-soft px-3 py-1 text-xs font-medium text-info"
@@ -518,6 +520,11 @@ function ComposerForm({
             {c.count !== null && c.kind === 'SEGMENT' ? ` (${c.count})` : ''}
           </span>
         ))}
+        {chips.length > CHIPS_SHOWN ? (
+          <span className="px-1 text-xs font-medium text-muted" data-testid="more-recipients">
+            and {chips.length - CHIPS_SHOWN} more
+          </span>
+        ) : null}
         <button
           type="button"
           disabled={readOnly}
@@ -885,6 +892,14 @@ function ComposerForm({
                       className="flex items-center justify-between gap-2 border-t border-divider py-1.5 text-sm first:border-t-0"
                     >
                       <span className="min-w-0 truncate text-heading">{a.fileName}</span>
+                      {/* The scan gap: nothing goes out until every file is checked clean. */}
+                      {a.scanStatus === 'INFECTED' || a.scanStatus === 'FAILED' ? (
+                        <span className="shrink-0 text-xs font-semibold text-danger">
+                          Blocked by the virus check: remove it
+                        </span>
+                      ) : a.scanStatus && a.scanStatus !== 'CLEAN' ? (
+                        <span className="shrink-0 text-xs text-muted">Checking for viruses…</span>
+                      ) : null}
                       <button
                         type="button"
                         aria-label={`Remove ${a.fileName}`}

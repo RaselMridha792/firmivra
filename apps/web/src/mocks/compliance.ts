@@ -19,10 +19,12 @@ import {
   ReassignRequest,
   SaveDeadlineAsTemplateRequest,
   SaveRemindersRequest,
+  type TaskDetail,
   UpdateComplianceDeadlineRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
+import { mockTaskWorkStore } from './tasks-work';
 import {
   CLIENTS,
   type Options,
@@ -569,14 +571,65 @@ export function createComplianceMock({
         needOpen(d);
         // CD-F01: as the API, one task per deadline (and template): asking again returns it.
         if (d.tasks.some((t) => t.madeHere)) return view(d);
+        const taskId = id('5a00');
+        const due = plus(effectiveDue(d), -3);
         d.tasks.push({
-          id: id('5a00'),
+          id: taskId,
           title: input.title ?? `Prepare ${d.name}`,
           status: 'OPEN',
-          dueOn: plus(effectiveDue(d), -3),
+          dueOn: due,
           assignedTo: d.assignedTo,
           madeHere: true,
         });
+        const taskEntry: TaskDetail = {
+          id: taskId,
+          title: input.title ?? `Prepare ${d.name}`,
+          kind: 'GENERAL',
+          client: { id: d.client.id, displayName: d.client.displayName },
+          service: null,
+          type: null,
+          priority: d.priority,
+          status: 'OPEN',
+          dueOn: due,
+          dueTime: null,
+          allDay: false,
+          overdue: false,
+          assignedTo: d.assignedTo
+            ? { userId: d.assignedTo.userId, name: d.assignedTo.name }
+            : null,
+          assignedUserId: d.assignedTo?.userId ?? null,
+          additionalAssignees: [],
+          additionalAssigneeCount: 0,
+          checklist: { done: 0, total: 0, requiredOpen: 0 },
+          checklistItems: [],
+          reminders: [],
+          attachments: [],
+          dependsOn: null,
+          blocked: false,
+          blockedReason: null,
+          internalNotes: null,
+          recurring: false,
+          templateId: null,
+          series: null,
+          startOn: null,
+          completedAt: null,
+          completedBy: null,
+          createdBy: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          archivedAt: null,
+          details: '',
+          engagementId: null,
+          engagement: null,
+          deadline: { id: d.id, name: d.name },
+          taxPlan: null,
+          taxReturn: null,
+          relatedText: null,
+          clientVisible: d.clientVisible,
+          progress: 'NOT_STARTED',
+          version: new Date().toISOString(),
+        };
+        mockTaskWorkStore().unshift(taskEntry);
         return touch(d);
       }),
     linkTask: (deadlineId, body) =>
@@ -594,12 +647,20 @@ export function createComplianceMock({
           assignedTo: d.assignedTo,
           madeHere: false,
         });
+        const linkedW = mockTaskWorkStore().find((x) => x.id === input.taskId);
+        if (linkedW) {
+          linkedW.deadline = { id: d.id, name: d.name };
+        }
         return touch(d);
       }),
     removeTask: (deadlineId, taskId) =>
       run(() => {
         const d = find(deadlineId);
         d.tasks = d.tasks.filter((t) => t.id !== taskId);
+        const unlinkedW = mockTaskWorkStore().find((x) => x.id === taskId);
+        if (unlinkedW && unlinkedW.deadline?.id === d.id) {
+          unlinkedW.deadline = null;
+        }
         return touch(d);
       }),
     addDocument: async (deadlineId, body: AddDeadlineDocumentRequest) => {

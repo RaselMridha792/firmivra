@@ -17,7 +17,7 @@ import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { assignee, conflict, notFound, toDay } from '../workspaces/common.js';
-import { RESOURCES, resourceOf, toResource } from './catalog.js';
+import { ownResourceId, RESOURCES, resourceOf, toResource } from './catalog.js';
 import {
   type PlanShape,
   type TaxCtx,
@@ -31,6 +31,7 @@ import type {
   ResourcesQuery,
   SendResourceBody,
   UpdateResourceBody,
+  CreateResourceBody,
 } from './tax-planning-input.js';
 import {
   clientRef,
@@ -536,10 +537,29 @@ export class TaxOverviewService {
    */
   private async mergedResources(ctx: TaxCtx) {
     const rows = await ctx.tx.taxPlanningResource.findMany({
-      where: { businessId: ctx.businessId, catalogKey: { not: null }, archivedAt: null },
+      where: { businessId: ctx.businessId, archivedAt: null },
+      orderBy: { createdAt: 'asc' },
     });
-    const byKey = new Map(rows.map((r) => [r.catalogKey as string, r]));
-    return RESOURCES.map((def) => {
+    const byKey = new Map(
+      rows.filter((r) => r.catalogKey !== null).map((r) => [r.catalogKey as string, r]),
+    );
+    // Tax Planning resources (audit, Nov 20): the firm's own, after the built-in ones.
+    const own = rows
+      .filter((r) => r.catalogKey === null)
+      .map((r) => ({
+        key: `firm-${r.id}`,
+        title: r.title,
+        category: r.category,
+        kind: r.kind,
+        clientFacing: r.clientFacing,
+        url: null,
+        summary: r.summary ?? '',
+        body: r.body,
+        edited: false,
+        staffOnly: false,
+        own: true,
+      }));
+    const builtIn = RESOURCES.map((def) => {
       const row = byKey.get(def.key);
       // C17: a staff reference stays staff-only, whatever a firm saved before.
       const staffOnly = !def.clientFacing;
@@ -551,10 +571,49 @@ export class TaxOverviewService {
             kind: row.kind,
             clientFacing: !staffOnly && row.clientFacing,
             summary: row.summary ?? def.summary,
+            body: row.body,
             edited: true,
             staffOnly,
           }
         : { ...def, edited: false, staffOnly };
+    });
+    return [...builtIn, ...own];
+  }
+
+  /** Tax Planning resources (audit, Nov 20): the firm's own (Add Resource, Create Checklist). */
+  createResource(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    body: Out<typeof CreateResourceBody>,
+  ): Promise<PlanningResource> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.manageStrategies) throw tpErrors.forbidden();
+      const row = await ctx.tx.taxPlanningResource.create({
+        data: {
+          businessId,
+          catalogKey: null,
+          title: body.title,
+          category: body.category,
+          kind: body.kind,
+          summary: body.summary ?? null,
+          body: body.body ?? null,
+          clientFacing: body.clientFacing,
+          createdByUserId: userId,
+          updatedByUserId: userId,
+        },
+        select: { id: true },
+      });
+      const key = `firm-${row.id}`;
+      await this.audit.logIn(
+        ctx.tx,
+        'tax_resource.created',
+        { type: 'tax_resource' },
+        { resourceKey: key, kind: body.kind, clientFacing: body.clientFacing },
+      );
+      const created = (await this.mergedResources(ctx)).find((r) => r.key === key);
+      if (!created) throw notFound();
+      return toResource(created);
     });
   }
 
@@ -587,6 +646,36 @@ export class TaxOverviewService {
   ): Promise<PlanningResource> {
     return this.run(businessId, tenant, userId, async (ctx) => {
       if (!ctx.perms.manageStrategies) throw tpErrors.forbidden();
+      // Tax Planning resources (audit, Nov 20): the firm's own resource is edited in place.
+      const ownId = ownResourceId(key);
+      if (ownId) {
+        const mine = await ctx.tx.taxPlanningResource.findFirst({
+          where: { businessId, id: ownId, catalogKey: null, archivedAt: null },
+          select: { id: true },
+        });
+        if (!mine) throw notFound();
+        await ctx.tx.taxPlanningResource.update({
+          where: { id: mine.id },
+          data: {
+            title: body.title,
+            category: body.category,
+            kind: body.kind,
+            summary: body.summary ?? null,
+            body: body.body ?? null,
+            clientFacing: body.clientFacing,
+            updatedByUserId: userId,
+          },
+        });
+        await this.audit.logIn(
+          ctx.tx,
+          'tax_resource.updated',
+          { type: 'tax_resource' },
+          { resourceKey: key, clientFacing: body.clientFacing },
+        );
+        const merged = (await this.mergedResources(ctx)).find((r) => r.key === key);
+        if (!merged) throw notFound();
+        return toResource(merged);
+      }
       const def = resourceOf(key);
       if (!def) throw notFound();
       // C17 (Review 2): a staff reference is never sent to a client.
@@ -597,6 +686,7 @@ export class TaxOverviewService {
         category: body.category,
         kind: body.kind,
         summary: body.summary ?? null,
+        body: body.body ?? null,
         clientFacing: body.clientFacing,
         updatedByUserId: userId,
         archivedAt: null,
@@ -640,7 +730,12 @@ export class TaxOverviewService {
       if (client.archivedAt) throw conflict('CLIENT_ARCHIVED', 'Restore the client first');
       await this.messages.create(businessId, ctx.actor, body.clientId, {
         subject: resource.title,
-        body: [resource.summary, ...(body.message ? ['', body.message] : [])].join('\n'),
+        // Tax Planning resources (audit, Nov 20): what it contains follows its summary.
+        body: [
+          resource.summary,
+          ...(resource.body ? ['', resource.body] : []),
+          ...(body.message ? ['', body.message] : []),
+        ].join('\n'),
         repliesEnabled: true,
       });
       await this.audit.logIn(

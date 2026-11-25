@@ -23,6 +23,11 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
       /^POST \/api\/v1\/business\/(settings\/profile\/change-requests|billing\/requests|support\/messages)$/,
     why: "the dialog's retry key (the support ticket's idempotency key): the same key answers the firm's own request and another firm's key is 409 CONFLICT, never its ticket (profile-changes.e2e, firm-billing.e2e, support-messages.e2e) (R60, R55)",
   },
+  {
+    field: 'requestId',
+    routes: /^POST \/api\/v1\/business\/firmivra-requests\/:id\/replies$/,
+    why: "the answer's retry key (SA-FRM-F06): looked up only in the firm's own audit rows, so another firm's key is a new answer to this firm's own request, never theirs (admin-firm-info-request.e2e) (R60)",
+  },
   ...['details.employeeId', 'compensation.payrollId'].map((field) => ({
     field,
     routes: /^(POST|PATCH) \/api\/v1\/business\/staff(\/:id)?$/,
@@ -95,21 +100,27 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     routes: /^POST \/api\/v1\/business\/(documents\/:id\/shares|document-request-packets)$/,
     why: "the MEMBER recipient variant's member: one case per route carries the CLIENT variant (a body has one variant, so a swap of the other's field would change nothing); documents-requests.e2e refuses another firm's member for both (NOT_A_MEMBER) (R55)",
   },
-  ...(
-    [
-      'taxReturnId',
-      'bookkeepingEngagementId',
-      'invoiceId',
-      'taskId',
-      'intakeFormId',
-      'documentRequestId',
-    ] as const
-  ).map((name) => ({
-    field: `related.${name}`,
+  ...(['bookkeepingEngagementId', 'invoiceId', 'taskId', 'documentRequestId'] as const).map(
+    (name) => ({
+      field: `related.${name}`,
+      routes:
+        /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
+      why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
+    }),
+  ),
+  {
+    // Tax Returns Review Two F06 (R56): a booking and its edit keep the return (their cases
+    // name it); a draft still refuses any related item 400.
+    field: 'related.taxReturnId',
+    routes: /^(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?$/,
+    why: 'a draft refuses any related item 400 and never reads it; the booking and its edit keep the return and their cases name it (R56)',
+  },
+  {
+    field: 'related.intakeFormId',
     routes:
-      /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
-    why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
-  })),
+      /^(PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
+    why: 'Edit and drafts send no intake form: any value is refused 400 and never read; Schedule reads it (cases/appointments.ts, Review 2 row 9) (R60)',
+  },
   {
     field: 'busyCalendarIds',
     routes: /^PUT \/api\/v1\/business\/availability\/:userId\/rules$/,
@@ -123,21 +134,6 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     field: field!,
     routes: /^PUT \/api\/v1\/business\/appointment-types\/:id\/config$/,
     why: `${what}: no table keeps it yet, so any value is refused 400 and never read (R58)`,
-  })),
-  ...(
-    [
-      'taxReturnId',
-      'bookkeepingEngagementId',
-      'invoiceId',
-      'taskId',
-      'intakeFormId',
-      'documentRequestId',
-    ] as const
-  ).map((name) => ({
-    field: `related.${name}`,
-    routes:
-      /^(POST \/api\/v1\/business\/appointments\/schedule|PATCH \/api\/v1\/business\/appointments\/:id\/details|(POST|PUT) \/api\/v1\/business\/appointment-drafts(\/:id)?)$/,
-    why: 'appointments keep no link to a related item yet: any value is refused 400 and never read (R58)',
   })),
   {
     field: 'senderId',

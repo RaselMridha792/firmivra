@@ -1269,15 +1269,20 @@ describe('A7: every configured appointment reminder is sent', () => {
         { channel: 'PORTAL', offsetMinutes: 240 },
         { channel: 'SMS', offsetMinutes: 240, note: 'Fake: a text note.' },
         { channel: 'EMAIL', offsetMinutes: 60 },
-        { channel: 'PORTAL', offsetMinutes: 0 },
+        { channel: 'PORTAL', offsetMinutes: 0, note: 'Fake: we are ready for you.' },
       ],
     });
     outbox.length = 0;
     // The three 4-hour reminders (one notice: one bell item, its email, the text), and the
     // automatic reminder, to the firm's side only.
     expect(await runAt(0)).toEqual({ skipped: false, sent: 4 });
+    // Review 2 (B7): the client's bell item carries the note (no Portal note at 4 hours: the
+    // Email reminder's, whose item it shares); the firm's item never does.
+    const [first] = await bell(peopleC.primaryC, x, firmC.id);
+    expect(first?.payload).toMatchObject({ note: 'Fake: four hours to go.' });
     expect(await bell(peopleC.primaryC, x, firmC.id)).toHaveLength(1);
     expect(await bell(peopleC.ownerC, x, firmC.id)).toHaveLength(1);
+    expect((await bell(peopleC.ownerC, x, firmC.id))[0]?.payload).not.toHaveProperty('note');
     expect(templates()).toEqual([
       ['appointment.reminder', peopleC.primaryC.email],
       ['appointment.reminder-sms', PHONE],
@@ -1300,7 +1305,12 @@ describe('A7: every configured appointment reminder is sent', () => {
     outbox.length = 0;
     expect(await runAt(start - 30_000)).toEqual({ skipped: false, sent: 1 });
     expect(outbox).toEqual([]);
-    expect(await bell(peopleC.primaryC, x, firmC.id)).toHaveLength(3);
+    const items = await bell(peopleC.primaryC, x, firmC.id);
+    expect(items).toHaveLength(3);
+    // Review 2 (B7): the Portal reminder carries its own note.
+    expect(items.map((n) => (n.payload as { note?: string }).note)).toContain(
+      'Fake: we are ready for you.',
+    );
     expect(await unsent(x)).toEqual([]);
     // The firm's side still has only the automatic reminder's bell item.
     expect(await bell(peopleC.ownerC, x, firmC.id)).toHaveLength(1);

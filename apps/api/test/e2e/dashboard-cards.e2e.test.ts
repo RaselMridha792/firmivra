@@ -15,6 +15,7 @@ import {
   DashboardCardSettings,
   DashboardCardTemplate,
   type DashboardServiceCard,
+  DashboardPermissions,
   DashboardSummary,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -480,6 +481,25 @@ describe('D4: Settings > Dashboard Cards', () => {
         timeout: 15_000,
       })
       .toEqual(['tax-returns']);
+  });
+
+  it('V5: the dashboard permissions are the member’s own grants: role, custom change, Owner all', async () => {
+    const mine = async (who: Person) => {
+      const res = await call('get', '/business/dashboard/permissions', who, 'a');
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      return DashboardPermissions.parse(res.body).grants;
+    };
+    // The Owner may do everything; Read Only creates nothing and edits nothing.
+    const owner = await mine(people.ownerA);
+    expect(owner['CLIENTS']).toEqual(expect.arrayContaining(['VIEW', 'CREATE', 'EDIT', 'DELETE']));
+    const ro = await mine(people.readOnlyA);
+    expect(ro['CLIENTS']).toEqual(['VIEW']);
+    expect(ro['TASKS']).not.toContain('EDIT');
+    // The staff member's own change in the previous test (no Clients view) is in their grants.
+    await expect
+      .poll(async () => (await mine(people.staffA))['CLIENTS'], { timeout: 15_000 })
+      .not.toContain('VIEW');
+    expect((await mine(people.staffA))['TASKS']).toContain('EDIT');
   });
 
   it('V5: a number whose list the member may not view is not sent at all', async () => {

@@ -9,6 +9,7 @@ import {
   LEAD_APPOINTMENT_OUTCOME_LABELS,
   type LeadAppointmentOutcome,
   type RescheduleAppointmentRequest,
+  type SeriesScope,
   type SlotList,
   type SlotsQuery,
   type UpdateAppointmentRequest,
@@ -474,30 +475,64 @@ export class AppointmentsService {
     return toAppointment(after);
   }
 
+  /**
+   * Cancels the appointment and, for a repeating one (Review 2, R2), the other occurrences its
+   * `scope` names: FOLLOWING the scheduled ones after it, SERIES every scheduled one not yet
+   * started. All in one change: each is locked, checked and recorded in its history as this one.
+   */
   async cancel(
     businessId: string,
     actor: FirmActor,
     id: string,
     reason: string | null | undefined,
+    scope: SeriesScope = 'THIS',
   ): Promise<Appointment> {
-    const after = await this.write(businessId, async (tx) => {
+    const cancelled = await this.write(businessId, async (tx) => {
       const current = await this.openForChange(tx, businessId, actor, id);
-      const updated = await tx.appointment.update({
+      const { seriesId } = await tx.appointment.findUniqueOrThrow({
         where: { id: current.id },
-        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason ?? null },
-        select: appointmentSelect,
+        select: { seriesId: true },
       });
-      await this.history.record(tx, 'CANCELLED', updated, {
-        by: 'STAFF',
-        from: current,
-        to: null,
-        reason,
-      });
-      return updated;
+      const others =
+        scope !== 'THIS' && seriesId
+          ? await tx.appointment.findMany({
+              where: {
+                businessId,
+                seriesId,
+                status: 'SCHEDULED',
+                id: { not: current.id },
+                startsAt: { gt: scope === 'FOLLOWING' ? current.startsAt : new Date() },
+              },
+              orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+              select: { id: true },
+            })
+          : [];
+      const out: AppointmentRow[] = [];
+      for (const targetId of [current.id, ...others.map((o) => o.id)]) {
+        const before =
+          targetId === current.id
+            ? current
+            : await this.openForChange(tx, businessId, actor, targetId);
+        const updated = await tx.appointment.update({
+          where: { id: before.id },
+          data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason ?? null },
+          select: appointmentSelect,
+        });
+        await this.history.record(tx, 'CANCELLED', updated, {
+          by: 'STAFF',
+          from: before,
+          to: null,
+          reason,
+        });
+        out.push(updated);
+      }
+      return out;
     });
     // Appointments Review 2 (P3): the client is told, as the Cancel dialog says: a bell item and an
-    // email to their primary login, with the reason given. Not for a time already past.
-    if (after.startsAt.getTime() > Date.now()) {
+    // email to their primary login, with the reason given. Not for a time already past. Each
+    // occurrence cancelled with it is told the same way (R2).
+    for (const after of cancelled) {
+      if (after.startsAt.getTime() <= Date.now()) continue;
       await this.notifier.notify({
         businessId,
         event: 'appointment.cancelled',
@@ -506,7 +541,7 @@ export class AppointmentsService {
         eventKey: `appointment.cancelled:${after.id}`,
       });
     }
-    return toAppointment(after);
+    return toAppointment(cancelled[0]!);
   }
 
   /**

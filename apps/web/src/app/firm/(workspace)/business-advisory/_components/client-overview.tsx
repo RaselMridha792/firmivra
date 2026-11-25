@@ -48,6 +48,7 @@ import {
   scheduleMeetingHref,
 } from './ba-shared';
 import { ClientShell, EditClientDialog, useAdvisoryClient } from './client-shell';
+import { AdvisoryLinkedProfiles } from './linked-profiles';
 
 const TONES = {
   blue: 'bg-info-soft text-action',
@@ -476,6 +477,9 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
             <p className={quiet}>{failed ? 'Not available right now.' : 'Loading…'}</p>
           )}
         </section>
+
+        {/* A-X06 (B18): linked business and personal profiles, and adding one. */}
+        {c ? <AdvisoryLinkedProfiles clientId={c.client.id} canEdit={c.canEdit} /> : null}
 
         <section className={card} aria-label="Goals and milestones" data-testid="card-goals">
           <SectionHead icon={Target} title="Goals & Milestones" href={`${base}/goals`} />

@@ -17,22 +17,28 @@ export function PublicLinkSection({
   kind,
   link,
   emptyText,
+  embedHelp,
 }: {
   kind: PublicItemKind;
   link: PublicLink | null | undefined;
   /** Replaces the item's default line when there is no link (a loading or error text). */
   emptyText?: string;
+  /** The line under the embed code, when it is not a button. */
+  embedHelp?: string;
 }) {
   const text = publicLinkText(kind, link?.state ?? null);
   return (
     <PublicLinkBlock
       url={link?.url ?? null}
       embedCode={link?.embedCode ?? null}
+      buttonCode={link?.buttonCode ?? null}
+      portalEntryUrl={link?.portalEntryUrl ?? null}
       title={text.title}
       copyLinkLabel={text.copyLinkLabel}
       copyEmbedLabel={text.copyEmbedLabel}
       notice={text.notice}
       emptyText={emptyText ?? text.emptyText}
+      embedHelp={embedHelp}
     />
   );
 }

@@ -17,6 +17,8 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { PublicLinkSection } from '../../../../../components/public-link';
+import { PackageChangeConfirm } from './package-change-confirm';
+import { DISCOUNT_PROBLEM_TEXT } from './package-discount-rules';
 import {
   CATALOG_ERRORS,
   CATALOG_KEY,
@@ -52,6 +54,9 @@ export function PackageDetailScreen({ id }: { id: string }) {
   const options = { invalidate: [...CATALOG_KEY] };
   const activate = useApiMutation(() => api.servicesPricing.activatePackage(id), options);
   const deactivate = useApiMutation(() => api.servicesPricing.deactivatePackage(id), options);
+  // R12: deactivating a live package asks first.
+  const [asking, setAsking] = useState(false);
+  const deactivated = () => setMessage({ text: 'Package deactivated.', tone: 'success' });
   const duplicate = useApiMutation(() => api.servicesPricing.duplicatePackage(id), options);
   const fail = (e: unknown) => setMessage({ text: errorMessage(e, CATALOG_ERRORS), tone: 'error' });
   const note = query.isPending ? 'Loading…' : 'This package is not available right now.';
@@ -75,6 +80,18 @@ export function PackageDetailScreen({ id }: { id: string }) {
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="package-detail">
+      {asking && p ? (
+        <PackageChangeConfirm
+          name={p.name}
+          action="deactivate"
+          pending={deactivate.isPending}
+          onCancel={() => setAsking(false)}
+          onConfirm={() => {
+            setAsking(false);
+            deactivate.mutate(undefined, { onSuccess: deactivated, onError: fail });
+          }}
+        />
+      ) : null}
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
         <Link href="/services-pricing" className="text-link">
           Services &amp; Pricing
@@ -146,14 +163,13 @@ export function PackageDetailScreen({ id }: { id: string }) {
                 type="button"
                 className={btn}
                 onClick={() =>
-                  (p.status === 'ACTIVE' ? deactivate : activate).mutate(undefined, {
-                    onSuccess: () =>
-                      setMessage({
-                        text: p.status === 'ACTIVE' ? 'Package deactivated.' : 'Package activated.',
-                        tone: 'success',
-                      }),
-                    onError: fail,
-                  })
+                  p.status === 'ACTIVE'
+                    ? setAsking(true)
+                    : activate.mutate(undefined, {
+                        onSuccess: () =>
+                          setMessage({ text: 'Package activated.', tone: 'success' }),
+                        onError: fail,
+                      })
                 }
               >
                 <Power aria-hidden weight="fill" className="size-4" />
@@ -245,7 +261,11 @@ export function PackageDetailScreen({ id }: { id: string }) {
                   {selectedTotal(p.pricing)}
                 </dd>
                 <dt className="text-text">Package Price</dt>
-                <dd className="font-semibold text-heading">{money(p.pricing.packagePriceCents)}</dd>
+                <dd className="font-semibold text-heading">
+                  {p.pricing.packagePriceCents === 0
+                    ? `${money(0)} (free)`
+                    : money(p.pricing.packagePriceCents)}
+                </dd>
                 <dt className="text-text">Discount</dt>
                 <dd className="text-heading">
                   {p.pricing.discountType === 'NONE' || p.pricing.discountValue === null
@@ -264,6 +284,17 @@ export function PackageDetailScreen({ id }: { id: string }) {
             ) : (
               <Quiet>{note}</Quiet>
             )}
+            {p?.pricing.discountProblem ? (
+              <p
+                role="status"
+                className="mt-3 flex items-center gap-2 rounded-lg bg-danger-soft p-3 text-sm text-danger"
+                data-testid="detail-discount-problem"
+              >
+                <Warning aria-hidden weight="fill" className="size-5 shrink-0" />
+                {DISCOUNT_PROBLEM_TEXT[p.pricing.discountProblem]} Open Edit to fix the discount;
+                until then the package price is not worked out.
+              </p>
+            ) : null}
             {p?.pricing.quoteRequired ? (
               <QuoteRequiredNote />
             ) : p?.pricing.variablePrice ? (

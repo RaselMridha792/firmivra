@@ -233,6 +233,8 @@ export const TaskRow = z.object({
   deadline: TaskLink.nullable(),
   /** T-C10: the client's tax plan it implements (C15). */
   taxPlan: TaskLink.nullable().default(null),
+  /** Tax Returns Review Two F03 (R56): the exact tax return ("Tax return 2025 (1040)"). */
+  taxReturn: TaskLink.nullable().default(null),
   /**
    * T-C10 (Tasks A1): Related To typed by the firm when no record fits, shown as a custom note and
    * never as a record link. Never set together with `engagement`.
@@ -492,6 +494,12 @@ export const CreateTaskDetailRequest = z.strictObject({
    */
   deadlineId: z.uuid().optional(),
   /**
+   * Tax Returns Review Two F03 (R56, Nov 20): the exact tax return the task is about, one of the
+   * client's returns that is not archived (404 otherwise), with or without the return's service.
+   * Create Task from a return sets it; the task shows it.
+   */
+  taxReturnId: z.uuid().optional(),
+  /**
    * T-C10 (Tasks A1): Related To typed when no record fits, 1 to 200 characters, kept as a custom
    * note. Not with `engagementId`: 400 VALIDATION_FAILED naming `relatedText`.
    */
@@ -536,6 +544,8 @@ export const UpdateTaskDetailRequest = z
     engagementId: z.uuid().nullable().optional(),
     taxPlanId: z.uuid().nullable().optional(),
     deadlineId: z.uuid().nullable().optional(),
+    /** F03 (R56): the exact tax return (`null` clears it). */
+    taxReturnId: z.uuid().nullable().optional(),
     relatedText: clearable(text(200)),
     ...taskFields,
     checklist: z.array(ChecklistItemInput).max(50).optional(),

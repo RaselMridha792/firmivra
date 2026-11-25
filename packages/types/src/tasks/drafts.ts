@@ -64,6 +64,8 @@ export const TaskDraft = TaskDraftRow.extend({
   /** T-C10: Related To's other records and its custom note, as on a task. */
   taxPlan: TaskLink.nullable().default(null),
   deadline: TaskLink.nullable().default(null),
+  /** F03 (R56): the exact tax return. */
+  taxReturn: TaskLink.nullable().default(null),
   relatedText: z.string().nullable().default(null),
   progress: TaskProgress,
   startOn: CalendarDate.nullable(),
@@ -123,10 +125,15 @@ const clientFirst = (o: {
   engagementId?: string | null;
   taxPlanId?: string | null;
   deadlineId?: string | null;
+  taxReturnId?: string | null;
   attachments?: unknown[];
 }) =>
   o.clientId != null ||
-  (o.engagementId == null && o.taxPlanId == null && o.deadlineId == null && !o.attachments?.length);
+  (o.engagementId == null &&
+    o.taxPlanId == null &&
+    o.deadlineId == null &&
+    o.taxReturnId == null &&
+    !o.attachments?.length);
 /** On a draft's change, `clientId: null` (clearing it) is the case without a client. */
 const clientKept = (o: Parameters<typeof clientFirst>[0]) =>
   o.clientId !== null || clientFirst({ ...o, clientId: null });
@@ -169,6 +176,8 @@ const draftChanges = CreateTaskDetailRequest.omit({
     engagementId: z.uuid().nullable().optional(),
     taxPlanId: z.uuid().nullable().optional(),
     deadlineId: z.uuid().nullable().optional(),
+    /** F03 (R56): the exact tax return, kept with the draft. */
+    taxReturnId: z.uuid().nullable().optional(),
     relatedText: clearable(text(200)),
     dueOn: CalendarDate.nullable().optional(),
     assignedUserId: z.uuid().nullable().optional(),

@@ -423,7 +423,6 @@ export class InvoicesService {
         taxRateId: true,
         templateId: true,
         allowTip: true,
-        requirePaymentBeforeDue: true,
       },
     });
     await checkDraftExtras(tx, businessId, current, body);
@@ -453,12 +452,10 @@ export class InvoicesService {
         paymentTerms: body.paymentTerms ?? null,
         notesToClient: body.notesToClient ?? null,
         internalNote: body.internalNote ?? null,
-        // IP-F04: left out, each stays as it is (the email's column default on create).
+        // IP-F04: left out, each stays as it is (the email's column default on create). I-D01:
+        // requirePaymentBeforeDue is never written (withdrawn): a stored one stays as it is.
         ...(body.emailClient === undefined ? {} : { emailClient: body.emailClient }),
         ...(body.allowTip === undefined ? {} : { allowTip: body.allowTip }),
-        ...(body.requirePaymentBeforeDue === undefined
-          ? {}
-          : { requirePaymentBeforeDue: body.requirePaymentBeforeDue }),
       },
     });
     await writeAttachments(tx, businessId, id, body.documentIds, actorUserId);

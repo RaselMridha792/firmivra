@@ -522,7 +522,7 @@ describe('refunds: one row per Stripe refund, confirmed by its event', () => {
           where: { id: r.id },
           data: { status: 'SUCCEEDED', eventId, refundedAt: new Date() },
         }),
-      ).rejects.toThrow(/charge.refunded event of this payment/);
+      ).rejects.toThrow(/charge.refunded or refund.updated event of this payment/);
     }
     await expect(confirm(r.id, p.id)).resolves.toMatchObject({ status: 'SUCCEEDED' });
     expect(await paymentStatus(p.id)).toBe('SUCCEEDED');

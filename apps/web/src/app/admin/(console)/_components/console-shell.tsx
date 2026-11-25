@@ -22,6 +22,8 @@ import { AppShell } from '../../../../components/app-shell/app-shell';
 import type { NavSections } from '../../../../components/app-shell/types';
 import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
+import { ADMIN_SEARCH_LABEL, AdminSearch } from './admin-search';
+import { AdminNotificationBell } from '../notifications/_components/notification-bell';
 
 /** The count query runs inside SignedIn, so the sidebar never guesses a pending total. */
 export function ConsoleShell({ children }: { children: ReactNode }) {
@@ -65,7 +67,11 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
       subtitle="Super Admin Portal"
       sections={sections}
       roleLabel="Super Admin"
-      search="Search firms, applications, users..."
+      collapsibleSidebar
+      bell={<AdminNotificationBell />}
+      // SA-DSH-F01: firms and applications, never people.
+      search={`${ADMIN_SEARCH_LABEL}...`}
+      headerStart={<AdminSearch />}
     >
       {children}
     </AppShell>

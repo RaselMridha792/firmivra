@@ -172,6 +172,27 @@ export function createTemplatesMock({
     logoUrl: null,
     updatedAt: null,
   };
+  // Y10, as the API: an email gets the footer and disclaimer; a letter also the letterhead (when
+  // on) and the firm signature; other kinds none.
+  const brandingView = (kind: MessageTemplateKind) => {
+    const letter = kind === 'LETTER_NOTICE';
+    if (!letter && kind !== 'EMAIL' && kind !== 'CAMPAIGN') return null;
+    const footer = branding.footerText?.trim() || null;
+    const disclaimer = branding.disclaimer?.trim() || null;
+    if (!letter) return { letterhead: null, signature: null, footer, disclaimer };
+    return {
+      letterhead: branding.letterheadEnabled
+        ? {
+            name: branding.businessName ?? 'LVP Accounting & Taxes',
+            logoUrl: branding.logoUrl,
+            lines: ['100 Main Street', 'Auburn, AL 36830', '(334) 555-0100'],
+          }
+        : null,
+      signature: branding.signatureText?.trim() || null,
+      footer,
+      disclaimer,
+    };
+  };
   const pending = new Map<
     string,
     { templateId: string; fileName: string; contentType: string; sizeBytes: number }
@@ -949,6 +970,7 @@ export function createTemplatesMock({
             r.d.kind === 'SMS'
               ? (({ characters, parts }) => ({ characters, parts }))(smsSegments(plainText))
               : null,
+          branding: brandingView(r.d.kind),
         };
       }),
     testSend: (templateId, body) =>
@@ -1044,10 +1066,12 @@ export function createTemplatesMock({
         const r = find(templateId);
         if (!r.d.attachments.some((a) => a.id === attachmentId))
           throw fail(404, 'NOT_FOUND', 'That attachment was not found.');
-        return {
-          url: `mock:download/${attachmentId}`,
-          expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-        };
+        // As the API (the scan gap): no download until the file's virus check is recorded.
+        throw fail(
+          409,
+          'SCAN_PENDING',
+          'This file is waiting for its virus check. It can be downloaded once it is checked.',
+        );
       }),
     removeAttachment: (templateId, attachmentId) =>
       run(() => {

@@ -51,6 +51,7 @@ export function AppShell({
   footer,
   bell,
   brand,
+  collapsibleSidebar = false,
   headerStart,
   headerActions,
   accountMenu,
@@ -73,6 +74,8 @@ export function AppShell({
   bell?: ReactNode;
   /** The firm workspace look: firm logo and motto in the sidebar, blue pill for the open page. */
   brand?: FirmBrand;
+  /** Enables a remembered icon-only sidebar in shells without a firm brand. */
+  collapsibleSidebar?: boolean;
   /** Header content instead of search or greeting (the firm's search form). */
   headerStart?: ReactNode;
   /** Header controls before the bell (the firm's "+ New" menu). */
@@ -86,10 +89,11 @@ export function AppShell({
   children: ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
-  const sidebar = { subtitle, sections, roleLabel, brand };
-  // Expanded on the first visit (and on the server); the firm workspace only.
+  const sidebar = { subtitle, sections, roleLabel, brand, collapsible: collapsibleSidebar };
+  // Expanded on the first visit (and on the server); enabled for the firm and Super Admin shells.
   const collapsed =
-    useSyncExternalStore(onCollapsedChange, readCollapsed, () => false) && Boolean(brand);
+    useSyncExternalStore(onCollapsedChange, readCollapsed, () => false) &&
+    (Boolean(brand) || collapsibleSidebar);
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -98,7 +102,7 @@ export function AppShell({
         <Sidebar
           {...sidebar}
           collapsed={collapsed}
-          {...(brand ? { onToggle: () => writeCollapsed(!collapsed) } : {})}
+          {...(brand || collapsibleSidebar ? { onToggle: () => writeCollapsed(!collapsed) } : {})}
         />
       </div>
 
@@ -120,7 +124,7 @@ export function AppShell({
       ) : null}
 
       <div
-        className={`flex min-h-screen flex-col md:[&>header]:pr-4 ${brand ? (collapsed ? 'md:pl-18' : 'md:pl-61.5') : 'md:pl-72'}`}
+        className={`flex min-h-screen flex-col md:[&>header]:pr-4 ${brand ? (collapsed ? 'md:pl-18' : 'md:pl-61.5') : collapsibleSidebar && collapsed ? 'md:pl-18' : 'md:pl-72'}`}
       >
         <Header
           clock

@@ -79,6 +79,7 @@ import {
   createPaymentPreferencesClient,
   createProfileChangesClient,
   createSupportMessagesClient,
+  createFirmivraRequestsClient,
   createPublicAgreementsClient,
   createDownload,
   createRequest,
@@ -185,6 +186,7 @@ import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
 import { createProfileChangesMock } from '../mocks/profile-changes';
 import { createSupportMessagesMock } from '../mocks/support-messages';
+import { createFirmivraRequestsMock } from '../mocks/firmivra-requests';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
 import { createPortalAnnouncementSettingsMock } from '../mocks/portal-announcement-settings';
 import { createPortalContactMock } from '../mocks/portal-contact';
@@ -249,7 +251,11 @@ const leadPipelineMock =
   dev && mocked('leadPipeline')
     ? createLeadPipelineMock({ role: MOCK_ROLE, empty: mockedEmpty('leadPipeline') })
     : null;
-const documentsMock = dev && mocked('documents') ? createDocumentsMock({ role: MOCK_ROLE }) : null;
+// Failable, so a spec can slow `documents.list` (Tax Planning C14's loading state).
+const documentsMock =
+  dev && mocked('documents')
+    ? failable('documents', createDocumentsMock({ role: MOCK_ROLE }))
+    : null;
 /** One locations mock, shared with the Settings Overview mock (its Location Management rows). */
 const locationsMock =
   dev && mocked('locations')
@@ -333,6 +339,11 @@ export const api = {
     dev && mocked('supportMessages')
       ? createSupportMessagesMock()
       : createSupportMessagesClient(request),
+  /** Settings > Requests from Firmivra (SA-FRM-F06): Firmivra's requests to the Owner. */
+  firmivraRequests:
+    dev && mocked('firmivraRequests')
+      ? createFirmivraRequestsMock({ role: MOCK_ROLE, empty: mockedEmpty('firmivraRequests') })
+      : createFirmivraRequestsClient(request),
   /** Settings > Payments' Invoice Defaults, Reminders & Automations, Taxes & Fees (IP-F13). */
   paymentPreferences:
     dev && mocked('paymentPreferences')
@@ -469,7 +480,7 @@ export const api = {
   /** Appointments (R12): the signed-in client's own, per firm (portal). */
   myAppointments: (firmSlug: string) =>
     dev && mocked('myAppointments')
-      ? myAppointmentsMock(firmSlug)
+      ? failable('myAppointments', myAppointmentsMock(firmSlug))
       : createMyAppointmentsClient(request, firmSlug),
   /** Appointments A3 (R55): the signed-in client's waitlist for earlier times. */
   myWaitlist: (firmSlug: string) =>

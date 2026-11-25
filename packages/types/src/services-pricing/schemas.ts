@@ -327,6 +327,15 @@ export type MergeCategoryRequest = z.input<typeof MergeCategoryRequest>;
 export const DiscountType = z.enum(['NONE', 'PERCENTAGE', 'FIXED']);
 export type DiscountType = z.infer<typeof DiscountType>;
 
+/**
+ * Services & Pricing Review Two R1-R3: why a package discount cannot work. A discount is never
+ * negative; a percentage is at most 100%; a fixed amount is at most the included services' total
+ * (a $0 package is fine). Saves refuse one (400 INVALID_DISCOUNT, nothing stored); reads report a
+ * stored one instead of failing, so one package never stops a list or page from loading.
+ */
+export const DiscountProblem = z.enum(['NEGATIVE', 'OVER_100', 'MORE_THAN_TOTAL']);
+export type DiscountProblem = z.infer<typeof DiscountProblem>;
+
 export const PackageService = z.object({
   serviceId: z.uuid(),
   name: z.string(),
@@ -372,6 +381,19 @@ export const PackagePricing = z.object({
   variablePrice: z.boolean(),
   /** A Custom Quote service is included: no total and no savings ("Quote required"). */
   quoteRequired: z.boolean(),
+  /**
+   * R1: a stored discount that no longer works (its services now cost less, or it was saved
+   * before saves checked it): the package still loads, its worked-out price is unknown, and Edit
+   * asks for the discount to be fixed. Null when the discount is fine.
+   */
+  discountProblem: DiscountProblem.nullable().default(null),
+  /**
+   * Q1 (decided Nov 19, "a typed price wins"): where the package price comes from. TYPED, a price
+   * the firm entered (any discount then changes nothing; the form turns it off); DISCOUNT, worked
+   * out from the discount (also a live package's price stored from it, while it still matches);
+   * null, no price yet.
+   */
+  priceFrom: z.enum(['TYPED', 'DISCOUNT']).nullable().default(null),
 });
 export type PackagePricing = z.infer<typeof PackagePricing>;
 
@@ -438,7 +460,14 @@ const packageFields = {
     .optional(),
   packagePriceCents: Cents.nullable().optional(),
   discountType: DiscountType.optional(),
-  discountValue: z.number().int().min(0).nullable().optional(),
+  /** R2: never negative; a percentage at most 10000 (100%), checked with its type below. */
+  discountValue: z
+    .number()
+    .int()
+    .min(0, 'The discount cannot be negative')
+    .max(100_000_000)
+    .nullable()
+    .optional(),
   addOns: z
     .array(
       z.strictObject({
@@ -460,17 +489,29 @@ const packageFields = {
   internalNotes: clearable(text(500, 'many')),
 };
 
+/** R2: a percentage discount is at most 100%, named on its own field. */
+const percentAtMost100 = (
+  p: { discountType?: DiscountType | undefined; discountValue?: number | null | undefined },
+  ctx: z.RefinementCtx,
+) => {
+  if (p.discountType === 'PERCENTAGE' && (p.discountValue ?? 0) > 10_000)
+    ctx.addIssue({ code: 'custom', path: ['discountValue'], message: 'Use at most 100%' });
+};
+
 /** POST /business/catalog/packages: Save as Draft or Save & Activate. */
-export const CreateServicePackageRequest = z.strictObject({
-  ...packageFields,
-  activate: z.boolean().default(false),
-});
+export const CreateServicePackageRequest = z
+  .strictObject({
+    ...packageFields,
+    activate: z.boolean().default(false),
+  })
+  .superRefine(percentAtMost100);
 export type CreateServicePackageRequest = z.input<typeof CreateServicePackageRequest>;
 
 export const UpdateServicePackageRequest = z
   .strictObject(packageFields)
   .partial()
-  .extend({ version: z.string().min(1).max(100) });
+  .extend({ version: z.string().min(1).max(100) })
+  .superRefine(percentAtMost100);
 export type UpdateServicePackageRequest = z.input<typeof UpdateServicePackageRequest>;
 
 /** POST /business/catalog/packages/pricing: the pricing panel for unsaved values (no save). */
@@ -478,7 +519,7 @@ export const PackagePricingRequest = z.strictObject({
   services: z.array(z.strictObject({ serviceId: z.uuid(), included: z.boolean() })).max(30),
   packagePriceCents: Cents.nullable(),
   discountType: DiscountType,
-  discountValue: z.number().int().min(0).nullable(),
+  discountValue: z.number().int().min(0).max(100_000_000).nullable(),
 });
 export type PackagePricingRequest = z.input<typeof PackagePricingRequest>;
 
@@ -539,6 +580,67 @@ export const SavePromotionRequest = z
   });
 export type SavePromotionRequest = z.input<typeof SavePromotionRequest>;
 
+/**
+ * Services & Pricing Review Two R9/R13 (decided Nov 19): "Check a Code", staff only. Whether a
+ * promo code applies to one of the firm's services or packages today, and if not, the one exact
+ * reason. Nothing is ordered, charged or counted; codes are not yet redeemed at payment.
+ * 404 for another firm's or an unknown item.
+ */
+export const CheckPromotionCodeRequest = z.strictObject({
+  code: z
+    .string()
+    .trim()
+    .min(1, 'Enter the code')
+    .max(30, 'Use at most 30 characters')
+    .transform((code) => code.toUpperCase()),
+  itemType: z.enum(['SERVICE', 'PACKAGE']),
+  itemId: z.uuid(),
+});
+export type CheckPromotionCodeRequest = z.input<typeof CheckPromotionCodeRequest>;
+
+/**
+ * The answer, in the order it is decided: no promotion has the code; it is not live (a draft or
+ * ended); it has not started; it has expired; it is for other categories, services or packages;
+ * it does not stack with a promotion that already applies to the item by itself (one without a
+ * code). Otherwise it applies.
+ */
+export const PromotionCheckResult = z.enum([
+  'APPLIES',
+  'UNKNOWN_CODE',
+  'NOT_ACTIVE',
+  'NOT_STARTED',
+  'EXPIRED',
+  'WRONG_CATEGORY',
+  'WRONG_SERVICE',
+  'WRONG_PACKAGE',
+  'DOES_NOT_STACK',
+]);
+export type PromotionCheckResult = z.infer<typeof PromotionCheckResult>;
+
+export const PromotionCodeCheck = z.object({
+  result: PromotionCheckResult,
+  /** The promotion with the code; null for UNKNOWN_CODE. */
+  promotion: z
+    .object({
+      id: z.uuid(),
+      name: z.string(),
+      startsOn: CalendarDate.nullable(),
+      endsOn: CalendarDate.nullable(),
+      /** Who may use it; the check has no client, so it is shown, not decided. */
+      eligibility: z.enum(['ALL_CLIENTS', 'NEW_CLIENTS', 'EXISTING_CLIENTS']),
+    })
+    .nullable(),
+  /** The item's current price; null when it is quoted. */
+  priceCents: z.number().int().nullable(),
+  /** APPLIES: the amount off that price, never more than it; null while the price is a quote. */
+  discountCents: z.number().int().nullable(),
+  /** DOES_NOT_STACK: the promotion that already applies and does not combine. */
+  conflict: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  /** WRONG_*: what the code is for, by name. */
+  scope: z.array(z.string()),
+});
+export type PromotionCodeCheck = z.infer<typeof PromotionCodeCheck>;
+
 export const CatalogErrorCode = z.enum([
   /** 409: the name is used by another service or package; resend with allowDuplicateName. */
   'DUPLICATE_NAME',
@@ -550,10 +652,15 @@ export const CatalogErrorCode = z.enum([
   'CATEGORY_INACTIVE',
   /** 409: the package holds an inactive service: replace or remove it first. */
   'PACKAGE_HAS_INACTIVE_SERVICE',
-  /** 400: the discount makes the package price negative. */
+  /** 400: a discount that cannot work (negative, over 100%, more than the services cost); nothing is stored. */
   'INVALID_DISCOUNT',
-  /** 409: the promotion overlaps another one that does not stack, or the code is taken. */
+  /**
+   * 409: the promotion overlaps another one that does not stack, in time and in what it covers
+   * (Review Two Y3: never a taken code). `details` name the other promotion on `startsOn`.
+   */
   'PROMOTION_CONFLICT',
+  /** 409: another promotion of the firm already uses this promo code (Y3); on `promoCode`. */
+  'PROMO_CODE_TAKEN',
   /** 409: someone saved it after it was loaded. */
   'SAVE_CONFLICT',
 ]);

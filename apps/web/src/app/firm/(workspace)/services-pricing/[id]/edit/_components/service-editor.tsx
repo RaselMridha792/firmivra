@@ -27,9 +27,11 @@ import {
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../../lib/errors';
-import { activationGap, CATALOG_ERRORS } from '../../../_components/catalog-shared';
+import { activationGap, CATALOG_ERRORS, recurringPrice } from '../../../_components/catalog-shared';
 import { lineCents, serviceTotalCents } from '../../../_components/service-total';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { useListReturn } from '../../../_components/list-return';
+import { ServiceReadiness } from '../../../_components/service-readiness';
 import { CatalogHeader, ClientPreview, IconPicker, money, Panel, TextList } from './service-parts';
 
 type Values = CreateCatalogServiceRequest;
@@ -82,6 +84,7 @@ export function ServiceEditor({
   notice?: ReactNode;
 }) {
   const router = useRouter();
+  const { back } = useListReturn();
   const categories = useApiQuery(['services-pricing', 'categories'], () =>
     api.servicesPricing.categories(),
   );
@@ -134,13 +137,28 @@ export function ServiceEditor({
   const save = useApiMutation((body: Values) => onSaved(body), {
     invalidate: ['services-pricing'],
   });
-  const submit = (activate: boolean) => {
+  // R12: a price change on a service that packages include is confirmed first, with what changes.
+  const usage = useApiQuery(['services-pricing', 'usage', initial?.id ?? 'new'], async () =>
+    initial ? api.servicesPricing.usage(initial.id) : null,
+  );
+  const [priceAsk, setPriceAsk] = useState<boolean | null>(null);
+  const linked = (usage.data?.packages ?? []).filter((p) => p.status !== 'ARCHIVED');
+  const priceChanged =
+    !!initial &&
+    (value.pricingType !== initial.price.type ||
+      serviceTotalCents(value) !== initial.price.amountCents);
+  const submit = (activate: boolean, confirmed = false) => {
+    if (priceChanged && linked.length > 0 && !confirmed) {
+      setPriceAsk(activate);
+      return;
+    }
+    setPriceAsk(null);
     setValue('activate', activate);
     void handleSubmit((body) =>
       save.mutate(body, {
         onSuccess: () => {
           reset(body);
-          router.push('/services-pricing');
+          router.push(back);
         },
         onError: (error) => {
           const code = errorCode(error);
@@ -191,14 +209,11 @@ export function ServiceEditor({
         : value.pricingType === 'STARTING_AT'
           ? `Starting at ${currency}`
           : value.pricingType === 'RECURRING'
-            ? `${currency} / ${frequencies.find((f) => f.value === value.billingFrequency)?.label.toLowerCase() ?? 'billing period'}`
+            ? recurringPrice(currency, value.billingFrequency)
             : currency;
   return (
     <div className="min-w-0 space-y-4" data-testid="service-editor">
-      <CatalogHeader
-        edit
-        onBack={() => (isDirty ? setCancel(true) : router.push('/services-pricing'))}
-      />
+      <CatalogHeader edit onBack={() => (isDirty ? setCancel(true) : router.push(back))} />
       {notice}
       <form
         onSubmit={(e) => {
@@ -223,7 +238,11 @@ export function ServiceEditor({
                     <Select
                       label="Service Category *"
                       options={categoryOptions}
-                      {...register('categoryId')}
+                      // R7: controlled, so a saved category shows even when the categories
+                      // arrive after the service (an uncontrolled select stayed blank).
+                      name="categoryId"
+                      value={value.categoryId ?? ''}
+                      onChange={(event) => put('categoryId', event.target.value)}
                       error={errors.categoryId?.message}
                       data-testid="service-category"
                     />
@@ -506,6 +525,7 @@ export function ServiceEditor({
               fullDescription={value.fullDescription}
             />
             <ServiceAddOns items={value.addOns ?? []} onChange={(next) => put('addOns', next)} />
+            <ServiceReadiness value={value} status={initial?.status ?? null} />
             <Panel title="Internal Settings" marker={<Gear weight="fill" className="size-4" />}>
               <Textarea
                 label="Internal Notes (Not Visible to Clients)"
@@ -538,7 +558,7 @@ export function ServiceEditor({
             <Button
               variant="secondary"
               className="flex-1 whitespace-nowrap"
-              onClick={() => (isDirty ? setCancel(true) : router.push('/services-pricing'))}
+              onClick={() => (isDirty ? setCancel(true) : router.push(back))}
             >
               Cancel
             </Button>
@@ -563,6 +583,41 @@ export function ServiceEditor({
         </aside>
       </form>
       <Modal
+        open={priceAsk !== null}
+        title={`Change the price of ${value.name || 'this service'}?`}
+        subtitle="Packages that include it show the new price at once."
+        onClose={() => setPriceAsk(null)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPriceAsk(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => submit(priceAsk ?? false, true)}
+              data-testid="price-change-confirm"
+            >
+              Save the New Price
+            </Button>
+          </>
+        }
+      >
+        <ul
+          className="list-disc space-y-1 pl-5 text-sm text-text"
+          data-testid="price-change-impact"
+        >
+          <li>
+            In {linked.length === 1 ? '1 package' : `${linked.length} packages`}:{' '}
+            {linked.map((p) => p.name).join(', ')}. Their total of included services and the client
+            savings change.
+          </li>
+          <li>
+            A package keeps the price it is sold at; a draft package whose price comes from its
+            discount is worked out again.
+          </li>
+          <li>Invoices already sent keep their amounts.</li>
+        </ul>
+      </Modal>
+      <Modal
         open={cancel}
         title="Unsaved changes"
         onClose={() => setCancel(false)}
@@ -571,7 +626,7 @@ export function ServiceEditor({
             <Button variant="secondary" onClick={() => setCancel(false)}>
               Keep Editing
             </Button>
-            <Button variant="secondary" onClick={() => router.push('/services-pricing')}>
+            <Button variant="secondary" onClick={() => router.push(back)}>
               Discard
             </Button>
             <Button

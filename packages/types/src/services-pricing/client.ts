@@ -18,6 +18,8 @@ import {
   PromotionList,
   ReorderCategoriesRequest,
   SavePromotionRequest,
+  CheckPromotionCodeRequest,
+  PromotionCodeCheck,
   SaveServiceCategoryRequest,
   ServiceCategory,
   ServiceCategoryId,
@@ -169,6 +171,13 @@ export function createServicesPricingClient(request: ApiRequest) {
     /** End now: future use stops; completed transactions are untouched. */
     endPromotion: async (id: string): Promise<Promotion> =>
       request(Promotion, `${promotion(id)}/end`, post()),
+    /** R9/R13: whether a code applies to a service or package today, and why not. Saves nothing. */
+    checkPromotionCode: async (body: CheckPromotionCodeRequest): Promise<PromotionCodeCheck> =>
+      request(
+        PromotionCodeCheck,
+        `${BASE}/promotions/check`,
+        post(parseInput(CheckPromotionCodeRequest, body)),
+      ),
   };
 }
 export type ServicesPricingClient = ReturnType<typeof createServicesPricingClient>;

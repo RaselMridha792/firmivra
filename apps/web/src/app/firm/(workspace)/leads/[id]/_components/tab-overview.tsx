@@ -12,8 +12,10 @@ import {
   FileArrowUp,
   FileText,
   Fire,
+  Globe,
   type Icon,
   IdentificationCard,
+  Info,
   Lightning,
   ListChecks,
   MapPin,
@@ -56,6 +58,18 @@ import { ACTIONS, FollowUpCard, OpenTasksCard } from './tab-tasks';
 const CONTACT: Record<ContactChannel, string> = { PHONE: 'Phone', EMAIL: 'Email', SMS: 'SMS' };
 
 /** One labelled line of a card: icon, label, value (a quiet dash when there is none). */
+/** Leads R2 9: each kind of other contact detail, its icon and its name in a label. */
+const OTHER_CONTACT: Record<
+  LeadProfile['otherContacts'][number]['kind'],
+  { icon: Icon; noun: string }
+> = {
+  EMAIL: { icon: Envelope, noun: 'email' },
+  PHONE: { icon: Phone, noun: 'phone' },
+  ADDRESS: { icon: MapPin, noun: 'address' },
+  WEBSITE: { icon: Globe, noun: 'website' },
+  OTHER: { icon: Info, noun: 'contact' },
+};
+
 function Line({
   icon: Glyph,
   label,
@@ -310,14 +324,29 @@ export function OverviewTab() {
               <Line icon={Phone} label="Phone">
                 {dash(lead?.phone)}
               </Line>
-              {/* R2 9: the lead's other phones and emails, under their own labels. */}
+              {/* R2 9: the lead's other contact details, under their own labels. */}
               {lead?.otherContacts.map((c, i) => (
                 <Line
                   key={`${c.kind}-${i}`}
-                  icon={c.kind === 'EMAIL' ? Envelope : Phone}
-                  label={`${c.label ?? 'Other'} ${c.kind === 'EMAIL' ? 'email' : 'phone'}`}
+                  icon={OTHER_CONTACT[c.kind].icon}
+                  label={
+                    c.kind === 'OTHER'
+                      ? (c.label ?? 'Other contact')
+                      : `${c.label ?? 'Other'} ${OTHER_CONTACT[c.kind].noun}`
+                  }
                 >
-                  {c.value}
+                  {c.kind === 'WEBSITE' ? (
+                    <a
+                      href={/^https?:\/\//i.test(c.value) ? c.value : `https://${c.value}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-action underline"
+                    >
+                      {c.value}
+                    </a>
+                  ) : (
+                    c.value
+                  )}
                 </Line>
               ))}
               <Line icon={MapPin} label="Address">

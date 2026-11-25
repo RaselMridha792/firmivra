@@ -461,9 +461,10 @@ function Reschedule({
   });
   const [picked, setPicked] = useState<MySlot | null>(null);
   const [round, setRound] = useState(0);
+  // Review 2 (row 8): the message is given before the list reloads, which may unmount this.
   const move = useApiMutation(
     (slot: MySlot) => api.myAppointments(slug).reschedule(item.id, { startsAt: slot.startsAt }),
-    { invalidate: myAppointmentsKey(slug) },
+    { invalidate: myAppointmentsKey(slug), onSuccess: onDone },
   );
   return (
     <div className="flex flex-col items-start gap-3 rounded-card border border-border bg-canvas p-4">
@@ -489,7 +490,6 @@ function Reschedule({
         onClick={() =>
           picked &&
           move.mutate(picked, {
-            onSuccess: onDone,
             onError: (error) => {
               const code = errorCode(error) ?? '';
               if (STALE.has(code)) return onStale(error);
@@ -530,15 +530,16 @@ function Cancel({
     resolver: zodResolver(CancelMyAppointmentRequest),
     defaultValues: { reason: '' },
   });
+  // Review 2 (row 8): a cancelled appointment leaves the list, and this with it: the message is
+  // given before the list reloads.
   const cancel = useApiMutation(
     (body: CancelMyAppointmentRequest) => api.myAppointments(slug).cancel(id, body),
-    { invalidate: myAppointmentsKey(slug) },
+    { invalidate: myAppointmentsKey(slug), onSuccess: onDone },
   );
   return (
     <form
       onSubmit={form.handleSubmit((body) =>
         cancel.mutate(body, {
-          onSuccess: onDone,
           onError: (error) => (STALE.has(errorCode(error) ?? '') ? onStale(error) : undefined),
         }),
       )}
@@ -576,8 +577,11 @@ function ConfirmPrompt({
   onDone: () => void;
   onStale: (error: unknown) => void;
 }) {
+  // Review 2 (row 8): once confirmed, the reloaded list no longer asks, so this prompt unmounts:
+  // "Your appointment is confirmed." is given before the list reloads, never lost with it.
   const confirm = useApiMutation(() => api.myAppointments(slug).confirm(id), {
     invalidate: myAppointmentsKey(slug),
+    onSuccess: onDone,
   });
   return (
     <div
@@ -590,7 +594,6 @@ function ConfirmPrompt({
         disabled={confirm.isPending}
         onClick={() =>
           confirm.mutate(undefined, {
-            onSuccess: onDone,
             onError: (error) => (STALE.has(errorCode(error) ?? '') ? onStale(error) : undefined),
           })
         }

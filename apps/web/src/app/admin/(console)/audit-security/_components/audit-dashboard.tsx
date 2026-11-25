@@ -114,6 +114,12 @@ const VIEWS: { id: AuditView; label: string; icon: Icon; text: string }[] = [
     icon: Shield,
     text: "Changes to security policies, by Firmivra and by firm admins. Change the platform's policies in Security Settings.",
   },
+  {
+    id: 'settings',
+    label: 'System Settings',
+    icon: GearSix,
+    text: 'Changes to platform system settings, including features, notifications and maintenance.',
+  },
 ];
 
 type SortId = NonNullable<AuditEventQuery['sort']>;
@@ -131,6 +137,8 @@ interface Filters {
   outcome: string;
   alert: string;
   resource: string;
+  ip: string;
+  device: string;
   /** `YYYY-MM-DD` on the viewer's calendar. */
   from: string;
   to: string;
@@ -156,6 +164,8 @@ function defaultFilters(): Filters {
     outcome: '',
     alert: '',
     resource: '',
+    ip: '',
+    device: '',
     from: dayText(from),
     to: dayText(today),
     sort: 'at',
@@ -191,6 +201,8 @@ function readFilters(address: AddressQuery): Filters {
     outcome: oneOf(OUTCOMES, get('outcome')) ?? '',
     alert: oneOf(ALERT_FILTERS, get('alert')) ?? '',
     resource: text('resource'),
+    ip: text('ip'),
+    device: text('device'),
     from: date('from', base.from),
     to: date('to', base.to),
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -211,6 +223,8 @@ function addressOf(filters: Filters): string {
   put('outcome', filters.outcome);
   put('alert', filters.alert);
   put('resource', filters.resource);
+  put('ip', filters.ip);
+  put('device', filters.device);
   put('from', filters.from, base.from);
   put('to', filters.to, base.to);
   put('page', String(filters.page), '1');
@@ -221,7 +235,10 @@ function addressOf(filters: Filters): string {
 /** Whole days on the viewer's calendar, as ISO moments. */
 const startOf = (day: string) => (day ? new Date(`${day}T00:00:00`).toISOString() : undefined);
 const endOf = (day: string) => (day ? new Date(`${day}T23:59:59.999`).toISOString() : undefined);
-const eventHref = (id: string) => `/audit-security/events/${id}`;
+const eventHref = (id: string, filters: Filters) => {
+  const back = encodeURIComponent(addressOf(filters));
+  return `/audit-security/events/${id}?returnTo=${back}`;
+};
 
 /** Hands the export to the browser as a file; the link is short-lived and the export is logged. */
 function saveFile(file: AuditExport) {
@@ -255,7 +272,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
   const clearFilters = () => setFilters({ ...defaultFilters(), view: filters.view });
   const filtered =
     !!(filters.search || filters.firm || filters.user || filters.action || filters.severity) ||
-    !!(filters.outcome || filters.alert || filters.resource) ||
+    !!(filters.outcome || filters.alert || filters.resource || filters.ip || filters.device) ||
     filters.from !== base.from ||
     filters.to !== base.to;
 
@@ -270,6 +287,8 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
     outcome: oneOf(OUTCOMES, shown.outcome),
     alert: oneOf(ALERT_FILTERS, shown.alert),
     resource: shown.resource || undefined,
+    ip: shown.ip || undefined,
+    device: shown.device || undefined,
     ...range,
     sort: shown.sort,
     descending: shown.descending,
@@ -344,17 +363,24 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
       cell: (event) => event.firm.name,
     },
     {
+      id: 'category',
+      label: 'Category',
+      className: 'min-w-32',
+      cell: (event) => event.category,
+    },
+    {
       id: 'action',
       label: 'Action',
       sortable: true,
       className: 'min-w-32',
       cell: (event) => (
-        <Link href={eventHref(event.id)} className="hover:text-action hover:underline">
+        <Link href={eventHref(event.id, filters)} className="hover:text-action hover:underline">
           {event.action}
         </Link>
       ),
     },
     { id: 'details', label: 'Details', className: 'min-w-44', cell: (event) => event.details },
+    { id: 'outcome', label: 'Outcome', className: 'min-w-24', cell: (event) => event.outcome },
     {
       id: 'ip',
       label: 'IP Address',
@@ -459,7 +485,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
         <FilterBar
           onReset={filtered ? clearFilters : undefined}
           resetLabel="Clear Filters"
-          onClear={() => update({ outcome: '', alert: '', resource: '' })}
+          onClear={() => update({ outcome: '', alert: '', resource: '', ip: '', device: '' })}
           more={
             <>
               <FilterGroup title="Outcome">
@@ -497,6 +523,24 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
                     option('', 'All resources'),
                     ...(facets.data?.resources ?? []).map((value) => option(value, value)),
                   ]}
+                />
+              </FilterGroup>
+              <FilterGroup title="IP Address">
+                <SearchField
+                  label="IP address"
+                  placeholder="Filter by IP"
+                  maxLength={64}
+                  value={filters.ip}
+                  onChange={(event) => update({ ip: event.target.value })}
+                />
+              </FilterGroup>
+              <FilterGroup title="Device">
+                <SearchField
+                  label="Device"
+                  placeholder="Filter by device"
+                  maxLength={100}
+                  value={filters.device}
+                  onChange={(event) => update({ device: event.target.value })}
                 />
               </FilterGroup>
             </>
@@ -605,7 +649,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
             }}
             rowActions={(event) => (
               <>
-                <LinkButton href={eventHref(event.id)} size="sm">
+                <LinkButton href={eventHref(event.id, filters)} size="sm">
                   View<span className="sr-only"> event {event.reference}</span>
                 </LinkButton>
                 <ActionMenu
@@ -617,7 +661,7 @@ export function AuditDashboard({ address }: { address: AddressQuery }) {
                         {
                           label: 'Open Event',
                           icon: ArrowSquareOut,
-                          onSelect: () => router.push(eventHref(event.id)),
+                          onSelect: () => router.push(eventHref(event.id, filters)),
                         },
                         ...(event.actor.id
                           ? [

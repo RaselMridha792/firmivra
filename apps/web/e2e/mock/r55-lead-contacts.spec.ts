@@ -20,7 +20,7 @@ test('Edit Lead saves a date of birth and another email, and the card shows them
   const edit = page.getByRole('dialog');
   await edit.getByLabel('Date of birth').fill('1988-07-14');
   const others = edit.getByTestId('lead-other-contacts');
-  await others.getByRole('button', { name: 'Add phone or email' }).click();
+  await others.getByRole('button', { name: 'Add contact detail' }).click();
   await others.getByLabel('Type').nth(1).selectOption('EMAIL');
   await others.getByLabel('Email', { exact: true }).fill('pat.home@example.test');
   await others.getByLabel('Label (optional)').nth(1).fill('Personal');
@@ -39,7 +39,7 @@ test('the same email twice is refused on the row', async ({ page }) => {
   const edit = page.getByRole('dialog');
   const others = edit.getByTestId('lead-other-contacts');
   for (const index of [1, 2]) {
-    await others.getByRole('button', { name: 'Add phone or email' }).click();
+    await others.getByRole('button', { name: 'Add contact detail' }).click();
     await others.getByLabel('Type').nth(index).selectOption('EMAIL');
   }
   await others.getByLabel('Email', { exact: true }).nth(0).fill('same@example.test');
@@ -47,6 +47,59 @@ test('the same email twice is refused on the row', async ({ page }) => {
   await edit.getByRole('button', { name: 'Save Changes' }).click();
   await expect(others).toContainText('This email is already listed');
   await expect(edit).toBeVisible();
+});
+
+// R2 9: "other relevant contact information": an address, a website and any other detail, beside
+// the other phones and emails, saved, shown on Contact Information and kept when Edit reopens.
+test('R2 9: Edit Lead adds an address, a website and another detail, and keeps them on the next save', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(lead(3));
+  const card = page.getByTestId('card-contact');
+  await card.getByRole('button', { name: /Edit/ }).click();
+  const edit = page.getByRole('dialog');
+  const others = edit.getByTestId('lead-other-contacts');
+  await expect(others).toContainText('Other contact details');
+  const add = async (index: number, kind: string, field: string, value: string, label = '') => {
+    await others.getByRole('button', { name: 'Add contact detail' }).click();
+    await others.getByLabel('Type').nth(index).selectOption(kind);
+    await others.getByLabel(field, { exact: true }).fill(value);
+    if (label) await others.getByLabel('Label (optional)').nth(index).fill(label);
+  };
+  await add(0, 'ADDRESS', 'Address', '12 Mock Lane, Springfield', 'Office');
+  // A website that is not one is refused on its row, and nothing is saved.
+  await add(1, 'WEBSITE', 'Website', 'not a website');
+  await edit.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(others).toContainText('Enter a website, for example example.com');
+  await expect(edit).toBeVisible();
+  await others.getByLabel('Website', { exact: true }).fill('example.test');
+  await add(2, 'OTHER', 'Contact detail', '@pat.sample', 'Messaging');
+  await edit.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(edit).toBeHidden();
+
+  await expect(card).toContainText('Office address');
+  await expect(card).toContainText('12 Mock Lane, Springfield');
+  await expect(card.getByRole('link', { name: 'example.test' })).toHaveAttribute(
+    'href',
+    'https://example.test',
+  );
+  await expect(card).toContainText('Messaging');
+  await expect(card).toContainText('@pat.sample');
+
+  // Edit reopens on all three, and saving another field keeps them.
+  await card.getByRole('button', { name: /Edit/ }).click();
+  await expect(others.getByLabel('Address', { exact: true })).toHaveValue(
+    '12 Mock Lane, Springfield',
+  );
+  await expect(others.getByLabel('Website', { exact: true })).toHaveValue('example.test');
+  await expect(others.getByLabel('Contact detail', { exact: true })).toHaveValue('@pat.sample');
+  await edit.getByLabel('Best time to contact').fill('Afternoons');
+  await edit.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(edit).toBeHidden();
+  await expect(card).toContainText('Afternoons');
+  await expect(card).toContainText('12 Mock Lane, Springfield');
+  await expect(card).toContainText('@pat.sample');
 });
 
 // R2 8: the card's Edit offers every field the Contact Information card shows, and they save.

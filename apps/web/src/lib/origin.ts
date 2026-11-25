@@ -50,6 +50,8 @@ const LABELS: Record<string, string> = {
   reports: 'Reports',
   templates: 'Templates',
   invoices: 'Invoices & Payments',
+  // Services & Pricing Review Two R6: a service opened from the list goes back to its filters.
+  'services-pricing': 'Services & Pricing',
   // SM01 (Staff Management Review 2): a report opened from Staff Management goes back to it.
   team: 'Staff Management',
 };

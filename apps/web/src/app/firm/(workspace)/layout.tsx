@@ -6,7 +6,6 @@ import {
   FIRM_ROLE_LABELS,
   type MembershipRole,
   type PermissionModule,
-  roleCan,
 } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import {
@@ -53,6 +52,7 @@ import {
 } from '../../../components/app-shell/firm-controls';
 import type { NavItem } from '../../../components/app-shell/types';
 import { FirmContext } from '../../../components/firm-context';
+import { useNonce } from '../../../components/nonce';
 import { OriginBar } from '../../../components/origin-bar';
 import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
@@ -63,6 +63,7 @@ import { applyFirmTheme } from '../../../lib/theme';
 import { claimCache } from '../../../lib/session';
 import { pageCallsScript, startEarly, takeEarly } from '../../../lib/early';
 import { mocked } from '../../../lib/mock';
+import { useMyGrants } from '../../../lib/my-grants';
 import { pageCallUrls, startDashboardCalls } from './_components/dashboard-calls';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
@@ -162,13 +163,19 @@ const FIRM_ERRORS: Record<string, string> = {
 
 /** Every firm workspace page with the sidebar: the sign-in check, the firm, then the shell. */
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
+  // The request's CSP nonce (root layout); the script's hash in lib/csp.ts allows it as well.
+  const nonce = useNonce();
   return (
     <>
       {/* V8: runs from the server's HTML only (a script React adds later never runs); the mock
           API answers in the browser, so with mocks there is nothing to send early. */}
       {mocked('me') ? null : (
-        // eslint-disable-next-line @eslint-react/dom-no-dangerously-set-innerhtml -- fixed text from constants (lib/early.ts), never from input
-        <script dangerouslySetInnerHTML={{ __html: PAGE_CALLS }} />
+        <script
+          nonce={nonce}
+          suppressHydrationWarning
+          // eslint-disable-next-line @eslint-react/dom-no-dangerously-set-innerhtml -- fixed text from constants (lib/early.ts), never from input
+          dangerouslySetInnerHTML={{ __html: PAGE_CALLS }}
+        />
       )}
       <SignedIn site="firm" signInPath="/sign-in" signedOutHome="/welcome">
         <FirmArea>{children}</FirmArea>
@@ -261,6 +268,8 @@ function FirmShell({
   manager: boolean;
   children: ReactNode;
 }) {
+  // V5: the New menu follows the member's own grants, not the role's default grid.
+  const can = useMyGrants();
   // The portal's public info is the one place every role can read the firm's logo and motto.
   const info = useApiQuery(['firm', firm.id, 'branding'], () => portalAuth(firm.slug).info());
   const unread = useApiQuery(['messages', 'unread-count'], () => api.messages.unreadCount());
@@ -314,7 +323,7 @@ function FirmShell({
       headerStart={<FirmSearch team={manager} />}
       headerActions={
         <>
-          <NewMenu links={newLinks.filter((l) => role && roleCan(role, l.module, 'CREATE'))} />
+          <NewMenu links={newLinks.filter((l) => can(l.module, 'CREATE'))} />
           <HelpButton onOpen={() => setHelp(true)} />
         </>
       }

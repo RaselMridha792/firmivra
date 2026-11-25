@@ -191,6 +191,54 @@ describe('linkUsers', () => {
 });
 
 // Client mode: a seeded demo client gets a real clients-pool login (Rasel, Oct 18, demo only).
+describe('parseLinkClient with LINK_ALLOW_EXACT_EMAIL (Nov 19)', () => {
+  const sub = randomUUID();
+  const inbox = 'synthetic.inbox@gmail.test';
+  const b = (accountEmail: string, firmSlug = 'test-firm-b') =>
+    JSON.stringify({ sub, firmSlug, accountEmail });
+
+  it('lets Test Firm B take that one exact address, in lower case, and nothing else', () => {
+    expect(parseLinkClient(b(' Synthetic.Inbox@Gmail.test '), inbox)).toEqual({
+      sub,
+      firmSlug: 'test-firm-b',
+      accountEmail: inbox,
+      createForClient: true,
+    });
+    expect(() => parseLinkClient(b('other.person@gmail.test'), inbox)).toThrow(/seeded @example/);
+  });
+
+  it('does not widen to another firm', () => {
+    expect(() => parseLinkClient(b(inbox, 'demo'), inbox)).toThrow(/not allowed for the firm demo/);
+    expect(() => parseLinkClient(b(inbox, 'lvp'), inbox)).toThrow(/firmSlug must be one of/);
+  });
+
+  it('is one plain address: no wildcard, no list, no second address', () => {
+    for (const bad of [
+      '*@gmail.test',
+      '*',
+      'a@gmail.test,b@gmail.test',
+      'a@gmail.test b@gmail.test',
+      'a@gmail.test;b@gmail.test',
+      '@gmail.test',
+      'gmail.test',
+    ]) {
+      expect(() => parseLinkClient(b(inbox), bad)).toThrow(/one plain email address/);
+    }
+    expect(() => parseLinkClient(b('b@gmail.test'), 'a@gmail.test')).toThrow(/seeded @example/);
+  });
+
+  it('is off when empty or unset, and never names the address in an error', () => {
+    for (const off of [undefined, '', '  ']) {
+      expect(() => parseLinkClient(b(inbox), off)).toThrow(/seeded @example/);
+    }
+    try {
+      parseLinkClient(b(inbox), 'bad address@x');
+    } catch (e) {
+      expect(String((e as Error).message)).not.toContain('bad address');
+    }
+  });
+});
+
 describe('parseLinkClient', () => {
   const entry = { sub: randomUUID(), firmSlug: 'demo', accountEmail: 'harper.coleman@demo.test' };
   const parse = (value: unknown) => () => parseLinkClient(JSON.stringify(value));

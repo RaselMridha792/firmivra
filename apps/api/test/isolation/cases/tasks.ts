@@ -201,6 +201,8 @@ const NEW_TASK_IDS = {
   // C15 (Tax Planning Review 2) and T-C10: Related To's plan and deadline of the client.
   taxPlanId: 'taxPlan',
   deadlineId: 'complianceDeadline',
+  // F03 (R56): the exact tax return, one of the client's.
+  taxReturnId: 'taxReturn',
   assignedUserId: 'adminUser',
   typeId: 'taskType',
   serviceId: 'service',
@@ -217,6 +219,8 @@ const draftChangeIds = (step: string) => ({
   engagementId: 'engagement',
   taxPlanId: 'taxPlan',
   deadlineId: 'complianceDeadline',
+  // F03 (R56): the exact tax return, one of the client's.
+  taxReturnId: 'taxReturn',
   assignedUserId: 'adminUser',
   typeId: 'taskType',
   serviceId: 'service',
@@ -251,6 +255,7 @@ export const cases: CaseModule['cases'] = {
       engagementId: 'engagement',
       taxPlanId: 'taxPlan',
       deadlineId: 'complianceDeadline',
+      taxReturnId: 'taxReturn',
       assignedUserId: 'adminUser',
       typeId: 'taskType',
       serviceId: 'service',
