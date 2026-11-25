@@ -2373,6 +2373,32 @@ export type SalesImportRowOutcome = z.infer<typeof SalesImportRowOutcome>;
 export const SalesImportMatch = z.enum(['EMAIL', 'PHONE', 'EMAIL_AND_PHONE']);
 export type SalesImportMatch = z.infer<typeof SalesImportMatch>;
 
+export const SalesNurtureJourneyStatus = z.enum(['DRAFT', 'ACTIVE', 'PAUSED', 'ARCHIVED']);
+export type SalesNurtureJourneyStatus = z.infer<typeof SalesNurtureJourneyStatus>;
+
+export const SalesNurtureEnrollmentStatus = z.enum(['ACTIVE', 'COMPLETED', 'STOPPED', 'FAILED']);
+export type SalesNurtureEnrollmentStatus = z.infer<typeof SalesNurtureEnrollmentStatus>;
+
+export const SalesNurtureExecutionStatus = z.enum(['PENDING', 'SENT', 'FAILED', 'SKIPPED']);
+export type SalesNurtureExecutionStatus = z.infer<typeof SalesNurtureExecutionStatus>;
+
+export const SalesDemoRequestStatus = z.enum([
+  'PENDING',
+  'SCHEDULED',
+  'COMPLETED',
+  'CANCELLED',
+  'NO_SHOW',
+]);
+export type SalesDemoRequestStatus = z.infer<typeof SalesDemoRequestStatus>;
+
+export const SalesDemoAppointmentStatus = z.enum([
+  'SCHEDULED',
+  'COMPLETED',
+  'CANCELLED',
+  'NO_SHOW',
+]);
+export type SalesDemoAppointmentStatus = z.infer<typeof SalesDemoAppointmentStatus>;
+
 export const PlatformLegalDocumentKind = z.enum([
   'TERMS_OF_SERVICE',
   'PRIVACY_POLICY',
