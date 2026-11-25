@@ -20,7 +20,7 @@ test('Overview: header, four KPIs, eight tabs, quick actions, clients, meetings,
   await expect(kpis).toContainText('Growth Action Plans In Progress');
   await expect(
     page.getByRole('tablist', { name: 'Business advisory views' }).getByRole('tab'),
-  ).toHaveCount(8);
+  ).toHaveCount(9);
   await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -330,7 +330,7 @@ test('Client detail: header, plan status, KPIs, the nine cards and eleven tabs',
   await expect(page.getByTestId('plan-status')).toContainText(`${YEAR} Business Growth Plan`);
   await expect(
     page.getByRole('tablist', { name: 'Client advisory views' }).getByRole('tab'),
-  ).toHaveCount(11);
+  ).toHaveCount(12);
   await expect(page.getByTestId('client-kpis').getByRole('listitem')).toHaveCount(6);
   await expect(page.getByTestId('kpi-revenue')).toContainText('$1,250,000');
   await expect(page.getByTestId('kpi-goals')).toContainText('on track');

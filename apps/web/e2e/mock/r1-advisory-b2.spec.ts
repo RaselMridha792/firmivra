@@ -68,9 +68,9 @@ test('A-X11: Edit Action Item opens the item’s form with its client fixed, and
     page.getByText('Action item saved: Prepare the SBA funding application'),
   ).toBeVisible({ timeout: 60_000 });
   await page.getByLabel('Search action items').fill('SBA funding');
-  await expect(page.getByRole('cell', { name: 'Prepare the SBA funding application' })).toBeVisible(
-    { timeout: 60_000 },
-  );
+  await expect(
+    page.getByRole('cell', { name: 'Prepare the SBA funding application', exact: true }),
+  ).toBeVisible({ timeout: 60_000 });
 });
 
 test('A-X11: Cancel Meeting on the client’s Meetings tab asks for a reason, then cancels the appointment', async ({
