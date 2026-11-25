@@ -263,6 +263,11 @@ export const InvoicePayment = z.object({
    * SUCCEEDED; FAILED (the invoice stays open); REFUNDED: refunds cover all of it.
    */
   status: PaymentStatus,
+  /**
+   * Q22 (I-N05, R1-4): the tip the client added at Pay Now, charged with `amountCents` (total
+   * charged = amount + tip). It never pays the invoice: the paid total and balance use the amount.
+   */
+  tipCents: Cents.default(0),
   /** Confirmed refunds of this payment ("Refunded $x"). The invoice stays PAID. */
   refundedCents: Cents,
   paidAt: DateTime.nullable(),
@@ -295,8 +300,8 @@ export const FirmInvoicePayment = InvoicePayment.extend({
   /** Newest first. */
   refunds: z.array(InvoiceRefund),
   /**
-   * What a new refund may still take: the amount less every refund that is not FAILED (pending
-   * ones included), while SUCCEEDED; 0 for any other status.
+   * What a new refund may still take: the amount and its tip less every refund that is not FAILED
+   * (pending ones included), while SUCCEEDED; 0 for any other status.
    */
   refundableCents: Cents,
   /** IP-F12: the last time a receipt for it went to the client; null: never. */
@@ -467,7 +472,7 @@ export const Invoice = InvoiceListItem.extend({
   taxRateId: z.uuid().nullable(),
   /** IP-F04: the client gets the email when the invoice opens (the portal shows it either way). */
   emailClient: z.boolean(),
-  /** IP-F04: the client may add a tip. Stored only for now: Pay Now charges the balance due. */
+  /** IP-F04: the client may add a tip at Pay Now, while Settings > Payments' Tipping is on (Q22). */
   allowTip: z.boolean(),
   /** IP-F05: the schedule this invoice starts or was made by; null for a one-time invoice. */
   recurring: InvoiceRecurrence.nullable(),
@@ -1013,6 +1018,11 @@ export const MyInvoice = z.object({
    * payments. Upcoming, paid and canceled invoices are never payable.
    */
   canPay: z.boolean(),
+  /**
+   * Q22 (I-N05): Pay Now offers a tip: the invoice allows one and Settings > Payments' Tipping is
+   * on now. Only meaningful while `canPay`.
+   */
+  tipOffered: z.boolean().default(false),
 });
 export type MyInvoice = z.infer<typeof MyInvoice>;
 
@@ -1057,10 +1067,19 @@ export const MyInvoiceList = z.object({
 export type MyInvoiceList = z.infer<typeof MyInvoiceList>;
 
 /**
- * POST /portal/{firmSlug}/me/invoices/{id}/checkout ("Pay Now"): no fields at all. The amount,
- * currency and invoice come from the database, so a body with any field (an amount, say) is 400.
+ * POST /portal/{firmSlug}/me/invoices/{id}/checkout ("Pay Now"). The amount, currency and invoice
+ * come from the database, so a body with any other field (an amount, say) is 400. Q22 (R1-4): an
+ * optional tip in whole cents, only where `tipOffered` (409 TIP_NOT_OFFERED otherwise). It may be
+ * at most the balance due, and balance + tip at most `INVOICE_LIMITS.maxCents` (400 otherwise).
  */
-export const PayInvoiceRequest = z.strictObject({});
+export const PayInvoiceRequest = z.strictObject({
+  tipCents: z
+    .number()
+    .int('Use whole cents for the tip')
+    .min(0, 'The tip cannot be negative')
+    .max(INVOICE_LIMITS.maxCents, 'The tip is too large')
+    .optional(),
+});
 export type PayInvoiceRequest = z.input<typeof PayInvoiceRequest>;
 
 /**
@@ -1137,6 +1156,11 @@ export const InvoiceErrorCode = z.enum([
   'PAYMENT_IN_PROGRESS',
   /** 409 (Pay Now): the firm cannot take online payments yet (no Stripe account taking charges). */
   'PAYMENTS_NOT_SET_UP',
+  /**
+   * 409 (Pay Now, Q22): a tip on an invoice that does not offer one (the invoice does not allow
+   * it, or Settings > Payments' Tipping is off now).
+   */
+  'TIP_NOT_OFFERED',
   /** 409 (refund): the payment is not SUCCEEDED (pending, failed, or refunded in full already). */
   'NOT_REFUNDABLE',
   /** 409 (refund): more than the payment's `refundableCents`. */
@@ -1220,6 +1244,7 @@ export const INVOICE_ERRORS = {
   PAYMENT_IN_PROGRESS:
     'A payment for this invoice is being processed. It will show here once it is confirmed.',
   PAYMENTS_NOT_SET_UP: 'Online payment is not available yet. Please contact the firm to pay.',
+  TIP_NOT_OFFERED: 'A tip cannot be added to this invoice. Pay without a tip.',
   NOT_REFUNDABLE: 'This payment cannot be refunded. Reload to see its status.',
   REFUND_TOO_LARGE: 'The refund is more than what is left of this payment.',
   ATTACHMENT_NOT_SHAREABLE:

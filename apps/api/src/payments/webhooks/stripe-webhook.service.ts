@@ -230,7 +230,8 @@ export class StripeWebhookService {
     // The payment's own object first, so another session or currency never raises the alarm.
     const payment = await this.own(ctx, object, confirmed);
     if (!payment) return null;
-    if (amount !== payment.amountCents) {
+    // Q22: Stripe charged the invoice part and the tip together.
+    if (amount !== payment.amountCents + payment.tipCents) {
       // Never trusted: logged for an alarm; the event is not linked, so nothing shows as paid
       // or processing.
       this.logger.error(`Amount mismatch on payment ${payment.id}: Stripe ${amount}`);
@@ -252,7 +253,12 @@ export class StripeWebhookService {
       tx,
       'payment.succeeded',
       { type: 'payment', id: payment.id },
-      { ...STRIPE, invoiceId: payment.invoiceId, amountCents: payment.amountCents },
+      {
+        ...STRIPE,
+        invoiceId: payment.invoiceId,
+        amountCents: payment.amountCents,
+        tipCents: payment.tipCents,
+      },
       { businessId },
     );
     const invoice = await tx.invoice.findFirstOrThrow({
@@ -402,6 +408,7 @@ function findPayment(tx: TxClient, businessId: string, accountId: string, object
       id: true,
       invoiceId: true,
       amountCents: true,
+      tipCents: true,
       currency: true,
       status: true,
       processorRef: true,

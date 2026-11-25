@@ -75,7 +75,8 @@ export class RefundsService {
         let made: StripeRefund | null =
           theirs.find((r) => r.refundKey === body.idempotencyKey) ?? null;
         if (!made) {
-          const refundable = payment.amountCents - payment.refundReservedCents;
+          // Q22: the tip is refundable with the payment (the database caps it the same way).
+          const refundable = payment.amountCents + payment.tipCents - payment.refundReservedCents;
           if (payment.status !== 'SUCCEEDED' || body.amountCents > refundable) {
             throw payment.status === 'SUCCEEDED'
               ? conflict('REFUND_TOO_LARGE', INVOICE_ERRORS.REFUND_TOO_LARGE)

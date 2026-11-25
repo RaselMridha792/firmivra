@@ -63,6 +63,24 @@ export async function cardsAccepted(tx: TxClient, businessId: string): Promise<b
   return settings?.acceptCard ?? true;
 }
 
+/** Q22 (I-N05): Settings > Payments' Tipping switch, now (off for a firm that never chose). */
+export async function tippingOn(tx: TxClient, businessId: string): Promise<boolean> {
+  const settings = await tx.paymentSettings.findUnique({
+    where: { businessId },
+    select: { tippingEnabled: true },
+  });
+  return settings?.tippingEnabled ?? false;
+}
+
+/** Q22: Pay Now offers a tip only while the invoice allows one and Tipping is on now. */
+export async function tipOffered(
+  tx: TxClient,
+  businessId: string,
+  allowTip: boolean,
+): Promise<boolean> {
+  return allowTip && tippingOn(tx, businessId);
+}
+
 /** IP-F12: a payment's latest receipt to the client (RECEIPT_SENT invoice events). */
 const lastReceipt = {
   where: { type: 'RECEIPT_SENT' },
@@ -74,6 +92,8 @@ const lastReceipt = {
 const paymentSelect = {
   id: true,
   amountCents: true,
+  // Q22: the tip charged with it, apart from what pays the invoice.
+  tipCents: true,
   currency: true,
   status: true,
   // I-N10: card or bank (ACH), for the list's Payment Method filter.
@@ -316,6 +336,7 @@ export function toPayment(p: PaymentRow): InvoicePayment {
   return {
     id: p.id,
     amountCents: p.amountCents,
+    tipCents: p.tipCents,
     currency: p.currency,
     status: p.status,
     refundedCents: confirmedRefunds(p),
@@ -336,7 +357,9 @@ function toFirmPayment(p: PaymentRow): FirmInvoicePayment {
       refundedAt: iso(r.refundedAt),
       createdAt: r.createdAt.toISOString(),
     })),
-    refundableCents: p.status === 'SUCCEEDED' ? p.amountCents - p.refundReservedCents : 0,
+    // Q22: the tip is refundable with the payment (the database caps refunds at amount + tip).
+    refundableCents:
+      p.status === 'SUCCEEDED' ? p.amountCents + p.tipCents - p.refundReservedCents : 0,
     receiptSentAt: iso(p.invoiceEvents[0]?.createdAt ?? null),
   };
 }
@@ -458,6 +481,8 @@ export function toMyInvoice(
   today: string,
   timeZone: string,
   paymentsOn: boolean,
+  /** Q22: Settings > Payments' Tipping is on now. */
+  tipsOn: boolean,
 ): MyInvoice | null {
   const state = stateOf(row);
   const status = myInvoiceStatus(state, today);
@@ -482,6 +507,7 @@ export function toMyInvoice(
     canceledAt: iso(row.canceledAt),
     paymentProcessing: isProcessing,
     canPay: row.status === 'OPEN' && balanceDueCents > 0 && !isProcessing && paymentsOn,
+    tipOffered: row.allowTip && tipsOn,
   };
 }
 

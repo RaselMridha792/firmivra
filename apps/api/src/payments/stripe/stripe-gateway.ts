@@ -62,6 +62,11 @@ export interface CheckoutParams {
   /** The line's name: the invoice number. */
   description: string;
   amountCents: number;
+  /**
+   * Q22 (R1-4): the client's tip, a second line "Tip" (0: no tip line). The session's total is
+   * `amountCents + tipCents`, all on the firm's own account with no application fee.
+   */
+  tipCents: number;
   currency: string;
   successUrl: string;
   cancelUrl: string;
@@ -249,22 +254,25 @@ export function createStripeGateway(secretKey: string): StripeGateway {
       return { url: link.url, expiresAt: new Date(link.expires_at) };
     },
     createCheckoutSession: async (p, idempotencyKey) => {
-      const metadata = { invoice_id: p.invoiceId, payment_id: p.paymentId };
+      const metadata = {
+        invoice_id: p.invoiceId,
+        payment_id: p.paymentId,
+        tip_cents: String(p.tipCents),
+      };
+      const line = (name: string, cents: number) => ({
+        quantity: 1,
+        price_data: { currency: p.currency, unit_amount: cents, product_data: { name } },
+      });
       return session(
         await stripe.checkout.sessions.create(
           {
             mode: 'payment',
             // Cards only until a bank debit's refund can wait for its settlement (R7 Open).
             allowed_payment_method_types: ['card'],
+            // Q22: the invoice part, then the tip on its own line (none without a tip).
             line_items: [
-              {
-                quantity: 1,
-                price_data: {
-                  currency: p.currency,
-                  unit_amount: p.amountCents,
-                  product_data: { name: p.description },
-                },
-              },
+              line(p.description, p.amountCents),
+              ...(p.tipCents > 0 ? [line('Tip', p.tipCents)] : []),
             ],
             client_reference_id: p.invoiceId,
             metadata,

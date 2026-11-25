@@ -88,7 +88,13 @@ const offlineId = (n: number) => `0199b6e5-0000-7000-8000-${String(n).padStart(1
 const recurringId = (n: number) => `0199b6e6-0000-7000-8000-${String(n).padStart(12, '0')}`;
 
 /** A payment as the database keeps it; what is refunded and refundable is computed from it. */
-type Payment = Omit<FirmInvoicePayment, 'refundedCents' | 'refundableCents' | 'receiptSentAt'>;
+type Payment = Omit<
+  FirmInvoicePayment,
+  'refundedCents' | 'refundableCents' | 'receiptSentAt' | 'tipCents'
+> & {
+  /** Q22: the tip charged with it (none: 0). */
+  tipCents?: number;
+};
 /** An invoice as the database keeps it: amounts and the client's view are computed from it. */
 interface Row {
   id: string;
@@ -508,6 +514,7 @@ const refundable = (p: Payment) =>
 /** The firm's view of a payment. */
 const firmPayment = (p: Payment): FirmInvoicePayment => ({
   ...p,
+  tipCents: p.tipCents ?? 0,
   refundedCents: refunded(p),
   refundableCents: refundable(p),
   receiptSentAt: receiptsSent().get(p.id) ?? null,
@@ -649,6 +656,8 @@ function toMine(r: Row, day: string, paymentsEnabled: boolean): MyInvoice {
     canceledAt: r.canceledAt,
     paymentProcessing,
     canPay: r.status === 'OPEN' && f.balanceDueCents > 0 && !paymentProcessing && paymentsEnabled,
+    // Q22: as the API, the invoice allows a tip and Settings > Payments' Tipping is on now.
+    tipOffered: !!r.allowTip && mockLivePreferences().taxesAndFees.tippingEnabled,
   };
 }
 
@@ -664,7 +673,7 @@ function toMyDetail(r: Row, day: string, paymentsEnabled: boolean): MyInvoiceDet
     // Pay again, and shows what was refunded.
     payments: r.payments.map((p) => {
       const { failureCode: _f, refunds: _r, ...rest } = p;
-      return { ...rest, refundedCents: refunded(p) };
+      return { ...rest, tipCents: p.tipCents ?? 0, refundedCents: refunded(p) };
     }),
     // Live ones only: method, amount and day (no reference, note or who recorded it).
     offlinePayments: live(r).map(({ id, method, amountCents, currency, receivedOn }) => ({

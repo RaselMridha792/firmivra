@@ -17,6 +17,7 @@ import {
   invoiceSelect,
   notFound,
   paymentsEnabled,
+  tippingOn,
   toMyInvoice,
   toMyInvoiceDetail,
 } from './invoice-view.js';
@@ -97,10 +98,11 @@ export class MyInvoicesService {
       });
       const { today, timeZone } = await firmToday(tx, businessId);
       const on = await paymentsEnabled(tx, businessId);
+      const tips = await tippingOn(tx, businessId);
       const term = q.search?.toLowerCase();
       const wanted = new Set(MY_INVOICE_VIEWS[q.view]);
       const shown = rows
-        .map((row) => toMyInvoice(row, today, timeZone, on))
+        .map((row) => toMyInvoice(row, today, timeZone, on, tips))
         .filter((i): i is MyInvoice => i !== null)
         .filter(
           (i) =>
@@ -149,7 +151,13 @@ export class MyInvoicesService {
     });
     if (!row) throw notFound();
     const { today, timeZone } = await firmToday(tx, businessId);
-    const mine = toMyInvoice(row, today, timeZone, await paymentsEnabled(tx, businessId));
+    const mine = toMyInvoice(
+      row,
+      today,
+      timeZone,
+      await paymentsEnabled(tx, businessId),
+      await tippingOn(tx, businessId),
+    );
     if (!mine) throw notFound();
     return { row, mine };
   }

@@ -102,7 +102,7 @@ export class FakeStripeGateway implements StripeGateway {
       id,
       url: `https://checkout.stripe.com/c/pay/${id}`,
       status: 'open',
-      amountTotal: params.amountCents,
+      amountTotal: params.amountCents + params.tipCents,
       expiresAt: params.expiresAt,
       paymentIntentId: `pi_${id.slice(3)}`,
       accountId: params.accountId,
