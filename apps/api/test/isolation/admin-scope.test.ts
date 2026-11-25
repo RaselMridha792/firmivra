@@ -34,6 +34,7 @@ import { prepareReports, reportsWrites } from './admin-reports-writes.js';
 import { billingWrites, prepareBilling } from './admin-billing-writes.js';
 import { prepareSubscriptions, subscriptionsWrites } from './admin-subscriptions-writes.js';
 import { prepareSales, salesWrites } from './admin-sales-writes.js';
+import { crmWrites, prepareCrm } from './admin-crm-writes.js';
 import { prepareTeam, teamWrites } from './admin-team-writes.js';
 import { firmProfileWrites, prepareFirmProfile } from './admin-firm-profile-writes.js';
 import { firmAccountWrites, prepareFirmAccount } from './admin-firm-account-writes.js';
@@ -269,6 +270,7 @@ const WRITES: Record<
   ...billingWrites(fx),
   ...subscriptionsWrites(),
   ...salesWrites(fx),
+  ...crmWrites(),
   ...teamWrites(),
   ...integrationsWrites(fx),
   ...firmProfileWrites(fx),
@@ -542,6 +544,7 @@ beforeAll(async () => {
   await prepareBilling(fx);
   await prepareSubscriptions(fx);
   await prepareSales(fx);
+  await prepareCrm(fx);
   await prepareTeam(fx);
   await prepareIntegrations(fx);
   await prepareFirmProfile(fx);
