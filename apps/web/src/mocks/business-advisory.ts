@@ -4,11 +4,11 @@ import {
   AddAdvisoryWorkstreamRequest,
   AdvisoryActionItemsQuery,
   AdvisoryActivityQuery,
-  AdvisoryHistoryQuery,
-  type AdvisoryHistoryArea,
   AdvisoryClientsQuery,
   AdvisoryFinancialsQuery,
   AdvisoryGoalsQuery,
+  AdvisoryHistoryArea,
+  AdvisoryHistoryQuery,
   AdvisoryMeetingsQuery,
   AdvisoryPlansQuery,
   AdvisoryRecommendationsQuery,
@@ -536,28 +536,6 @@ interface GoalState extends Omit<AdvisoryGoalRow, 'client' | 'milestoneCount' | 
   version: number;
 }
 type ActionState = Omit<AdvisoryActionItemRow, 'client' | 'overdue'>;
-
-/**
- * A-NEW2: a history entry's area from its action, in the API's form (`advisory_plan.sent`) or the
- * mock's older one (`advisory.plan_sent`).
- */
-const HISTORY_AREAS: [string, AdvisoryHistoryArea][] = [
-  ['client', 'CLIENT'],
-  ['workstream', 'SERVICE'],
-  ['engagement', 'SERVICE'],
-  ['plan', 'PLAN'],
-  ['goal', 'GOAL'],
-  ['milestone', 'GOAL'],
-  ['financial', 'FINANCIAL'],
-  ['recommendation', 'RECOMMENDATION'],
-  ['action_item', 'ACTION'],
-  ['resource', 'RESOURCE'],
-  ['settings', 'SETTINGS'],
-];
-const historyAreaOf = (action: string): AdvisoryHistoryArea | null => {
-  const rest = action.replace(/^advisory[._]/, '');
-  return HISTORY_AREAS.find(([key]) => rest.startsWith(key))?.[1] ?? null;
-};
 
 export function createAdvisoryMock({
   role = 'OWNER',
@@ -1511,6 +1489,23 @@ export function createAdvisoryMock({
   });
   const visibleClients = () => clients.filter(reachable);
   const visibleIds = () => new Set(visibleClients().map((c) => c.id));
+  // A-NEW2: each history area, by this mock's own logged action names (api/advisory/
+  // advisory-clients.service.ts's AREA_PREFIXES uses a different action-name format).
+  const AREA_PREFIXES: Record<AdvisoryHistoryArea, readonly string[]> = {
+    CLIENT: ['advisory.client_'],
+    SERVICE: ['advisory.engagement_', 'advisory.workstream_'],
+    PLAN: ['advisory.plan_'],
+    GOAL: ['advisory.goal_'],
+    FINANCIAL: ['advisory.financial_'],
+    RECOMMENDATION: ['advisory.recommendation_'],
+    ACTION: ['advisory.action_item_'],
+    RESOURCE: ['advisory.resource_'],
+    SETTINGS: ['advisory.settings_'],
+  };
+  const historyAreaOf = (action: string): AdvisoryHistoryArea | null =>
+    (Object.keys(AREA_PREFIXES) as AdvisoryHistoryArea[]).find((area) =>
+      AREA_PREFIXES[area].some((prefix) => action.startsWith(prefix)),
+    ) ?? null;
   const findPlan = (planId: string) => {
     const p = plans.find((x) => x.id === planId);
     if (!p || !visibleIds().has(p.advisoryClientId)) throw notFound();

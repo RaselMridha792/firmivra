@@ -1,6 +1,6 @@
 'use client';
 
-import { ADVISORY_GENERAL_FOCUS, type AdvisoryServiceOption } from '@firmivra/types';
+import { type AdvisoryServiceOption } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, Select, Textarea } from '@firmivra/ui';
 import { Plus, Trash } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -40,9 +40,7 @@ export function focusChoices(services: readonly AdvisoryServiceOption[]) {
   for (const s of services) if (s.category) seen.set(s.category.id, s.category.name);
   return [
     ...[...seen].map(([value, label]) => ({ value, label })),
-    ...(services.some((s) => !s.category)
-      ? [{ value: GENERAL, label: ADVISORY_GENERAL_FOCUS }]
-      : []),
+    ...(services.some((s) => !s.category) ? [{ value: GENERAL, label: 'General Advisory' }] : []),
   ];
 }
 

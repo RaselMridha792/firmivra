@@ -14,7 +14,6 @@ import {
   SERIES_SCOPE_LABELS,
   SeriesScope,
   type ServiceKind,
-  TEXTS_STOPPED_LABELS,
 } from '@firmivra/types';
 import {
   Button,
@@ -2118,7 +2117,7 @@ function FormBody({
                 />
                 {ch === 'SMS' && textsStopped && o.smsEnabled ? (
                   <p className="col-span-3 text-xs text-warning" data-testid="sms-stopped">
-                    No text reminder: {TEXTS_STOPPED_LABELS[textsStopped]}.
+                    No text reminder: they stopped texts (a STOP reply or an unsubscribe).
                   </p>
                 ) : null}
                 {ok && form.reminders[ch].on ? (
