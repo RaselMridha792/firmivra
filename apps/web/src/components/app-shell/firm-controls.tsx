@@ -186,6 +186,12 @@ export function FirmSearch({ team }: { team: boolean }) {
     enabled: ready && team,
     placeholderData: keepPreviousData,
   });
+  const locations = useQuery({
+    queryKey: ['header-search', 'locations', term],
+    queryFn: () => api.locations.list({ search: term, limit: 5 }),
+    enabled: ready,
+    placeholderData: keepPreviousData,
+  });
   const shown = open && ready;
   return (
     <form
@@ -247,6 +253,16 @@ export function FirmSearch({ team }: { team: boolean }) {
               }))}
             />
           ) : null}
+          <ResultGroup
+            title="Locations"
+            query={locations}
+            rows={(locations.data?.items ?? []).map((loc) => ({
+              id: loc.id,
+              href: `/settings/locations/${loc.id}`,
+              name: loc.name,
+              detail: loc.addressLine1 ?? loc.city ?? null,
+            }))}
+          />
           <button
             type="submit"
             className="mt-1 block w-full rounded-control border-t border-divider px-3 py-2 text-left text-sm font-medium text-link hover:bg-canvas"
