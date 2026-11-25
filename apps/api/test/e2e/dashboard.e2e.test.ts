@@ -664,6 +664,99 @@ describe('Outstanding Invoices and Appointments Today against their lists (Dashb
   });
 });
 
+describe('Dashboard Appointments Today (Q08)', () => {
+  it('matches the Today agenda for a late appointment in America/Chicago', async () => {
+    const timezone = 'America/Chicago';
+    const setZone = (value: string) =>
+      inFirm('a', people.ownerA, (tx) =>
+        tx.businessSettings.upsert({
+          where: { businessId: firms.a.id },
+          create: { businessId: firms.a.id, timezone: value },
+          update: { timezone: value },
+        }),
+      );
+    await setZone(timezone);
+
+    let fixture: { appointmentId: string; clientId: string } | undefined;
+    try {
+      let today: string | undefined;
+      let current: FullSummary | undefined;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const before = await read(people.ownerA, 'a');
+        today = before.today;
+        const startsAt = new Date(zonedInstant(timezone, today, 23 * 60 + 30));
+        fixture = await inFirm('a', people.ownerA, async (tx) => {
+          const client = await tx.client.create({
+            data: {
+              businessId: firms.a.id,
+              displayName: `Q08 late appointment ${randomUUID().slice(0, 8)}`,
+              assignedUserId: people.staffA.id,
+            },
+            select: { id: true },
+          });
+          const appointment = await tx.appointment.create({
+            data: {
+              businessId: firms.a.id,
+              clientId: client.id,
+              staffUserId: people.staffA.id,
+              startsAt,
+              endsAt: new Date(startsAt.getTime() + 30 * 60_000),
+              locationKind: 'PHONE',
+              status: 'SCHEDULED',
+            },
+            select: { id: true },
+          });
+          return { appointmentId: appointment.id, clientId: client.id };
+        });
+        current = await read(people.ownerA, 'a');
+        if (current.today === today) break;
+        await inFirm('a', people.ownerA, async (tx) => {
+          await tx.appointment.deleteMany({
+            where: { businessId: firms.a.id, id: fixture!.appointmentId },
+          });
+          await tx.clientStatusHistory.deleteMany({
+            where: { businessId: firms.a.id, clientId: fixture!.clientId },
+          });
+          await tx.client.deleteMany({ where: { businessId: firms.a.id, id: fixture!.clientId } });
+        });
+        fixture = undefined;
+      }
+
+      expect(today).toBeDefined();
+      expect(current?.today).toBe(today);
+      expect(fixture).toBeDefined();
+      const from = new Date(zonedInstant(timezone, today!, 0)).toISOString();
+      const to = new Date(zonedInstant(timezone, addDays(today!, 1), 0)).toISOString();
+      const agenda = await bodyOf<{
+        items: { id: string; status: string; startsAt: string; restricted?: boolean }[];
+      }>(
+        people.ownerA,
+        `/business/appointments/agenda?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      const scheduled = agenda.items.filter(
+        (item) => ['PENDING', 'CONFIRMED', 'RESCHEDULED'].includes(item.status) && !item.restricted,
+      );
+      expect(scheduled).toHaveLength(current!.kpis.appointmentsToday.value);
+      expect(scheduled.find((item) => item.id === fixture!.appointmentId)?.startsAt).toBe(
+        new Date(zonedInstant(timezone, today!, 23 * 60 + 30)).toISOString(),
+      );
+    } finally {
+      if (fixture) {
+        await inFirm('a', people.ownerA, async (tx) => {
+          await tx.appointment.deleteMany({
+            where: { businessId: firms.a.id, id: fixture!.appointmentId },
+          });
+          await tx.clientStatusHistory.deleteMany({
+            where: { businessId: firms.a.id, clientId: fixture!.clientId },
+          });
+          await tx.client.deleteMany({ where: { businessId: firms.a.id, id: fixture!.clientId } });
+        });
+      }
+      await setZone('America/New_York');
+    }
+  });
+});
+
 describe('a firm in another time zone (Dashboard Review Two U2, V2)', () => {
   it("counts today and its periods on the firm's own calendar, and says which zone", async () => {
     // UTC+14: its today is ahead of New York's for most of the day.

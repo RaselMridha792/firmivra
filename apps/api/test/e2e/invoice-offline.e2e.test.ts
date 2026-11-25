@@ -3,7 +3,9 @@
 // Stripe: PAID once covered, a retry records nothing twice, a void reopens, cancel is refused while
 // the invoice holds money, an open checkout is ended first; Staff 403, firm B 404.
 import { randomUUID } from 'node:crypto';
+import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ClientTimelinePage } from '@firmivra/types';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { KEY_INDEX, violatedIndex } from '../../src/payments/offline/offline-payments.service.js';
@@ -365,5 +367,31 @@ describe('void a check or cash payment', () => {
     expect([wrong.status, codeOf(wrong)]).toEqual([404, 'NOT_FOUND']);
     const unknown = await voidIt(invoice.id, randomUUID());
     expect(unknown.status).toBe(404);
+  });
+});
+
+// Clients Review 2 (C2-043): a paid invoice is on the client's Activity as Issued and Paid, and
+// the Paid row's id is a real UUID (an md5 cast as is was not, and the Activity page refused the
+// whole response), the same id on every read.
+describe("the client's Activity after a payment", () => {
+  it('shows the invoice as Issued and Paid, with a valid and stable id', async () => {
+    const invoice = await open();
+    const paid = Invoice.parse(expectOk(await record(invoice.id, cash(50_000))).body);
+    expect(paid.status).toBe('PAID');
+    const feed = async () =>
+      ClientTimelinePage.parse(
+        expectOk(
+          await request(t.app.getHttpServer())
+            .get(`/api/v1/business/clients/${t.ids.one}/timeline?limit=50`)
+            .set('x-business-id', t.ids.firmA)
+            .set('authorization', `Bearer ${await t.tokenFor(t.people.ownerA.email)}`),
+        ).body,
+      );
+    const mine = (page: ClientTimelinePage) =>
+      page.items.filter((x) => x.href === `/invoices/${invoice.id}`).map((x) => [x.summary, x.id]);
+    const first = mine(await feed());
+    // Issued and paid can share a moment here, so the two rows are compared as a set.
+    expect(first.map(([summary]) => summary).sort()).toEqual(['Issued', 'Paid']);
+    expect(mine(await feed())).toEqual(first);
   });
 });

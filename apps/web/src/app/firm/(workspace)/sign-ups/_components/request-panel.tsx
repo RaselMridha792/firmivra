@@ -9,6 +9,7 @@ import {
 import { Avatar, Badge, Button, Checkbox, Skeleton } from '@firmivra/ui';
 import { ArrowSquareOut, CheckCircle, Prohibit, Warning, X } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { OriginLink } from '../../../../../components/origin-link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -266,7 +267,7 @@ function MatchReview({
             <ul className="mt-3 flex flex-col gap-2">
               {request.candidates.map((c) => (
                 <li key={c.clientId} className="flex flex-col gap-1">
-                  <Link
+                  <OriginLink
                     href={`/clients/${c.clientId}`}
                     className="inline-flex min-h-10 w-fit items-center gap-2 rounded-control border border-action bg-surface px-3 font-medium text-action hover:bg-accent-soft"
                   >
@@ -276,7 +277,7 @@ function MatchReview({
                       {' '}
                       {c.clientNumber}, {c.displayName}
                     </span>
-                  </Link>
+                  </OriginLink>
                   <span className="text-xs text-muted">
                     {c.clientNumber} · {c.displayName} · same {on(c.matchedOn)}
                     {c.hasPortalLogin ? ' · has a portal login' : ''}

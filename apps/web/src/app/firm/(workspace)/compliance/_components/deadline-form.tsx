@@ -349,6 +349,10 @@ function DeadlineForm({
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [asTemplate, setAsTemplate] = useState(false);
   const [templateName, setTemplateName] = useState('');
+  const [taskPrompt, setTaskPrompt] = useState<{
+    after: 'open' | 'again' | 'recurring';
+    selectedTaskIds: Set<string>;
+  } | null>(null);
   const [round, setRound] = useState(0);
   const { clients } = useClients();
   const { members } = useMembers();
@@ -484,10 +488,30 @@ function DeadlineForm({
   };
   const fail = (e: unknown) =>
     setMessage({ text: errorMessage(e, COMPLIANCE_ERRORS), tone: 'error' });
-  const run = (after: 'open' | 'again' | 'recurring') => {
-    if (!check()) return;
+  const executeSave = (after: 'open' | 'again' | 'recurring', tasksToUpdate?: Set<string>) => {
     save.mutate(undefined, {
-      onSuccess: (d) => {
+      onSuccess: async (d) => {
+        if (tasksToUpdate && tasksToUpdate.size > 0 && initial?.tasks) {
+          const successes: string[] = [];
+          const failures: string[] = [];
+          for (const t of initial.tasks) {
+            if (tasksToUpdate.has(t.id)) {
+              try {
+                await api.tasks.update(t.id, { dueOn: f.dueOn });
+                successes.push(t.title);
+              } catch {
+                failures.push(t.title);
+              }
+            }
+          }
+          if (failures.length > 0) {
+            setMessage({
+              text: `Saved deadline. Updated ${successes.length} task(s). Failed to update: ${failures.join(', ')}`,
+              tone: 'error',
+            });
+            return;
+          }
+        }
         if (after === 'again') {
           setF(blank());
           setErrors({});
@@ -501,6 +525,18 @@ function DeadlineForm({
       },
       onError: fail,
     });
+  };
+
+  const run = (after: 'open' | 'again' | 'recurring') => {
+    if (!check()) return;
+    if (id && initial && f.dueOn !== initial.dueOn && (initial.tasks?.length ?? 0) > 0) {
+      setTaskPrompt({
+        after,
+        selectedTaskIds: new Set(),
+      });
+      return;
+    }
+    executeSave(after);
   };
   const saveTemplate = () => {
     if (!check()) return;
@@ -1122,6 +1158,75 @@ function DeadlineForm({
             maxLength={200}
             onChange={(e) => setTemplateName(e.target.value)}
           />
+        </Modal>
+      ) : null}
+      {taskPrompt && initial ? (
+        <Modal
+          open
+          title="Update linked task due dates?"
+          subtitle={`The deadline's due date changed from ${dayText(initial.dueOn)} to ${dayText(f.dueOn)}. Choose which linked tasks should be updated to the new date.`}
+          onClose={() => setTaskPrompt(null)}
+          footer={
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  const after = taskPrompt.after;
+                  setTaskPrompt(null);
+                  executeSave(after);
+                }}
+                data-testid="task-prompt-keep"
+              >
+                Keep Current Dates
+              </Button>
+              <Button
+                onClick={() => {
+                  const after = taskPrompt.after;
+                  const selected = taskPrompt.selectedTaskIds;
+                  setTaskPrompt(null);
+                  executeSave(after, selected);
+                }}
+                data-testid="task-prompt-update"
+              >
+                Update Selected Tasks
+              </Button>
+            </div>
+          }
+        >
+          <div className="flex flex-col gap-3 py-2" data-testid="linked-tasks-prompt-list">
+            <p className="text-sm text-muted">
+              Select the tasks whose due dates should be moved to {dayText(f.dueOn)}:
+            </p>
+            <ul className="flex flex-col gap-2">
+              {initial.tasks.map((t) => {
+                const checked = taskPrompt.selectedTaskIds.has(t.id);
+                return (
+                  <li
+                    key={t.id}
+                    className="flex items-center justify-between rounded-lg border border-border bg-canvas p-3"
+                    data-testid={`task-prompt-row-${t.id}`}
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium text-heading">{t.title}</span>
+                      <span className="text-xs text-muted">
+                        Current due date: {t.dueOn ? dayText(t.dueOn) : 'No due date'}
+                      </span>
+                    </div>
+                    <Checkbox
+                      label={`Update ${t.title}`}
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = new Set(taskPrompt.selectedTaskIds);
+                        if (e.target.checked) next.add(t.id);
+                        else next.delete(t.id);
+                        setTaskPrompt({ ...taskPrompt, selectedTaskIds: next });
+                      }}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </Modal>
       ) : null}
     </div>

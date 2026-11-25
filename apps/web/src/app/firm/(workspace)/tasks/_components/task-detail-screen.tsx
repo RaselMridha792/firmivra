@@ -311,6 +311,21 @@ export function TaskDetailScreen({
                       {t.client.displayName}
                     </OriginLink>,
                   ],
+                  ...(t.deadline
+                    ? [
+                        [
+                          'Compliance Deadline',
+                          <OriginLink
+                            key="deadline"
+                            href={`/compliance/${t.deadline.id}`}
+                            className={linkText}
+                            data-testid="deadline-backlink"
+                          >
+                            {t.deadline.name}
+                          </OriginLink>,
+                        ] as [string, ReactNode],
+                      ]
+                    : []),
                   [
                     'Related To',
                     // T-C10: each record opens its page; a custom note is labelled, never a link.

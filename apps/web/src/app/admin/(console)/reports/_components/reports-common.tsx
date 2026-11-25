@@ -80,6 +80,13 @@ export const dayText = (day: string) =>
 
 /** "Not available" for a figure with no source (the API's null), never a zero. */
 export const NOT_AVAILABLE = 'Not available';
+export function NotCollected() {
+  return (
+    <span className="text-muted" title="Not collected yet" aria-label="Not collected yet">
+      —
+    </span>
+  );
+}
 /** A card's note when its call failed (the API unreachable). */
 export const COULD_NOT_LOAD = 'Could not load right now';
 

@@ -438,6 +438,7 @@ export const TaxPlanEventKind = z.enum([
   'CLIENT_REQUEST',
   'APPROVED',
   'DELIVERED',
+  'STAFF_APPROVED',
 ]);
 export type TaxPlanEventKind = z.infer<typeof TaxPlanEventKind>;
 
