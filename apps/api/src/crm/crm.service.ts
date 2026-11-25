@@ -584,7 +584,8 @@ export class CrmService {
     if (ids.length === 0) return;
     await tx.salesFollowUp.updateMany({
       where: { id: { in: ids }, status: 'SCHEDULED' },
-      data: { status: 'CANCELLED', cancelledAt: new Date() },
+      // The database stamps cancelled_at (sales_follow_ups_rules) and refuses one we send.
+      data: { status: 'CANCELLED' },
     });
   }
 
@@ -605,7 +606,8 @@ export class CrmService {
     } else if (a.status === 'COMPLETED') {
       await tx.salesFollowUp.update({
         where: { id: followUp.id },
-        data: { status: 'COMPLETED', completedAt: new Date() },
+        // completed_at is the database's stamp, as cancelled_at above.
+        data: { status: 'COMPLETED' },
       });
     } else {
       await this.cancelFollowUps(tx, [a]);
