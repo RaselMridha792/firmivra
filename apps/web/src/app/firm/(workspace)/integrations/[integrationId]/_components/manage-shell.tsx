@@ -58,6 +58,17 @@ export const INTEGRATION_ERROR_TEXTS: Record<string, string> = {
 export const integrationError = (error: unknown) => errorMessage(error, INTEGRATION_ERROR_TEXTS);
 
 /**
+ * Sync Now's refusals (#29). A provider with nothing to sync (no sync of its own, like the
+ * built-in Firmivra Mail) answers NOT_SUPPORTED, which the shared text calls an unsupported
+ * setting although no setting was changed: say what happened instead.
+ */
+export const syncError = (error: unknown, name: string | undefined) =>
+  errorMessage(error, {
+    ...INTEGRATION_ERROR_TEXTS,
+    NOT_SUPPORTED: `${name ?? 'This integration'} has nothing to sync, so no sync was started.`,
+  });
+
+/**
  * Follows a connect or reconnect answer: the provider's authorization page (https only, or this
  * site), or nothing to do when the connection is saved at once. Returns an error text or null.
  */
@@ -360,7 +371,7 @@ export function ManageShell({
             : integrationError(query.error)}
         </Notice>
       ) : sync.isError ? (
-        <Notice tone="error">{integrationError(sync.error)}</Notice>
+        <Notice tone="error">{syncError(sync.error, detail?.provider.name)}</Notice>
       ) : sync.isSuccess ? (
         <Notice tone="success">
           Sync started for {sync.data.entityLabel}. Progress shows in Sync History.

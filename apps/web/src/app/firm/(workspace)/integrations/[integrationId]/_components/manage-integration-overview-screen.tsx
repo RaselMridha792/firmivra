@@ -18,7 +18,13 @@ import {
   SyncControls,
   SyncData,
 } from './manage-overview-panels';
-import { Breadcrumb, integrationError, ManageHeader, ManageTabsNav } from './manage-shell';
+import {
+  Breadcrumb,
+  integrationError,
+  ManageHeader,
+  ManageTabsNav,
+  syncError,
+} from './manage-shell';
 
 const code = (error: unknown) => (error instanceof ApiRequestError ? error.code : undefined);
 
@@ -114,7 +120,17 @@ export function ManageIntegrationOverviewScreen({ integrationId }: { integration
             notice={
               mutationError ? (
                 <Card role="alert">
-                  <p className="text-sm text-danger">{integrationError(mutationError)}</p>
+                  <p className="text-sm text-danger">
+                    {mutationError === sync.error
+                      ? syncError(sync.error, data.provider.name)
+                      : integrationError(mutationError)}
+                  </p>
+                </Card>
+              ) : sync.isSuccess ? (
+                <Card role="status">
+                  <p className="text-sm text-success">
+                    Sync started for {sync.data.entityLabel}. Progress shows in Sync History.
+                  </p>
                 </Card>
               ) : save.isSuccess ? (
                 <Card role="status">
