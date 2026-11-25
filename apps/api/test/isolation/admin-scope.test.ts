@@ -273,6 +273,33 @@ const WRITES: Record<
   ...integrationsWrites(fx),
   ...firmProfileWrites(fx),
   ...firmAccountWrites(fx),
+  // Q35 CRM (Arfan): platform acquisition CRM writes. These run as Super Admin and must not
+  // open a business scope. Bodies are minimal; routes that need a record use a random id.
+  'POST /api/v1/admin/crm/consent/:contactId': {
+    body: () => ({ businessId: fx.firmA.id, consented: true }),
+  },
+  'POST /api/v1/admin/crm/demos': {
+    body: () => ({ businessId: fx.firmA.id, contactId: fx.firmA.id }),
+  },
+  'PATCH /api/v1/admin/crm/demos/:id': { body: { status: 'CANCELLED' } },
+  'POST /api/v1/admin/crm/demos/:requestId/appointments': {
+    body: () => ({ businessId: fx.firmA.id, scheduledAt: new Date().toISOString() }),
+  },
+  'POST /api/v1/admin/crm/journeys': {
+    body: () => ({ businessId: fx.firmA.id, name: 'Fake journey' }),
+  },
+  'POST /api/v1/admin/crm/journeys/:journeyId/versions': {
+    body: () => ({ businessId: fx.firmA.id, version: 1, steps: [] }),
+  },
+  'POST /api/v1/admin/crm/journeys/:journeyId/publish': {
+    body: () => ({ businessId: fx.firmA.id, versionId: null }),
+  },
+  'POST /api/v1/admin/crm/journeys/:journeyId/enroll': {
+    body: () => ({ businessId: fx.firmA.id, versionId: null, contactId: null }),
+  },
+  'PATCH /api/v1/admin/crm/enrollments/:id/stop': {
+    body: () => ({ businessId: fx.firmA.id, reason: 'Fake stop' }),
+  },
 };
 
 /** The thread, messages, template and category the communications writes act on (R56). */
