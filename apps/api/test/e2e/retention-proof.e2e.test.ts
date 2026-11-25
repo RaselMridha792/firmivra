@@ -50,6 +50,7 @@ import {
   IntakeScheduleJobs,
 } from '../../src/intake-workspace/intake-schedule.jobs.js';
 import { LocationActionsJob } from '../../src/locations/location-actions.job.js';
+import { TaskAckReminderJob } from '../../src/tasks/task-ack-reminder.job.js';
 import { OutboundMessagesJob } from '../../src/messages/outbound.job.js';
 import {
   JOB_LOCK_KEYS,
@@ -635,6 +636,8 @@ function timedJobs(businessIds: string[]): [string, () => Promise<unknown>][] {
     ['e-sign lifecycle', () => job(EsignLifecycleJob).run({ now, businessIds })],
     ['location actions', () => job(LocationActionsJob).run({ businessIds })],
     ['platform rollups', () => job(PlatformRollupJob).run({ now, businessIds })],
+    // Q36: it only marks an acknowledgment's reminder sent; nothing is removed.
+    ['task acknowledgment reminders', () => job(TaskAckReminderJob).run({ now, businessIds })],
     ['firm keys', () => job(FirmKeyJob).sweep()],
   ];
 }
@@ -655,6 +658,7 @@ const JOB_FILES = [
   'notifications/reminder-jobs.ts',
   'payments/invoices/invoice-jobs.ts',
   'platform-rollups/rollups.job.ts',
+  'tasks/task-ack-reminder.job.ts',
   'tasks/task-series.job.ts',
 ];
 

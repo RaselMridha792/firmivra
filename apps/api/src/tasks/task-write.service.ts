@@ -62,6 +62,7 @@ import type {
   UpdateTaskDetailRequest,
   UpdateTaskDraftRequest,
 } from './task-input.js';
+import { syncAcknowledgements } from './task-collab.service.js';
 import { firmClock, reach, TaskReadService } from './task-read.service.js';
 
 type CreateBody = z.output<typeof CreateTaskDetailRequest>;
@@ -202,6 +203,7 @@ export class TaskWriteService {
         const client = await lockClient(tx, businessId, body.clientId);
         if (!client || !reachesClient(actor, client)) throw notFound();
         const id = await this.insertNew(tx, businessId, actor, body, client);
+        await this.afterAssignment(tx, businessId, actor, id);
         const task = await this.reader.read(tx, businessId, null, id);
         await this.audit.logIn(
           tx,
@@ -341,6 +343,25 @@ export class TaskWriteService {
     return created.id;
   }
 
+  /**
+   * Q36 T-C01: after an assignment by `actor`, the task's acknowledgment rows follow its
+   * assignees; each one that just became required is audited with the assigner as its actor
+   * (the reminder and the acknowledgment notice find the assigner from that row).
+   */
+  async afterAssignment(tx: TxClient, businessId: string, actor: ClientsActor, taskId: string) {
+    const required = await syncAcknowledgements(tx, businessId, taskId, actor.userId);
+    for (const assigneeUserId of required) {
+      await this.audit.logIn(
+        tx,
+        'task.acknowledgement.required',
+        { type: 'task', id: taskId },
+        {
+          assigneeUserId,
+        },
+      );
+    }
+  }
+
   // ---------- Update ----------
 
   /**
@@ -465,6 +486,9 @@ export class TaskWriteService {
       }
       if (changes.status === 'DONE' && current.status !== 'DONE')
         await this.unblock(tx, businessId, id);
+      if (changes.assignedUserId !== undefined || changes.additionalAssigneeIds !== undefined) {
+        await this.afterAssignment(tx, businessId, actor, id);
+      }
       return this.reader.read(tx, businessId, null, id);
     }).catch(this.mapErrors(changes));
     // The stored id, not the URL's spelling (see the older service).
@@ -906,6 +930,7 @@ export class TaskWriteService {
         .filter((e) => e.userId !== assignedUserId)
         .map((e) => ({ businessId, taskId: created.id, userId: e.userId })),
     });
+    await this.afterAssignment(tx, businessId, actor, created.id);
     const task = await this.reader.read(tx, businessId, null, created.id);
     // The source's stored id, not the URL's spelling.
     await this.audit.logIn(

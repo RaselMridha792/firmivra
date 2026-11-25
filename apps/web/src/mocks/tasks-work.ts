@@ -35,6 +35,10 @@ import {
   type TaskTemplate,
   TaskTemplatesQuery,
   type TaskType,
+  type TaskAcknowledgement,
+  type TaskAcknowledgements,
+  type TaskComment,
+  TASK_COMMENT_EDIT_MINUTES,
   type TaskWorkClient,
   UpdateTaskAttachmentRequest,
   UpdateTaskDetailRequest,
@@ -535,6 +539,78 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
   const s = store;
   const me: MemberRef = role === 'STAFF' ? mockStaff : mockMe;
   const members: MemberRef[] = [mockMe, mockStaff, KEVIN, ALICIA];
+  // Q36: acknowledgment rows and comments, kept per task id (made on first read).
+  const acks = new Map<string, TaskAcknowledgement[]>();
+  type MockComment = {
+    id: string;
+    author: MemberRef | null;
+    body: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+  const comments = new Map<string, MockComment[]>();
+  const firstMine = () =>
+    s.tasks.find(
+      (t) => t.status === 'OPEN' && t.archivedAt === null && t.assignedTo?.userId === me.userId,
+    );
+  const ackRows = (t: TaskDetail): TaskAcknowledgement[] => {
+    let rows = acks.get(t.id);
+    if (!rows) {
+      const due = new Date(Date.now() + 86_400_000).toISOString();
+      rows = [t.assignedTo, ...t.additionalAssignees]
+        .filter((m): m is MemberRef => !!m)
+        .map((assignee) => {
+          const required = t.id === firstMine()?.id && assignee.userId === me.userId;
+          return {
+            assignee,
+            required,
+            dueAt: required ? due : null,
+            acknowledgedAt: null,
+            acknowledgedBy: null,
+            reminderSentAt: null,
+          };
+        });
+      acks.set(t.id, rows);
+    }
+    return rows;
+  };
+  const ackView = (t: TaskDetail): TaskAcknowledgements => {
+    const rows = ackRows(t);
+    const mine = rows.find((r) => r.assignee.userId === me.userId && r.required);
+    return {
+      items: rows.map((r) => ({ ...r })),
+      mine: !mine ? 'NONE' : mine.acknowledgedAt ? 'DONE' : 'PENDING',
+    };
+  };
+  const commentsOf = (t: TaskDetail): MockComment[] => {
+    let list = comments.get(t.id);
+    if (!list) {
+      const at = new Date(Date.now() - 3 * 3_600_000).toISOString();
+      list =
+        t.id === firstMine()?.id
+          ? [
+              {
+                id: crypto.randomUUID(),
+                author: KEVIN,
+                body: 'I have started on the bank statements.',
+                createdAt: at,
+                updatedAt: at,
+              },
+            ]
+          : [];
+      comments.set(t.id, list);
+    }
+    return list;
+  };
+  const commentView = (c: MockComment): TaskComment => {
+    const mine = c.author?.userId === me.userId;
+    return {
+      ...c,
+      edited: Date.parse(c.updatedAt) - Date.parse(c.createdAt) > 1_000,
+      canEdit: mine && Date.now() - Date.parse(c.createdAt) <= TASK_COMMENT_EDIT_MINUTES * 60_000,
+      canDelete: mine,
+    };
+  };
   const memberOf = (id: string | null | undefined) =>
     id ? (members.find((m) => m.userId === id) ?? { userId: id, name: 'Team member' }) : null;
   const sees = (t: TaskDetail) => role !== 'STAFF' || t.assignedTo?.userId === mockStaff.userId;
@@ -1015,6 +1091,78 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     },
     // Dashboard Review Two §9, as the API: who reminders reach, when each goes next (a days rule at
     // its time or 9:00 AM, firm time), and what went out (task 1 has one, read, emailed).
+    // Q36 T-C01 and T-C02, as the API: the first open task of the signed-in member waits for
+    // their acknowledgment (a coworker of the same role assigned it); it has one comment by Kevin.
+    acknowledgements: async (id) => {
+      await mockDelay();
+      return ackView(find(id));
+    },
+    acknowledge: async (id) => {
+      await mockDelay();
+      const t = find(id);
+      const row = ackRows(t).find((r) => r.assignee.userId === me.userId && r.required);
+      if (!row || row.acknowledgedAt)
+        throw fail(
+          409,
+          'NOTHING_TO_ACKNOWLEDGE',
+          'You have no acknowledgment to give on this task',
+        );
+      row.acknowledgedAt = nowIso();
+      row.acknowledgedBy = me;
+      return ackView(t);
+    },
+    pendingAcknowledgements: async () => {
+      await mockDelay();
+      return {
+        items: s.tasks
+          .filter((t) => sees(t) && t.status === 'OPEN' && t.archivedAt === null)
+          .flatMap((t) =>
+            ackRows(t)
+              .filter((r) => r.assignee.userId === me.userId && r.required && !r.acknowledgedAt)
+              .map((r) => ({ taskId: t.id, dueAt: r.dueAt as string })),
+          ),
+      };
+    },
+    comments: async (id) => {
+      await mockDelay();
+      return { items: commentsOf(find(id)).map(commentView) };
+    },
+    addComment: async (id, body) => {
+      await mockDelay();
+      const t = find(id);
+      const text = body.body.trim();
+      if (!text) throw fail(400, 'VALIDATION_FAILED', 'Write a comment.');
+      const at = nowIso();
+      const c = { id: crypto.randomUUID(), author: me, body: text, createdAt: at, updatedAt: at };
+      commentsOf(t).push(c);
+      return commentView(c);
+    },
+    editComment: async (id, commentId, body) => {
+      await mockDelay();
+      const c = commentsOf(find(id)).find((x) => x.id === commentId);
+      if (!c) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (c.author?.userId !== me.userId)
+        throw fail(403, 'NOT_AUTHOR', 'Only its author can change this comment');
+      if (Date.now() - Date.parse(c.createdAt) > TASK_COMMENT_EDIT_MINUTES * 60_000)
+        throw fail(
+          409,
+          'EDIT_WINDOW_CLOSED',
+          'A comment can be changed for 15 minutes after it is posted',
+        );
+      c.body = body.body.trim();
+      c.updatedAt = new Date(Date.now() + 2_000).toISOString();
+      return commentView(c);
+    },
+    deleteComment: async (id, commentId) => {
+      await mockDelay();
+      const list = commentsOf(find(id));
+      const i = list.findIndex((x) => x.id === commentId);
+      if (i < 0) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (list[i]!.author?.userId !== me.userId)
+        throw fail(403, 'NOT_AUTHOR', 'Only its author can change this comment');
+      list.splice(i, 1);
+      return { ok: true as const };
+    },
     notices: async (id) => {
       await mockDelay();
       const t = find(id);

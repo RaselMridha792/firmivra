@@ -113,6 +113,11 @@ export const CHOSEN_RECIPIENT_EVENTS: ReadonlySet<NotificationEvent> = new Set<N
   'project-deadline.reminder',
   // Tasks T-D12: a task's assignees.
   'task.reminder',
+  // Q36: an acknowledgment reminder (assignee and assigner), an acknowledgment (the assigner) and
+  // a comment (assignees and mentioned staff).
+  'task.acknowledgement-reminder',
+  'task.acknowledged',
+  'task.comment',
   // P4-8: a tax plan's assigned staff, when the client asks or approves in the portal.
   'tax-plan.client-request',
   'tax-plan.client-approved',
