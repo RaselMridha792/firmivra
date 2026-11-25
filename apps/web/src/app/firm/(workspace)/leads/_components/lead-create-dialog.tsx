@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ApiRequestError,
   CreateLeadRequest,
   type CreateLeadRequest as CreateLeadBody,
   type LeadOptions,
@@ -27,6 +28,21 @@ import { OtherContactsField } from './other-contacts-field';
  * refused itself without a word whenever either was left empty.
  */
 const noneIfEmpty = (value: string) => value || undefined;
+
+/**
+ * Leads (Add New Lead): what the API refused, in words. A possible duplicate is a question, not a
+ * failure, so it never reads "Something went wrong"; a lead with no service is told so under
+ * "Services interested in" (the API needs a first service: lead-pipeline-write.service.ts).
+ */
+const CREATE_ERRORS: Record<string, string> = {
+  POSSIBLE_DUPLICATE:
+    'A lead or client already has this email or phone. Check it, or tick "Create this lead anyway" to add it.',
+};
+const NO_SERVICE = 'Choose at least one service';
+const isNoService = (error: unknown) =>
+  error instanceof ApiRequestError &&
+  error.code === 'VALIDATION_FAILED' &&
+  error.message === NO_SERVICE;
 
 const CHANNELS = [
   { value: 'PHONE', label: 'Phone' },
@@ -89,6 +105,7 @@ export function LeadCreateDialog({
   const create = useApiMutation((body: CreateLeadBody) => api.leadPipeline.create(body), {
     invalidate: LEAD_PIPELINE_KEY,
   });
+  const noService = isNoService(create.error);
   const selectedServices = useWatch({ control, name: 'serviceIds' }) ?? [];
   const preferredContact = useWatch({ control, name: 'preferredContact' }) ?? [];
   const allowDuplicate = useWatch({ control, name: 'allowDuplicate' }) ?? false;
@@ -247,21 +264,27 @@ export function LeadCreateDialog({
                   key={service.id}
                   label={service.name}
                   checked={selectedServices.includes(service.id)}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    if (noService) create.reset();
                     setValue(
                       'serviceIds',
                       event.target.checked
                         ? [...selectedServices, service.id]
                         : selectedServices.filter((id) => id !== service.id),
                       { shouldValidate: true },
-                    )
-                  }
+                    );
+                  }}
                 />
               ))}
               {!options?.services.length ? (
                 <p className="text-sm text-muted">No services available to select.</p>
               ) : null}
             </div>
+            {noService ? (
+              <p className="text-sm text-danger" data-testid="lead-services-error">
+                {NO_SERVICE}.
+              </p>
+            ) : null}
           </fieldset>
           <fieldset className="flex flex-col gap-1">
             <legend className="text-sm font-medium text-text">Preferred contact</legend>
@@ -393,7 +416,9 @@ export function LeadCreateDialog({
         ) : null}
         {create.error ? (
           <p role="alert" className="text-sm text-danger">
-            {errorMessage(create.error)}
+            {noService
+              ? 'Choose at least one service in "Services interested in".'
+              : errorMessage(create.error, CREATE_ERRORS)}
           </p>
         ) : null}
       </form>

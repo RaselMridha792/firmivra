@@ -12,6 +12,7 @@ import {
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
+import { mockTaskWorkStore } from './tasks-work';
 
 /**
  * Mock data for `api.tasks` (R12). Synthetic data only. Same checks, rules and error codes as the
@@ -239,6 +240,17 @@ export function createTasksMock(options: { role?: MockFirmRole } = {}): TasksCli
       if (status) {
         t.status = status;
         t.completedAt = status === 'DONE' ? new Date().toISOString() : null;
+      }
+      const tw = mockTaskWorkStore().find((x) => x.id === taskId);
+      if (tw) {
+        Object.assign(tw, rest, {
+          assignedTo: assignedTo ? { userId: assignedTo.userId, name: assignedTo.name } : null,
+          updatedAt: new Date().toISOString(),
+        });
+        if (status) {
+          tw.status = status;
+          tw.completedAt = status === 'DONE' ? new Date().toISOString() : null;
+        }
       }
       return copy(t);
     },

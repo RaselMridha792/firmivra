@@ -6,8 +6,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
+import { integrationError, syncError } from '../[integrationId]/_components/manage-shell';
 import { dateLabel, linkClass } from './integration-shared';
 import { useFromHere } from './integrations-origin';
 import { nextStepLine, notYetLabel } from './readiness';
@@ -202,7 +202,9 @@ export function ProviderCard({ item, canManage }: { item: IntegrationCard; canMa
       </div>
       {mutation.isError ? (
         <p role="alert" className="text-xs text-danger">
-          {errorMessage(mutation.error)}
+          {mutation.variables === 'sync'
+            ? syncError(mutation.error, item.provider.name)
+            : integrationError(mutation.error)}
         </p>
       ) : null}
       {notice ? (

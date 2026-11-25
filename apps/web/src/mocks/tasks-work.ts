@@ -512,6 +512,16 @@ function makeSeries(
 
 let stores: Map<string, Store> | undefined;
 
+export function mockTaskWorkStore(): TaskDetail[] {
+  stores ??= new Map();
+  let store = stores.get('full');
+  if (!store) {
+    store = seed(false);
+    stores.set('full', store);
+  }
+  return store.tasks;
+}
+
 /** `api.taskWork` in mock mode. */
 export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
   const role = options.role ?? 'OWNER';
