@@ -66,6 +66,7 @@ import { AdminTeamModule } from './admin-team/admin-team.module.js';
 import { AdminBillingModule } from './admin-billing/admin-billing.module.js';
 import { AdminSubscriptionsModule } from './admin-subscriptions/admin-subscriptions.module.js';
 import { AdminSalesModule } from './admin-sales/admin-sales.module.js';
+import { CrmModule } from './crm/crm.module.js';
 import { TeamModule } from './team/team.controller.js';
 import { TasksModule } from './tasks/tasks.module.js';
 import { AutomationsModule } from './automations/automations.module.js';
@@ -181,6 +182,7 @@ export class AppModule {
         AdminBillingModule,
         AdminSubscriptionsModule,
         AdminSalesModule,
+        CrmModule,
         WorkspacesModule,
         TasksModule,
         DashboardModule,
