@@ -5,6 +5,7 @@ import { CrmService } from './crm.service.js';
 @Controller('admin/crm')
 @Roles('SUPER_ADMIN')
 export class CrmController {
+  // Q35 CRM: platform acquisition CRM endpoints
   constructor(private readonly crm: CrmService) {}
 
   // --- Consent ---
