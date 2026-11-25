@@ -329,6 +329,7 @@ describe('api.invoices (firm)', () => {
     const payment = {
       id: paymentId,
       amountCents: 15_000,
+      tipCents: 1_500,
       currency: 'usd',
       status: 'SUCCEEDED',
       refundedCents: 2_500,
@@ -513,11 +514,31 @@ describe('api.myInvoices(slug) (portal)', () => {
     expect(PayInvoiceRequest.safeParse({ invoiceId: id }).success).toBe(false);
   });
 
+  it('Q22: takes an optional tip in whole cents, never negative or above the largest amount', () => {
+    expect(PayInvoiceRequest.parse({ tipCents: 0 })).toEqual({ tipCents: 0 });
+    expect(PayInvoiceRequest.parse({ tipCents: 1_500 })).toEqual({ tipCents: 1_500 });
+    for (const tipCents of [-1, 12.5, 100_000_000, '500', null]) {
+      expect(PayInvoiceRequest.safeParse({ tipCents }).success).toBe(false);
+    }
+  });
+
+  it('Q22: sends the tip in the Pay Now body, and nothing without one', async () => {
+    const { fn, calls } = fakeFetch(200, {
+      url: 'https://checkout.stripe.com/c/pay/cs_test_a1',
+      expiresAt: at,
+    });
+    const api = createMyInvoicesClient(request(fn), 'lvp');
+    await api.pay(id, { tipCents: 1_500 });
+    await api.pay(id);
+    expect(calls.map((c) => c.body)).toEqual([{ tipCents: 1_500 }, {}]);
+  });
+
   it.each([
     [404, 'NOT_FOUND'],
     [409, 'NOT_PAYABLE'],
     [409, 'PAYMENT_IN_PROGRESS'],
     [409, 'PAYMENTS_NOT_SET_UP'],
+    [409, 'TIP_NOT_OFFERED'],
     [503, 'PAYMENT_PROVIDER_UNAVAILABLE'],
   ])('passes the API error %s %s from Pay Now through', async (status, code) => {
     const { fn } = fakeFetch(status, { error: { code, message: 'Refused' } });
@@ -544,7 +565,9 @@ describe('api.myInvoices(slug) (portal)', () => {
       paymentProcessing: false,
       canPay: true,
     };
-    expect(MyInvoice.parse(invoice)).toEqual(invoice);
+    // Q22: a list from before tips still parses; no tip is offered.
+    expect(MyInvoice.parse(invoice)).toEqual({ ...invoice, tipOffered: false });
+    expect(MyInvoice.parse({ ...invoice, tipOffered: true }).tipOffered).toBe(true);
     for (const status of ['DRAFT', 'OPEN', 'SCHEDULED']) {
       expect(MyInvoice.safeParse({ ...invoice, status }).success).toBe(false);
     }

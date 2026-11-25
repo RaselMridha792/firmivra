@@ -142,6 +142,8 @@ export interface OpenCheckout {
   processorRef: string;
   accountId: string;
   amountCents: number;
+  /** Q22: an open checkout is reused only for the same tip too. */
+  tipCents: number;
   session: CheckoutSession;
 }
 
@@ -162,7 +164,14 @@ export async function openCheckouts(
 ): Promise<OpenCheckout[]> {
   const pending = await tx.payment.findMany({
     where: { businessId, invoiceId, status: 'PENDING', events: { none: {} } },
-    select: { id: true, processorRef: true, accountId: true, amountCents: true, createdAt: true },
+    select: {
+      id: true,
+      processorRef: true,
+      accountId: true,
+      amountCents: true,
+      tipCents: true,
+      createdAt: true,
+    },
   });
   const open: OpenCheckout[] = [];
   for (const { createdAt, ...p } of pending) {

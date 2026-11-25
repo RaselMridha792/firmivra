@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
-import { type CheckoutLink, INVOICE_ERRORS } from '@firmivra/types';
+import { type CheckoutLink, INVOICE_ERRORS, INVOICE_LIMITS } from '@firmivra/types';
 import { AuditService } from '../../audit/audit.service.js';
 import { ENV } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
 import { DATABASE } from '../../database/database.module.js';
-import { cardsAccepted, conflict } from '../invoices/invoice-view.js';
+import { cardsAccepted, conflict, tipOffered } from '../invoices/invoice-view.js';
 import { MyInvoicesService } from '../invoices/my-invoices.service.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
 import {
@@ -44,9 +44,10 @@ export class CheckoutService {
     businessId: string,
     clientAccountId: string,
     invoiceId: string,
+    tipCents = 0,
   ): Promise<CheckoutLink> {
     return oneAtATime(businessId, invoiceId, () =>
-      this.run(businessId, clientAccountId, invoiceId),
+      this.run(businessId, clientAccountId, invoiceId, tipCents),
     );
   }
 
@@ -54,6 +55,7 @@ export class CheckoutService {
     businessId: string,
     clientAccountId: string,
     invoiceId: string,
+    tipCents: number,
   ): Promise<CheckoutLink> {
     const created: { session?: { accountId: string; id: string } } = {};
     return this.database
@@ -73,17 +75,33 @@ export class CheckoutService {
           if (!account?.chargesEnabled || !(await cardsAccepted(tx, businessId))) {
             throw conflict('PAYMENTS_NOT_SET_UP', INVOICE_ERRORS.PAYMENTS_NOT_SET_UP);
           }
+          const amountCents = mine.balanceDueCents;
+          // Q22 (I-N05, R1-4): a tip only where the invoice allows one and Tipping is on now,
+          // checked again under the row lock; at most the balance, and the total within limits.
+          if (tipCents > 0) {
+            if (!(await tipOffered(tx, businessId, row.allowTip))) {
+              throw conflict('TIP_NOT_OFFERED', INVOICE_ERRORS.TIP_NOT_OFFERED);
+            }
+            if (tipCents > amountCents || amountCents + tipCents > INVOICE_LIMITS.maxCents) {
+              throw new BadRequestException({
+                code: 'VALIDATION_FAILED',
+                message: 'The request is not valid',
+                details: [{ path: 'tipCents', message: 'The tip can be at most the balance due' }],
+              });
+            }
+          }
           if (!this.stripe) throw providerUnavailable();
           const stripe = this.stripe;
-          const amountCents = mine.balanceDueCents;
           return withStripeHold(async () => {
-            // One open checkout per invoice: the same amount with time left is answered again.
+            // One open checkout per invoice: the same amount and tip with time left is answered
+            // again (a changed tip makes a new one).
             let reuse: { id: string; url: string; expiresAt: Date } | null = null;
             for (const open of await openCheckouts(tx, stripe, this.audit, businessId, invoiceId)) {
               const fits =
                 !reuse &&
                 open.session.url !== null &&
                 open.amountCents === amountCents &&
+                open.tipCents === tipCents &&
                 open.accountId === account.accountId &&
                 open.session.expiresAt.getTime() - Date.now() >= REUSE_MIN_MS;
               if (fits) {
@@ -95,7 +113,13 @@ export class CheckoutService {
                 tx,
                 'invoice.checkout_started',
                 { type: 'invoice', id: invoiceId },
-                { paymentId: reuse.id, amountCents, currency: row.currency, reused: true },
+                {
+                  paymentId: reuse.id,
+                  amountCents,
+                  tipCents,
+                  currency: row.currency,
+                  reused: true,
+                },
               );
               return { url: reuse.url, expiresAt: reuse.expiresAt.toISOString() };
             }
@@ -114,6 +138,7 @@ export class CheckoutService {
                   paymentId,
                   description: `Invoice ${row.number}`,
                   amountCents,
+                  tipCents,
                   currency: row.currency,
                   successUrl: `${back}?checkout=success&invoice=${invoiceId}`,
                   cancelUrl: `${back}?checkout=canceled&invoice=${invoiceId}`,
@@ -130,6 +155,8 @@ export class CheckoutService {
                 businessId,
                 invoiceId,
                 amountCents,
+                // Set once, at insert (the database refuses a later change).
+                tipCents,
                 currency: row.currency,
                 processorRef: session.id,
                 accountId: account.accountId,
@@ -139,7 +166,7 @@ export class CheckoutService {
               tx,
               'invoice.checkout_started',
               { type: 'invoice', id: invoiceId },
-              { paymentId, amountCents, currency: row.currency },
+              { paymentId, amountCents, tipCents, currency: row.currency },
             );
             return { url: session.url, expiresAt: session.expiresAt.toISOString() };
           });

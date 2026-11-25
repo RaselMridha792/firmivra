@@ -218,13 +218,14 @@ export function createMyInvoicesClient(request: ApiRequest, firmSlug: string) {
     /** "View": lines, totals and the payment history. */
     get: async (id: string): Promise<MyInvoiceDetail> => request(MyInvoiceDetail, mine(id)),
     /**
-     * A Stripe checkout for what is due on this invoice; it marks nothing paid. 409 NOT_PAYABLE,
-     * PAYMENT_IN_PROGRESS or PAYMENTS_NOT_SET_UP; 503 PAYMENT_PROVIDER_UNAVAILABLE.
+     * A Stripe checkout for what is due on this invoice, plus the tip when one is given (Q22); it
+     * marks nothing paid. 409 NOT_PAYABLE, PAYMENT_IN_PROGRESS, PAYMENTS_NOT_SET_UP or
+     * TIP_NOT_OFFERED; 400 for a tip over the limit; 503 PAYMENT_PROVIDER_UNAVAILABLE.
      */
-    pay: async (id: string): Promise<CheckoutLink> =>
+    pay: async (id: string, body: PayInvoiceRequest = {}): Promise<CheckoutLink> =>
       request(CheckoutLink, `${mine(id)}/checkout`, {
         method: 'POST',
-        body: parseInput(PayInvoiceRequest, {}),
+        body: parseInput(PayInvoiceRequest, body),
       }),
   };
 }
