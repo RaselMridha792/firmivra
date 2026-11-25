@@ -161,6 +161,8 @@ function InvoiceCard({ slug, invoice: i }: { slug: string; invoice: MyInvoiceDet
                 <span>{day(p.paidAt ?? p.createdAt)}</span>
                 <span>
                   {money(p.amountCents, p.currency)}
+                  {/* Q22: the tip charged with the payment. */}
+                  {p.tipCents > 0 ? ` + ${money(p.tipCents, p.currency)} tip` : ''}
                   {p.status === 'PENDING' ? ' (processing)' : ''}
                   {p.status === 'FAILED' ? ' (failed)' : ''}
                   {p.refundedCents > 0 ? `, refunded ${money(p.refundedCents, p.currency)}` : ''}

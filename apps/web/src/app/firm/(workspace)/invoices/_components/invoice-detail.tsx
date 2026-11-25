@@ -294,8 +294,10 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                     <span>
                       <span className="font-semibold text-heading">
                         {money(p.amountCents, p.currency)}
-                      </span>{' '}
-                      · Online (Stripe) · {PAYMENT_STATUS[p.status] ?? p.status} ·{' '}
+                      </span>
+                      {/* Q22: the client's tip, charged with it; it never pays the invoice. */}
+                      {p.tipCents > 0 ? ` + ${money(p.tipCents, p.currency)} tip` : ''} · Online
+                      (Stripe) · {PAYMENT_STATUS[p.status] ?? p.status} ·{' '}
                       {dayText(p.paidAt ?? p.createdAt)}
                       {p.refundedCents > 0
                         ? ` · Refunded ${money(p.refundedCents, p.currency)}`

@@ -925,9 +925,10 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                   onChange={(e) => setAllowTip(e.target.checked)}
                   className="text-sm"
                 />
-                {/* I-N05: saved with the invoice, but Pay Now does not charge a tip yet. */}
-                <p className="text-xs text-muted" data-testid="tip-not-active">
-                  Not active yet: clients can&apos;t add a tip at Pay Now yet.
+                {/* Q22 (I-N05): the portal's Pay Now offers the tip while Tipping is on. */}
+                <p className="text-xs text-muted" data-testid="tip-note">
+                  The client can add a tip at Pay Now. It is charged with the payment and does not
+                  count toward the invoice.
                 </p>
               </>
             ) : null}
