@@ -288,6 +288,107 @@ describe('decide (applicability)', () => {
     expect(decide({ ...rule, criteria: { election: 'S' } }, client()).kind).toBe('REVIEW');
   });
 
+  it('R09: evaluates prior-year tax liability and distinguishes $0 from unknown', () => {
+    const liabilityRule = { ...rule, priorYearLiabilityOverCents: 100_000 };
+    // Unknown (no complianceFacts or priorYearTaxLiabilityCents is null) -> REVIEW
+    expect(decide(liabilityRule, client()).kind).toBe('REVIEW');
+    expect(
+      decide(
+        liabilityRule,
+        client({
+          complianceFacts: {
+            fiscalYearEndMonth: null,
+            fiscalYearEndDay: null,
+            priorYearTaxLiabilityCents: null,
+            priorYearTaxYear: null,
+          },
+        }),
+      ).kind,
+    ).toBe('REVIEW');
+
+    // Known $0 liability -> NO_MATCH (since $0 <= $1,000 threshold, not REVIEW)
+    expect(
+      decide(
+        liabilityRule,
+        client({
+          complianceFacts: {
+            fiscalYearEndMonth: null,
+            fiscalYearEndDay: null,
+            priorYearTaxLiabilityCents: 0,
+            priorYearTaxYear: 2025,
+          },
+        }),
+      ).kind,
+    ).toBe('NO_MATCH');
+
+    // Below threshold -> NO_MATCH
+    expect(
+      decide(
+        liabilityRule,
+        client({
+          complianceFacts: {
+            fiscalYearEndMonth: null,
+            fiscalYearEndDay: null,
+            priorYearTaxLiabilityCents: 50_000,
+            priorYearTaxYear: 2025,
+          },
+        }),
+      ).kind,
+    ).toBe('NO_MATCH');
+
+    // Above threshold ($5,000 > $1,000) -> MATCH
+    const match = decide(
+      liabilityRule,
+      client({
+        complianceFacts: {
+          fiscalYearEndMonth: null,
+          fiscalYearEndDay: null,
+          priorYearTaxLiabilityCents: 500_000,
+          priorYearTaxYear: 2025,
+        },
+      }),
+    );
+    expect(match.kind).toBe('MATCH');
+    expect(match.kind === 'MATCH' && match.reason).toContain('prior-year liability');
+  });
+
+  it('R08: evaluates fiscal-year criteria against client compliance facts', () => {
+    const fiscalRule = { ...rule, criteria: { fiscalYearEndMonth: 6 } };
+    // Unknown fiscal year -> REVIEW
+    const unk = decide(fiscalRule, client());
+    expect(unk.kind).toBe('REVIEW');
+    expect(unk.kind === 'REVIEW' && unk.reason).toContain('fiscal year end is not recorded');
+
+    // Matching fiscal year (Month 6) -> MATCH
+    const match = decide(
+      fiscalRule,
+      client({
+        complianceFacts: {
+          fiscalYearEndMonth: 6,
+          fiscalYearEndDay: 30,
+          priorYearTaxLiabilityCents: null,
+          priorYearTaxYear: null,
+        },
+      }),
+    );
+    expect(match.kind).toBe('MATCH');
+    expect(match.kind === 'MATCH' && match.reason).toContain('fiscal year end month 6');
+
+    // Non-matching fiscal year (Month 12 / Calendar Year) -> NO_MATCH
+    const diff = decide(
+      fiscalRule,
+      client({
+        complianceFacts: {
+          fiscalYearEndMonth: 12,
+          fiscalYearEndDay: 31,
+          priorYearTaxLiabilityCents: null,
+          priorYearTaxYear: null,
+        },
+      }),
+    );
+    expect(diff.kind).toBe('NO_MATCH');
+  });
+
   it("reads the client's typed entity type, and taxes an LLC by its election (CD-F14)", () => {
     const typed = (entityType: string | null, state = 'GA') =>
       client({ profile: { entityType, state } });

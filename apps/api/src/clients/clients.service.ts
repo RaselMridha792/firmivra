@@ -157,6 +157,7 @@ const recordSelect = {
   ...listSelect,
   updatedAt: true,
   profile: true,
+  complianceFacts: true,
   accounts: {
     orderBy: { createdAt: 'asc' },
     select: { id: true, email: true, portalRole: true, status: true },
@@ -231,6 +232,7 @@ function toListItem(row: ListRow): ClientListItem {
 /** `dob`: decrypted by the caller (firm staff see it in full), or flagged unavailable. */
 function toRecord(row: RecordRow, dob: DateOfBirthView): ClientRecord {
   const p = row.profile;
+  const cf = row.complianceFacts;
   const primary = row.accounts.find((a) => a.portalRole === 'PRIMARY');
   return {
     ...toListItem({ ...row, accounts: primary ? [primary] : [] }),
@@ -256,6 +258,14 @@ function toRecord(row: RecordRow, dob: DateOfBirthView): ClientRecord {
       preferredContactMethod: p?.preferredContactMethod ?? null,
       referralSource: p?.referralSource ?? null,
       additionalInfo: p?.additionalInfo ?? null,
+      fiscalYearEndMonth: cf?.fiscalYearEndMonth ?? null,
+      fiscalYearEndDay: cf?.fiscalYearEndDay ?? null,
+      priorYearTaxLiabilityCents: cf?.priorYearTaxLiabilityCents ?? null,
+      priorYearTaxYear: cf?.priorYearTaxYear ?? null,
+      priorYearTaxLiabilitySource: cf?.priorYearTaxLiabilitySource ?? null,
+      priorYearTaxLiabilityAsOf: cf?.priorYearTaxLiabilityAsOf
+        ? cf.priorYearTaxLiabilityAsOf.toISOString().slice(0, 10)
+        : null,
       responsibleParty:
         p?.responsiblePartyName && p.responsiblePartyEmail && p.responsiblePartyPhone
           ? {
@@ -292,7 +302,20 @@ const OPEN_INTAKES = [
 
 /** The plain profile columns of a request; SSN, EIN and date of birth go through `secretColumns`. */
 function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInput {
-  const { address, ssn: _s, ein: _e, dateOfBirth: _d, responsibleParty, ...rest } = body;
+  const {
+    address,
+    ssn: _s,
+    ein: _e,
+    dateOfBirth: _d,
+    responsibleParty,
+    fiscalYearEndMonth: _fym,
+    fiscalYearEndDay: _fyd,
+    priorYearTaxLiabilityCents: _pyc,
+    priorYearTaxYear: _pyy,
+    priorYearTaxLiabilitySource: _pys,
+    priorYearTaxLiabilityAsOf: _pya,
+    ...rest
+  } = body;
   const data: Record<string, unknown> = { ...rest };
   // E5: the three together, or none (client_profiles_responsible_party).
   if (responsibleParty !== undefined) {
@@ -333,6 +356,94 @@ function refuseCleared(issues: { path: string[]; message: string }[], prefix?: s
       path: (i.path[0] === prefix ? i.path.slice(1) : i.path).join('.'),
       message: i.message,
     })),
+  });
+}
+
+const lastDayOfMonth = (m: number) => {
+  if (m === 2) return 29;
+  if ([4, 6, 9, 11].includes(m)) return 30;
+  return 31;
+};
+
+async function syncComplianceFacts(
+  tx: TxClient,
+  businessId: string,
+  clientId: string,
+  body: ProfileBody,
+  actorUserId: string,
+) {
+  const {
+    fiscalYearEndMonth,
+    fiscalYearEndDay,
+    priorYearTaxLiabilityCents,
+    priorYearTaxYear,
+    priorYearTaxLiabilitySource,
+    priorYearTaxLiabilityAsOf,
+  } = body;
+  if (
+    fiscalYearEndMonth === undefined &&
+    fiscalYearEndDay === undefined &&
+    priorYearTaxLiabilityCents === undefined &&
+    priorYearTaxYear === undefined &&
+    priorYearTaxLiabilitySource === undefined &&
+    priorYearTaxLiabilityAsOf === undefined
+  ) {
+    return;
+  }
+  const current = await tx.clientComplianceFacts.findUnique({
+    where: { businessId_clientId: { businessId, clientId } },
+  });
+  const m =
+    fiscalYearEndMonth === undefined ? (current?.fiscalYearEndMonth ?? null) : fiscalYearEndMonth;
+  const d = m
+    ? fiscalYearEndDay === undefined
+      ? (current?.fiscalYearEndDay ?? lastDayOfMonth(m))
+      : (fiscalYearEndDay ?? lastDayOfMonth(m))
+    : null;
+
+  const cents =
+    priorYearTaxLiabilityCents === undefined
+      ? (current?.priorYearTaxLiabilityCents ?? null)
+      : priorYearTaxLiabilityCents;
+  const year =
+    cents !== null
+      ? priorYearTaxYear === undefined
+        ? (current?.priorYearTaxYear ?? new Date().getFullYear() - 1)
+        : (priorYearTaxYear ?? new Date().getFullYear() - 1)
+      : null;
+  const source =
+    priorYearTaxLiabilitySource === undefined
+      ? (current?.priorYearTaxLiabilitySource ?? null)
+      : priorYearTaxLiabilitySource;
+  const asOf =
+    priorYearTaxLiabilityAsOf === undefined
+      ? (current?.priorYearTaxLiabilityAsOf ?? null)
+      : priorYearTaxLiabilityAsOf
+        ? new Date(priorYearTaxLiabilityAsOf)
+        : null;
+
+  await tx.clientComplianceFacts.upsert({
+    where: { businessId_clientId: { businessId, clientId } },
+    create: {
+      businessId,
+      clientId,
+      fiscalYearEndMonth: m,
+      fiscalYearEndDay: d,
+      priorYearTaxLiabilityCents: cents,
+      priorYearTaxYear: year,
+      priorYearTaxLiabilitySource: source,
+      priorYearTaxLiabilityAsOf: asOf,
+      updatedByUserId: actorUserId,
+    },
+    update: {
+      fiscalYearEndMonth: m,
+      fiscalYearEndDay: d,
+      priorYearTaxLiabilityCents: cents,
+      priorYearTaxYear: year,
+      priorYearTaxLiabilitySource: source,
+      priorYearTaxLiabilityAsOf: asOf,
+      updatedByUserId: actorUserId,
+    },
   });
 }
 
@@ -1251,6 +1362,9 @@ export class ClientsService {
           ...secrets,
         } as Prisma.ClientProfileUncheckedCreateInput,
       });
+      if (body.profile) {
+        await syncComplianceFacts(tx, businessId, client.id, body.profile, actor.userId);
+      }
       return { row: await this.find(tx, businessId, actor, client.id), byPhone, byName };
     });
     const anyway = overrideOf(created.byPhone, created.byName);
@@ -1374,6 +1488,7 @@ export class ClientsService {
         } as Prisma.ClientProfileUncheckedCreateInput,
         update: data,
       });
+      await syncComplianceFacts(tx, businessId, current.id, body, actor.userId);
       return this.find(tx, businessId, actor, id);
     });
     await this.audit.log(
