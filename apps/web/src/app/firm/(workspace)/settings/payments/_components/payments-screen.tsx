@@ -463,9 +463,11 @@ function AcceptedForm({
         <Method
           testId="method-ach"
           name="ACH bank payments"
-          line={`Secure bank transfers (U.S. only), through ${PAYMENT_PROCESSOR_LABELS[form.achProcessor]}`}
-          on={false}
+          line={`Secure bank transfers (U.S. only), through ${PAYMENT_PROCESSOR_LABELS[form.achProcessor]}. Clients verify their bank instantly; a bank that can't pays by card.`}
+          // Q23 (IP-041): on only while Stripe's ACH Direct Debit is active for the firm.
+          on={form.acceptAch && saved.locks.ach === null}
           lock={saved.locks.ach}
+          onChange={(on) => change({ acceptAch: on })}
         />
         <Method
           testId="method-paypal"

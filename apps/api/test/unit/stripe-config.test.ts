@@ -88,6 +88,7 @@ describe('toOnboardingState', () => {
       chargesEnabled: false,
       payoutsEnabled: false,
       detailsSubmitted: true,
+      achPaymentsActive: false,
     });
   });
 
@@ -124,5 +125,16 @@ describe('toOnboardingState', () => {
       }),
     );
     expect(state.onboardingStatus).toBe('COMPLETE');
+  });
+
+  it('Q23: takes ACH as active only when Stripe says the capability is active', () => {
+    const ach = (status: string | null | undefined) =>
+      toOnboardingState(account({ capabilities: { us_bank_account_ach_payments: status } }))
+        .achPaymentsActive;
+    expect(ach('active')).toBe(true);
+    for (const status of ['inactive', 'pending', 'unrequested', null, undefined]) {
+      expect(ach(status)).toBe(false);
+    }
+    expect(toOnboardingState(account()).achPaymentsActive).toBe(false);
   });
 });

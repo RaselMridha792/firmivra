@@ -129,6 +129,8 @@ export class FakeStripeGateway implements StripeGateway {
     return this.view(sessionId);
   }
 
+  /** Q23: how each payment intent was paid, for `retrievePaymentIntent` (left out: card 4242). */
+  readonly methods = new Map<string, { methodType: string; last4: string }>();
   /** Failure codes by payment intent, for `retrievePaymentIntent`. */
   readonly failureCodes = new Map<string, string>();
   /** Refunds by id, with the account, the payment intent and the charge they belong to. */
@@ -148,6 +150,8 @@ export class FakeStripeGateway implements StripeGateway {
     return {
       paymentId: s.params.paymentId,
       failureCode: this.failureCodes.get(paymentIntentId) ?? null,
+      methodType: this.methods.get(paymentIntentId)?.methodType ?? 'card',
+      last4: this.methods.get(paymentIntentId)?.last4 ?? '4242',
     };
   }
 

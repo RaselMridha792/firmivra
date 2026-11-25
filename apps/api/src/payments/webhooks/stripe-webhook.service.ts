@@ -91,7 +91,26 @@ export class StripeWebhookService {
     let failureCode: string | null = null;
     let intentConfirmed = false;
     let refund: { paymentId: string | null; refunds: StripeRefund[] } | null = null;
+    let method: { methodType: string; last4: string | null } | null = null;
     switch (event.type) {
+      case 'checkout.session.completed': {
+        // Q23 (IP-041): how the client paid (card or bank account, and its last 4), kept with the
+        // payment for the firm's lists and the ACH filter.
+        const intent = intentId(object);
+        const info = intent
+          ? await stripe.retrievePaymentIntent(accountId, intent).catch((error: unknown) => {
+              const name = stripeErrorName(error);
+              if (name.endsWith(':resource_missing')) return null;
+              this.logger.warn(`Stripe payment intent lookup failed for ${event.id}: ${name}`);
+              throw providerUnavailable();
+            })
+          : null;
+        if (info?.methodType && /^[a-z_]{1,30}$/.test(info.methodType)) {
+          const last4 = info.last4 && /^[0-9]{4}$/.test(info.last4) ? info.last4 : null;
+          method = { methodType: info.methodType, last4 };
+        }
+        break;
+      }
       case 'account.updated': {
         // Stripe's current state of the account, not the event's (events can arrive out of order).
         const account = await stripeCall('accounts.retrieve', accountId, () =>
@@ -161,6 +180,7 @@ export class StripeWebhookService {
             object.payment_status === 'paid'
               ? await this.succeed(ctx, object, object.amount_total ?? null, true)
               : (await this.link(ctx, object, true), null);
+          if (method) await this.recordMethod(ctx, object, method);
           break;
         case 'payment_intent.succeeded':
           paid = await this.succeed(ctx, object, object.amount_received ?? null, intentConfirmed);
@@ -211,6 +231,23 @@ export class StripeWebhookService {
     if (isSession && object.id !== payment.processorRef) return null;
     if (!object.currency || object.currency.toLowerCase() !== payment.currency) return null;
     return payment;
+  }
+
+  /**
+   * Q23: the payment's method and last 4, once (the database refuses a later change), only on the
+   * payment's own session.
+   */
+  private async recordMethod(
+    ctx: Ctx,
+    object: EventObject,
+    method: { methodType: string; last4: string | null },
+  ) {
+    const payment = await this.own(ctx, object, true);
+    if (!payment) return;
+    await ctx.tx.payment.updateMany({
+      where: { businessId: ctx.businessId, id: payment.id, methodType: null },
+      data: method,
+    });
   }
 
   /** `own()`, then the event is linked to that payment. */

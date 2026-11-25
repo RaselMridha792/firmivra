@@ -15,7 +15,10 @@ test('each locked payment method says which connection it needs', async ({ page 
   await expect(cards.getByRole('switch', { name: 'Credit / debit cards' })).toBeDisabled();
   await expect(cards.getByRole('switch', { name: 'Credit / debit cards' })).not.toBeChecked();
   await expect(cards).toContainText('Connect Stripe first');
-  await expect(card.getByTestId('method-ach')).toContainText('Not offered yet');
+  // Q23 (IP-041): bank payments wait for Stripe, then for its ACH Direct Debit.
+  await expect(card.getByTestId('method-ach')).toContainText(
+    'Connect Stripe and finish its setup first',
+  );
   await expect(card.getByTestId('method-paypal')).toContainText('Connect PayPal first');
   await expect(card.getByRole('combobox', { name: 'Default card processor' })).toBeDisabled();
   await expect(card.getByRole('combobox', { name: 'Default card processor' })).toContainText(
