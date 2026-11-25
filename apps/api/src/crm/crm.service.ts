@@ -1,6 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@firmivra/db';
 import { PlatformPrisma } from '../database/database.module.js';
+
+function asCrmError(error: unknown): never {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === 'P2025' || code === 'P2003') throw new NotFoundException();
+  throw error instanceof Error ? error : new Error(String(error));
+}
 
 /**
  * Super Admin CRM service (Q35). Reuses existing SalesContact/SalesOpportunity
@@ -12,9 +18,7 @@ export class CrmService {
 
   // --- Consent ---
   async getConsent(contactId: string) {
-    return this.platform.db.salesLeadConsent.findUnique({
-      where: { contactId },
-    });
+    return this.platform.db.salesLeadConsent.findUnique({ where: { contactId } });
   }
 
   async upsertConsent(
@@ -27,27 +31,31 @@ export class CrmService {
       suppressionReason?: string;
     },
   ) {
-    return this.platform.db.salesLeadConsent.upsert({
-      where: { contactId },
-      create: {
-        businessId,
-        contactId,
-        consented: data.consented,
-        consentedAt: data.consented ? new Date() : null,
-        consentSource: data.consentSource ?? null,
-        suppressed: data.suppressed ?? false,
-        suppressedAt: data.suppressed ? new Date() : null,
-        suppressionReason: data.suppressionReason ?? null,
-      },
-      update: {
-        consented: data.consented,
-        consentedAt: data.consented ? new Date() : undefined,
-        consentSource: data.consentSource ?? undefined,
-        suppressed: data.suppressed ?? undefined,
-        suppressedAt: data.suppressed ? new Date() : undefined,
-        suppressionReason: data.suppressionReason ?? undefined,
-      },
-    });
+    try {
+      return await this.platform.db.salesLeadConsent.upsert({
+        where: { contactId },
+        create: {
+          businessId,
+          contactId,
+          consented: data.consented,
+          consentedAt: data.consented ? new Date() : null,
+          consentSource: data.consentSource ?? null,
+          suppressed: data.suppressed ?? false,
+          suppressedAt: data.suppressed ? new Date() : null,
+          suppressionReason: data.suppressionReason ?? null,
+        },
+        update: {
+          consented: data.consented,
+          consentedAt: data.consented ? new Date() : undefined,
+          consentSource: data.consentSource ?? undefined,
+          suppressed: data.suppressed ?? undefined,
+          suppressedAt: data.suppressed ? new Date() : undefined,
+          suppressionReason: data.suppressionReason ?? undefined,
+        },
+      });
+    } catch (e) {
+      asCrmError(e);
+    }
   }
 
   // --- Demo requests ---
@@ -68,27 +76,35 @@ export class CrmService {
     notes?: string;
     createdByUserId?: string;
   }) {
-    return this.platform.db.salesDemoRequest.create({
-      data: {
-        businessId: data.businessId,
-        contactId: data.contactId,
-        opportunityId: data.opportunityId ?? null,
-        topic: data.topic ?? null,
-        preferredTime: data.preferredTime ?? null,
-        notes: data.notes ?? null,
-        createdByUserId: data.createdByUserId ?? null,
-      },
-    });
+    try {
+      return await this.platform.db.salesDemoRequest.create({
+        data: {
+          businessId: data.businessId,
+          contactId: data.contactId,
+          opportunityId: data.opportunityId ?? null,
+          topic: data.topic ?? null,
+          preferredTime: data.preferredTime ?? null,
+          notes: data.notes ?? null,
+          createdByUserId: data.createdByUserId ?? null,
+        },
+      });
+    } catch (e) {
+      asCrmError(e);
+    }
   }
 
   async updateDemoRequest(id: string, data: { status?: string; notes?: string }) {
-    return this.platform.db.salesDemoRequest.update({
-      where: { id },
-      data: {
-        ...(data.status ? { status: data.status } : {}),
-        ...(data.notes !== undefined ? { notes: data.notes } : {}),
-      },
-    });
+    try {
+      return await this.platform.db.salesDemoRequest.update({
+        where: { id },
+        data: {
+          ...(data.status ? { status: data.status } : {}),
+          ...(data.notes !== undefined ? { notes: data.notes } : {}),
+        },
+      });
+    } catch (e) {
+      asCrmError(e);
+    }
   }
 
   // --- Demo appointments ---
@@ -101,17 +117,21 @@ export class CrmService {
     notes?: string;
     createdByUserId?: string;
   }) {
-    return this.platform.db.salesDemoAppointment.create({
-      data: {
-        businessId: data.businessId,
-        requestId: data.requestId,
-        scheduledAt: data.scheduledAt,
-        durationMinutes: data.durationMinutes ?? 30,
-        videoLink: data.videoLink ?? null,
-        notes: data.notes ?? null,
-        createdByUserId: data.createdByUserId ?? null,
-      },
-    });
+    try {
+      return await this.platform.db.salesDemoAppointment.create({
+        data: {
+          businessId: data.businessId,
+          requestId: data.requestId,
+          scheduledAt: data.scheduledAt,
+          durationMinutes: data.durationMinutes ?? 30,
+          videoLink: data.videoLink ?? null,
+          notes: data.notes ?? null,
+          createdByUserId: data.createdByUserId ?? null,
+        },
+      });
+    } catch (e) {
+      asCrmError(e);
+    }
   }
 
   async listDemoAppointments(businessId: string, requestId?: string) {
@@ -153,26 +173,34 @@ export class CrmService {
     steps: unknown;
     createdByUserId?: string;
   }) {
-    return this.platform.db.salesNurtureJourneyVersion.create({
-      data: {
-        businessId: data.businessId,
-        journeyId: data.journeyId,
-        version: data.version,
-        steps: data.steps as Prisma.InputJsonValue,
-        createdByUserId: data.createdByUserId ?? null,
-      },
-    });
+    try {
+      return await this.platform.db.salesNurtureJourneyVersion.create({
+        data: {
+          businessId: data.businessId,
+          journeyId: data.journeyId,
+          version: data.version,
+          steps: data.steps as Prisma.InputJsonValue,
+          createdByUserId: data.createdByUserId ?? null,
+        },
+      });
+    } catch (e) {
+      asCrmError(e);
+    }
   }
 
   async publishJourneyVersion(businessId: string, journeyId: string, versionId: string) {
-    await this.platform.db.salesNurtureJourneyVersion.update({
-      where: { id: versionId },
-      data: { publishedAt: new Date() },
-    });
-    return this.platform.db.salesNurtureJourney.update({
-      where: { id: journeyId },
-      data: { currentVersionId: versionId, status: 'ACTIVE' },
-    });
+    try {
+      await this.platform.db.salesNurtureJourneyVersion.update({
+        where: { id: versionId },
+        data: { publishedAt: new Date() },
+      });
+      return await this.platform.db.salesNurtureJourney.update({
+        where: { id: journeyId },
+        data: { currentVersionId: versionId, status: 'ACTIVE' },
+      });
+    } catch (e) {
+      asCrmError(e);
+    }
   }
 
   // --- Enrollments ---
@@ -183,21 +211,29 @@ export class CrmService {
     contactId: string;
     enrolledByUserId?: string;
   }) {
-    return this.platform.db.salesNurtureEnrollment.create({
-      data: {
-        businessId: data.businessId,
-        journeyId: data.journeyId,
-        versionId: data.versionId,
-        contactId: data.contactId,
-        enrolledByUserId: data.enrolledByUserId ?? null,
-      },
-    });
+    try {
+      return await this.platform.db.salesNurtureEnrollment.create({
+        data: {
+          businessId: data.businessId,
+          journeyId: data.journeyId,
+          versionId: data.versionId,
+          contactId: data.contactId,
+          enrolledByUserId: data.enrolledByUserId ?? null,
+        },
+      });
+    } catch (e) {
+      asCrmError(e);
+    }
   }
 
   async stopEnrollment(businessId: string, enrollmentId: string, reason: string) {
-    return this.platform.db.salesNurtureEnrollment.update({
-      where: { id: enrollmentId },
-      data: { status: 'STOPPED', stoppedAt: new Date(), stopReason: reason },
-    });
+    try {
+      return await this.platform.db.salesNurtureEnrollment.update({
+        where: { id: enrollmentId },
+        data: { status: 'STOPPED', stoppedAt: new Date(), stopReason: reason },
+      });
+    } catch (e) {
+      asCrmError(e);
+    }
   }
 }
