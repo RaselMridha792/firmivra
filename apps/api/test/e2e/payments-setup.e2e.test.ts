@@ -373,12 +373,14 @@ describe('StripeAccountsWriter', () => {
     chargesEnabled: false,
     payoutsEnabled: false,
     detailsSubmitted: false,
+    achPaymentsActive: false,
   } as const;
   const complete = {
     onboardingStatus: 'COMPLETE',
     chargesEnabled: true,
     payoutsEnabled: true,
     detailsSubmitted: true,
+    achPaymentsActive: false,
   } as const;
   const accountC = `acct_${run}C`;
   // The owner client bypasses the RLS, so every read names the firm.

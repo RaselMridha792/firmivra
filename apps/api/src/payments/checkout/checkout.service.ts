@@ -6,7 +6,13 @@ import { AuditService } from '../../audit/audit.service.js';
 import { ENV } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
 import { DATABASE } from '../../database/database.module.js';
-import { cardsAccepted, conflict, tipOffered } from '../invoices/invoice-view.js';
+import {
+  ACH_MIN_CENTS,
+  achAccepted,
+  cardsAccepted,
+  conflict,
+  tipOffered,
+} from '../invoices/invoice-view.js';
 import { MyInvoicesService } from '../invoices/my-invoices.service.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
 import {
@@ -90,6 +96,12 @@ export class CheckoutService {
               });
             }
           }
+          // Q23 (IP-041): bank payments too, only where the firm takes them and Stripe can (USD, at
+          // least its smallest bank payment). Stripe ACH off: cards only, as before.
+          const bankDebit =
+            row.currency === 'usd' &&
+            amountCents + tipCents >= ACH_MIN_CENTS &&
+            (await achAccepted(tx, businessId, account.achPaymentsActive));
           if (!this.stripe) throw providerUnavailable();
           const stripe = this.stripe;
           return withStripeHold(async () => {
@@ -139,6 +151,7 @@ export class CheckoutService {
                   description: `Invoice ${row.number}`,
                   amountCents,
                   tipCents,
+                  bankDebit,
                   currency: row.currency,
                   successUrl: `${back}?checkout=success&invoice=${invoiceId}`,
                   cancelUrl: `${back}?checkout=canceled&invoice=${invoiceId}`,

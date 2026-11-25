@@ -16,6 +16,8 @@ export interface OnboardingState {
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;
+  /** Q23 (IP-041): Stripe's ACH Direct Debit capability is active on the account. */
+  achPaymentsActive: boolean;
 }
 
 /**
@@ -44,7 +46,8 @@ export function toOnboardingState(account: ConnectedAccount): OnboardingState {
       : detailsSubmitted && needsMore && !inReview
         ? 'RESTRICTED'
         : 'PENDING';
-  return { onboardingStatus, chargesEnabled, payoutsEnabled, detailsSubmitted };
+  const achPaymentsActive = account.capabilities?.us_bank_account_ach_payments === 'active';
+  return { onboardingStatus, chargesEnabled, payoutsEnabled, detailsSubmitted, achPaymentsActive };
 }
 
 /**

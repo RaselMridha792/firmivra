@@ -63,6 +63,26 @@ export async function cardsAccepted(tx: TxClient, businessId: string): Promise<b
   return settings?.acceptCard ?? true;
 }
 
+/** Q23 (IP-041): Stripe's smallest bank (ACH) payment, in cents. */
+export const ACH_MIN_CENTS = 50;
+
+/**
+ * Q23 (IP-041): the firm takes bank payments (ACH) now: Settings > Payments has them on and
+ * Stripe's ACH Direct Debit capability is active on its account. Never offered otherwise.
+ */
+export async function achAccepted(
+  tx: TxClient,
+  businessId: string,
+  achPaymentsActive: boolean,
+): Promise<boolean> {
+  if (!achPaymentsActive) return false;
+  const settings = await tx.paymentSettings.findUnique({
+    where: { businessId },
+    select: { acceptAch: true },
+  });
+  return settings?.acceptAch ?? false;
+}
+
 /** Q22 (I-N05): Settings > Payments' Tipping switch, now (off for a firm that never chose). */
 export async function tippingOn(tx: TxClient, businessId: string): Promise<boolean> {
   const settings = await tx.paymentSettings.findUnique({
