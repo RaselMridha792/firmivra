@@ -101,7 +101,9 @@ test('Preview as Client opens a read-only client view with no staff notes', asyn
   await expect(preview).not.toContainText('Assigned To');
 });
 
-test('Plan: create it, enter figures, override an estimate, finalize it', async ({ page }) => {
+test('Plan: create it, enter figures, override an estimate, finalize and sign it off', async ({
+  page,
+}) => {
   const year = new Date().getFullYear();
   await page.goto(`${base}/plans/new`);
   await page
@@ -154,6 +156,16 @@ test('Plan: create it, enter figures, override an estimate, finalize it', async 
   await page.getByRole('button', { name: 'Finalize Plan' }).click();
   await expect(page.getByText('Plan finalized.')).toBeVisible();
   await expect(page.getByTestId('step-review')).toContainText('Version 2');
+  const workflow = page.getByTestId('plan-workflow');
+  await expect(workflow).toContainText('Staff sign-off of the finalized version recorded');
+  await expect(workflow.getByRole('button', { name: 'Staff Sign-off' })).toBeVisible();
+  await expect(workflow.getByRole('button', { name: 'Send to Client' })).toHaveCount(0);
+  await workflow.getByRole('button', { name: 'Staff Sign-off' }).click();
+  await expect(page.getByText('Staff sign-off recorded.')).toBeVisible();
+  await expect(workflow.getByTestId('plan-staff-approvals')).toContainText(
+    'Version 2 signed off by',
+  );
+  await expect(workflow.getByRole('button', { name: 'Send to Client' })).toBeVisible();
   // C08 and C25: the readiness list, and a kept version opens read-only.
   await expect(page.getByTestId('readiness')).toContainText('Ready to finalize?');
   await page.getByTestId('view-version').first().click();

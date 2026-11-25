@@ -265,6 +265,7 @@ export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/plans/:id/send`]: {
     params: { id: 'taxPlan' },
     body: { channel: 'PORTAL_MESSAGE' },
+    expect: 409,
   },
   // C27 (Review 2): reopen and revise with a reason, and the plan's history.
   [`POST ${BASE}/plans/:id/reopen`]: {
@@ -297,6 +298,11 @@ export const cases: CaseModule['cases'] = {
       documentId: PLACEHOLDER,
     },
     // Not sent for the client's review: reached, then refused for its status.
+    expect: 409,
+  },
+  [`POST ${BASE}/plans/:id/staff-approvals`]: {
+    params: { id: 'taxPlan' },
+    body: { version: 1, etag: ETAG },
     expect: 409,
   },
   [`POST ${BASE}/plans/:id/requests`]: {

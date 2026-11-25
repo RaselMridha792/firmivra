@@ -62,6 +62,7 @@ import {
   UpdateOpportunityBody,
   PlanReasonBody,
   PlanReviewBody,
+  StaffApproveBody,
   RecordApprovalBody,
   CreatePlanRequestBody,
   UpdatePlanRequestBody,
@@ -342,6 +343,18 @@ export class TaxPlanningController {
   ): Promise<TaxPlanDetail> {
     const w = who(auth, tenant);
     return this.plans.review(w.businessId, w.tenant, w.userId, id, body);
+  }
+
+  @Post('plans/:id/staff-approvals')
+  @HttpCode(200)
+  staffApprovePlan(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(StaffApproveBody)) body: Out<typeof StaffApproveBody>,
+  ): Promise<TaxPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.staffApprove(w.businessId, w.tenant, w.userId, id, body);
   }
 
   /** Review 2 workflow: Record Client Approval of an exact version (Client Approved). */

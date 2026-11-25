@@ -39,10 +39,12 @@ import {
   type PlanVersionDetail,
   type PlanAction,
   type PlanApproval,
+  type PlanStaffApproval,
   type PlanRequest,
   CreatePlanRequestRequest,
   DuplicatePlanRequest,
   PlanReviewRequest,
+  StaffApprovePlanRequest,
   RecordPlanApprovalRequest,
   UpdatePlanRequestRequest,
   type PlanningClientRow,
@@ -91,6 +93,9 @@ const EMPTY_WORKFLOW: TaxPlanDetail['workflow'] = {
   readiness: [],
   reviewer: null,
   reviewRequestedAt: null,
+  finalizedVersion: null,
+  staffApproved: false,
+  staffApprovals: [],
   sentVersion: null,
   approvedVersion: null,
   approvals: [],
@@ -712,6 +717,7 @@ export function createTaxPlanningMock({
     reviewer: TaxPlanDetail['workflow']['reviewer'];
     reviewRequestedAt: string | null;
     approvals: PlanApproval[];
+    staffApprovals: PlanStaffApproval[];
     requests: PlanRequest[];
     delivered: { at: string; version: number } | null;
   };
@@ -719,7 +725,14 @@ export function createTaxPlanningMock({
   const flowOf = (pid: string): Flow => {
     let f = flows.get(pid);
     if (!f) {
-      f = { reviewer: null, reviewRequestedAt: null, approvals: [], requests: [], delivered: null };
+      f = {
+        reviewer: null,
+        reviewRequestedAt: null,
+        approvals: [],
+        staffApprovals: [],
+        requests: [],
+        delivered: null,
+      };
       flows.set(pid, f);
     }
     return f;
@@ -769,11 +782,25 @@ export function createTaxPlanningMock({
     const f = flowOf(p.id);
     const versions = p._versions ?? [];
     const sent = versions.find((v) => v.event === 'SENT')?.version ?? null;
+    const finalizedVersion = versions.find((v) => v.event === 'FINALIZED')?.version ?? null;
     const approved = f.approvals[0]?.version ?? null;
+    const staffApproved =
+      finalizedVersion !== null &&
+      [
+        'FINALIZED',
+        'UNDER_REVIEW',
+        'AWAITING_CLIENT',
+        'READY_FOR_REVIEW',
+        'CLIENT_APPROVED',
+        'IMPLEMENTED',
+      ].includes(p.status) &&
+      f.staffApprovals.some((a) => a.version === finalizedVersion);
     const edit = role !== 'STAFF';
     const actions = (ACTIONS[p.status] ?? []).filter(
-      (a) => edit && !(a === 'DELIVER' && f.delivered),
+      (a) =>
+        edit && !(a === 'DELIVER' && f.delivered) && !(a === 'SEND_TO_CLIENT' && !staffApproved),
     );
+    if (p.status === 'FINALIZED' && edit && !staffApproved) actions.unshift('STAFF_SIGN_OFF');
     const item = (key: string, label: string, done: boolean, fix: string) => ({
       key,
       label,
@@ -781,7 +808,10 @@ export function createTaxPlanningMock({
       fix: done ? null : fix,
     });
     return {
-      nextAction: NEXT[p.status] ?? '',
+      nextAction:
+        p.status === 'FINALIZED' && !staffApproved
+          ? 'Record Staff Sign-off of this finalized version before sending it to the client.'
+          : (NEXT[p.status] ?? ''),
       owner:
         p.status === 'UNDER_REVIEW'
           ? f.reviewer
@@ -816,6 +846,12 @@ export function createTaxPlanningMock({
           'Use Finalize Plan in Review & Save.',
         ),
         item(
+          'staff-approved',
+          'Staff sign-off of the finalized version recorded',
+          staffApproved,
+          'Finalize the current plan, then use Staff Sign-off before sending it to the client.',
+        ),
+        item(
           'sent',
           'Sent to the client for review',
           sent !== null,
@@ -836,6 +872,9 @@ export function createTaxPlanningMock({
       ],
       reviewer: f.reviewer,
       reviewRequestedAt: f.reviewRequestedAt,
+      finalizedVersion,
+      staffApproved,
+      staffApprovals: copy(f.staffApprovals),
       sentVersion: sent,
       approvedVersion: approved,
       approvals: copy(f.approvals),
@@ -1560,6 +1599,40 @@ export function createTaxPlanningMock({
         planEvent(p, 'REVIEW_REQUESTED', p.status, 'UNDER_REVIEW', null);
         p.status = 'UNDER_REVIEW';
         p.etag = `e${next++}`;
+        return strip(p);
+      }),
+    staffApprovePlan: (pid, body) =>
+      run(() => {
+        const input = parseInput(StaffApprovePlanRequest, body);
+        const p = findPlan(pid);
+        editable(p);
+        conflict(p, input.etag);
+        if (p.status !== 'FINALIZED')
+          throw fail(
+            409,
+            'INVALID_STATUS',
+            'Finalize the current plan before recording staff sign-off',
+          );
+        const finalized = p._versions.find((v) => v.event === 'FINALIZED');
+        if (!finalized || finalized.version !== input.version)
+          throw fail(
+            409,
+            'INVALID_STATUS',
+            'The finalized version changed; reload the plan before signing off',
+          );
+        const f = flowOf(p.id);
+        if (f.staffApprovals.some((a) => a.version === input.version))
+          throw fail(
+            409,
+            'INVALID_STATUS',
+            `Staff sign-off is already recorded for version ${input.version}`,
+          );
+        f.staffApprovals.unshift({
+          version: input.version,
+          approvedBy: mockMe,
+          approvedAt: nowIso(),
+        });
+        planEvent(p, 'STAFF_APPROVED', p.status, p.status, null);
         return strip(p);
       }),
     recordApproval: (pid, body) =>

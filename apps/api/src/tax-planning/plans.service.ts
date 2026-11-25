@@ -47,6 +47,7 @@ import type {
   FinalizeBody,
   PlanReasonBody,
   PlanReviewBody,
+  StaffApproveBody,
   RecordApprovalBody,
   UpdatePlanRequestBody,
   ReorderBody,
@@ -244,6 +245,7 @@ export class TaxPlansService {
       | 'INFO_REQUESTED'
       | 'CLIENT_REQUEST'
       | 'APPROVED'
+      | 'STAFF_APPROVED'
       | 'DELIVERED',
     data: {
       fromStatus?: TaxPlanStatus | null;
@@ -1201,7 +1203,7 @@ export class TaxPlansService {
         const finalized = await ctx.tx.taxPlanVersion.findFirst({
           where: { businessId, planId: id, event: 'FINALIZED' },
           orderBy: { version: 'desc' },
-          select: { snapshot: true },
+          select: { snapshot: true, version: true },
         });
         kept = await this.snapshotOf(ctx, plan);
         // C09 (Review 2): each blocker says what to do. C27: "changed" is its content (what the
@@ -1216,6 +1218,25 @@ export class TaxPlansService {
             'The plan changed after it was finalized: use Finalize Plan in Review & Save again.',
           );
         if (missing.length > 0) throw tpErrors.planNotReady(missing);
+        const staffApproval =
+          finalized &&
+          (await ctx.tx.taxPlanStaffApproval.findFirst({
+            where: { businessId, planId: id, version: finalized.version },
+          }));
+        if (
+          !staffApproval ||
+          ![
+            'FINALIZED',
+            'UNDER_REVIEW',
+            'AWAITING_CLIENT',
+            'READY_FOR_REVIEW',
+            'CLIENT_APPROVED',
+            'IMPLEMENTED',
+          ].includes(plan.status)
+        )
+          throw tpErrors.planNotReady([
+            'Staff sign-off is required for the current finalized version: finalize the plan, then use Staff Sign-off.',
+          ]);
       }
       const lines = kept.snapshot.strategies.map((s) => {
         const c = s.estimate.cents;
@@ -1419,6 +1440,62 @@ export class TaxPlansService {
         'tax_plan.review_requested',
         { type: 'tax_plan', id },
         { clientId: plan.clientId, from: plan.status, reviewerUserId: body.reviewerUserId },
+      );
+      return this.read.detailById(ctx, id);
+    });
+  }
+
+  /** Q13: one staff approval per finalized snapshot; actor and timestamp are server-owned. */
+  staffApprove(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof StaffApproveBody>,
+  ): Promise<TaxPlanDetail> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      const plan = await this.editable(ctx, id, body.etag);
+      if (
+        !ctx.perms.review ||
+        (!ctx.perms.admin && plan.reviewerUserId !== null && plan.reviewerUserId !== userId)
+      )
+        throw tpErrors.forbidden();
+      if (plan.status !== 'FINALIZED')
+        throw tpErrors.invalidStatus('Finalize the current plan before recording staff sign-off');
+      const finalized = await ctx.tx.taxPlanVersion.findFirst({
+        where: { businessId, planId: id, event: 'FINALIZED' },
+        orderBy: { version: 'desc' },
+      });
+      if (!finalized || finalized.version !== body.version)
+        throw tpErrors.invalidStatus(
+          'The finalized version changed: reload the plan before signing off',
+        );
+      const kept = await this.snapshotOf(ctx, plan);
+      if (planContent(finalized.snapshot as unknown as Snapshot) !== planContent(kept.snapshot))
+        throw tpErrors.planNotReady([
+          'The plan changed: revise and finalize it again before staff sign-off.',
+        ]);
+      if (
+        await ctx.tx.taxPlanStaffApproval.findFirst({
+          where: { businessId, planId: id, version: body.version },
+        })
+      )
+        throw tpErrors.invalidStatus(
+          `Staff sign-off is already recorded for version ${body.version}`,
+        );
+      await ctx.tx.taxPlanStaffApproval.create({
+        data: { businessId, planId: id, version: body.version, approvedByUserId: userId },
+      });
+      await this.planEvent(ctx, id, 'STAFF_APPROVED', {
+        fromStatus: plan.status,
+        toStatus: plan.status,
+        version: body.version,
+      });
+      await this.audit.logIn(
+        ctx.tx,
+        'tax_plan.staff_approved',
+        { type: 'tax_plan', id },
+        { clientId: plan.clientId, version: body.version },
       );
       return this.read.detailById(ctx, id);
     });

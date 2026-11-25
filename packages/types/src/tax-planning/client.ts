@@ -49,6 +49,7 @@ import {
   TaxPlanId,
   PlanReasonRequest,
   PlanReviewRequest,
+  StaffApprovePlanRequest,
   RecordPlanApprovalRequest,
   CreatePlanRequestRequest,
   UpdatePlanRequestRequest,
@@ -168,6 +169,12 @@ export function createTaxPlanningClient(request: ApiRequest) {
     /** Review 2 workflow: Send for Internal Review. */
     reviewPlan: async (id: string, body: PlanReviewRequest): Promise<TaxPlanDetail> =>
       request(TaxPlanDetail, `${plan(id)}/review`, post(parseInput(PlanReviewRequest, body))),
+    staffApprovePlan: async (id: string, body: StaffApprovePlanRequest): Promise<TaxPlanDetail> =>
+      request(
+        TaxPlanDetail,
+        `${plan(id)}/staff-approvals`,
+        post(parseInput(StaffApprovePlanRequest, body)),
+      ),
     recordApproval: async (id: string, body: RecordPlanApprovalRequest): Promise<TaxPlanDetail> =>
       request(
         TaxPlanDetail,

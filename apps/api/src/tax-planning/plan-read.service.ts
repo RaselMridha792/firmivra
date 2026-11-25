@@ -297,11 +297,11 @@ export class TaxPlanReadService {
     names: Map<string, string>,
   ): Promise<PlanWorkflow> {
     const { tx, businessId } = ctx;
-    const [finalized, sent, approvals, requests] = await Promise.all([
+    const [finalized, sent, approvals, requests, staffApprovals] = await Promise.all([
       tx.taxPlanVersion.findFirst({
         where: { businessId, planId: plan.id, event: 'FINALIZED' },
         orderBy: { version: 'desc' },
-        select: { createdAt: true },
+        select: { createdAt: true, version: true },
       }),
       tx.taxPlanVersion.findFirst({
         where: { businessId, planId: plan.id, event: 'SENT' },
@@ -317,9 +317,14 @@ export class TaxPlanReadService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 100,
       }),
+      tx.taxPlanStaffApproval.findMany({
+        where: { businessId, planId: plan.id },
+        orderBy: { version: 'desc' },
+      }),
     ]);
     const people = await memberNames(tx, businessId, [
       ...approvals.map((a) => a.recordedByUserId),
+      ...staffApprovals.map((a) => a.approvedByUserId),
       ...requests.map((r) => r.requestedByUserId),
     ]);
     for (const [k, v] of names) people.set(k, v);
@@ -331,10 +336,27 @@ export class TaxPlanReadService {
         asOf: r.asOf,
       })),
     );
+    const staffApproved =
+      finalized !== null &&
+      [
+        'FINALIZED',
+        'UNDER_REVIEW',
+        'AWAITING_CLIENT',
+        'READY_FOR_REVIEW',
+        'CLIENT_APPROVED',
+        'IMPLEMENTED',
+      ].includes(plan.status) &&
+      staffApprovals.some((a) => a.version === finalized.version);
     const view = workflowOf({
       status: plan.status,
       canEdit: ctx.perms.edit,
       canSend: ctx.perms.send,
+      canStaffApprove:
+        ctx.perms.review &&
+        (ctx.perms.admin ||
+          plan.reviewerUserId === null ||
+          plan.reviewerUserId === ctx.actor.userId),
+      staffApproved,
       assigned: plan.assignedUserId !== null,
       targetSet: plan.targetCompletionOn !== null,
       discussions,
@@ -351,7 +373,7 @@ export class TaxPlanReadService {
       nextAction: view.nextAction,
       owner:
         view.ownerIs === 'REVIEWER'
-          ? assignee(plan.reviewerMember)
+          ? (assignee(plan.reviewerMember) ?? assignee(plan.assignedMember))
           : view.ownerIs === 'ASSIGNEE'
             ? assignee(plan.assignedMember)
             : null,
@@ -360,6 +382,13 @@ export class TaxPlanReadService {
       readiness: view.readiness,
       reviewer: assignee(plan.reviewerMember),
       reviewRequestedAt: iso(plan.reviewRequestedAt),
+      finalizedVersion: finalized?.version ?? null,
+      staffApproved,
+      staffApprovals: staffApprovals.map((a) => ({
+        version: a.version,
+        approvedBy: memberRef(people, a.approvedByUserId),
+        approvedAt: a.approvedAt.toISOString(),
+      })),
       sentVersion: sent?.version ?? null,
       approvedVersion: approvals[0]?.version ?? null,
       approvals: approvals.map((a) => ({

@@ -309,6 +309,7 @@ export const PlanAction = z.enum([
   'RECORD_CLIENT_REQUEST',
   'START_REVISION',
   'RECORD_APPROVAL',
+  'STAFF_SIGN_OFF',
   'MARK_IMPLEMENTED',
   'DELIVER',
   'REVISE',
@@ -341,6 +342,13 @@ export const PlanApproval = z.object({
   createdAt: DateTime,
 });
 export type PlanApproval = z.infer<typeof PlanApproval>;
+
+export const PlanStaffApproval = z.object({
+  version: z.number().int().min(1),
+  approvedBy: MemberRef.nullable(),
+  approvedAt: DateTime,
+});
+export type PlanStaffApproval = z.infer<typeof PlanStaffApproval>;
 
 export const PlanRequestKind = z.enum([
   'INFORMATION',
@@ -377,6 +385,9 @@ export const PlanWorkflow = z.object({
   readiness: z.array(PlanReadinessItem),
   reviewer: MemberRef.nullable(),
   reviewRequestedAt: DateTime.nullable(),
+  finalizedVersion: z.number().int().nullable(),
+  staffApproved: z.boolean(),
+  staffApprovals: z.array(PlanStaffApproval),
   /** The newest version sent for the client's review, and the version the client approved. */
   sentVersion: z.number().int().nullable(),
   approvedVersion: z.number().int().nullable(),
@@ -698,6 +709,13 @@ export const PlanReviewRequest = z.strictObject({
   etag: z.string().min(1).max(100),
 });
 export type PlanReviewRequest = z.input<typeof PlanReviewRequest>;
+
+/** Q13: staff sign-off of the current finalized snapshot. Actor/time come from the server. */
+export const StaffApprovePlanRequest = z.strictObject({
+  version: z.number().int().min(1),
+  etag: z.string().min(1).max(100),
+});
+export type StaffApprovePlanRequest = z.input<typeof StaffApprovePlanRequest>;
 
 /**
  * Review 2 workflow: POST .../plans/{id}/approvals records the client's documented approval of an

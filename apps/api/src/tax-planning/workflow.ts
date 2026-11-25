@@ -16,6 +16,8 @@ export interface WorkflowFacts {
   /** The caller may change the plan / send it. */
   canEdit: boolean;
   canSend: boolean;
+  canStaffApprove: boolean;
+  staffApproved: boolean;
   assigned: boolean;
   targetSet: boolean;
   discussions: number;
@@ -90,6 +92,12 @@ export function readinessOf(f: WorkflowFacts): PlanReadinessItem[] {
       'Use Finalize Plan in Review & Save.',
     ),
     item(
+      'staff-approved',
+      'Staff sign-off of the finalized version recorded',
+      f.staffApproved,
+      'Finalize the current plan, then use Staff Sign-off before sending it to the client.',
+    ),
+    item(
       'sent',
       'Sent to the client for review',
       f.sentVersion !== null,
@@ -114,7 +122,7 @@ export function workflowOf(f: WorkflowFacts): WorkflowView {
   const readiness = readinessOf(f);
   const firstMissing = readiness.find((r) => !r.done && r.key !== 'sent' && r.key !== 'approved');
   const edit = f.canEdit;
-  const send = f.canSend;
+  const send = f.canSend && f.staffApproved;
   const pick = (...a: (PlanAction | false)[]) => a.filter((x): x is PlanAction => x !== false);
   const common = pick(edit && 'CLOSE', edit && 'DUPLICATE');
   switch (f.status) {
@@ -148,7 +156,7 @@ export function workflowOf(f: WorkflowFacts): WorkflowView {
       };
     case 'UNDER_REVIEW':
       return {
-        nextAction: 'Review the plan, then return it to work or send it to the client for review.',
+        nextAction: 'Review the plan, finalize its version, then record Staff Sign-off.',
         ownerIs: 'REVIEWER',
         waitingOnClient: false,
         actions: pick(
@@ -161,10 +169,13 @@ export function workflowOf(f: WorkflowFacts): WorkflowView {
       };
     case 'FINALIZED':
       return {
-        nextAction: 'Send it to the client for review.',
-        ownerIs: 'ASSIGNEE',
+        nextAction: f.staffApproved
+          ? 'Send it to the client for review.'
+          : 'Record Staff Sign-off of this finalized version before sending it to the client.',
+        ownerIs: f.staffApproved ? 'ASSIGNEE' : 'REVIEWER',
         waitingOnClient: false,
         actions: pick(
+          f.canStaffApprove && !f.staffApproved && 'STAFF_SIGN_OFF',
           send && 'SEND_TO_CLIENT',
           edit && 'SEND_FOR_REVIEW',
           edit && 'REVISE',
