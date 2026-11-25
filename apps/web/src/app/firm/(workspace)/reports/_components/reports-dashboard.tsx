@@ -193,10 +193,15 @@ export function ReportsDashboard() {
                     />
                   );
                   // RP-F08 (Octavia, Oct 28): each card opens its report, on the overview's
-                  // range and comparison, and says what it counts.
+                  // range and comparison, and says what it counts; Total Clients reproduces its all-time roster (R02).
+                  const isTotalClients = k?.key === 'total-clients' || k?.key === 'total_clients';
                   return k ? (
                     <Link
-                      href={open(`/reports/${k.reportKey}`)}
+                      href={
+                        isTotalClients
+                          ? withOrigin(`/reports/${k.reportKey}?range=this_year`, here)
+                          : open(`/reports/${k.reportKey}`)
+                      }
                       aria-label={`${k.label}: open the report`}
                       className="block rounded-xl hover:opacity-90 focus-visible:outline-2 focus-visible:outline-focus"
                       data-testid="kpi-link"

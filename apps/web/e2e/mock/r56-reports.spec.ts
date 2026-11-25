@@ -759,3 +759,105 @@ test('R03: Bookkeeping, Payroll, and Communications report categories show Not C
   await expect(page.getByTestId('builder-not-connected')).toBeVisible();
   await expect(page.getByTestId('selected-columns')).toContainText('Channel');
 });
+
+test('R05: Rename and Edit Definition controls on saved report detail and library rows', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. Create a custom report to edit
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Report Name').fill('Alpha Report');
+  await page.getByRole('button', { name: 'Save Report' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Report' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+  const reportUrl = page.url();
+
+  // 2. Discover Rename and Edit Definition on detail view
+  await expect(page.getByRole('button', { name: 'Rename' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Edit Definition' })).toBeVisible();
+
+  // Test Cancel without mutation on Rename
+  await page.getByRole('button', { name: 'Rename' }).click();
+  await page.getByLabel('Report name').fill('Unsaved Name');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Report');
+
+  // Test Rename save
+  await page.getByRole('button', { name: 'Rename' }).click();
+  await page.getByLabel('Report name').fill('Beta Report');
+  await page.getByRole('dialog').getByRole('button', { name: 'Rename' }).click();
+  await expect(page.getByText('Report renamed.')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Beta Report');
+
+  // 3. Test Edit Definition route
+  await page.getByRole('link', { name: 'Edit Definition' }).click();
+  await expect(page).toHaveURL(/\/reports\/builder\?edit=[0-9a-f-]{36}$/);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(
+    'Edit Definition: Beta Report',
+  );
+
+  // Test Cancel without mutation on Edit Definition
+  await page.getByRole('link', { name: 'Cancel' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+  expect(page.url()).toBe(reportUrl);
+
+  // Edit Definition: change grouping and save
+  await page.getByRole('link', { name: 'Edit Definition' }).click();
+  await page.getByTestId('step-4').getByLabel('Group By').selectOption({ label: 'Status' });
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page).toHaveURL(reportUrl);
+  await expect(page.getByTestId('report-breakdown').getByLabel('Group by')).toHaveValue('status');
+
+  // 4. Test Library row actions (Rename and Edit Definition)
+  await page.goto(`${base}/library?tab=saved`);
+  const row = page
+    .getByRole('table', { name: 'Saved reports' })
+    .getByRole('row', { name: /Beta Report/ });
+  await row.getByRole('button', { name: 'Actions for Beta Report' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Edit Definition' })).toBeVisible();
+
+  // Rename via library
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+  await page.getByLabel('Report name').fill('Gamma Report');
+  await page.getByRole('dialog').getByRole('button', { name: 'Rename' }).click();
+  await expect(page.getByText('Report renamed.')).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Saved reports' })).toContainText('Gamma Report');
+});
+
+test('R02: Total Clients KPI counts all 25 active clients and drilldown scope is explicitly labeled', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(base);
+
+  // 1. Total Clients KPI card counts 25 clients
+  const kpis = page.getByTestId('reports-kpis');
+  const totalClientsCard = kpis.getByRole('listitem').first();
+  await expect(totalClientsCard).toContainText('Total Clients');
+  await expect(totalClientsCard).toContainText('25');
+  await expect(totalClientsCard).toContainText('All non-archived clients (all-time roster).');
+
+  // Narrow dates to last month on dashboard
+  await page.getByLabel('Date range', { exact: true }).selectOption('last_month');
+  // Total Clients still counts all 25 active clients; New Clients counts 4
+  await expect(totalClientsCard).toContainText('25');
+  const newClientsCard = kpis.getByRole('listitem').nth(1);
+  await expect(newClientsCard).toContainText('4');
+
+  // 2. Click Total Clients drilldown -> reproduces 25 clients and explains scope
+  await totalClientsCard.getByTestId('kpi-link').click();
+  await expect(page).toHaveURL(/\/reports\/client-retention\?range=this_year/);
+  await expect(
+    page.getByText('All Active Clients: Showing all 25 active clients across all statuses'),
+  ).toBeVisible();
+
+  // 3. Narrow dates in drilldown -> explicitly labels alternative scope (4 clients of 25)
+  await page.getByTestId('report-filters').getByLabel('Date Range').selectOption('last_month');
+  await expect(
+    page.getByText(
+      'Date Filtered: Showing 4 clients created in this date range (of 25 total active clients).',
+    ),
+  ).toBeVisible();
+});

@@ -189,7 +189,7 @@ function buildRows(empty: boolean) {
       });
     }
   }
-  for (let i = 0; i < 48; i += 1) {
+  for (let i = 0; i < 25; i += 1) {
     rows.clients!.push({
       clientName: `${NAMES[i % NAMES.length]} ${i < 12 ? '' : i}`.trim(),
       clientType: i % 3 === 0 ? 'Individual' : 'Business',
@@ -1448,6 +1448,18 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
             : 'Not Connected: Messaging provider is not connected yet. Connect Twilio or SendGrid in Integrations.',
       );
     }
+    if (d.dataSource === 'clients' && d.groupBy === 'status') {
+      const allClients = rows['clients'] ?? [];
+      if (cur.length < allClients.length) {
+        notices.push(
+          `Date Filtered: Showing ${cur.length} clients created in this date range (of ${allClients.length} total active clients).`,
+        );
+      } else {
+        notices.push(
+          `All Active Clients: Showing all ${allClients.length} active clients across all statuses (matches overview Total Clients).`,
+        );
+      }
+    }
     return {
       title,
       target,
@@ -1651,10 +1663,18 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         const cmp = cmpMode === 'NONE' ? null : shiftRange(range, cmpMode);
         const card = (key: string, source: string, kpiKey: string, label: string) => {
           const src = srcs[source]!;
-          const cur = apply(src, defOf(key), range);
-          const prev = cmp ? apply(src, defOf(key), cmp) : null;
+          const isTotalClients = kpiKey === 'total-clients' || kpiKey === 'total_clients';
+          const cur = isTotalClients ? (rows['clients'] ?? []) : apply(src, defOf(key), range);
+          const prev = isTotalClients ? null : cmp ? apply(src, defOf(key), cmp) : null;
           const k = kpisOf(src, cur, prev).find((x) => x.key === kpiKey)!;
-          return { ...k, label, reportKey: key };
+          return {
+            ...k,
+            label,
+            reportKey: key,
+            definition: isTotalClients
+              ? 'All non-archived clients (all-time roster).'
+              : k.definition,
+          };
         };
         const kpis = [
           card('client-retention', 'clients', 'total-clients', 'Total Clients'),
