@@ -572,6 +572,28 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           ← Back to {from && !from.startsWith('/reports') ? originLabel(from) : 'Reports'}
         </Link>
       </header>
+      {['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(r?.category ?? '') ? (
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-divider bg-canvas p-4 text-sm"
+          data-testid="category-not-connected-banner"
+        >
+          <div className="flex items-center gap-2 text-heading">
+            <span className="size-2 rounded-full bg-border" />
+            <span>
+              <strong>Not Connected:</strong>{' '}
+              {r?.category === 'BOOKKEEPING'
+                ? 'Bookkeeping reports require QuickBooks Online or Xero.'
+                : r?.category === 'PAYROLL'
+                  ? 'Payroll reports require Gusto or ADP.'
+                  : 'Communications reports require Twilio or SendGrid.'}{' '}
+              Connect in Integrations to load live provider data.
+            </span>
+          </div>
+          <Link href="/integrations" className="font-semibold text-link hover:underline">
+            Go to Integrations →
+          </Link>
+        </div>
+      ) : null}
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
@@ -863,8 +885,20 @@ export function ReportDetail({ reportId }: { reportId: string }) {
                 noun="results"
                 pageSize={10}
                 loading={q.isPending}
-                emptyTitle="No results"
-                emptyText="There is no data in this range. Try another range or filter."
+                emptyTitle={
+                  ['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(r?.category ?? '')
+                    ? 'Provider Not Connected'
+                    : 'No results'
+                }
+                emptyText={
+                  r?.category === 'BOOKKEEPING'
+                    ? 'Accounting software is not connected yet. Connect QuickBooks Online or Xero in Integrations.'
+                    : r?.category === 'PAYROLL'
+                      ? 'Payroll provider is not connected yet. Connect Gusto or ADP in Integrations.'
+                      : r?.category === 'COMMUNICATIONS'
+                        ? 'Messaging provider is not connected yet. Connect Twilio or SendGrid in Integrations.'
+                        : 'There is no data in this range. Try another range or filter.'
+                }
                 server={{
                   page: r?.table.page ?? 1,
                   total: r?.table.total ?? 0,
