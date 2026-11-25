@@ -3481,7 +3481,7 @@ describe('applicability rules and suggestions', () => {
       priorYearTaxLiabilityCents: 500000,
       priorYearTaxYear: 2025,
       priorYearTaxLiabilitySource: 'Form 1120-S line 22c',
-      priorYearTaxLiabilityAsOf: new Date().toISOString().slice(0, 10),
+      priorYearTaxLiabilityAsOf: '2026-03-15',
     });
 
     // 3. R09: Rule with priorYearLiabilityOverCents ($1,000 = 100000 cents)

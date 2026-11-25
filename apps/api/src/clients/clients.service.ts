@@ -262,8 +262,10 @@ function toRecord(row: RecordRow, dob: DateOfBirthView): ClientRecord {
       fiscalYearEndDay: cf?.fiscalYearEndDay ?? null,
       priorYearTaxLiabilityCents: cf?.priorYearTaxLiabilityCents ?? null,
       priorYearTaxYear: cf?.priorYearTaxYear ?? null,
-      priorYearTaxLiabilitySource: cf?.notes ?? null,
-      priorYearTaxLiabilityAsOf: cf?.verifiedAt ? cf.verifiedAt.toISOString().slice(0, 10) : null,
+      priorYearTaxLiabilitySource: cf?.priorYearTaxLiabilitySource ?? null,
+      priorYearTaxLiabilityAsOf: cf?.priorYearTaxLiabilityAsOf
+        ? cf.priorYearTaxLiabilityAsOf.toISOString().slice(0, 10)
+        : null,
       responsibleParty:
         p?.responsiblePartyName && p.responsiblePartyEmail && p.responsiblePartyPhone
           ? {
@@ -409,13 +411,13 @@ async function syncComplianceFacts(
         ? (current?.priorYearTaxYear ?? new Date().getFullYear() - 1)
         : (priorYearTaxYear ?? new Date().getFullYear() - 1)
       : null;
-  const notes =
+  const source =
     priorYearTaxLiabilitySource === undefined
-      ? (current?.notes ?? null)
+      ? (current?.priorYearTaxLiabilitySource ?? null)
       : priorYearTaxLiabilitySource;
-  const verifiedAt =
+  const asOf =
     priorYearTaxLiabilityAsOf === undefined
-      ? (current?.verifiedAt ?? null)
+      ? (current?.priorYearTaxLiabilityAsOf ?? null)
       : priorYearTaxLiabilityAsOf
         ? new Date(priorYearTaxLiabilityAsOf)
         : null;
@@ -429,8 +431,8 @@ async function syncComplianceFacts(
       fiscalYearEndDay: d,
       priorYearTaxLiabilityCents: cents,
       priorYearTaxYear: year,
-      notes,
-      verifiedAt,
+      priorYearTaxLiabilitySource: source,
+      priorYearTaxLiabilityAsOf: asOf,
       updatedByUserId: actorUserId,
     },
     update: {
@@ -438,8 +440,8 @@ async function syncComplianceFacts(
       fiscalYearEndDay: d,
       priorYearTaxLiabilityCents: cents,
       priorYearTaxYear: year,
-      notes,
-      verifiedAt,
+      priorYearTaxLiabilitySource: source,
+      priorYearTaxLiabilityAsOf: asOf,
       updatedByUserId: actorUserId,
     },
   });
