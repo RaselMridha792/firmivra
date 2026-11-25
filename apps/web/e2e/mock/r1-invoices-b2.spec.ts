@@ -130,13 +130,17 @@ test('I-N10: the Payment Method filter lists the invoices paid that way (a voide
   await expect(page.locator('main').getByRole('link', { name: 'INV-2026-0095' })).toHaveCount(0);
 });
 
-test('I-N05: the Tipping setting says tips are not active yet at Pay Now', async ({ page }) => {
+test('I-N05 (Q22): the Tipping setting says what it does at Pay Now, no longer "not active yet"', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(app('/settings/payments'));
-  await expect(page.getByTestId('tip-not-active').first()).toHaveText(
-    "Not active yet: clients can't add a tip at Pay Now yet",
-    { timeout: 60_000 },
-  );
+  await expect(
+    page.getByText('Lets an invoice offer the client a tip at Pay Now.', { exact: false }),
+  ).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId('tip-not-active')).toHaveCount(0);
 });
 
 test('I-N01: the header Service lists the whole catalog; one the client lacks is added as Requested, with its plans', async ({
