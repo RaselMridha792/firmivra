@@ -1,12 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { databaseErrorCode, type Prisma } from '@firmivra/db';
+import type { Prisma } from '@firmivra/db';
 import { PlatformPrisma } from '../database/database.module.js';
 
-function asCrmError(error: unknown): never {
-  const code = (error as { code?: unknown } | null)?.code;
-  const sqlState = databaseErrorCode(error);
-  if (code === 'P2025' || code === 'P2003' || sqlState === '23503') throw new NotFoundException();
-  throw error instanceof Error ? error : new Error(String(error));
+function asCrmError(_error: unknown): never {
+  throw new NotFoundException();
 }
 
 /**
