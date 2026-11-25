@@ -35,9 +35,9 @@ test('nothing on to start; the tip follows Settings, and nothing asks for paymen
   await page.getByLabel('Description 1 *').fill('Tax return preparation (fake)');
   await page.getByLabel('Rate 1 *').fill('100');
   await options.getByLabel('Allow client to add a tip').check();
-  // I-N05 (#1581): the tip is saved, but Pay Now does not charge one yet.
-  await expect(options.getByTestId('tip-not-active')).toHaveText(
-    "Not active yet: clients can't add a tip at Pay Now yet.",
+  // I-N05 (Q22): the tip is offered at the portal's Pay Now.
+  await expect(options.getByTestId('tip-note')).toHaveText(
+    'The client can add a tip at Pay Now. It is charged with the payment and does not count toward the invoice.',
   );
   await options.screenshot({ path: 'e2e/mock/r55-screenshots/invoices/invoice-options.png' });
 
