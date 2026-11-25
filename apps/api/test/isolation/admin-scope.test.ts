@@ -277,6 +277,7 @@ const WRITES: Record<
   // open a business scope. Bodies are minimal; routes that need a record use a random id.
   'POST /api/v1/admin/crm/consent/:contactId': {
     body: () => ({ businessId: fx.firmA.id, consented: true }),
+    paramsFn: () => ({ contactId: randomUUID() }),
   },
   'POST /api/v1/admin/crm/demos': {
     body: () => ({ businessId: fx.firmA.id, contactId: fx.firmA.id }),
@@ -284,18 +285,22 @@ const WRITES: Record<
   'PATCH /api/v1/admin/crm/demos/:id': { body: { status: 'CANCELLED' } },
   'POST /api/v1/admin/crm/demos/:requestId/appointments': {
     body: () => ({ businessId: fx.firmA.id, scheduledAt: new Date().toISOString() }),
+    paramsFn: () => ({ requestId: randomUUID() }),
   },
   'POST /api/v1/admin/crm/journeys': {
     body: () => ({ businessId: fx.firmA.id, name: 'Fake journey' }),
   },
   'POST /api/v1/admin/crm/journeys/:journeyId/versions': {
     body: () => ({ businessId: fx.firmA.id, version: 1, steps: [] }),
+    paramsFn: () => ({ journeyId: randomUUID() }),
   },
   'POST /api/v1/admin/crm/journeys/:journeyId/publish': {
     body: () => ({ businessId: fx.firmA.id, versionId: null }),
+    paramsFn: () => ({ journeyId: randomUUID() }),
   },
   'POST /api/v1/admin/crm/journeys/:journeyId/enroll': {
     body: () => ({ businessId: fx.firmA.id, versionId: null, contactId: null }),
+    paramsFn: () => ({ journeyId: randomUUID() }),
   },
   'PATCH /api/v1/admin/crm/enrollments/:id/stop': {
     body: () => ({ businessId: fx.firmA.id, reason: 'Fake stop' }),
