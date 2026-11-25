@@ -1,7 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import {
+  ADVISORY_INDUSTRY_DEFAULTS,
   ADVISORY_RESOURCE_FORMAT_LABELS,
+  type AdvisoryIndustryList,
   type AdvisoryKpi,
   type AdvisoryMeetingPage,
   type AdvisoryMeetingRow,
@@ -19,7 +21,14 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
-import { memberNames, memberRef, notAMember, notFound } from '../workspaces/common.js';
+import {
+  conflict,
+  isUniqueViolation,
+  memberNames,
+  memberRef,
+  notAMember,
+  notFound,
+} from '../workspaces/common.js';
 import {
   type AdvisoryCtx,
   AdvisoryReadService,
@@ -27,6 +36,7 @@ import {
   clientInclude,
 } from './advisory-read.service.js';
 import type {
+  IndustriesBody,
   MeetingsQuery,
   ResourcesQuery,
   SendResourceBody,
@@ -527,6 +537,113 @@ export class AdvisoryOverviewService {
         auditChanges(before ?? {}, after, { fields: Object.keys(data), skip: ['updatedByUserId'] }),
       );
       return this.settingsView(await this.read.ctx(tx, businessId, tenant, userId));
+    });
+  }
+
+  // ---------- Industries (A-X02) ----------
+
+  private async industryList(ctx: AdvisoryCtx): Promise<AdvisoryIndustryList> {
+    const rows = await ctx.tx.advisoryIndustry.findMany({
+      where: { businessId: ctx.businessId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, name: true, archivedAt: true },
+    });
+    return {
+      items: rows.length
+        ? rows.map((r) => ({ id: r.id, name: r.name, archived: r.archivedAt !== null }))
+        : ADVISORY_INDUSTRY_DEFAULTS.map((name) => ({ id: null, name, archived: false })),
+      custom: rows.length > 0,
+      canManage: ctx.perms.advisoryAdmin,
+    };
+  }
+
+  /**
+   * A-X02 (Business Advisory Review Two, B16): the firm's industry choices, in its order with the
+   * archived ones marked; the built-in list until it saves its own.
+   */
+  industries(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+  ): Promise<AdvisoryIndustryList> {
+    return this.run(businessId, tenant, userId, (ctx) => this.industryList(ctx));
+  }
+
+  /**
+   * A-X02: saves the whole list in its order (Advisory Admin). An item with an id is one of the
+   * firm's (404 otherwise): renamed, archived or restored; one without is added; a saved one left
+   * out is archived, never deleted. Archiving goes first, so a live name can move to another row.
+   * Audited (`advisory_industries.updated`) with counts only.
+   */
+  saveIndustries(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    body: Out<typeof IndustriesBody>,
+  ): Promise<AdvisoryIndustryList> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.advisoryAdmin) throw advErrors.forbidden();
+      const { tx } = ctx;
+      const existing = await tx.advisoryIndustry.findMany({
+        where: { businessId },
+        select: { id: true, name: true, archivedAt: true },
+      });
+      const byId = new Map(existing.map((r) => [r.id, r]));
+      for (const item of body.items) if (item.id && !byId.has(item.id)) throw notFound();
+      const wanted = new Map(body.items.flatMap((i) => (i.id ? [[i.id, i] as const] : [])));
+      const now = new Date();
+      const counts = { added: 0, renamed: 0, archived: 0, restored: 0 };
+      try {
+        for (const r of existing) {
+          const item = wanted.get(r.id);
+          if ((!item || item.archived) && r.archivedAt === null) {
+            await tx.advisoryIndustry.update({
+              where: { id: r.id },
+              data: { archivedAt: now, updatedByUserId: userId },
+            });
+            counts.archived += 1;
+          }
+        }
+        for (const [index, item] of body.items.entries()) {
+          const name = item.name.trim();
+          const r = item.id ? byId.get(item.id) : undefined;
+          if (r) {
+            if (r.name !== name) counts.renamed += 1;
+            if (!item.archived && r.archivedAt !== null) counts.restored += 1;
+            await tx.advisoryIndustry.update({
+              where: { id: r.id },
+              data: {
+                name,
+                sortOrder: index,
+                archivedAt: item.archived ? (r.archivedAt ?? now) : null,
+                updatedByUserId: userId,
+              },
+            });
+          } else {
+            await tx.advisoryIndustry.create({
+              data: {
+                businessId,
+                name,
+                sortOrder: index,
+                archivedAt: item.archived ? now : null,
+                updatedByUserId: userId,
+              },
+            });
+            counts.added += 1;
+          }
+        }
+      } catch (error) {
+        if (isUniqueViolation(error))
+          throw conflict('DUPLICATE_INDUSTRY', 'Each industry is in the list once.');
+        throw error;
+      }
+      await this.audit.logIn(
+        tx,
+        'advisory_industries.updated',
+        { type: 'advisory_settings' },
+        counts,
+      );
+      return this.industryList(ctx);
     });
   }
 }

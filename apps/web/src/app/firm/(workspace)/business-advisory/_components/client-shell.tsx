@@ -38,6 +38,7 @@ import {
   meetingsTab,
   scheduleMeetingHref,
 } from './ba-shared';
+import { IndustryField } from './industries';
 
 const TABS = [
   ['', 'Overview'],
@@ -400,12 +401,8 @@ export function EditClientDialog({
               ]}
             />
           ) : null}
-          <Input
-            label="Industry"
-            maxLength={100}
-            value={industry}
-            onChange={(e) => setIndustry(e.target.value)}
-          />
+          {/* A-X02: the firm's industries, or Other with Specify. */}
+          <IndustryField value={industry} onChange={setIndustry} />
           <Select
             label="Business stage"
             value={stage}

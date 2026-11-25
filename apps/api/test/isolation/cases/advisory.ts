@@ -298,6 +298,15 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** A-X02: one of the firm's own industries. */
+  advisoryIndustry: {
+    async create({ tx, businessId }) {
+      const row = await tx.advisoryIndustry.create({
+        data: { businessId, name: `Fake industry ${tag()}` },
+      });
+      return row.id;
+    },
+  },
   advisoryActionItem: {
     async create({ tx, businessId, owner, get }) {
       const row = await tx.advisoryActionItem.create({
@@ -518,6 +527,18 @@ export const cases: CaseModule['cases'] = {
       assigneeUserId: PLACEHOLDER,
       title: 'Fake renamed action',
     },
+  },
+  // A-X02: the industry list; each item's id is one of the firm's.
+  [`PUT ${BASE}/industries`]: {
+    params: {},
+    bodyIds: { 'items.id': 'advisoryIndustry' },
+    body: { items: [{ id: PLACEHOLDER, name: 'Fake renamed industry' }] },
+  },
+  // A-X11: progress notes.
+  [`GET ${BASE}/action-items/:id/notes`]: { params: { id: 'advisoryActionItem' } },
+  [`POST ${BASE}/action-items/:id/notes`]: {
+    params: { id: 'advisoryActionItem' },
+    body: { body: 'Fake progress note' },
   },
 
   [`POST ${BASE}/resources/:key/send`]: {

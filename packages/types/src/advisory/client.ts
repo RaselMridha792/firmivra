@@ -6,6 +6,8 @@ import {
   AdvisoryActionItemPage,
   AdvisoryActionItemRow,
   AdvisoryActionItemsQuery,
+  AdvisoryActionNoteList,
+  AddAdvisoryActionNoteRequest,
   AdvisoryActivityPage,
   AdvisoryActivityQuery,
   AdvisoryClientDetail,
@@ -58,6 +60,8 @@ import {
   FinalizeAdvisoryPlanRequest,
   ReorderAdvisoryMilestonesRequest,
   RequestAdvisoryPlanApprovalRequest,
+  SaveAdvisoryIndustriesRequest,
+  AdvisoryIndustryList,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
@@ -353,6 +357,19 @@ export function createAdvisoryClient(request: ApiRequest) {
         method: 'PATCH',
         body: parseInput(UpdateAdvisoryActionItemRequest, body),
       }),
+    /** A-X11: the item's progress notes, newest first. */
+    actionNotes: async (id: string): Promise<AdvisoryActionNoteList> =>
+      request(AdvisoryActionNoteList, `${actionItem(id)}/notes`),
+    /** A-X11: adds a progress note (and, optionally, the item's new status); the notes after it. */
+    addActionNote: async (
+      id: string,
+      body: AddAdvisoryActionNoteRequest,
+    ): Promise<AdvisoryActionNoteList> =>
+      request(
+        AdvisoryActionNoteList,
+        `${actionItem(id)}/notes`,
+        post(parseInput(AddAdvisoryActionNoteRequest, body)),
+      ),
 
     // ----- Meetings, resources, settings -----
     /** The Reports tab: live counts, by status, services, workload; the financial trend with the permission. */
@@ -396,6 +413,15 @@ export function createAdvisoryClient(request: ApiRequest) {
       request(AdvisorySettingsView, `${BASE}/settings`, {
         method: 'PUT',
         body: parseInput(SaveAdvisorySettingsRequest, body),
+      }),
+    /** A-X02: the firm's industry choices (the built-in list until it saves its own). */
+    industries: async (): Promise<AdvisoryIndustryList> =>
+      request(AdvisoryIndustryList, `${BASE}/industries`),
+    /** A-X02 (Advisory Admin): saves the whole list in its order. */
+    saveIndustries: async (body: SaveAdvisoryIndustriesRequest): Promise<AdvisoryIndustryList> =>
+      request(AdvisoryIndustryList, `${BASE}/industries`, {
+        method: 'PUT',
+        body: parseInput(SaveAdvisoryIndustriesRequest, body),
       }),
   };
 }
