@@ -32,7 +32,7 @@ export class CrmService {
     // Ensure contact exists so FK constraint is satisfied
     await this.platform.db.salesContact.upsert({
       where: { id: contactId },
-      create: { id: contactId, businessId, name: 'Unknown' },
+      create: { id: contactId, name: 'Unknown' },
       update: {},
     });
     try {
@@ -83,7 +83,7 @@ export class CrmService {
     // Ensure contact exists so FK constraint is satisfied
     await this.platform.db.salesContact.upsert({
       where: { id: data.contactId },
-      create: { id: data.contactId, businessId: data.businessId, name: 'Unknown' },
+      create: { id: data.contactId, name: 'Unknown' },
       update: {},
     });
     try {
@@ -253,7 +253,7 @@ export class CrmService {
     // Ensure contact exists so FK constraint is satisfied
     await this.platform.db.salesContact.upsert({
       where: { id: data.contactId },
-      create: { id: data.contactId, businessId: data.businessId, name: 'Unknown' },
+      create: { id: data.contactId, name: 'Unknown' },
       update: {},
     });
     try {
