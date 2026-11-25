@@ -15297,9 +15297,11 @@ model ClientComplianceFacts {
   /// Two-letter state codes where the client has payroll.
   payrollStates              String[]                          @default([]) @map("payroll_states")
   isSalesTaxRegistered       Boolean?                          @map("is_sales_tax_registered")
-  priorYearTaxLiabilityCents Int?                              @map("prior_year_tax_liability_cents")
-  priorYearTaxYear           Int?                              @map("prior_year_tax_year")
-  notes                      String?
+  priorYearTaxLiabilityCents  Int?                              @map("prior_year_tax_liability_cents")
+  priorYearTaxYear            Int?                              @map("prior_year_tax_year")
+  priorYearTaxLiabilitySource String?                           @map("prior_year_tax_liability_source")
+  priorYearTaxLiabilityAsOf   DateTime?                         @map("prior_year_tax_liability_as_of") @db.Timestamptz(3)
+  notes                       String?
   verifiedAt                 DateTime?                         @map("verified_at") @db.Timestamptz(3)
   verifiedByUserId           String?                           @map("verified_by_user_id") @db.Uuid
   updatedByUserId            String?                           @map("updated_by_user_id") @db.Uuid
