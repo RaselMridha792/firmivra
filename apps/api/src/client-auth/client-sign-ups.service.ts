@@ -544,8 +544,22 @@ export class ClientSignUpsService {
         signInUrl: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/sign-in`,
       });
     } catch {
-      // Ids only (hard rule 4). The approval stands; R6's retries own delivery.
+      // Ids only (hard rule 4). The approval stands; record the delivery failure so it can be
+      // retried (INVITE_DELIVERY), instead of only logging a warning.
       this.logger.warn(`Could not send the approval notice for client account ${account.id}`);
+      const correlationId = randomUUID();
+      await this.inFirm(actor.businessId, async (tx) => {
+        await recordOperation(tx, {
+          businessId: actor.businessId,
+          clientAccountId: account.id,
+          kind: 'INVITE_DELIVERY',
+          idempotencyKey: randomUUID(),
+          hash: requestHash({ kind: 'INVITE_DELIVERY', clientAccountId: account.id }),
+          result: { delivered: false, reason: 'send_failed' },
+          correlationId,
+          actorUserId: actor.userId,
+        });
+      });
     }
     return result;
   }
@@ -790,8 +804,22 @@ export class ClientSignUpsService {
         signInUrl: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/sign-in`,
       });
     } catch {
-      // Ids only (hard rule 4). The link stands; R6's retries own delivery.
+      // Ids only (hard rule 4). The approval stands; record the delivery failure so it can be
+      // retried (INVITE_DELIVERY), instead of only logging a warning.
       this.logger.warn(`Could not send the approval notice for client account ${account.id}`);
+      const correlationId = randomUUID();
+      await this.inFirm(actor.businessId, async (tx) => {
+        await recordOperation(tx, {
+          businessId: actor.businessId,
+          clientAccountId: account.id,
+          kind: 'INVITE_DELIVERY',
+          idempotencyKey: randomUUID(),
+          hash: requestHash({ kind: 'INVITE_DELIVERY', clientAccountId: account.id }),
+          result: { delivered: false, reason: 'send_failed' },
+          correlationId,
+          actorUserId: actor.userId,
+        });
+      });
     }
     return result;
   }
@@ -883,7 +911,21 @@ export class ClientSignUpsService {
       await this.identity.forgotPassword('CLIENT', existingSub ?? undefined);
     } catch {
       // Ids only (hard rule 4). The person can still use Forgot Password on the portal.
+      // Record the delivery failure (INVITE_DELIVERY) so it can be retried.
       this.logger.warn(`Could not send the recovery email for client ${result.clientId}`);
+      const correlationId = randomUUID();
+      await this.inFirm(actor.businessId, async (tx) => {
+        await recordOperation(tx, {
+          businessId: actor.businessId,
+          clientAccountId: account.id,
+          kind: 'INVITE_DELIVERY',
+          idempotencyKey: randomUUID(),
+          hash: requestHash({ kind: 'INVITE_DELIVERY', clientAccountId: account.id }),
+          result: { delivered: false, reason: 'recovery_email_failed' },
+          correlationId,
+          actorUserId: actor.userId,
+        });
+      });
     }
     await this.audit.log(
       'client_account.access_restored',
