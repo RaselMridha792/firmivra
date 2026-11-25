@@ -57,6 +57,7 @@ import { DashboardGrowthService } from './dashboard-growth.js';
 import { EIN_HASH_KEY, loadEinHashKey } from './ein-hash.js';
 import { AdminSupportModule } from '../admin-support/admin-support.module.js';
 import { FirmAccountService } from './firm-account.service.js';
+import { FirmDataDownloadsModule } from '../firm-data-downloads/firm-data-downloads.module.js';
 import { FirmInfoRequestService } from './firm-info-request.service.js';
 import { FirmApplicationsService } from './firm-applications.service.js';
 import { FirmKeyJob } from './firm-key-job.js';
@@ -353,7 +354,7 @@ export class AdminDashboardController {
 
 @Module({
   // AdminSupportModule: Request Information files a Support ticket (SA-FRM-F06).
-  imports: [SignInModule, AdminSupportModule],
+  imports: [SignInModule, AdminSupportModule, FirmDataDownloadsModule],
   controllers: [
     FirmApplicationsController,
     ApplyRespondController,

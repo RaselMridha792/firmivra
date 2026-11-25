@@ -115,6 +115,65 @@ test('Create Task makes one task, then View Task opens it (CD-F01)', async ({ pa
   await page.screenshot({ path: test.info().outputPath('create-task.png') });
 });
 
+test('R10: a deadline linked task displays reciprocal link back to the originating deadline', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/${FIRST}`);
+  const tasks = page.getByTestId('detail-tasks');
+  const createBtn = tasks.getByRole('button', { name: 'Create Task' });
+  await expect(createBtn).toBeVisible();
+  await createBtn.click();
+  await expect(page.getByText('Task created.')).toBeVisible();
+  const viewTask = tasks.getByRole('link', { name: 'View Task' });
+  await expect(viewTask).toBeVisible();
+  await viewTask.click();
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  const backlink = page.getByTestId('deadline-backlink');
+  await expect(backlink).toBeVisible();
+  await expect(backlink).toHaveAttribute('href', new RegExp(`^/compliance/${FIRST}`));
+});
+
+test('R07: editing deadline date prompts for linked tasks update and offers explicit choice', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/${FIRST}`);
+  const tasks = page.getByTestId('detail-tasks');
+  const createBtn = tasks.getByRole('button', { name: 'Create Task' });
+  await expect(createBtn).toBeVisible();
+  await createBtn.click();
+  await expect(page.getByText('Task created.')).toBeVisible();
+
+  // Click Edit to preserve client-side mock store
+  await page.getByRole('link', { name: 'Edit' }).click();
+  await expect(page).toHaveURL(new RegExp(`/compliance/${FIRST}/edit$`));
+  // Change due date
+  const newDate = '2028-02-15';
+  await page.locator('#df-due').fill(newDate);
+  await page.getByLabel('Reason for changing the statutory date *').fill('Relief extension');
+  await page.getByTestId('deadline-save').click();
+
+  // Dialog appears with explicit keep/update choice
+  const modal = page.getByRole('dialog', { name: 'Update linked task due dates?' });
+  await expect(modal).toBeVisible();
+  await expect(modal.getByTestId('linked-tasks-prompt-list')).toBeVisible();
+
+  // Select the task to update
+  const row = modal.locator('[data-testid^="task-prompt-row-"]').first();
+  await row.getByRole('checkbox').check();
+  await modal.getByTestId('task-prompt-update').click();
+  await expect(page).toHaveURL(new RegExp(`/compliance/${FIRST}$`));
+
+  // Navigate to the linked task and verify its due date was updated
+  await page
+    .getByTestId('detail-tasks')
+    .getByRole('link', { name: /Prepare/ })
+    .click();
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('detail-info')).toContainText('Feb 15, 2028');
+});
+
 test('Bulk: select rows and change the status', async ({ page }) => {
   await page.goto(base);
   await page.getByRole('tab', { name: 'All Deadlines' }).click();

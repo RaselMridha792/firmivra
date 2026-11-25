@@ -33,6 +33,21 @@ import {
   useConvertDraft,
 } from '../../_components/convert-draft';
 
+/**
+ * Leads Review Two 17: when the API refuses Convert to Client, say why and what to change, not
+ * "Something went wrong" (each code is one of lead-convert.service.ts's refusals).
+ */
+const CONVERT_ERRORS: Record<string, string> = {
+  LEAD_SERVICE_REQUIRED:
+    'Include the service this lead asked for in Services to Activate (Client Details & Services).',
+  DUPLICATE_EMAIL:
+    'Another client already has this email. Change the email in Client Details & Services.',
+  ALREADY_CONVERTED: 'This lead is already a client.',
+  CLIENT_ARCHIVED: 'That client is archived. Restore the client first, then convert.',
+  FILE_NOT_AVAILABLE:
+    'A document from this lead is not available. Untick Uploaded documents in Portal & Settings, or try again later.',
+};
+
 const STEPS = [
   { id: 'review', label: 'Review Lead Information' },
   { id: 'details', label: 'Client Details & Services' },
@@ -431,7 +446,7 @@ export function ConvertLeadReviewScreen() {
       <footer className="flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
         {convert.error ? (
           <p role="alert" className="mr-auto text-sm text-danger">
-            {errorMessage(convert.error)}
+            {errorMessage(convert.error, CONVERT_ERRORS)}
           </p>
         ) : null}
         <Button

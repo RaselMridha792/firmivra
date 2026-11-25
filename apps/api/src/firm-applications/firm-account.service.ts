@@ -1,7 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { FirmAccountAction } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { AdminPrisma } from './admin-prisma.js';
+import { FirmDataDownloadsService } from '../firm-data-downloads/firm-data-downloads.service.js';
 
 /** The audit action each account action writes; the firm page's Account History reads them. */
 export const FIRM_ACCOUNT_AUDIT = {
@@ -43,9 +44,11 @@ const statusChanged = () =>
  */
 @Injectable()
 export class FirmAccountService {
+  private readonly logger = new Logger(FirmAccountService.name);
   constructor(
     private readonly admin: AdminPrisma,
     private readonly audit: AuditService,
+    private readonly downloads: FirmDataDownloadsService,
   ) {}
 
   /**
@@ -88,5 +91,14 @@ export class FirmAccountService {
         { businessId: null },
       );
     });
+    if (action === 'close') {
+      try {
+        await this.downloads.ensureAutomaticGrant(id);
+      } catch (error) {
+        this.logger.warn(
+          `Could not issue the closed-firm download grant for ${id}: ${error instanceof Error ? error.name : 'Error'}`,
+        );
+      }
+    }
   }
 }

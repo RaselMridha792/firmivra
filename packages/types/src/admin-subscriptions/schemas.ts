@@ -107,10 +107,9 @@ export const SUBSCRIPTION_STATUS_ORDER: readonly SubscriptionStatus[] = [
   'EXPIRED',
   'CANCELLED',
 ];
-/** Paid and not ended: counted in MRR (Past Due is still a live subscription). */
+/** Paid and in service: only Active and paid-through Non-Renewing subscriptions count in MRR. */
 export const SUBSCRIPTION_PAYING_STATUSES: readonly SubscriptionStatus[] = [
   'ACTIVE',
-  'PAST_DUE',
   'NON_RENEWING',
 ];
 /** Plan, seat and location changes, and Pause / Suspend. */
@@ -348,6 +347,10 @@ export const SubscriptionRow = z.object({
   /** Unused credit on the firm's issued credit notes (B3: Available and Partially Applied). */
   creditCents: z.number().int(),
   autoRenew: z.boolean(),
+  /** Subscription start day; the paid start, trial start, or creation day. */
+  startedOn: Day,
+  /** End of the current paid period, when one is set. */
+  renewalOn: Day.nullable(),
   /** The next scheduled invoice; null when none (trial, non-renewing, suspended, ended). */
   nextBillingOn: Day.nullable(),
   /**
@@ -370,6 +373,8 @@ const Filters = {
   planId: Id.optional(),
   status: SubscriptionStatusFilter.optional(),
   billingCycle: SubscriptionBillingCycle.optional(),
+  /** The subscription date the table range filters; reporting KPIs always use from/to alone. */
+  dateBy: z.enum(['START', 'RENEWAL', 'NEXT_BILLING']).optional(),
   /**
    * The reporting period, both days or neither (the current UTC month): subscriptions in force at
    * any time in it, started on or before `to` and not ended before `from`.
