@@ -612,6 +612,7 @@ enum TaxPlanEventKind {
   CLIENT_REQUEST
   APPROVED
   DELIVERED
+  STAFF_APPROVED
 }
 
 /// R1 (Nov 14, Review 2 C17, S6): a planning resource's kind (the catalog's kinds).
@@ -1265,6 +1266,7 @@ model Membership {
   taxPlans                     TaxPlan[]                     @relation("TaxPlanAssignee")
   taxPlansReviewing            TaxPlan[]                     @relation("TaxPlanReviewer")
   taxPlanApprovalsRecorded     TaxPlanApproval[]             @relation("TaxPlanApprovalRecordedBy")
+  taxPlanStaffApprovals        TaxPlanStaffApproval[]        @relation("TaxPlanStaffApprover")
   taxPlanRequestsMade          TaxPlanRequest[]              @relation("TaxPlanRequestRequestedBy")
   taxOpportunities             TaxOpportunity[]
   projectDeadlinesOwned        ProjectDeadline[]             @relation("ProjectDeadlineOwner")
@@ -11441,8 +11443,9 @@ model TaxPlanVersion {
   createdByUserId String?          @map("created_by_user_id") @db.Uuid
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  plan      TaxPlan           @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
-  approvals TaxPlanApproval[]
+  plan           TaxPlan                @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  approvals      TaxPlanApproval[]
+  staffApprovals TaxPlanStaffApproval[]
 
   @@unique([businessId, planId, version])
   @@map("tax_plan_versions")
@@ -11469,6 +11472,22 @@ model TaxPlanEvent {
 
   @@index([businessId, planId, createdAt])
   @@map("tax_plan_events")
+}
+
+/// Q13: immutable staff sign-off for a finalized snapshot, separate from client approval.
+model TaxPlanStaffApproval {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  businessId       String   @map("business_id") @db.Uuid
+  planId           String   @map("plan_id") @db.Uuid
+  version          Int
+  approvedByUserId String   @map("approved_by_user_id") @db.Uuid
+  approvedAt       DateTime @default(now()) @map("approved_at") @db.Timestamptz(3)
+
+  planVersion TaxPlanVersion @relation(fields: [businessId, planId, version], references: [businessId, planId, version], onDelete: Restrict)
+  approvedBy  Membership     @relation("TaxPlanStaffApprover", fields: [businessId, approvedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, planId, version])
+  @@map("tax_plan_staff_approvals")
 }
 
 /// R1 (Nov 14, Tax Planning Review 2 approved workflow): how the client's approval came.

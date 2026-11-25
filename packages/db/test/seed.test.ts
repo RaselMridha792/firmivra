@@ -51,6 +51,8 @@ describe('seed', () => {
       // Tax Planning Review 2 (Nov 14): no plan history or firm resource until a firm acts.
       'tax_plan_events',
       'tax_planning_resources',
+      // Staff sign-off is recorded only after a member approves a finalized plan version.
+      'tax_plan_staff_approvals',
       'platform_firm_subscriptions',
       'platform_member_permission_overrides',
       // Stage B3: no subscription, so no subscription history (no backfill, change C).
