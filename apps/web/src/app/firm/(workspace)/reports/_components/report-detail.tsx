@@ -132,7 +132,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const [chartType, setChartType] = useState<string>();
   const [legend, setLegend] = useState<boolean>();
   // IP-F22 (Octavia's D2): the breakdown's Group By, this run only.
-  const [groupBy, setGroupBy] = useState('');
+  const [groupBy, setGroupBy] = useState<string | undefined>();
   const [labels, setLabels] = useState<boolean>();
   const [tax, setTax] = useState<boolean>();
   const [search, setSearch] = useState(view?.search ?? '');
@@ -222,6 +222,10 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     target.kind === 'SAVED' ? api.reports.savedReport(reportId) : Promise.resolve(null),
   );
   const r: ReportResult | undefined = q.data?.result;
+  const maxPage = Math.max(1, Math.ceil((r?.table.total ?? 0) / (req.pageSize ?? 10)));
+  if (r && r.table.total > 0 && page > maxPage) {
+    setPage(1);
+  }
   const runError = q.data?.error ?? null;
   const reason = runError
     ? ((runError instanceof ApiRequestError ? runError.details?.[0]?.message : undefined) ??
@@ -283,6 +287,16 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     if (packed) {
       const url = new URL(window.location.href);
       url.searchParams.set('view', packed);
+      if (fixed) {
+        url.searchParams.set('range', 'custom');
+        url.searchParams.set('start', fixed.from);
+        url.searchParams.set('end', fixed.to);
+      } else if (preset) {
+        url.searchParams.set('range', preset);
+      }
+      if (compare) {
+        url.searchParams.set('compare', compare);
+      }
       window.history.replaceState(window.history.state, '', url.toString());
     }
     navigate(href);
@@ -378,16 +392,32 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       ]
     : [];
   // Octavia's D2: a Financial report's breakdown groups by Service, Client or Payment Method.
+  const persistedGroup = r?.definition.groupBy ?? '';
   const groupOptions =
-    r?.category === 'FINANCIAL'
-      ? (src?.fields ?? []).filter(
-          (f) => ['service', 'client', 'method'].includes(f.key) && f.groupable,
-        )
-      : [];
+    target.kind !== 'SYSTEM'
+      ? [{ key: '', label: 'No grouping' }, ...(src?.fields ?? []).filter((f) => f.groupable)]
+      : r?.category === 'FINANCIAL'
+        ? (src?.fields ?? []).filter(
+            (f) =>
+              (['service', 'client', 'method'].includes(f.key) || f.key === persistedGroup) &&
+              f.groupable,
+          )
+        : (src?.fields ?? []).filter((f) => f.groupable && f.key === persistedGroup);
+
+  if (persistedGroup && !groupOptions.some((f) => f.key === persistedGroup)) {
+    groupOptions.push({
+      key: persistedGroup,
+      label: src?.fields.find((f) => f.key === persistedGroup)?.label ?? persistedGroup,
+    });
+  }
+
   const shownGroup =
-    groupOptions.find((f) => f.label === r?.breakdown?.series[0]?.label)?.key ??
-    groupOptions[0]?.key ??
-    '';
+    groupBy !== undefined
+      ? groupBy
+      : persistedGroup
+        ? persistedGroup
+        : (groupOptions.find((f) => f.label === r?.breakdown?.series[0]?.label)?.key ??
+          (target.kind === 'SYSTEM' ? (groupOptions[0]?.key ?? '') : ''));
   const title = r
     ? target.kind === 'DEFINITION'
       ? (params.get('name') ?? '').trim() || r.title
@@ -471,6 +501,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       ...d,
       columns: columns.length ? columns : d.columns,
       filters,
+      groupBy: (groupBy !== undefined ? groupBy : d.groupBy) || null,
       ...(sortable ? { sortBy: sort.id, sortDescending: sort.descending } : {}),
       ...(fixed
         ? { date: { rule: 'FIXED' as const, ...fixed } }
@@ -688,6 +719,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
 
           <ul
             hidden={!parts.kpis}
+            style={!parts.kpis ? { display: 'none' } : undefined}
             className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
             data-testid="report-kpis"
           >
@@ -715,6 +747,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
 
           <div
             hidden={!parts.chart}
+            style={!parts.chart ? { display: 'none' } : undefined}
             className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"
           >
             <section className={card} aria-label="Chart" data-testid="report-chart">
@@ -741,14 +774,16 @@ export function ReportDetail({ reportId }: { reportId: string }) {
                   <Select
                     label="Group by"
                     hideLabel
-                    value={groupBy || shownGroup}
+                    value={shownGroup}
                     onChange={(e) => setGroupBy(e.target.value)}
                     options={groupOptions.map((f) => ({ value: f.key, label: f.label }))}
                   />
                 </div>
               ) : (
                 <h2 className="mb-3 font-display text-lg font-bold text-heading">
-                  By {src?.fields.find((f) => f.key === r?.definition.groupBy)?.label ?? 'Group'}
+                  {r?.definition.groupBy
+                    ? `By ${src?.fields.find((f) => f.key === r.definition.groupBy)?.label ?? 'Group'}`
+                    : 'No grouping'}
                 </h2>
               )}
               {r?.breakdown ? (
@@ -769,6 +804,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
 
           <section
             hidden={!parts.table}
+            style={!parts.table ? { display: 'none' } : undefined}
             className={`${card} flex flex-col gap-3`}
             aria-label="Report table"
             data-testid="report-table"
@@ -975,10 +1011,12 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               onChange={setChartType}
               testId="chart-type"
             />
-            <label className="flex items-center justify-between gap-3 text-sm text-heading">
-              Show Legend
-              <Toggle label="Show legend" checked={shownLegend} onChange={setLegend} />
-            </label>
+            {parts.chart ? (
+              <label className="flex items-center justify-between gap-3 text-sm text-heading">
+                Show Legend
+                <Toggle label="Show legend" checked={shownLegend} onChange={setLegend} />
+              </label>
+            ) : null}
             <label className="flex items-center justify-between gap-3 text-sm text-heading">
               Show Comparison Period
               <Toggle
@@ -990,10 +1028,12 @@ export function ReportDetail({ reportId }: { reportId: string }) {
                 }}
               />
             </label>
-            <label className="flex items-center justify-between gap-3 text-sm text-heading">
-              Show Data Labels
-              <Toggle label="Show data labels" checked={shownLabels} onChange={setLabels} />
-            </label>
+            {parts.chart ? (
+              <label className="flex items-center justify-between gap-3 text-sm text-heading">
+                Show Data Labels
+                <Toggle label="Show data labels" checked={shownLabels} onChange={setLabels} />
+              </label>
+            ) : null}
             {src?.supportsTaxToggle ? (
               <label className="flex items-center justify-between gap-3 text-sm text-heading">
                 Include Tax in Revenue

@@ -52,6 +52,7 @@ import {
 } from './reports-shared';
 import { ReportHelp } from './report-help';
 import { ChartSelect } from './chart-select';
+import { drawingOf, partsOf } from './chart-display';
 
 const section = (n: number, title: string) => (
   <h2 className="mb-3 flex items-center gap-3 font-display text-lg font-bold text-heading">
@@ -168,6 +169,11 @@ export function ReportBuilder() {
       : Promise.resolve(null),
   );
   const r = preview.data;
+  const facts = {
+    periods: r?.chart?.labels.length ?? 0,
+    kpis: r?.kpis.length ?? 0,
+  };
+  const parts = partsOf(chart);
   // RP-F10: a preview that could not run says why; it is never shown as "no data".
   const previewError = preview.isError
     ? ((preview.error instanceof ApiRequestError
@@ -461,10 +467,7 @@ export function ReportBuilder() {
               <ChartSelect
                 label="Display"
                 value={chart}
-                facts={{
-                  periods: preview.data?.chart?.labels.length ?? 0,
-                  kpis: preview.data?.kpis.length ?? 0,
-                }}
+                facts={facts}
                 onChange={setChart}
                 testId="builder-display"
               />
@@ -517,7 +520,12 @@ export function ReportBuilder() {
                 The preview could not run: {previewError}
               </p>
             ) : null}
-            <ul className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-3" data-testid="preview-kpis">
+            <ul
+              hidden={!parts.kpis}
+              style={!parts.kpis ? { display: 'none' } : undefined}
+              className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-3"
+              data-testid="preview-kpis"
+            >
               {(r?.kpis ?? []).map((k) => (
                 <li key={k.key}>
                   <KpiCard
@@ -530,14 +538,25 @@ export function ReportBuilder() {
                 </li>
               ))}
             </ul>
-            {r?.chart ? (
-              <BarChart chart={r.chart} />
-            ) : previewError ? null : (
-              <p className={quiet}>
-                {preview.isPending ? 'Loading…' : 'No rows match these fields and filters.'}
-              </p>
-            )}
-            <div className="mt-4">
+            <div
+              hidden={!parts.chart}
+              style={!parts.chart ? { display: 'none' } : undefined}
+              data-testid="preview-chart"
+            >
+              {r?.chart ? (
+                <BarChart chart={r.chart} kind={drawingOf(chart, facts)} />
+              ) : previewError ? null : (
+                <p className={quiet}>
+                  {preview.isPending ? 'Loading…' : 'No rows match these fields and filters.'}
+                </p>
+              )}
+            </div>
+            <div
+              hidden={!parts.table}
+              style={!parts.table ? { display: 'none' } : undefined}
+              className="mt-4"
+              data-testid="preview-table"
+            >
               <h3 className="mb-2 font-display text-base font-bold text-heading">
                 Report Data (Preview)
               </h3>
