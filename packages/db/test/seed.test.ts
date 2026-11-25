@@ -120,6 +120,15 @@ describe('seed', () => {
       'firm_data_download_codes',
       'firm_data_download_log',
       'firm_exceptional_access_requests',
+      // Q35 CRM (Nov 25): no consent, journey, enrollment, execution, demo request or appointment
+      // until the CRM features are used.
+      'sales_lead_consents',
+      'sales_nurture_journeys',
+      'sales_nurture_journey_versions',
+      'sales_nurture_enrollments',
+      'sales_nurture_executions',
+      'sales_demo_requests',
+      'sales_demo_appointments',
     ];
     const empty: string[] = [];
     for (const t of tables) {
