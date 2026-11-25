@@ -1,5 +1,6 @@
 import {
   ACCEPTED_PAYMENT_LOCKS,
+  achLock,
   type AcceptedPayments,
   ApiRequestError,
   cardLock,
@@ -61,6 +62,18 @@ const tabStage = (): PaymentsSetupStage | undefined => {
   }
 };
 
+/**
+ * Q23 (IP-041): Stripe's ACH Direct Debit capability is active on the firm's account (a spec's
+ * sessionStorage 'firmivra-mock:ach' = 'active'); off otherwise, as for every firm today.
+ */
+const tabAchActive = (): boolean => {
+  try {
+    return sessionStorage.getItem('firmivra-mock:ach') === 'active';
+  } catch {
+    return false;
+  }
+};
+
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 
@@ -73,17 +86,22 @@ export function createPaymentsSetupMock(
   let chosen = {
     acceptCard: true,
     defaultCardProcessor: 'STRIPE' as const,
+    acceptAch: false,
     achProcessor: 'STRIPE' as const,
   };
   const accepted = (): AcceptedPayments => {
     const ready = setup.chargesEnabled ? (['STRIPE'] as const) : ([] as const);
+    const ach = achLock({
+      chargesEnabled: setup.chargesEnabled,
+      achPaymentsActive: tabAchActive(),
+    });
     return {
       ...chosen,
-      acceptAch: false,
+      acceptAch: ach === null && chosen.acceptAch,
       readyProcessors: [...ready],
       locks: {
         card: cardLock(setup),
-        ach: ACCEPTED_PAYMENT_LOCKS.ach,
+        ach,
         paypal: ACCEPTED_PAYMENT_LOCKS.paypal,
       },
       onlinePayments: chosen.acceptCard && setup.chargesEnabled,
@@ -141,7 +159,8 @@ export function createPaymentsSetupMock(
     saveAccepted: async (body) => {
       await allowed(false);
       const before = accepted();
-      if (body.acceptAch) throw fail(409, 'ACH_NOT_OFFERED', PAYMENTS_SETUP_ERRORS.ACH_NOT_OFFERED);
+      if (body.acceptAch && before.locks.ach !== null)
+        throw fail(409, 'ACH_NOT_OFFERED', PAYMENTS_SETUP_ERRORS.ACH_NOT_OFFERED);
       const cardChanged =
         body.acceptCard !== before.acceptCard ||
         body.defaultCardProcessor !== before.defaultCardProcessor;
@@ -150,6 +169,7 @@ export function createPaymentsSetupMock(
       chosen = {
         acceptCard: body.acceptCard,
         defaultCardProcessor: body.defaultCardProcessor,
+        acceptAch: body.acceptAch,
         achProcessor: body.achProcessor,
       };
       return accepted();

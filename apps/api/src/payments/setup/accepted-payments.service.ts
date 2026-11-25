@@ -3,6 +3,7 @@ import type { Database, TxClient } from '@firmivra/db';
 import {
   ACCEPTED_PAYMENT_LOCKS,
   type AcceptedPayments,
+  achLock,
   cardLock,
   PAYMENTS_SETUP_ERRORS,
   type PaymentProcessor,
@@ -18,8 +19,8 @@ type SaveBody = z.output<typeof SaveAcceptedPaymentsRequest>;
 
 /**
  * Settings > Payments, Accepted Client Payments (PAY-3, IP-F14), on the firm's one store
- * (`payment_settings`): cards on or off, their processor, and bank payments (ACH), which stay off
- * until checkout offers them. Only a ready processor is offered; a locked control says what it
+ * (`payment_settings`): cards on or off, their processor, and bank payments (ACH), which can be on
+ * only while Stripe's ACH Direct Debit capability is active on the firm's account (Q23, IP-041). Only a ready processor is offered; a locked control says what it
  * needs. Cards off takes Pay Now away from new payments (`paymentsEnabled`); past payments stay.
  */
 @Injectable()
@@ -38,7 +39,9 @@ export class AcceptedPaymentsService {
       // The same lock as the billing sections' save: one write to the firm's row at a time.
       await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${`payment-settings:${businessId}`}))) AS l`;
       const before = await read(tx, businessId);
-      if (body.acceptAch) throw conflict('ACH_NOT_OFFERED', PAYMENTS_SETUP_ERRORS.ACH_NOT_OFFERED);
+      if (body.acceptAch && before.locks.ach !== null) {
+        throw conflict('ACH_NOT_OFFERED', PAYMENTS_SETUP_ERRORS.ACH_NOT_OFFERED);
+      }
       const cardChanged =
         body.acceptCard !== before.acceptCard ||
         body.defaultCardProcessor !== before.defaultCardProcessor;
@@ -48,7 +51,7 @@ export class AcceptedPaymentsService {
       const next = {
         acceptCard: body.acceptCard,
         defaultCardProcessor: body.defaultCardProcessor,
-        acceptAch: false,
+        acceptAch: body.acceptAch,
         achProcessor: body.achProcessor,
       };
       const was = {
@@ -89,26 +92,27 @@ export class AcceptedPaymentsService {
 async function read(tx: TxClient, businessId: string): Promise<AcceptedPayments> {
   const account = await tx.stripeAccount.findUnique({
     where: { businessId },
-    select: { chargesEnabled: true },
+    select: { chargesEnabled: true, achPaymentsActive: true },
   });
   const row = await tx.paymentSettings.findUnique({
     where: { businessId },
-    select: { acceptCard: true, defaultCardProcessor: true, achProcessor: true },
+    select: { acceptCard: true, defaultCardProcessor: true, acceptAch: true, achProcessor: true },
   });
   const chargesEnabled = account?.chargesEnabled ?? false;
+  const ach = achLock({ chargesEnabled, achPaymentsActive: account?.achPaymentsActive ?? false });
   const readyProcessors: PaymentProcessor[] = chargesEnabled ? ['STRIPE'] : [];
   const acceptCard = row?.acceptCard ?? true;
   const defaultCardProcessor = row?.defaultCardProcessor ?? 'STRIPE';
   return {
     acceptCard,
     defaultCardProcessor,
-    // Checkout takes cards only, so bank payments read off whatever the row holds.
-    acceptAch: false,
+    // Q23: on only while not locked (no ACH capability: off, whatever the row holds).
+    acceptAch: ach === null && (row?.acceptAch ?? false),
     achProcessor: row?.achProcessor ?? 'STRIPE',
     readyProcessors,
     locks: {
       card: cardLock({ connected: account !== null, chargesEnabled }),
-      ach: ACCEPTED_PAYMENT_LOCKS.ach,
+      ach,
       paypal: ACCEPTED_PAYMENT_LOCKS.paypal,
     },
     onlinePayments: acceptCard && readyProcessors.includes(defaultCardProcessor),

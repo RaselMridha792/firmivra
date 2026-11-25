@@ -26,6 +26,8 @@ type AccountRow = {
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;
+  /** Q23 (IP-041): Stripe's ACH Direct Debit capability is active. */
+  achPaymentsActive: boolean;
   updatedAt: Date;
 };
 
