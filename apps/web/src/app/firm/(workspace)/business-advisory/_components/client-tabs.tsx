@@ -38,6 +38,7 @@ import { useState } from 'react';
 import { ShareNoteDialog } from '../../../../../components/share-note-dialog';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import { useFirmZone, zonedWhen } from '../../../../../lib/firm-zone';
 import { ActionItemsSection } from './action-plans-screen';
 import { ErrorLine } from './ba-dialogs';
 import { useAct } from './ba-list-kit';
@@ -584,6 +585,7 @@ const iconOf = (action: string): [Icon, TimelineItem['tone']] => {
 
 /** /business-advisory/clients/[clientId]/activity: the audited history of the client's advisory work. */
 export function ClientActivityTab({ advisoryClientId }: { advisoryClientId: string }) {
+  const timeZone = useFirmZone();
   const [page, setPage] = useState(1);
   const q = useApiQuery([...BA_KEY, 'client-activity', advisoryClientId, page], () =>
     api.advisory.activity(advisoryClientId, { page, pageSize: SIZE }),
@@ -595,13 +597,7 @@ export function ClientActivityTab({ advisoryClientId }: { advisoryClientId: stri
       icon,
       tone,
       title: a.message,
-      time: new Date(a.at).toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      }),
+      time: zonedWhen(a.at, timeZone),
       dateTime: a.at,
       actor: a.actor?.name ?? 'System',
     };

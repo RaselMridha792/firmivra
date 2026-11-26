@@ -31,7 +31,12 @@ function when(iso: string, timeZone: string): [string, string] {
   const at = new Date(iso);
   return [
     at.toLocaleDateString('en-US', { timeZone, month: 'short', day: 'numeric', year: 'numeric' }),
-    at.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit' }),
+    at.toLocaleTimeString('en-US', {
+      timeZone,
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    }),
   ];
 }
 

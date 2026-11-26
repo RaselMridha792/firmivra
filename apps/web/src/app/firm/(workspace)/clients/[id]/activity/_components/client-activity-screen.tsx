@@ -50,6 +50,7 @@ const when = (iso: string, timeZone: string | undefined) =>
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZoneName: 'short',
   });
 
 export function ClientActivityScreen() {

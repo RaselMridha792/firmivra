@@ -47,7 +47,12 @@ export function TodayScreen({ fromDashboard = false }: { fromDashboard?: boolean
   const whenOf = (a: AgendaEntry) =>
     allDayOf(a) ? 'All Day' : `${timeOf(a.startsAt)} – ${timeOf(a.endsAt)}`;
   const timeOf = (iso: string) =>
-    new Date(iso).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+    new Date(iso).toLocaleTimeString('en-US', {
+      timeZone: tz,
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    });
   const longDay = new Date(`${today}T12:00:00Z`).toLocaleDateString('en-US', {
     timeZone: 'UTC',
     weekday: 'long',

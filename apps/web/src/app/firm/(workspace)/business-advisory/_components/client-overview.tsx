@@ -27,6 +27,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import { useFirmZone, zonedDateParts, zonedDay, zonedTime } from '../../../../../lib/firm-zone';
 import { Disclaimer } from './ba-shell';
 import {
   ActionStatusPill,
@@ -186,6 +187,7 @@ export function HealthDialog({
 
 /** /business-advisory/clients/[clientId]: the client's command center (design 3, Overview tab). */
 export function ClientOverview({ advisoryClientId }: { advisoryClientId: string }) {
+  const timeZone = useFirmZone();
   const q = useAdvisoryClient(advisoryClientId);
   const c = q.data;
   const failed = q.isError;
@@ -234,6 +236,7 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
       ? k.employees.value - k.employees.previous
       : null;
   const next = meeting.data?.items[0];
+  const nextDate = next ? zonedDateParts(next.startsAt, timeZone) : undefined;
   const latest = figures.data?.items[0];
   const goalCols: Column<AdvisoryGoalRow>[] = [
     { id: 'goal', label: 'Goal', cell: (g) => <span className="text-link">{g.title}</span> },
@@ -507,35 +510,21 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
               <div className="flex items-center gap-4">
                 <span className="flex w-20 shrink-0 flex-col items-center rounded-lg border border-divider py-2 text-heading">
                   <span className="text-xs font-semibold uppercase">
-                    {new Date(next.startsAt).toLocaleDateString('en-US', { month: 'short' })}
+                    {new Intl.DateTimeFormat('en-US', {
+                      ...(timeZone ? { timeZone } : {}),
+                      month: 'short',
+                    }).format(new Date(next.startsAt))}
                   </span>
-                  <span className="text-3xl leading-none font-bold">
-                    {new Date(next.startsAt).getDate()}
-                  </span>
-                  <span className="text-xs">{new Date(next.startsAt).getFullYear()}</span>
+                  <span className="text-3xl leading-none font-bold">{nextDate?.day}</span>
+                  <span className="text-xs">{nextDate?.year}</span>
                 </span>
                 <span className="flex min-w-0 flex-col text-sm">
                   <span className="font-semibold text-heading">
                     {next.meetingType ?? 'Advisory meeting'}
                   </span>
+                  <span>{zonedDay(next.startsAt, timeZone)}</span>
                   <span>
-                    {new Date(next.startsAt).toLocaleDateString('en-US', {
-                      weekday: 'long',
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </span>
-                  <span>
-                    {new Date(next.startsAt).toLocaleTimeString('en-US', {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}{' '}
-                    –{' '}
-                    {new Date(next.endsAt).toLocaleTimeString('en-US', {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}
+                    {zonedTime(next.startsAt, timeZone)} – {zonedTime(next.endsAt, timeZone)}
                   </span>
                   <span className="flex items-center gap-1 text-link">
                     <VideoCamera aria-hidden weight="fill" className="size-4" />{' '}

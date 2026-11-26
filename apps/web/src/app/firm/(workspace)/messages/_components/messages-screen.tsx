@@ -36,6 +36,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { MessageFiles } from '../../../../../components/message-files';
 import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
+import { useFirmZone, zonedDayKey, zonedTime, zonedWhen } from '../../../../../lib/firm-zone';
 import { errorMessage } from '../../../../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../../../../lib/query';
 import { AttachFiles, type ChosenFile, ChosenFiles } from './attach-files';
@@ -64,11 +65,9 @@ import {
 } from './messages-view';
 
 const KEY = ['messages'] as const;
-const when = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-const hm = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
-const day = (iso: string) => {
-  const d = new Date(iso);
-  return d.toDateString() === new Date().toDateString() ? hm.format(d) : when.format(d);
+const day = (iso: string, timeZone?: string) => {
+  const today = zonedDayKey(new Date().toISOString(), timeZone);
+  return zonedDayKey(iso, timeZone) === today ? zonedTime(iso, timeZone) : zonedWhen(iso, timeZone);
 };
 /** M27: how often the open conversation and the inbox look for changes (only while visible). */
 const CONVERSATION_REFRESH_MS = 15_000;
@@ -134,6 +133,7 @@ export function MessagesScreen({
   /** The view from the address: tab, search, open thread, filters (MSG-F08), client (SH5). */
   initialView?: MessagesView;
 } = {}) {
+  const timeZone = useFirmZone();
   const qc = useQueryClient();
   const [view, setView] = useState(initialView);
   const update = (patch: Partial<MessagesView>) => setView((v) => ({ ...v, ...patch }));
@@ -383,7 +383,7 @@ export function MessagesScreen({
                         {contactOf(t).displayName}
                       </span>
                       <span className="shrink-0 text-xs text-muted">
-                        {day(t.lastMessage?.createdAt ?? t.createdAt)}
+                        {day(t.lastMessage?.createdAt ?? t.createdAt, timeZone)}
                       </span>
                     </span>
                     <span className="block truncate text-xs text-muted">
@@ -584,6 +584,7 @@ function Conversation({
   onChanged: () => void;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
+  const timeZone = useFirmZone();
   // M27 (Messaging Review 2): the open conversation keeps itself current (new replies, and
   // Delivered turning Read when the client opens it) without a manual refresh.
   const detail = useQuery({
@@ -703,7 +704,7 @@ function Conversation({
                 }
               />
               <span className="mt-0.5 text-xs text-muted">
-                {m.sender.name} · {day(m.createdAt)}
+                {m.sender.name} · {day(m.createdAt, timeZone)}
                 {/* MSG-F10: every conversation message is a portal message. */}
                 {' · '}
                 <span data-testid="message-channel">Portal</span>
@@ -711,7 +712,7 @@ function Conversation({
                     opens it. */}
                 {mine ? (
                   <span data-testid="message-delivery">
-                    {m.readAt ? ` · Read ${day(m.readAt)}` : ' · Delivered'}
+                    {m.readAt ? ` · Read ${day(m.readAt, timeZone)}` : ' · Delivered'}
                   </span>
                 ) : null}
               </span>
@@ -789,6 +790,7 @@ function LeadConversation({
   onChanged: () => void;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
+  const timeZone = useFirmZone();
   const detail = useApiQuery([...KEY, 'lead-thread', thread.id], () =>
     api.messages.leads.get(thread.id),
   );
@@ -850,7 +852,7 @@ function LeadConversation({
               {m.body}
             </p>
             <span className="mt-0.5 text-xs text-muted">
-              {m.sender.name} · {day(m.createdAt)}
+              {m.sender.name} · {day(m.createdAt, timeZone)}
               {m.channel ? (
                 <>
                   {' · '}
@@ -991,6 +993,7 @@ function ContactPanel({
   onNotice: (text: string, tone: 'success' | 'error') => void;
   onOpenThread: (threadId: string) => void;
 }) {
+  const timeZone = useFirmZone();
   const clientId = thread.client.id;
   const name = thread.client.displayName;
   const qc = useQueryClient();
@@ -1194,7 +1197,7 @@ function ContactPanel({
             <li key={n.id} className="rounded-lg bg-warning-soft p-2 text-sm text-heading">
               <p className="whitespace-pre-wrap">{n.body}</p>
               <p className="mt-1 text-xs text-muted">
-                {n.author.name} · {day(n.createdAt)}
+                {n.author.name} · {day(n.createdAt, timeZone)}
               </p>
             </li>
           ))}

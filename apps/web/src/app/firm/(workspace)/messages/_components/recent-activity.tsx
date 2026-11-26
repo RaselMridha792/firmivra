@@ -17,6 +17,7 @@ import {
 } from '@phosphor-icons/react';
 import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
+import { useFirmZone, zonedWhen } from '../../../../../lib/firm-zone';
 import { useApiQuery } from '../../../../../lib/query';
 
 // MSG-F18 (Octavia's Oct 27 Messages review, MSG-033): Recent Activity in the contact panel. The
@@ -39,16 +40,6 @@ const ICONS: Record<ClientActivityKind, Icon> = {
   DOCUMENTS_REQUESTED: Files,
   TASK_COMPLETED: CheckSquare,
 };
-const stamp = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-const appointment = new Intl.DateTimeFormat('en-US', {
-  weekday: 'short',
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-});
-
 function Row({
   item,
   onOpenThread,
@@ -56,6 +47,7 @@ function Row({
   item: ClientActivityItem;
   onOpenThread: (threadId: string) => void;
 }) {
+  const timeZone = useFirmZone();
   const Glyph = ICONS[item.kind];
   const body = (
     <>
@@ -71,9 +63,7 @@ function Row({
           <span className="block truncate text-xs text-muted">{item.detail}</span>
         ) : null}
         <span className="block text-xs text-muted">
-          {item.eventAt
-            ? appointment.format(new Date(item.eventAt))
-            : stamp.format(new Date(item.at))}
+          {zonedWhen(item.eventAt ?? item.at, timeZone)}
         </span>
       </span>
     </>
