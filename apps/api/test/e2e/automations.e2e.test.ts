@@ -1848,11 +1848,21 @@ describe('settings and the overview', () => {
       failureAlertUsers: [],
       minutesSavedPerAction: 5,
       logRetentionDays: 365,
+      missedRunPolicy: 'RUN_ONCE',
+      missedRunWindowDays: 7,
+      conflictPolicy: 'PRIORITY_THEN_OLDEST',
+      pausedAt: null,
+      pausedBy: null,
       updatedAt: null,
     });
     expect(view.timezone).toBeTruthy();
     expectError(await call('put', '/settings', staffA, { maxDepth: 4 }), 403, 'FORBIDDEN');
     expectError(await call('put', '/settings', preparerA, { maxDepth: 4 }), 403, 'FORBIDDEN');
+    expectError(
+      await call('put', '/settings', staffA, { missedRunPolicy: 'SKIP' }),
+      403,
+      'FORBIDDEN',
+    );
     for (const bad of [
       {},
       { logRetentionDays: 30 },
@@ -1860,6 +1870,9 @@ describe('settings and the overview', () => {
       { maxDepth: 11 },
       { quietHours: { start: '25:00', end: '07:00' } },
       { surprise: 1 },
+      { missedRunPolicy: 'UNKNOWN' },
+      { missedRunWindowDays: 91 },
+      { conflictPolicy: 'LAST_WINS' },
     ])
       expectError(await call('put', '/settings', ownerA, bad), 400, 'VALIDATION_FAILED');
     expectError(
@@ -1875,6 +1888,9 @@ describe('settings and the overview', () => {
           failureAlertUserIds: [adminA.id],
           minutesSavedPerAction: 10,
           logRetentionDays: 400,
+          missedRunPolicy: 'REPLAY_WINDOW',
+          missedRunWindowDays: 14,
+          conflictPolicy: 'SKIP_BOTH',
         }),
       ),
     );
@@ -1883,6 +1899,9 @@ describe('settings and the overview', () => {
       defaultDedupeDays: 14,
       minutesSavedPerAction: 10,
       logRetentionDays: 400,
+      missedRunPolicy: 'REPLAY_WINDOW',
+      missedRunWindowDays: 14,
+      conflictPolicy: 'SKIP_BOTH',
     });
     expect(saved.failureAlertUsers.map((u) => u.userId)).toEqual([adminA.id]);
     expect(saved.updatedAt).not.toBeNull();
@@ -1898,6 +1917,19 @@ describe('settings and the overview', () => {
       AutomationSettingsView.parse(ok(await call('get', '/settings', ownerB, undefined, 'b')))
         .defaultDedupeDays,
     ).toBe(7);
+    expectError(await call('post', '/settings/pause', staffA), 403, 'FORBIDDEN');
+    const paused = AutomationSettingsView.parse(ok(await call('post', '/settings/pause', ownerA)));
+    expect(paused.pausedAt).not.toBeNull();
+    expect(paused.pausedBy?.userId).toBe(ownerA.id);
+    expectError(
+      await call('post', '/settings/resume', staffA, { backlog: 'SKIP_DUE' }),
+      403,
+      'FORBIDDEN',
+    );
+    const resumed = AutomationSettingsView.parse(
+      ok(await call('post', '/settings/resume', ownerA, { backlog: 'SKIP_DUE' })),
+    );
+    expect(resumed.pausedAt).toBeNull();
   });
 
   it('shows the overview: counts, health and recent activity', async () => {

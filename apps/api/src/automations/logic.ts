@@ -338,6 +338,8 @@ export function stored(def: Def, defaults: Defaults) {
       addToCalendar: def.settings.addToCalendar,
       quietHours: def.settings.quietHours ?? null,
       safetyThreshold: def.settings.safetyThreshold ?? null,
+      missedRunPolicy: def.settings.missedRunPolicy ?? null,
+      missedRunWindowDays: def.settings.missedRunWindowDays ?? null,
       // The version's trigger columns hold no source; it travels with the settings.
       ...(source ? { triggerSource: source } : {}),
     },
@@ -414,6 +416,13 @@ export function viewOf(v: VersionRow): AutomationDefinitionView {
       addToCalendar: s.addToCalendar === true,
       quietHours: q?.start && q.end ? { start: q.start, end: q.end } : null,
       safetyThreshold: typeof s.safetyThreshold === 'number' ? s.safetyThreshold : null,
+      missedRunPolicy:
+        s.missedRunPolicy === 'RUN_ONCE' ||
+        s.missedRunPolicy === 'SKIP' ||
+        s.missedRunPolicy === 'REPLAY_WINDOW'
+          ? s.missedRunPolicy
+          : null,
+      missedRunWindowDays: typeof s.missedRunWindowDays === 'number' ? s.missedRunWindowDays : null,
     },
   };
 }
@@ -443,6 +452,8 @@ export function defOf(view: AutomationDefinitionView): Def {
       addToCalendar: view.settings.addToCalendar,
       quietHours: view.settings.quietHours,
       safetyThreshold: view.settings.safetyThreshold,
+      missedRunPolicy: view.settings.missedRunPolicy,
+      missedRunWindowDays: view.settings.missedRunWindowDays,
     },
   } as Def;
 }

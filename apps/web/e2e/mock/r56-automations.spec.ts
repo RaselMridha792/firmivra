@@ -83,10 +83,12 @@ test('Builder: validation, a full rule, the live review and activation', async (
   await expect(page.getByTestId('matching').getByRole('listitem').first()).toBeVisible();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByLabel('Rule Name *').fill('Business Reminder – 14 Days');
+  await page.getByLabel('Missed-run policy').selectOption('SKIP');
   await expect(page.getByTestId('rule-summary')).toContainText('Business Reminder – 14 Days');
   await page.getByTestId('save-activate').click();
   await expect(page).toHaveURL(/\/automations\/[0-9a-f-]{36}\/edit$/);
   await expect(page.getByTestId('rule-summary')).toContainText('Active');
+  await expect(page.getByLabel('Missed-run policy')).toHaveValue('SKIP');
 });
 
 test('Builder: an action with no template blocks activation', async ({ page }) => {
@@ -120,8 +122,29 @@ test('Logs: counts, a failed run, its error and a re-run', async ({ page }) => {
   await expect(page.getByText(/automation-logs\.csv: \d+ row/)).toBeVisible();
   await page.getByRole('button', { name: 'View Automation Settings' }).click();
   await page.getByLabel('Prevent duplicates (days)').fill('10');
+  await page.getByLabel('Default missed-run policy').selectOption('REPLAY_WINDOW');
+  await page.getByLabel('Replay window (days)').fill('14');
+  await page.getByLabel('Rule conflict policy').selectOption('SKIP_BOTH');
   await page.getByRole('button', { name: 'Save Settings' }).click();
   await expect(page.getByText('Settings saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'View Automation Settings' }).click();
+  await expect(page.getByLabel('Default missed-run policy')).toHaveValue('REPLAY_WINDOW');
+  await expect(page.getByLabel('Replay window (days)')).toHaveValue('14');
+  await expect(page.getByLabel('Rule conflict policy')).toHaveValue('SKIP_BOTH');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+});
+
+test('R13: pause banner and choose what to do with the backlog on resume', async ({ page }) => {
+  await page.goto(base);
+  await page.getByRole('button', { name: 'Pause automations' }).click();
+  await expect(page.getByTestId('firm-automation-pause-banner')).toContainText(
+    'Automations are paused.',
+  );
+  await page.getByRole('button', { name: 'Resume automations' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Resume Automations' });
+  await dialog.getByRole('radio', { name: 'Skip actions due during the pause' }).check();
+  await dialog.getByRole('button', { name: 'Resume', exact: true }).click();
+  await expect(page.getByTestId('firm-automation-pause-banner')).toHaveCount(0);
 });
 
 test('Templates: use one, export and import', async ({ page }) => {
