@@ -29,6 +29,8 @@ import {
   BillingPaymentPage,
   BillingPaymentsQuery,
   BillingPaymentSummary,
+  BillingRevenue,
+  BillingRevenueQuery,
   BillingRecurring,
   BillingRecurringCounts,
   BillingRecurringId,
@@ -166,6 +168,9 @@ export function createAdminBillingClient(request: ApiRequest) {
         `${BASE}/payments/summary${listQuery(BillingPaymentsQuery, query)}`,
       ),
     payment: async (id: string): Promise<BillingPayment> => request(BillingPayment, payment(id)),
+    /** SA-BIL-A1: collected revenue for a period (and the one before, with `compare`). */
+    revenue: async (query: BillingRevenueQuery): Promise<BillingRevenue> =>
+      request(BillingRevenue, `${BASE}/revenue${listQuery(BillingRevenueQuery, query)}`),
     refundPayment: async (id: string, body: RefundBillingPaymentRequest): Promise<BillingPayment> =>
       request(
         BillingPayment,

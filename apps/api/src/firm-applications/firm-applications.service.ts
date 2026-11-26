@@ -54,6 +54,7 @@ import {
   type NotifyService,
   type NotifyTemplate,
 } from '../notify/notify.types.js';
+import { monthRevenueCents } from '../admin-billing/billing-revenue.js';
 import { AdminPrisma } from './admin-prisma.js';
 import { FIRM_ACCOUNT_AUDIT, firmAccountCan } from './firm-account.service.js';
 import { FIRM_INFO_REQUESTED } from './firm-info-request.service.js';
@@ -735,6 +736,7 @@ export class FirmApplicationsService {
       newUsersThisWeek,
       openTickets,
       renewalsThisWeek,
+      monthlyRevenueCents,
     ] = await Promise.all([
       // SA-APP-Y04: Pending and In Review; Awaiting Information waits on the applicant.
       db.firmApplication.count({ where: { status: { in: ['PENDING_REVIEW', 'IN_REVIEW'] } } }),
@@ -750,6 +752,7 @@ export class FirmApplicationsService {
           nextBillingDate: { gte: monday, lte: sunday },
         },
       }),
+      this.admin.transaction((tx) => monthRevenueCents(tx)),
     ]);
     return {
       pendingApplications,
@@ -758,8 +761,8 @@ export class FirmApplicationsService {
       newUsersThisWeek,
       openTickets,
       renewalsThisWeek,
-      // Firmivra does not bill firms yet (Subscriptions and Billing are "Soon").
-      monthlyRevenueCents: 0,
+      // SA-DSH-F05: the Billing > Revenue tab's query for this month, both types (one total).
+      monthlyRevenueCents,
     };
   }
 
