@@ -127,13 +127,12 @@ const TILES: Tile[] = [
     // A template starts as a prepared request, saved with Save as template.
     href: '/firm-sign/new',
   },
-  // Until the client record has its Send for Signature button (Fahad, F06).
+  // Client record entry point (FS-003): keyboard-accessible route to client selection.
   {
     title: 'Send from Client Record',
     text: 'Quick send',
     icon: Users,
     href: '/clients',
-    soon: true,
   },
 ];
 

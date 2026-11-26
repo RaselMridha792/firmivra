@@ -224,7 +224,7 @@ export const ESIGN_STATUS_LABELS = {
   DRAFT: 'Draft',
   NEEDS_APPROVAL: 'Needs Approval',
   SENT: 'Sent',
-  DELIVERED: 'Sent',
+  DELIVERED: 'Delivered',
   VIEWED: 'Viewed',
   PARTIALLY_SIGNED: 'Partially Signed',
   COMPLETED: 'Completed',

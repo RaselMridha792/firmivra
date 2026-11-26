@@ -19,8 +19,8 @@ import { shouldRetry, useApiQuery } from '../../lib/query';
 import { shortDate } from './format';
 import { StatusBadge } from './status-badge';
 
-/** The status filter's choices: Delivered is shown as Sent, so it is not a choice of its own. */
-const STATUSES = EsignRequestStatus.options.filter((s) => s !== 'DELIVERED');
+/** The status filter's choices: all request statuses. */
+const STATUSES = EsignRequestStatus.options;
 
 const RANGES = [
   { value: '7', label: 'Last 7 Days' },
