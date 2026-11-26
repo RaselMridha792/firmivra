@@ -48,7 +48,7 @@ import {
   canEditInvoice,
 } from './inv-shared';
 import { InvoiceAttachments } from './invoice-attachments';
-import { InvoiceServicePlan } from './invoice-service-plan';
+import { InvoiceServicePlan, type PlanLine } from './invoice-service-plan';
 import { RecurringCard, recurringBody, recurringDraftOf, upcomingDays } from './recurring-card';
 
 interface LineDraft {
@@ -146,6 +146,8 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   // I-N01: a catalog service the client isn't enrolled in (saving adds it as Requested), and its plan.
   const [catalogId, setCatalogId] = useState('');
   const [plan, setPlan] = useState('');
+  // I-N01 (a): the plan shown for an enrolled engagement; null until chosen here (its own plan).
+  const [enrolledPlan, setEnrolledPlan] = useState<string | null>(null);
   const [scheduledFor, setScheduledFor] = useState(editing?.scheduledFor ?? '');
   const [dueOn, setDueOn] = useState(editing?.dueOn ?? '');
   const [lines, setLines] = useState<LineDraft[]>(() =>
@@ -250,6 +252,17 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
     setCatalogId(id);
     setEngagementId(id ? '' : value);
     setPlan('');
+    setEnrolledPlan(null);
+  };
+  const engagement = (services.data ?? []).find((s) => s.id === engagementId);
+  /** I-N01 (a): a chosen plan fills line 1 with "Service — Plan" and the service's price. */
+  const fillFirstLine = (line: PlanLine | null) => {
+    const first = lines[0];
+    if (!line || !first) return;
+    update(first.key, {
+      description: line.description,
+      ...(line.amountCents === null ? {} : { rate: centsText(line.amountCents) }),
+    });
   };
   const offerings = [...(catalog.data?.items ?? [])].sort(
     (a, b) => Number(assigned.has(b.id)) - Number(assigned.has(a.id)),
@@ -435,6 +448,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                     setEngagementId('');
                     setCatalogId('');
                     setPlan('');
+                    setEnrolledPlan(null);
                   }}
                   options={[
                     {
@@ -468,8 +482,26 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                     <p className="text-xs text-muted" data-testid="service-requested-hint">
                       Not yet a service for this client: saving adds it as Requested.
                     </p>
-                    <InvoiceServicePlan serviceId={catalogId} value={plan} onChange={setPlan} />
+                    <InvoiceServicePlan
+                      serviceId={catalogId}
+                      value={plan}
+                      onChange={(p, line) => {
+                        setPlan(p);
+                        fillFirstLine(line);
+                      }}
+                    />
                   </>
+                ) : engagement ? (
+                  // I-N01 (a): an enrolled service's plans too, its own preselected. The choice
+                  // fills line 1 only; the engagement keeps its plan.
+                  <InvoiceServicePlan
+                    serviceId={engagement.service.id}
+                    value={enrolledPlan ?? engagement.package ?? ''}
+                    onChange={(p, line) => {
+                      setEnrolledPlan(p);
+                      fillFirstLine(line);
+                    }}
+                  />
                 ) : null}
               </div>
               <Input
