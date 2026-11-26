@@ -1214,6 +1214,43 @@ describe('Add Team Member (POST /members)', () => {
     expect((await trail(member.id)).map((i) => i.kind).sort()).toEqual(['CREATED', 'INVITED']);
   });
 
+  it('SA-TEAM-F01: a Chief Officer role is the platform owner’s to give and to change', async () => {
+    await needsAdminRowInsert();
+    const chief = join('Chief', { roleId: role.coo, invite: { email: false, sms: false } });
+    // A Super Admin (and a CEO-level member) who is not the platform owner: refused on the server.
+    expect(refusal(await create(chief))).toEqual([403, 'ROLE_CEILING']);
+    expect(
+      refusal(await call('post', '/members', chief, who.ceo.email)),
+      'a CEO label alone',
+    ).toEqual([403, 'ROLE_CEILING']);
+    expect(refusal(await call('patch', `/members/${who.coo.id}`, { roleId: role.opsVp2 }))).toEqual(
+      [403, 'ROLE_CEILING'],
+    );
+    const options = AdminTeamFormOptions.parse((await call('get', '/form-options')).body);
+    expect(options.roles.map((r) => r.id)).not.toContain(role.coo);
+    expect(await loginsOf(chief.email)).toEqual([]);
+
+    // The platform owner (at most one: whoever holds it now gives it back afterwards).
+    const before = await owner((tx) =>
+      tx.platformAdmin.findFirst({ where: { isPlatformOwner: true }, select: { userId: true } }),
+    );
+    const setOwner = (userId: string, on: boolean) =>
+      owner((tx) => tx.platformAdmin.update({ where: { userId }, data: { isPlatformOwner: on } }));
+    if (before) await setOwner(before.userId, false);
+    await setOwner(who.ceo.id, true);
+    try {
+      const ownerOptions = AdminTeamFormOptions.parse(
+        (await call('get', '/form-options', undefined, who.ceo.email)).body,
+      );
+      expect(ownerOptions.roles.map((r) => r.id)).toContain(role.coo);
+      const { member } = made(await call('post', '/members', chief, who.ceo.email));
+      expect(member).toMatchObject({ role: { id: role.coo, level: 'CHIEF_OFFICER' } });
+    } finally {
+      await setOwner(who.ceo.id, false);
+      if (before) await setOwner(before.userId, true);
+    }
+  });
+
   it('409 EMAIL_TAKEN for a member or a Super Admin, before any login is made', async () => {
     for (const email of [who.editor.email, who.ceo.email.toUpperCase(), fx.users.admin.email])
       expect(refusal(await create(join('Taken', { email })))).toEqual([409, 'EMAIL_TAKEN']);

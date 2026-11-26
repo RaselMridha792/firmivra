@@ -169,6 +169,8 @@ export interface UserRow {
 export interface AdminRow {
   userId: string;
   role: 'SUPER_ADMIN' | 'TEAM_MEMBER';
+  /** SA-TEAM-F01: the one platform owner (`is_platform_owner`). */
+  isPlatformOwner: boolean;
 }
 export interface TeamRows {
   departments: DepartmentRow[];
@@ -250,10 +252,17 @@ export function buildContext(rows: TeamRows, actorId: string, now = Date.now()):
       id: actorId,
       person,
       unrestricted: person.level === 'CEO',
+      owner: admin.isPlatformOwner,
       keys: keysOf(actorId),
     };
   } else if (admin.role === 'SUPER_ADMIN') {
-    actor = { id: actorId, person: null, unrestricted: true, keys: new Set(catalogKeys) };
+    actor = {
+      id: actorId,
+      person: null,
+      unrestricted: true,
+      owner: admin.isPlatformOwner,
+      keys: new Set(catalogKeys),
+    };
   } else {
     throw refuse('FORBIDDEN');
   }
@@ -327,7 +336,7 @@ export async function loadRows(tx: TxClient): Promise<TeamRows> {
         permissionOverrides: { select: { permissionKey: true, state: true } },
       },
     }),
-    tx.platformAdmin.findMany({ select: { userId: true, role: true } }),
+    tx.platformAdmin.findMany({ select: { userId: true, role: true, isPlatformOwner: true } }),
   ]);
   const users = await tx.user.findMany({
     where: { id: { in: admins.map((a) => a.userId) }, pool: 'ADMIN' },
@@ -359,7 +368,11 @@ export async function loadRows(tx: TxClient): Promise<TeamRows> {
       updatedAt: m.updatedAt,
       overrides: m.permissionOverrides.map((o) => ({ key: o.permissionKey, state: o.state })),
     })),
-    admins: admins.map((a) => ({ userId: a.userId, role: a.role })),
+    admins: admins.map((a) => ({
+      userId: a.userId,
+      role: a.role,
+      isPlatformOwner: a.isPlatformOwner,
+    })),
     users,
   };
 }
