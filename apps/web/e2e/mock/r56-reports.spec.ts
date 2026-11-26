@@ -672,3 +672,35 @@ test('R06: Returning from a record preserves date/filter/sort/page context and n
   await expect(page.getByTestId('report-table')).toContainText('Showing 1 –');
   await expect(page.getByTestId('row-link').first()).toBeVisible();
 });
+
+test('R08: Financial metric definitions in field picker and accurate labeling of unsupported accrual revenue', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. In report builder, field picker shows metric definitions
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Data Source').selectOption('invoices_payments');
+
+  // Check Amount / Gross Invoiced definition
+  const amountHelp = page.getByRole('button', { name: 'About Amount', exact: true });
+  await expect(amountHelp).toBeVisible();
+  await amountHelp.click();
+  await expect(
+    page
+      .getByTestId('help-tip')
+      .getByText('Gross Invoiced: total billed before discounts, refunds, or processing fees'),
+  ).toBeVisible();
+
+  // Check Recognized Revenue: must be marked Not Supported and disabled
+  await expect(page.getByTestId('not-supported-badge')).toBeVisible();
+  const recRevHelp = page.getByRole('button', { name: 'About Recognized Revenue' });
+  await expect(recRevHelp).toBeVisible();
+  await recRevHelp.click();
+  await expect(
+    page
+      .getByTestId('help-tip')
+      .getByText('Not supported — Firmivra reports on cash collected or invoices issued'),
+  ).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Recognized Revenue' })).toBeDisabled();
+});
