@@ -96,7 +96,6 @@ info:
     | `PAYMENTS_NOT_SET_UP` | Pay Now while the firm's Stripe account cannot take charges |
     | `NOT_REFUNDABLE` | refund of a payment that is not `SUCCEEDED` (pending, failed, refunded in full) |
     | `REFUND_TOO_LARGE` | refund of more than the payment's `refundableCents` |
-    | `BANK_REFUND_FULL_ONLY` | refund of a bank payment (ACH) for less than all of it, or a second one (Q23) |
 
     ## Rules for the API (R7 steps 3 to 5, and 7)
 
@@ -207,23 +206,12 @@ info:
         already `SUCCEEDED` or `FAILED` is never touched again; none left to confirm: recorded and
         ignored. The database sets the payment `REFUNDED` when confirmed refunds cover it. A
         payment intent the account does not have at Stripe (`resource_missing`): recorded and
-        ignored. A bank payment's (`method_type` `us_bank_account`, Q23 IP-041) refund is not
-        confirmed here: it comes back days later, and `refund.updated` confirms it.
+        ignored. Only `charge.refunded` can confirm a refund (the database's rule), so a bank
+        refund still pending at Stripe is confirmed with it; if Stripe fails it later, it is
+        logged and alarmed (below).
       - `refund.failed` (or `refund.updated` to failed or canceled): the `PENDING` row becomes `FAILED` (its
         cents are refundable again). One already `SUCCEEDED` is final: logged and alarmed, not
         changed; one with no row never counted and is ignored.
-      - `refund.updated` to succeeded (Q23 IP-041), a bank payment's refund only: find the
-        payment from the refund's payment intent and link the event to it; its `PENDING` row
-        becomes `SUCCEEDED` with this event, or with no row (made in the firm's Stripe dashboard)
-        it is inserted `SUCCEEDED` (the database takes `charge.refunded` or `refund.updated`). A
-        card's refund: recorded and ignored (`charge.refunded` confirms it).
-      - `charge.dispute.created` and `charge.dispute.closed` (Q23 IP-041; the lead's call: notify
-        only): find the payment from the dispute's payment intent, link the event to it (the
-        firm's payment then shows `disputed`) and audit it (`payment.disputed`,
-        `payment.dispute_closed`, with Stripe's short status and reason codes). No status
-        changes: the invoice stays `PAID`. The firm gets a bell item (`payment.disputed`,
-        `payment.dispute-closed`), never an amount or a reason; it answers the dispute in
-        Stripe.
       - `account.updated`: fetch the account from Stripe (`accounts.retrieve`; events can arrive
         out of order, so the event's copy is not used), then, before the event is recorded, find
         the firm's `stripe_accounts` row by the `acct_` id and update it with
@@ -474,7 +462,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: '`NOT_REFUNDABLE`, `REFUND_TOO_LARGE` or `BANK_REFUND_FULL_ONLY`' }
+        '409': { description: '`NOT_REFUNDABLE` or `REFUND_TOO_LARGE`' }
         '503': { $ref: '#/components/responses/ProviderUnavailable' }
   /business/invoices/{id}/offline-payments:
     parameters:
