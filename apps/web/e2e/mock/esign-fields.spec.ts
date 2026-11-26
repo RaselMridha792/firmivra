@@ -123,3 +123,30 @@ test('a field the sender fills: a typed value, a merge field and a missing one',
   await page.getByRole('button', { name: 'Save fields' }).click();
   await expect(page.getByRole('link', { name: 'Next: Settings' })).toBeVisible();
 });
+
+test('FS-007 / FS-N07: palette includes all 12 field types with placement and options', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await draft(page);
+  const palette = page.getByRole('group', { name: 'Add a field' });
+
+  // Verify missing types now present in palette
+  await expect(palette.getByRole('button', { name: 'Email' })).toBeVisible();
+  await expect(palette.getByRole('button', { name: 'Phone' })).toBeVisible();
+  await expect(palette.getByRole('button', { name: 'Address' })).toBeVisible();
+  await expect(palette.getByRole('button', { name: 'Choice' })).toBeVisible();
+  await expect(palette.getByRole('button', { name: 'Dropdown' })).toBeVisible();
+  await expect(palette.getByRole('button', { name: 'Attachment' })).toBeVisible();
+
+  // Add and configure dropdown
+  await palette.getByRole('button', { name: 'Dropdown' }).click();
+  const boxes = page.getByTestId('field-box');
+  await expect(boxes).toHaveCount(1);
+  const panel = page.getByTestId('field-panel');
+  await expect(panel.getByLabel('Choices (comma-separated)')).toBeVisible();
+
+  // Save fields
+  await page.getByRole('button', { name: 'Save fields' }).click();
+  await expect(page.getByRole('link', { name: 'Next: Settings' })).toBeVisible();
+});

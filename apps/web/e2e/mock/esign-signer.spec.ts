@@ -40,6 +40,10 @@ test('email code, consent, then the document with my fields', async ({ page }) =
   ).toBeVisible();
   await expect(page.locator('[data-page="1"]').getByTestId('esign-field')).toHaveCount(3);
   await expect(page.getByLabel('Your job title (required), Jamie Sample')).toBeVisible();
+  // FS-N02: pre-signing document download button is available for offline review
+  await expect(page.getByTestId('pre-signing-download')).toBeVisible();
+  // FS-N13: distinct final signing intent
+  await expect(page.getByRole('button', { name: 'Finish and Sign' })).toBeVisible();
 });
 
 test('an access code instead of the email code', async ({ page }) => {

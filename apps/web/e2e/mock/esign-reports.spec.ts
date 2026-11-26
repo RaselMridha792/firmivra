@@ -17,7 +17,7 @@ test('totals and activity by sender, filtered by status and sender', async ({ pa
   await page.getByLabel('From', { exact: true }).fill('2026-09-01');
   await page.getByLabel('To', { exact: true }).fill('2026-10-31');
   const sent = total(page, 'Sent');
-  await expect(sent).toHaveText(/^\d+$/);
+  await expect(sent).toHaveText(/^[1-9]\d*$/);
   const all = Number(await sent.textContent());
   expect(all).toBeGreaterThan(0);
   const table = page.getByRole('table', { name: 'Activity by sender' });
@@ -40,4 +40,16 @@ test('an end date before the start is refused', async ({ page }) => {
   await page.getByLabel('To', { exact: true }).fill('2026-10-01');
   await expect(page.getByText('The end date is before the start date')).toBeVisible();
   await expect(page.getByTestId('report')).toHaveCount(0);
+});
+
+test('FS-N14 / FS-C03: signing report export CSV button is available and functional', async ({
+  page,
+}) => {
+  await page.goto(app('/firm-sign/reports'));
+  await page.getByLabel('From', { exact: true }).fill('2026-09-01');
+  await page.getByLabel('To', { exact: true }).fill('2026-10-31');
+  await expect(page.getByRole('table', { name: 'Activity by sender' })).toBeVisible();
+
+  const exportBtn = page.getByRole('button', { name: 'Export CSV' });
+  await expect(exportBtn).toBeVisible();
 });

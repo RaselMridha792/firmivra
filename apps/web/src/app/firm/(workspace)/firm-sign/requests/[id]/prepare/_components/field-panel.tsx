@@ -124,6 +124,34 @@ export function FieldPanel({
           onChange={(e) => onChange({ required: e.target.checked })}
         />
       )}
+      {f.type === 'DROPDOWN' && (
+        <Input
+          label="Choices (comma-separated)"
+          value={f.options.join(', ')}
+          onChange={(e) =>
+            onChange({
+              options: e.target.value
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean),
+            })
+          }
+        />
+      )}
+      {f.type === 'RADIO' && (
+        <>
+          <Input
+            label="Choice value"
+            value={f.options[0] ?? ''}
+            onChange={(e) => onChange({ options: [e.target.value] })}
+          />
+          <Input
+            label="Group name"
+            value={f.groupKey ?? ''}
+            onChange={(e) => onChange({ groupKey: e.target.value })}
+          />
+        </>
+      )}
       <div className="flex flex-wrap gap-2">
         <Button variant="ghost" onClick={onDuplicate}>
           Duplicate

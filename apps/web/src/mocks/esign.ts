@@ -5,6 +5,7 @@ import {
   CreateEsignUploadBody,
   type EsignAction,
   type EsignAccessRole,
+  type EsignAuthMethod,
   type EsignClient,
   EsignContentType,
   type EsignDocument,
@@ -308,11 +309,24 @@ function seeded(n: number, s: Seed): { detail: EsignRequestDetail; events: Esign
   recipients.forEach((r, i) => {
     const ref = { id: r.id, name: r.name };
     const n2 = n * 100 + 10 + i * 5;
-    if (r.viewedAt) events.push(event(n2, 'VIEWED', s.lastActivityAt, r.name, 'SIGNER', ref));
-    if (r.signedAt) events.push(event(n2 + 1, 'SIGNED', s.lastActivityAt, r.name, 'SIGNER', ref));
+    if (r.viewedAt)
+      events.push(event(n2, 'VIEWED', s.lastActivityAt, r.name, 'SIGNER', ref, null, r.authMethod));
+    if (r.signedAt)
+      events.push(
+        event(n2 + 1, 'SIGNED', s.lastActivityAt, r.name, 'SIGNER', ref, null, r.authMethod),
+      );
     if (r.declinedAt)
       events.push(
-        event(n2 + 2, 'DECLINED', s.lastActivityAt, r.name, 'SIGNER', ref, r.declineReason),
+        event(
+          n2 + 2,
+          'DECLINED',
+          s.lastActivityAt,
+          r.name,
+          'SIGNER',
+          ref,
+          r.declineReason,
+          r.authMethod,
+        ),
       );
   });
   if (completed)
@@ -357,8 +371,10 @@ function event(
   actorKind: EsignEvent['actorKind'],
   recipient: EsignEvent['recipient'] = null,
   reason: string | null = null,
+  authMethodParam: EsignAuthMethod | null = null,
 ): EsignEvent {
-  const authMethod = ['VIEWED', 'SIGNED', 'DECLINED'].includes(type) ? 'EMAIL_CODE' : null;
+  const authMethod =
+    authMethodParam ?? (['VIEWED', 'SIGNED', 'DECLINED'].includes(type) ? 'EMAIL_CODE' : null);
   return {
     id: id('7', n),
     type,
@@ -1041,7 +1057,8 @@ export function createEsignMock(
       );
       if (!source) throw notFound();
       const contentType = EsignContentType.options.find((t) => t === source.contentType);
-      if (!contentType) throw fail(409, 'FILE_TYPE_NOT_ALLOWED', 'Only PDF, JPG and PNG files');
+      if (!contentType)
+        throw fail(409, 'FILE_TYPE_NOT_ALLOWED', 'Only PDF, JPG, PNG and Word files');
       if (source.scanStatus === 'PENDING') throw fail(409, 'SCAN_PENDING', 'Still being checked');
       if (source.scanStatus !== 'CLEAN') throw fail(409, 'FILE_BLOCKED', 'The file is blocked');
       const pageCount = contentType === 'application/pdf' ? 2 : 1;

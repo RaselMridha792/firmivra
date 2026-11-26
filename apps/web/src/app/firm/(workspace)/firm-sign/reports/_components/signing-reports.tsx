@@ -7,7 +7,7 @@ import {
   EsignRequestStatus,
   type EsignReportTotals,
 } from '@firmivra/types';
-import { Card, Input, Select, Table, type Column } from '@firmivra/ui';
+import { Button, Card, Input, Select, Table, type Column } from '@firmivra/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { EsignGate } from '../../../../../../components/esign/esign-gate';
@@ -100,11 +100,47 @@ function Reports() {
   const senders = new Map((everyone.data?.bySender ?? []).map((r) => [r.sender.userId, r.sender]));
   if (sender) senders.set(sender.userId, sender);
 
+  function exportCsv(data: EsignReport) {
+    const headers = [
+      'Sent by',
+      'Sent',
+      'Completed',
+      'Completion rate',
+      'Average hours',
+      'Outstanding',
+      'Expired',
+    ];
+    const rows = data.bySender.map((r) => [
+      `"${r.sender.name.replace(/"/g, '""')}"`,
+      r.sent,
+      r.completed,
+      percent(r.completionRate),
+      r.averageCompletionHours ?? '',
+      r.outstanding,
+      r.expired,
+    ]);
+    const csv = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `signing-report-${from}-to-${to}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="flex flex-col gap-6">
-      <h1 data-testid="page-title" className="font-display text-3xl text-heading">
-        Signing reports
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 data-testid="page-title" className="font-display text-3xl text-heading">
+          Signing reports
+        </h1>
+        {report.data && (
+          <Button variant="secondary" onClick={() => exportCsv(report.data)}>
+            Export CSV
+          </Button>
+        )}
+      </div>
       <Card>
         <div className="grid gap-3 md:grid-cols-4">
           <Input

@@ -26,14 +26,20 @@ import { FieldPanel, SENDER, senderCanFill, senderText } from './field-panel';
 import { NextStepLink } from './next-step-link';
 import { requestKey, stepHref } from './steps';
 
-/** The palette: what a signer fills in. */
+/** The palette: what a signer fills in (all 12 supported signing field types). */
 const PALETTE: EsignFieldType[] = [
   'SIGNATURE',
   'INITIALS',
   'DATE_SIGNED',
   'PRINTED_NAME',
+  'EMAIL',
+  'PHONE',
+  'ADDRESS',
   'TEXT',
   'CHECKBOX',
+  'RADIO',
+  'DROPDOWN',
+  'ATTACHMENT',
 ];
 /** The widest a page is drawn, in CSS pixels (a letter page at 96 dpi). */
 const MAX_PAGE_WIDTH = 816;
@@ -144,8 +150,9 @@ function Editor({ r, signers }: { r: EsignRequestDetail; signers: EsignRecipient
       label: '',
       mergeKey: null,
       value: '',
-      options: [],
-      groupKey: null,
+      options:
+        type === 'DROPDOWN' ? ['Option 1', 'Option 2'] : type === 'RADIO' ? ['Choice 1'] : [],
+      groupKey: type === 'RADIO' ? `group-${onPage + 1}` : null,
     };
     edit([...fields, f]);
     setActiveKey(f.key);

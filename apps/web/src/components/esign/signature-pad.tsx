@@ -25,10 +25,8 @@ const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
  * API's JSON body limit is still 100 KB: keep both well inside it. An ink-only photo or a drawing
  * is a few KB.
  */
-export const MAX_SIGNATURE_CHARS = Math.min(
-  45_000,
-  'data:image/png;base64,'.length + Math.floor(ESIGN_SIGNATURE_PNG_MAX_BYTES / 3) * 4,
-);
+export const MAX_SIGNATURE_CHARS =
+  'data:image/png;base64,'.length + Math.floor(ESIGN_SIGNATURE_PNG_MAX_BYTES / 3) * 4;
 /** In an uploaded picture, pixels lighter than this are paper; darker ones are ink. */
 const PAPER = 0.75;
 /** Pixels between this and PAPER fade from ink to paper, so the strokes keep smooth edges. */
@@ -85,7 +83,8 @@ async function uploadedSignature(file: File, from: Element): Promise<string> {
  * signature must match the printed name), or a drawn or uploaded PNG data URL.
  */
 export type AdoptedMark =
-  { method: 'TYPED'; text: string } | { method: 'DRAWN' | 'UPLOADED'; png: string };
+  | { method: 'TYPED'; text: string; fontStyle?: string }
+  | { method: 'DRAWN' | 'UPLOADED'; png: string };
 
 interface SignaturePadProps {
   /** Initials get a shorter default text and a larger typed font. */
@@ -154,18 +153,32 @@ export function SignaturePad({ kind, defaultText = '', onChange }: SignaturePadP
 /** The element whose theme sets the ink colour (the pad itself, inside the portal theme). */
 type InkFrom = RefObject<HTMLElement | null>;
 
+const FONT_STYLES = [
+  { id: 'classic', label: 'Classic', className: 'font-display italic tracking-wide text-4xl' },
+  {
+    id: 'casual',
+    label: 'Casual',
+    className: 'font-sans italic tracking-wider text-3xl font-light',
+  },
+  { id: 'formal', label: 'Formal', className: 'font-serif italic text-4xl font-normal' },
+  { id: 'bold', label: 'Bold', className: 'font-display italic text-4xl font-bold' },
+] as const;
+
 function TypePanel({
   kind,
   defaultText,
   onChange,
 }: Pick<SignaturePadProps, 'kind' | 'onChange'> & { defaultText: string }) {
   const [text, setText] = useState(defaultText);
+  const [fontStyle, setFontStyle] = useState<string>('classic');
   const initials = kind === 'initials';
-  const mark = (value: string): AdoptedMark | null =>
-    value.trim() ? { method: 'TYPED', text: value.trim() } : null;
+  const mark = (value: string, style = fontStyle): AdoptedMark | null =>
+    value.trim() ? { method: 'TYPED', text: value.trim(), fontStyle: style } : null;
   // The pre-filled name counts as typed: hand it up once, after the first render.
   const adoptDefault = useEffectEvent(() => onChange(mark(defaultText)));
   useEffect(() => adoptDefault(), []);
+
+  const activeStyle = FONT_STYLES.find((f) => f.id === fontStyle) ?? FONT_STYLES[0];
 
   return (
     <div className="flex flex-col gap-3 pt-3">
@@ -179,11 +192,33 @@ function TypePanel({
         }}
         autoComplete={initials ? 'off' : 'name'}
       />
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted">Signature style</label>
+        <div className="flex flex-wrap gap-2" data-testid="font-style-choices">
+          {FONT_STYLES.map((style) => (
+            <button
+              key={style.id}
+              type="button"
+              className={`rounded-control border px-3 py-1 text-xs font-medium transition-colors ${
+                fontStyle === style.id
+                  ? 'border-brand-600 bg-brand-50 text-brand-700'
+                  : 'border-border bg-surface text-text hover:bg-subtle'
+              }`}
+              onClick={() => {
+                setFontStyle(style.id);
+                onChange(mark(text, style.id));
+              }}
+            >
+              {style.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="flex aspect-3/1 w-full items-center justify-center overflow-hidden rounded-card border border-border bg-surface px-4">
         {text.trim() ? (
           <p
             data-testid="signature-preview"
-            className="truncate font-display text-4xl text-heading italic"
+            className={`truncate text-heading ${activeStyle.className}`}
           >
             {text}
           </p>

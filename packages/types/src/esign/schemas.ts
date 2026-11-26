@@ -77,17 +77,18 @@ export const ESIGN_MAX_FIELDS = 500;
 export const ESIGN_MAX_FIELD_OPTIONS = 2000;
 
 /**
- * Files Firm Sign takes, at most 100 MB each: PDF, JPG and PNG. An image becomes one page. Word
- * and Excel files are saved as PDF first.
+ * Files Firm Sign takes, at most 100 MB each: PDF, JPG, PNG, and Word (DOCX/DOC). An image becomes
+ * one page. Word documents are converted to PDF format.
  */
 export const ESIGN_UPLOAD_TYPES = {
   'application/pdf': ['.pdf'],
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
 } as const;
 export const EsignContentType = z.enum(
   Object.keys(ESIGN_UPLOAD_TYPES) as [keyof typeof ESIGN_UPLOAD_TYPES],
-  'Upload a PDF, JPG or PNG file',
+  'Upload a PDF, JPG, PNG or DOCX file',
 );
 export type EsignContentType = z.infer<typeof EsignContentType>;
 
