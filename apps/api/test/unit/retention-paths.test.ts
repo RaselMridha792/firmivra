@@ -71,6 +71,9 @@ describe('no path removes a record of the six retention categories (14b)', () =>
     const REASONS: Record<string, string> = {
       'admin-settings/admin-branding.service.ts': 'platform branding: an upload never confirmed',
       'admin-support/support-files.service.ts': 'support files: an upload never confirmed',
+      // A-X10 (Q28): only an upload refused at confirm; a recorded resource file is kept forever.
+      'advisory/advisory-resources.service.ts':
+        'advisory resource files: an upload refused at confirm',
       'agreements/agreement-files.service.ts': 'agreements: an upload never confirmed',
       'begin-online/begin-online.service.ts': 'lead drafts nobody reopened (lead uploads)',
       'begin-online/draft-submit.service.ts': 'lead uploads in hidden slots at submit',

@@ -30,6 +30,10 @@ import {
   ReorderAdvisoryMilestonesRequest,
   RequestAdvisoryPlanApprovalRequest,
   ADVISORY_RESOURCE_FORMAT_LABELS,
+  type AdvisoryResourceFile,
+  ConfirmUploadRequest,
+  SaveAdvisoryResourceRequest,
+  StartAdvisoryResourceFileRequest,
   type AdvisoryResourcePreview,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
@@ -185,6 +189,7 @@ const RESOURCE_SUMMARY: Record<string, string> = {
   'market-research-guide': 'How to learn who your customers are and what they will pay.',
   'cash-flow-basics': 'How to read and forecast your cash flow.',
   'growth-operations-playbook': 'Systems that help a growing business stay organized.',
+  'advisory-health-score-reference': 'How the health score is worked out.',
 };
 
 /** As the API's catalog (apps/api/src/advisory/catalog.ts). */
@@ -229,6 +234,11 @@ const resourceLibrary = (): AdvisoryResource[] =>
     url: null,
     // B28, as the API's catalog: documents go as a Secure Link or a PDF.
     formats: ['SECURE_LINK', 'PDF'] as AdvisoryResource['formats'],
+    // A-X10: the approved library, not edited yet, no file.
+    source: 'BUILT_IN' as const,
+    summary: RESOURCE_SUMMARY[key] ?? '',
+    edited: false,
+    file: null,
   }));
 
 /** The API's factors and default weights (apps/api/src/advisory/health.ts). */
@@ -514,6 +524,32 @@ export function createAdvisoryMock({
   const SERVICES = serviceOptions();
   const service = (name: string) => SERVICES.find((s) => s.name === name)!;
   const RESOURCES = resourceLibrary();
+  // A-X10: uploads in progress and the files confirmed, by token and by id.
+  const resourceUploads = new Map<string, Omit<AdvisoryResourceFile, 'id' | 'status'>>();
+  const resourceFiles = new Map<string, AdvisoryResourceFile>();
+  /** A save's words, its link and its file (the formats as the API gives them). */
+  const resourceWords = (
+    req: ReturnType<typeof SaveAdvisoryResourceRequest.parse>,
+    was?: AdvisoryResource,
+  ) => {
+    const file = req.fileId
+      ? (resourceFiles.get(req.fileId) ?? (was?.file?.id === req.fileId ? was.file : null))
+      : null;
+    if (req.fileId && !file) throw fail(400, 'VALIDATION_FAILED', 'Upload the file again');
+    const builtIn = was?.source === 'BUILT_IN';
+    return {
+      title: req.title,
+      category: req.category,
+      kind: req.kind,
+      summary: req.summary,
+      clientFacing: req.clientFacing,
+      url: req.url,
+      file: file ? { ...file } : null,
+      formats: (req.kind === 'VIDEO' || req.kind === 'LINK' || !builtIn
+        ? ['SECURE_LINK']
+        : ['SECURE_LINK', 'PDF']) as AdvisoryResource['formats'],
+    };
+  };
   const FACTORS = healthFactors();
   let next = 1;
   const id = (block: string) => uid(block, 9000 + next++);
@@ -1510,6 +1546,14 @@ export function createAdvisoryMock({
         code: 'FORMAT_NOT_AVAILABLE',
         message: `This resource can't be sent as ${ADVISORY_RESOURCE_FORMAT_LABELS[format]}.`,
       });
+    if (r.file && r.file.status !== 'READY')
+      problems.push({
+        code: 'FILE_NOT_READY',
+        message:
+          r.file.status === 'CHECKING'
+            ? "This resource's file is still being checked for viruses. Try again in a moment."
+            : "This resource's file failed its security check. Upload another file first.",
+      });
     const login = !NO_PORTAL_LOGIN.includes(name);
     if (!login)
       problems.push({
@@ -1523,7 +1567,7 @@ export function createAdvisoryMock({
       to: { name, email: login ? c.client.email : null },
       subject: r.title,
       body: [
-        RESOURCE_SUMMARY[key] ?? r.title,
+        r.summary || r.title,
         '',
         format === 'PDF'
           ? `A PDF copy is ready to download in your portal (sign in first): ${link}`
@@ -2850,6 +2894,91 @@ export function createAdvisoryMock({
       run(() => {
         parseInput(AdvisoryResourceKey, key);
         return composeResource(key, parseInput(SendAdvisoryResourceRequest, body));
+      }),
+    // A-X10 (Q28), as the API: the firm's own resources and its edits of built-in ones. Mock mode
+    // scans a file at once (SCAN_MODE=local).
+    createResource: (body) =>
+      run(() => {
+        admin();
+        const req = parseInput(SaveAdvisoryResourceRequest, body);
+        const made: AdvisoryResource = {
+          key: `r-${id('0199b7a1')}`,
+          ...resourceWords(req),
+          source: 'FIRM',
+          edited: false,
+        };
+        RESOURCES.push(made);
+        return { ...made };
+      }),
+    updateResource: (key, body) =>
+      run(() => {
+        admin();
+        parseInput(AdvisoryResourceKey, key);
+        const req = parseInput(SaveAdvisoryResourceRequest, body);
+        const r = RESOURCES.find((x) => x.key === key);
+        if (!r) throw notFound();
+        if (req.fileId && RESOURCES.some((x) => x.key !== key && x.file?.id === req.fileId))
+          throw fail(409, 'FILE_IN_USE', 'This file is on another resource. Upload it again.');
+        Object.assign(r, resourceWords(req, r), { edited: r.source === 'BUILT_IN' });
+        return { ...r };
+      }),
+    archiveResource: (key) =>
+      run(() => {
+        admin();
+        parseInput(AdvisoryResourceKey, key);
+        const at = RESOURCES.findIndex((x) => x.key === key);
+        if (at < 0) throw notFound();
+        if (RESOURCES[at]!.source === 'BUILT_IN')
+          throw fail(
+            409,
+            'RESOURCE_BUILT_IN',
+            'A built-in resource can be edited but not archived',
+          );
+        RESOURCES.splice(at, 1);
+        return { ok: true as const };
+      }),
+    startResourceFile: (body) =>
+      run(() => {
+        admin();
+        const b = parseInput(StartAdvisoryResourceFileRequest, body);
+        const token = `mock-advisory-resource-file-${next++}`;
+        resourceUploads.set(token, {
+          fileName: b.fileName,
+          contentType: b.contentType,
+          sizeBytes: b.sizeBytes,
+        });
+        return {
+          uploadToken: token,
+          method: 'PUT' as const,
+          url: `mock:advisory-resource-file/${token}`,
+          headers: { 'content-type': b.contentType },
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        };
+      }),
+    confirmResourceFile: (body) =>
+      run(() => {
+        admin();
+        const { uploadToken } = parseInput(ConfirmUploadRequest, body);
+        const pending = resourceUploads.get(uploadToken);
+        if (!pending) throw fail(410, 'UPLOAD_EXPIRED', 'The upload took too long. Add it again.');
+        resourceUploads.delete(uploadToken);
+        const file: AdvisoryResourceFile = { id: id('0199b7a2'), ...pending, status: 'READY' };
+        resourceFiles.set(file.id, file);
+        return { ...file };
+      }),
+    resourceFileLink: (key) =>
+      run(() => {
+        parseInput(AdvisoryResourceKey, key);
+        const r = RESOURCES.find((x) => x.key === key);
+        if (!r?.file) throw notFound();
+        if (r.file.status === 'CHECKING')
+          throw fail(409, 'SCAN_PENDING', 'The file is still being checked for viruses.');
+        if (r.file.status === 'BLOCKED')
+          throw fail(409, 'FILE_BLOCKED', 'This file failed its security check.');
+        return {
+          url: `data:text/plain,Mock%20file%20${encodeURIComponent(r.file.fileName)}`,
+          expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        };
       }),
     sendResource: (key, body) =>
       run(() => {

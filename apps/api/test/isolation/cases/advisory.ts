@@ -298,6 +298,23 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** A-X10 (Q28): a file uploaded for an advisory resource, not on any resource yet. */
+  advisoryResourceFile: {
+    async create({ tx, businessId, owner }) {
+      const row = await tx.advisoryResourceFile.create({
+        data: {
+          businessId,
+          fileName: 'Fake checklist.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 10,
+          sha256: '0'.repeat(64),
+          s3Key: `tenant/${businessId}/advisory-resources/${randomUUID()}`,
+          uploadedByUserId: owner.id,
+        },
+      });
+      return row.id;
+    },
+  },
   /** A-X02: one of the firm's own industries. */
   advisoryIndustry: {
     async create({ tx, businessId }) {
@@ -541,6 +558,31 @@ export const cases: CaseModule['cases'] = {
     body: { body: 'Fake progress note' },
   },
 
+  // A-X10 (Q28): a resource takes one of the firm's own uploaded files.
+  [`POST ${BASE}/resources`]: {
+    params: {},
+    bodyIds: { fileId: 'advisoryResourceFile' },
+    body: {
+      title: 'Fake resource',
+      category: 'Banking',
+      kind: 'PDF',
+      summary: 'Fake summary',
+      clientFacing: true,
+      fileId: PLACEHOLDER,
+    },
+  },
+  [`PUT ${BASE}/resources/:key`]: {
+    params: {},
+    bodyIds: { fileId: 'advisoryResourceFile' },
+    body: {
+      title: 'Fake edited resource',
+      category: 'Funding',
+      kind: 'CHECKLIST',
+      summary: 'Fake summary',
+      clientFacing: true,
+      fileId: PLACEHOLDER,
+    },
+  },
   [`POST ${BASE}/resources/:key/send`]: {
     params: {},
     bodyIds: { advisoryClientId: 'advisoryClient' },

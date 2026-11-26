@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { Address, CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
+import { HttpsUrl } from '../content/schemas.js';
+import { UploadContentType } from '../documents/schemas.js';
 import {
   EinStatus,
   AdvisoryActionStatus,
@@ -228,8 +230,77 @@ export const AdvisoryResource = z.object({
   url: z.string().nullable(),
   /** B28: the formats it can be sent in (a video or a link: Secure Link only). */
   formats: z.array(AdvisoryResourceFormat),
+  /**
+   * A-X10 (Q28): BUILT_IN, the approved library (key: its catalog key; the firm may edit its copy,
+   * `edited`); FIRM, the firm's own (key: "r-" and its id).
+   */
+  source: z.enum(['BUILT_IN', 'FIRM']).default('BUILT_IN'),
+  /** A-X10: the words sent with it (edited with it). */
+  summary: z.string().default(''),
+  /** A-X10: a built-in resource the firm has edited. */
+  edited: z.boolean().default(false),
+  /** A-X10: its uploaded file, if any; offered only once its virus check is READY. */
+  file: z.lazy(() => AdvisoryResourceFile.nullable()).default(null),
 });
 export type AdvisoryResource = z.infer<typeof AdvisoryResource>;
+
+/**
+ * A-X10 (Q28): a file uploaded for a resource. CHECKING while the virus scan runs; READY once
+ * clean (only then can it be downloaded or sent); BLOCKED when the scan refused it.
+ */
+export const AdvisoryResourceFile = z.object({
+  id: z.uuid(),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int(),
+  status: z.enum(['CHECKING', 'READY', 'BLOCKED']),
+});
+export type AdvisoryResourceFile = z.infer<typeof AdvisoryResourceFile>;
+
+/** A-X10: a resource file is at most 25 MB (the database's limit). */
+export const ADVISORY_RESOURCE_FILE_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * A-X10 (Q28): POST /business/advisory/resources (the firm's own) and PUT .../resources/{key} (its
+ * own, or its copy of a built-in one). Owner and Admin (or Business Advisory "Manage"). At most one
+ * https link or one uploaded file (from POST .../resources/files/confirm); a link or a video needs a
+ * link. A file still being checked may be attached; one the scan refused is 409 FILE_BLOCKED.
+ */
+export const SaveAdvisoryResourceRequest = z
+  .strictObject({
+    title: text(200, 'one', 'Enter a title'),
+    category: text(100, 'one', 'Enter a category'),
+    kind: z.enum(['PDF', 'CHECKLIST', 'GUIDE', 'TEMPLATE', 'VIDEO', 'LINK']),
+    summary: text(1000, 'many', 'Say what the client gets'),
+    clientFacing: z.boolean(),
+    url: HttpsUrl.nullable().default(null),
+    fileId: z.uuid().nullable().default(null),
+  })
+  .superRefine((r, ctx) => {
+    if (r.url && r.fileId)
+      ctx.addIssue({ code: 'custom', path: ['fileId'], message: 'Use a link or a file, not both' });
+    if ((r.kind === 'LINK' || r.kind === 'VIDEO') && !r.url)
+      ctx.addIssue({ code: 'custom', path: ['url'], message: 'A link or a video needs its link' });
+  });
+export type SaveAdvisoryResourceRequest = z.input<typeof SaveAdvisoryResourceRequest>;
+
+/**
+ * A-X10 (Q28): POST /business/advisory/resources/files: step 1 of an upload (the ticket), then the
+ * browser sends the bytes and POST .../resources/files/confirm checks them (size, SHA-256, type)
+ * and records the file, CHECKING until its virus scan. At most 25 MB.
+ */
+export const StartAdvisoryResourceFileRequest = z.strictObject({
+  fileName: text(200, 'one', 'Enter a file name'),
+  contentType: UploadContentType,
+  sizeBytes: z
+    .number()
+    .int()
+    .min(1)
+    .max(ADVISORY_RESOURCE_FILE_MAX_BYTES, 'A file is at most 25 MB'),
+  /** SHA-256 of the file, hex. */
+  sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Use the lower-case hex SHA-256'),
+});
+export type StartAdvisoryResourceFileRequest = z.input<typeof StartAdvisoryResourceFileRequest>;
 
 /** GET /business/advisory/overview: Frame 1. Counts open the matching filtered lists. */
 export const AdvisoryOverview = z.object({
@@ -1215,6 +1286,8 @@ export const AdvisoryResourcePreview = z.object({
         'RESOURCE_NOT_CLIENT_FACING',
         'FORMAT_NOT_AVAILABLE',
         'NO_PORTAL_LOGIN',
+        // A-X10: the resource's file is still being checked for viruses, or failed the check.
+        'FILE_NOT_READY',
       ]),
       message: z.string(),
     }),
@@ -1459,6 +1532,14 @@ export const AdvisoryErrorCode = z.enum([
   'NOT_A_MEMBER',
   /** 409: the resource is not client-facing and cannot be sent. */
   'RESOURCE_NOT_CLIENT_FACING',
+  /** 409 (A-X10): a built-in resource is edited, never archived. */
+  'RESOURCE_BUILT_IN',
+  /** 409 (A-X10): the resource is archived. */
+  'RESOURCE_ARCHIVED',
+  /** 409 (A-X10): the resource's file is not ready (still checked, or blocked). */
+  'FILE_NOT_READY',
+  /** 409 (A-X10): the file is already on another resource. */
+  'FILE_IN_USE',
   /** 409: the plan, goal or workstream is not this client's. */
   'NOT_THIS_CLIENT',
   /** 409 (B10, B28): the client has no active portal login, so the portal cannot reach them. */

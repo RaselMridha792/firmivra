@@ -42,7 +42,8 @@ import type {
   SendResourceBody,
   SettingsBody,
 } from './advisory-input.js';
-import { RESOURCES, resourceOf, toResource } from './catalog.js';
+import { AdvisoryResourcesService } from './advisory-resources.service.js';
+import { RESOURCES, toResource } from './catalog.js';
 import { advErrors, clientRef, clientRefSelect, DISCLAIMER, iso } from './advisory.common.js';
 import { FACTORS, FACTOR_KEYS } from './health.js';
 import { withClient } from '../appointments/appointment-party.js';
@@ -71,6 +72,7 @@ export class AdvisoryOverviewService {
     private readonly audit: AuditService,
     private readonly messages: MessagesService,
     @Inject(ENV) private readonly env: Env,
+    private readonly library: AdvisoryResourcesService,
   ) {}
 
   private run<T>(
@@ -327,14 +329,14 @@ export class AdvisoryOverviewService {
 
   // ---------- Resources ----------
 
-  resources(q: Out<typeof ResourcesQuery>): AdvisoryResource[] {
-    const search = q.search?.toLowerCase();
-    return RESOURCES.filter(
-      (r) =>
-        (!search || r.title.toLowerCase().includes(search)) &&
-        (!q.category || r.category.toLowerCase() === q.category.toLowerCase()) &&
-        (q.clientFacing === undefined || r.clientFacing === q.clientFacing),
-    ).map(toResource);
+  /** A-X10: the built-in library with the firm's edits, then the firm's own (AdvisoryResourcesService). */
+  resources(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    q: Out<typeof ResourcesQuery>,
+  ): Promise<AdvisoryResource[]> {
+    return this.library.list(businessId, tenant, userId, q);
   }
 
   /**
@@ -345,7 +347,8 @@ export class AdvisoryOverviewService {
    */
   private async compose(ctx: AdvisoryCtx, key: string, body: Out<typeof SendResourceBody>) {
     if (!ctx.perms.send) throw advErrors.forbidden();
-    const resource = resourceOf(key);
+    // A-X10: a built-in resource (with the firm's edits) or the firm's own.
+    const resource = await this.library.resolve(ctx.tx, ctx.businessId, key);
     if (!resource) throw notFound();
     const c = await this.read.loadClient(ctx, body.advisoryClientId);
     const format = body.format ?? 'SECURE_LINK';
@@ -374,6 +377,15 @@ export class AdvisoryOverviewService {
       problems.push({
         code: 'FORMAT_NOT_AVAILABLE',
         message: `This resource can't be sent as ${ADVISORY_RESOURCE_FORMAT_LABELS[format]}: choose ${resource.formats.map((f) => ADVISORY_RESOURCE_FORMAT_LABELS[f]).join(' or ')}.`,
+      });
+    // A-X10: a resource's file goes out only once its virus check passed.
+    if (resource.file && resource.file.status !== 'READY')
+      problems.push({
+        code: 'FILE_NOT_READY',
+        message:
+          resource.file.status === 'CHECKING'
+            ? "This resource's file is still being checked for viruses. Try again in a moment."
+            : "This resource's file failed its security check. Upload another file first.",
       });
     if (!login)
       problems.push({
@@ -427,6 +439,7 @@ export class AdvisoryOverviewService {
       if (first?.code === 'CLIENT_ARCHIVED') throw advErrors.clientArchived();
       if (first?.code === 'RESOURCE_NOT_CLIENT_FACING') throw advErrors.notClientFacing();
       if (first?.code === 'FORMAT_NOT_AVAILABLE') throw advErrors.formatNotAvailable(first.message);
+      if (first?.code === 'FILE_NOT_READY') throw advErrors.fileNotReady(first.message);
       if (first) throw advErrors.noPortalLogin(first.message);
       await this.messages.create(businessId, ctx.actor, m.client.clientId, {
         subject: m.subject,

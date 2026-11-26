@@ -335,7 +335,13 @@ describe('who may do what, the library and the request schemas', () => {
     const keys = RESOURCES.map((r) => r.key);
     expect(new Set(keys).size).toBe(keys.length);
     expect(resourceOf('nope')).toBeUndefined();
-    expect(Object.keys(toResource(RESOURCES[0] as never))).not.toContain('summary');
+    // A-X10 (Q28): the summary is answered too, since the firm edits it; the library is BUILT_IN.
+    expect(toResource(RESOURCES[0] as never)).toMatchObject({
+      source: 'BUILT_IN',
+      edited: false,
+      file: null,
+      summary: RESOURCES[0]!.summary,
+    });
     expect(RESOURCES.some((r) => !r.clientFacing)).toBe(true);
     expect(advErrors.invalid('x', 'y').getStatus()).toBe(400);
     expect(advErrors.planNotReady(['a']).getStatus()).toBe(409);
