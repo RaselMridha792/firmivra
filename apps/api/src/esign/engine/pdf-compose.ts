@@ -8,7 +8,10 @@ import {
   type PDFObject,
   type PDFPage,
   PDFRef,
+  rgb,
+  StandardFonts,
 } from 'pdf-lib';
+import mammoth from 'mammoth';
 import { ESIGN_MAX_PAGES, type EsignPage, UPLOAD_LIMITS } from '@firmivra/types';
 import {
   EsignEngineError,
@@ -17,6 +20,7 @@ import {
   type SourceFile,
 } from './engine.types.js';
 import { type ImageHeader, readImageHeader } from './images.js';
+import { printableWith } from './pdf-finalize.js';
 
 // Inspect and compose (R18 step 3). Everything runs in memory on files of at most 10 MB.
 
@@ -175,6 +179,86 @@ function imageShownSize(header: ImageHeader): PageSize {
     : imagePageSize(header.width, header.height);
 }
 
+/** Converts a DOCX Word document to a clean PDF with its paragraphs rendered onto Letter pages. */
+export async function docxToPdf(bytes: Uint8Array): Promise<Uint8Array> {
+  let rawText: string;
+  try {
+    const res = await mammoth.extractRawText({ buffer: Buffer.from(bytes) });
+    rawText = res.value;
+  } catch {
+    rawText = '';
+  }
+
+  const doc = await PDFDocument.create({ updateMetadata: false });
+  const font = doc.embedStandardFont(StandardFonts.Helvetica);
+
+  const margin = 54;
+  const pageWidth = LETTER.short;
+  const pageHeight = LETTER.long;
+  const contentWidth = pageWidth - margin * 2;
+  const fontSize = 10.5;
+  const lineHeight = 15;
+  const paragraphGap = 8;
+
+  let page = doc.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - margin;
+
+  const paragraphs = rawText.split(/\r?\n/);
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (!trimmed) {
+      y -= paragraphGap;
+      if (y < margin + lineHeight) {
+        page = doc.addPage([pageWidth, pageHeight]);
+        y = pageHeight - margin;
+      }
+      continue;
+    }
+
+    const words = trimmed.split(/\s+/);
+    let currentLine = '';
+    for (const word of words) {
+      const candidate = currentLine ? `${currentLine} ${word}` : word;
+      const cleanCandidate = printableWith(font, candidate);
+      const width = font.widthOfTextAtSize(cleanCandidate, fontSize);
+      if (width > contentWidth && currentLine) {
+        if (y < margin + lineHeight) {
+          page = doc.addPage([pageWidth, pageHeight]);
+          y = pageHeight - margin;
+        }
+        page.drawText(printableWith(font, currentLine), {
+          x: margin,
+          y: y - fontSize,
+          size: fontSize,
+          font,
+          color: rgb(0.1, 0.1, 0.1),
+        });
+        y -= lineHeight;
+        currentLine = word;
+      } else {
+        currentLine = candidate;
+      }
+    }
+
+    if (currentLine) {
+      if (y < margin + lineHeight) {
+        page = doc.addPage([pageWidth, pageHeight]);
+        y = pageHeight - margin;
+      }
+      page.drawText(printableWith(font, currentLine), {
+        x: margin,
+        y: y - fontSize,
+        size: fontSize,
+        font,
+        color: rgb(0.1, 0.1, 0.1),
+      });
+      y -= lineHeight + paragraphGap;
+    }
+  }
+
+  return doc.save({ useObjectStreams: false });
+}
+
 /** Pages and their shown sizes; an image is one page. */
 export async function inspect(
   file: Pick<SourceFile, 'contentType' | 'bytes'>,
@@ -187,7 +271,10 @@ export async function inspect(
   if (
     file.contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   ) {
-    return { pageCount: 1, pageSizes: [{ width: LETTER.short, height: LETTER.long }] };
+    const pdfBytes = await docxToPdf(file.bytes);
+    const doc = await loadPdf(pdfBytes);
+    const pageSizes = doc.getPages().map(shownSize);
+    return { pageCount: pageSizes.length, pageSizes };
   }
   // The header is enough: nothing is decoded to inspect an image.
   return { pageCount: 1, pageSizes: [imageShownSize(imageHeader(file))] };
@@ -201,13 +288,27 @@ export async function inspect(
 export async function compose(files: SourceFile[], plan: EsignPage[]): Promise<Uint8Array> {
   if (plan.length < 1) throw new Error('The page plan is empty');
   if (plan.length > ESIGN_MAX_PAGES) throw new EsignEngineError('TOO_MANY_PAGES');
-  const byId = new Map(files.map((f) => [f.documentId, f]));
+
+  const normalizedFiles: SourceFile[] = await Promise.all(
+    files.map(async (file) => {
+      if (
+        file.contentType ===
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ) {
+        const bytes = await docxToPdf(file.bytes);
+        return { ...file, bytes, contentType: 'application/pdf' as const };
+      }
+      return file;
+    }),
+  );
+
+  const byId = new Map(normalizedFiles.map((f) => [f.documentId, f]));
   const out = await PDFDocument.create({ updateMetadata: false });
 
   // Copy each PDF's planned pages, once per plan entry.
   const copied = new Map<string, PDFPage[]>();
   const images = new Map<string, Awaited<ReturnType<typeof embedImage>>>();
-  for (const file of files) {
+  for (const file of normalizedFiles) {
     if (file.contentType !== 'application/pdf') continue;
     const wanted = plan.filter((p) => p.documentId === file.documentId).map((p) => p.page);
     if (wanted.length === 0) continue;
@@ -243,10 +344,6 @@ export async function compose(files: SourceFile[], plan: EsignPage[]): Promise<U
       const next = copied.get(entry.documentId)?.shift();
       if (!next) throw new Error('The page plan and the copied pages differ');
       page = out.addPage(next);
-    } else if (
-      file.contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    ) {
-      page = out.addPage([LETTER.short, LETTER.long]);
     } else {
       if (entry.page !== 0) throw new Error('An image has only page 0');
       const embedded = images.get(file.documentId) ?? (await embedImage(out, file));

@@ -81,22 +81,21 @@ test('FS-006: recipient picker offers firm client/contact search with autofill',
   const rows = page.getByTestId('recipient-row');
   await page.getByRole('button', { name: 'Add a signer' }).click();
 
+  // Search for client by name
+  const searchInput = rows.first().getByLabel('Search client or contact');
+  await expect(searchInput).toBeVisible();
+  await searchInput.fill('Jamie');
+
   const whoSelect = rows.first().getByLabel('Who');
   await expect(whoSelect).toBeVisible();
 
-  // Pick an existing firm client from the contacts list
-  const clientOption = await whoSelect
-    .locator('option')
-    .filter({ hasText: /Individual|Business/ })
-    .first();
-  if ((await clientOption.count()) > 0) {
-    const value = await clientOption.getAttribute('value');
-    if (value) {
-      await whoSelect.selectOption(value);
-      // Verify name is autofilled
-      await expect(rows.first().getByLabel('Name')).not.toHaveValue('');
-    }
-  }
+  // Select the matching searched client
+  const jamieOption = whoSelect.locator('option').filter({ hasText: 'Jamie' });
+  const val = await jamieOption.getAttribute('value');
+  if (val) await whoSelect.selectOption(val);
+  // Verify name and email are autofilled
+  await expect(rows.first().getByLabel('Name')).toHaveValue('Jamie Sample');
+  await expect(rows.first().getByLabel('Email')).not.toHaveValue('');
 });
 
 test('FS-C06: in-person signing selection explicitly displays the in-person signing policy', async ({

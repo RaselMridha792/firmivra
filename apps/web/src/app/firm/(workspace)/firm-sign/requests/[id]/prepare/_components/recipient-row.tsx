@@ -2,7 +2,10 @@
 
 import type { EsignRecipient, EsignRecipientRole } from '@firmivra/types';
 import { Button, Input, Select } from '@firmivra/ui';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { api } from '../../../../../../../../lib/api';
 import type { DraftErrors, RecipientDraft } from './recipient-draft';
 
 const KIND: Record<EsignRecipient['kind'], string> = {
@@ -72,12 +75,35 @@ export function RecipientRow({
   const isLogin = d.who.startsWith('login:');
   const isExternalOrClient = d.who === 'external' || d.who.startsWith('client:');
   const signer = d.kind === 'SIGNER';
+
+  const [clientQuery, setClientQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(clientQuery.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [clientQuery]);
+
+  const clientSearch = useQuery({
+    queryKey: ['clients', 'list', 'recipient-search', debouncedQuery],
+    queryFn: () =>
+      api.clients.list({ limit: 25, ...(debouncedQuery && { search: debouncedQuery }) }),
+    placeholderData: keepPreviousData,
+    enabled: signer && debouncedQuery.length > 0,
+  });
+
+  const searchItems = clientSearch.data?.items ?? [];
+  const searchChoices: Choice[] = searchItems.map((c) => ({
+    value: `client:${c.id}`,
+    label: `${c.displayName} (${c.accountType === 'INDIVIDUAL' ? 'Individual' : 'Business'}${c.email ? ` · ${c.email}` : ''})`,
+  }));
+
   const offered: Choice[] =
     d.kind === 'APPROVER'
       ? [{ value: '', label: 'Choose a member of the firm' }, ...members]
       : [
           ...logins,
           ...(signer ? members : []),
+          ...searchChoices,
           ...(contacts ?? []),
           { value: 'external', label: 'Someone else' },
         ];
@@ -116,6 +142,17 @@ export function RecipientRow({
         </div>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
+        {signer && (
+          <div className="md:col-span-2">
+            <Input
+              label="Search client or contact"
+              type="search"
+              placeholder="Search by name, email, or phone…"
+              value={clientQuery}
+              onChange={(e) => setClientQuery(e.target.value)}
+            />
+          </div>
+        )}
         <Select
           label={d.kind === 'APPROVER' ? 'Who approves' : 'Who'}
           value={d.who}
@@ -125,17 +162,24 @@ export function RecipientRow({
             // The portal is only for the client's own login.
             const delivery =
               d.delivery === 'PORTAL' && !who.startsWith('login:') ? 'EMAIL' : d.delivery;
-            if (who.startsWith('client:') && clientsMap) {
+            if (who.startsWith('client:')) {
               const clientId = who.slice('client:'.length);
-              const found = clientsMap.get(clientId);
+              const found = clientsMap?.get(clientId) ?? searchItems.find((c) => c.id === clientId);
               if (found) {
+                const foundEmail =
+                  found.email ??
+                  ('portalLogins' in found ? found.portalLogins?.[0]?.email : null) ??
+                  d.email;
+                const isBusiness =
+                  found.accountType === 'BUSINESS' ||
+                  ('type' in found && found.type === 'BUSINESS');
                 onChange({
                   who,
                   delivery,
                   name: found.displayName ?? d.name,
-                  email: found.email ?? found.portalLogins?.[0]?.email ?? d.email,
+                  email: foundEmail,
                   phone: found.phone ?? d.phone,
-                  role: found.type === 'BUSINESS' ? 'BUSINESS_OWNER' : 'CLIENT',
+                  role: isBusiness ? 'BUSINESS_OWNER' : 'CLIENT',
                 });
                 return;
               }

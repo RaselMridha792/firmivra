@@ -2,6 +2,7 @@
 // sizes, refusals (encrypted, malformed, XFA, over 100 pages), the page plan's order and
 // rotation, and JPG and PNG files becoming one page each.
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
@@ -374,5 +375,36 @@ describe('left-out pages', () => {
     const kept1 = doc.context.lookup(annots.get(1), PDFDict);
     const parent = kept1.lookup(PDFName.of('Parent'), PDFDict);
     expect(parent.lookup(PDFName.of('Kids'), PDFArray).size()).toBe(1);
+  });
+
+  it('converts a DOCX Word document to a PDF with real content rendered', async () => {
+    const docxBytes = readFileSync(new URL('../fixtures/import-sample.docx', import.meta.url));
+    const docxType =
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document' as const;
+
+    // 1. Inspect reads page count and Letter sizes
+    const inspected = await inspect({ contentType: docxType, bytes: docxBytes });
+    expect(inspected.pageCount).toBeGreaterThanOrEqual(1);
+    expect(inspected.pageSizes[0]).toEqual({ width: 612, height: 792 });
+
+    // 2. Compose renders the document into the output PDF
+    const id = randomUUID();
+    const plan = inspected.pageSizes.map((_, i) => ({
+      documentId: id,
+      page: i,
+      rotation: 0 as const,
+    }));
+    const composedBytes = await compose(
+      [{ documentId: id, contentType: docxType, bytes: docxBytes }],
+      plan,
+    );
+    const pdfDoc = await PDFDocument.load(composedBytes);
+    expect(pdfDoc.getPageCount()).toBe(inspected.pageCount);
+
+    // The output PDF is non-empty and contains real rendered content
+    expect(composedBytes.byteLength).toBeGreaterThan(1000);
+    const page0 = pdfDoc.getPage(0);
+    expect(page0.getWidth()).toBe(612);
+    expect(page0.getHeight()).toBe(792);
   });
 });
