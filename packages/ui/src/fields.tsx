@@ -12,7 +12,8 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   /** Persistent helper text between the label and the select; it also describes the select. */
   hint?: string;
   error?: string;
-  options: { value: string; label: string }[];
+  /** `disabled`: shown but not choosable (for example a plan that is Contact Sales only). */
+  options: { value: string; label: string; disabled?: boolean }[];
 }
 export function Select({
   label,
@@ -44,7 +45,7 @@ export function Select({
           {...props}
         >
           {options.map((o) => (
-            <option key={o.value} value={o.value}>
+            <option key={o.value} value={o.value} disabled={o.disabled}>
               {o.label}
             </option>
           ))}
