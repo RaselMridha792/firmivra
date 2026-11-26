@@ -350,14 +350,17 @@ async function seedComms(tx: Parameters<Parameters<typeof runInScope>[2]>[0]) {
       },
     })
   ).id;
+  const mediaId = randomUUID();
   const media = await tx.commMedia.create({
     data: {
+      id: mediaId,
       kind: 'ATTACHMENT',
       fileName: 'fake-scope-confirmed.pdf',
       contentType: 'application/pdf',
       sizeBytes: 100,
       sha256: 'd'.repeat(64),
-      s3Key: `platform/communications/${randomUUID()}/fake-scope-confirmed.pdf`,
+      // The database keeps a file under its own id: platform/communications/<id>/.
+      s3Key: `platform/communications/${mediaId}/fake-scope-confirmed.pdf`,
     },
   });
   await tx.commMedia.update({ where: { id: media.id }, data: { scanStatus: 'CLEAN' } });
