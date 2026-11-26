@@ -20,7 +20,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { withOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
-import { ScheduleReportDialog } from './report-dialogs';
+import { RenameReportDialog, ScheduleReportDialog } from './report-dialogs';
 import {
   CATEGORY_META,
   CategoryTile,
@@ -98,6 +98,7 @@ export function ReportsLibrary() {
   const query = useDeferredValue(search);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [schedule, setSchedule] = useState<SavedReportRow>();
+  const [renaming, setRenaming] = useState<SavedReportRow>();
   // RP-Y16 (Octavia, Oct 28): Archive asks first, and the report just archived can come back
   // from the note it leaves (Undo), as well as from Show archived reports and Restore.
   const [archiving, setArchiving] = useState<SavedReportRow>();
@@ -498,6 +499,16 @@ export function ReportsLibrary() {
                         // RP-F12: only what the caller may do on this report.
                         items: [
                           { label: 'View', onSelect: () => router.push(open(`/reports/${r.id}`)) },
+                          ...(!r.canEdit || r.archived
+                            ? []
+                            : [
+                                { label: 'Rename', onSelect: () => setRenaming(r) },
+                                {
+                                  label: 'Edit Definition',
+                                  onSelect: () =>
+                                    router.push(open(`/reports/builder?edit=${r.id}`)),
+                                },
+                              ]),
                           {
                             label: 'Duplicate',
                             onSelect: () =>
@@ -600,6 +611,21 @@ export function ReportsLibrary() {
           defaultName={`${schedule.name} schedule`}
           onClose={() => setSchedule(undefined)}
           onNotice={(text, tone) => setMessage({ text, tone })}
+        />
+      ) : null}
+      {renaming ? (
+        <RenameReportDialog
+          initialName={renaming.name}
+          onClose={() => setRenaming(undefined)}
+          onSave={async (newName) => {
+            const saved = await api.reports.savedReport(renaming.id);
+            await api.reports.updateSaved(renaming.id, {
+              name: newName,
+              etag: saved.etag,
+            });
+            await qc.invalidateQueries({ queryKey: [...RP_KEY] });
+            setMessage({ text: 'Report renamed.', tone: 'success' });
+          }}
         />
       ) : null}
       {archiving ? (

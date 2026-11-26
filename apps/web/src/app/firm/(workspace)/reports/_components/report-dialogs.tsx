@@ -342,3 +342,64 @@ export function ScheduleReportDialog({
     </Modal>
   );
 }
+
+/** Rename Report: edit a saved report's name, preserving its ID and schedules. */
+export function RenameReportDialog({
+  initialName,
+  onClose,
+  onSave,
+}: {
+  initialName: string;
+  onClose: () => void;
+  onSave: (newName: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(initialName);
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      open
+      title="Rename Report"
+      subtitle="Enter a new name for this saved report. Existing schedules and report ID will be preserved."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            disabled={busy || !name.trim() || name.trim() === initialName}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onSave(name.trim());
+                onClose();
+              } catch (e) {
+                setError(errorMessage(e, RP_ERRORS));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Rename
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        <Input
+          label="Report name"
+          value={name}
+          maxLength={120}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+      </div>
+    </Modal>
+  );
+}
