@@ -31,6 +31,7 @@ import {
   RerunAutomationRequest,
   SaveAutomationDefinitionRequest,
   SaveAutomationSettingsRequest,
+  ResumeAutomationsRequest,
   AutomationMatches,
   MatchAutomationRequest,
   AutomationConfirmationList,
@@ -249,6 +250,13 @@ export function createAutomationsClient(request: ApiRequest) {
       request(AutomationSettingsView, `${BASE}/settings`, {
         method: 'PUT',
         body: parseInput(SaveAutomationSettingsRequest, body),
+      }),
+    pauseFirm: async (): Promise<AutomationSettingsView> =>
+      request(AutomationSettingsView, `${BASE}/settings/pause`, post()),
+    resumeFirm: async (body: ResumeAutomationsRequest): Promise<AutomationSettingsView> =>
+      request(AutomationSettingsView, `${BASE}/settings/resume`, {
+        ...post(),
+        body: parseInput(ResumeAutomationsRequest, body),
       }),
 
     // ----- Manual Event Confirmation (AU-F31) -----

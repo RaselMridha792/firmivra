@@ -29,6 +29,7 @@ import {
   RerunAutomationRequest,
   SaveAutomationDefinitionRequest,
   SaveAutomationSettingsRequest,
+  ResumeAutomationsRequest,
   SaveRuleAsTemplateRequest,
   TestAutomationRuleRequest,
   UpdateAutomationRuleRequest,
@@ -597,6 +598,8 @@ const viewOf = (d: Def): AutomationDefinitionView => ({
     addToCalendar: d.settings.addToCalendar,
     quietHours: d.settings.quietHours ?? null,
     safetyThreshold: d.settings.safetyThreshold ?? null,
+    missedRunPolicy: d.settings.missedRunPolicy ?? null,
+    missedRunWindowDays: d.settings.missedRunWindowDays ?? null,
   },
 });
 const unit = (n: number, u: string) => `${n} ${u.toLowerCase()}${n === 1 ? '' : 's'}`;
@@ -675,6 +678,11 @@ export function createAutomationsMock({
     logRetentionDays: 365,
     timezone: 'America/New_York',
     manualConfirmationEnabled: false,
+    missedRunPolicy: 'RUN_ONCE',
+    missedRunWindowDays: 7,
+    conflictPolicy: 'PRIORITY_THEN_OLDEST',
+    pausedAt: null,
+    pausedBy: null,
     updatedAt: null,
   };
 
@@ -1938,6 +1946,19 @@ export function createAutomationsMock({
         };
       }),
     settings: () => run(() => settings),
+    pauseFirm: () =>
+      run(() => {
+        manage();
+        settings = { ...settings, pausedAt: nowIso(), pausedBy: memberOf(mockMe.userId) ?? null };
+        return settings;
+      }),
+    resumeFirm: (body) =>
+      run(() => {
+        manage();
+        parseInput(ResumeAutomationsRequest, body);
+        settings = { ...settings, pausedAt: null, pausedBy: null };
+        return settings;
+      }),
     // AU-F31, as the API: only with the switch on, once per occurrence, never in bulk.
     confirmEvent: (body) =>
       run(() => {

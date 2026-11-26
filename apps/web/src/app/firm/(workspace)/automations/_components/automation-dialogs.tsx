@@ -9,6 +9,7 @@ import {
   Checkbox,
   Input,
   Modal,
+  Radio,
   Select,
   Textarea,
 } from '@firmivra/ui';
@@ -300,6 +301,9 @@ export function SettingsDialog({ onClose, onDone }: { onClose: () => void; onDon
         retention: String(s.logRetentionDays),
         alerts: s.failureAlertUsers.map((m) => m.userId),
         manual: s.manualConfirmationEnabled,
+        missedPolicy: s.missedRunPolicy,
+        missedWindow: String(s.missedRunWindowDays),
+        conflictPolicy: s.conflictPolicy,
       }}
       timezone={s.timezone}
       onClose={onClose}
@@ -324,6 +328,9 @@ function SettingsForm({
     retention: string;
     alerts: string[];
     manual: boolean;
+    missedPolicy: 'RUN_ONCE' | 'SKIP' | 'REPLAY_WINDOW';
+    missedWindow: string;
+    conflictPolicy: 'PRIORITY_THEN_OLDEST' | 'SKIP_BOTH';
   };
   timezone: string;
   onClose: () => void;
@@ -346,6 +353,13 @@ function SettingsForm({
         logRetentionDays: Number(f.retention),
         failureAlertUserIds: f.alerts,
         ...(admin && f.manual !== initial.manual ? { manualConfirmationEnabled: f.manual } : {}),
+        ...(admin
+          ? {
+              missedRunPolicy: f.missedPolicy,
+              missedRunWindowDays: Number(f.missedWindow),
+              conflictPolicy: f.conflictPolicy,
+            }
+          : {}),
       }),
     { invalidate: [...AUTOMATIONS_KEY] },
   );
@@ -418,6 +432,46 @@ function SettingsForm({
           {num('Minutes saved per action', 'minutes', 'Used for the Time Saved card.')}
           {num('Keep logs (days)', 'retention', 'Between 30 and 2,555 days.')}
         </div>
+        <fieldset className="grid gap-3 rounded-lg border border-border p-3 sm:grid-cols-2">
+          <legend className="px-1 text-sm font-medium text-text">Missed runs and conflicts</legend>
+          <Select
+            label="Default missed-run policy"
+            value={f.missedPolicy}
+            disabled={!admin}
+            onChange={(e) => setF({ ...f, missedPolicy: e.target.value as typeof f.missedPolicy })}
+            options={[
+              { value: 'RUN_ONCE', label: 'Run once on recovery' },
+              { value: 'SKIP', label: 'Skip missed runs' },
+              { value: 'REPLAY_WINDOW', label: 'Replay within a window' },
+            ]}
+          />
+          {f.missedPolicy === 'REPLAY_WINDOW' ? (
+            <Input
+              label="Replay window (days)"
+              type="number"
+              min={1}
+              max={90}
+              value={f.missedWindow}
+              disabled={!admin}
+              onChange={(e) => setF({ ...f, missedWindow: e.target.value })}
+            />
+          ) : null}
+          <Select
+            label="Rule conflict policy"
+            value={f.conflictPolicy}
+            disabled={!admin}
+            onChange={(e) =>
+              setF({ ...f, conflictPolicy: e.target.value as typeof f.conflictPolicy })
+            }
+            options={[
+              { value: 'PRIORITY_THEN_OLDEST', label: 'Priority, then oldest rule' },
+              { value: 'SKIP_BOTH', label: 'Skip both and log the conflict' },
+            ]}
+          />
+          {!admin ? (
+            <p className="text-xs text-muted">Only an Owner or Admin can change these policies.</p>
+          ) : null}
+        </fieldset>
         <div className="flex flex-col gap-1">
           <Checkbox
             label="Manual Event Confirmation"
@@ -457,6 +511,51 @@ function SettingsForm({
           </p>
         ) : null}
       </div>
+    </Modal>
+  );
+}
+
+/** R13: choose how pending work is handled when the firm-wide pause is lifted. */
+export function ResumeBacklogDialog({
+  onClose,
+  onResume,
+}: {
+  onClose: () => void;
+  onResume: (backlog: 'RUN_NOW' | 'SKIP_DUE') => void;
+}) {
+  const [backlog, setBacklog] = useState<'RUN_NOW' | 'SKIP_DUE'>('RUN_NOW');
+  return (
+    <Modal
+      open
+      title="Resume Automations"
+      subtitle="Choose what happens to actions that became due while automations were paused."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => onResume(backlog)}>Resume</Button>
+        </>
+      }
+    >
+      <fieldset className="flex flex-col gap-3">
+        <legend className="sr-only">Paused automation backlog</legend>
+        <Radio
+          name="automation-backlog"
+          label="Run due actions now"
+          value="RUN_NOW"
+          checked={backlog === 'RUN_NOW'}
+          onChange={() => setBacklog('RUN_NOW')}
+        />
+        <Radio
+          name="automation-backlog"
+          label="Skip actions due during the pause"
+          value="SKIP_DUE"
+          checked={backlog === 'SKIP_DUE'}
+          onChange={() => setBacklog('SKIP_DUE')}
+        />
+      </fieldset>
     </Modal>
   );
 }
