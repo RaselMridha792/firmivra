@@ -804,6 +804,21 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       ],
     };
   },
+  // Q23 (IP-041): a bank payment the bank did not complete; no amount, no bank details.
+  'payment.failed': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `Your payment to ${firm} did not go through`,
+      blocks: [
+        hello(d),
+        text(
+          `Your bank did not complete your payment for invoice ${required(d, 'invoiceNumber')} from ${firm}, so the invoice is still open. Sign in to the client portal to pay it again, by card or another bank account.`,
+        ),
+        button('View and pay', link(d, 'link', o)),
+      ],
+    };
+  },
 
   'begin-online.resume-link': (d, b, o) => {
     const firm = b.name;

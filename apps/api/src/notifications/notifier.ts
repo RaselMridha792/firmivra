@@ -502,6 +502,8 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   'task.reminder',
   'invoice.sent',
   'payment.received',
+  // Q23 (IP-041): a bank payment that did not go through.
+  'payment.failed',
   // Invoices Review 2 (I-C02, I-N04): the reminders before the due date and the overdue notices.
   'invoice.reminder',
   'invoice.overdue',
@@ -587,8 +589,10 @@ async function stillLive(
       (typeof payload.dueOn !== 'string' || day(i.dueOn) === payload.dueOn)
     );
   }
-  if (event === 'invoice.sent' || event === 'payment.received') {
+  if (event === 'invoice.sent' || event === 'payment.received' || event === 'payment.failed') {
     const i = await db.invoice.findFirst({ where: { businessId, id }, select: { status: true } });
+    // Q23: a failed bank payment is worth telling only while the invoice is still open.
+    if (event === 'payment.failed') return i?.status === 'OPEN';
     return !!i && (event === 'payment.received' || i.status !== 'CANCELED');
   }
   // A project deadline still to do, still due when the copy says, and not past by more than an
@@ -1355,7 +1359,9 @@ export class Notifier {
                               (tx) => intakeWords(tx, businessId, target.id),
                             )),
                           }
-                        : template === 'invoice.sent' || template === 'payment.received'
+                        : template === 'invoice.sent' ||
+                            template === 'payment.received' ||
+                            template === 'payment.failed'
                           ? { name: recipient.name, invoiceNumber: str('number'), link }
                           : template === 'invoice.reminder' || template === 'invoice.overdue'
                             ? {

@@ -44,8 +44,17 @@ import {
 import { InvoiceHistoryCard } from './invoice-history';
 import { InvoicePreviewDialog } from './invoice-preview';
 
+/** Q23 (IP-041): how the client paid, once Stripe says: "card ••4242" or "bank ••6789". */
+const methodText = (p: { methodType: string | null; last4: string | null }) => {
+  const kind =
+    p.methodType === 'us_bank_account' ? 'bank (ACH)' : p.methodType === 'card' ? 'card' : null;
+  if (!kind) return '';
+  return p.last4 ? `, ${kind} ••${p.last4}` : `, ${kind}`;
+};
+
 const PAYMENT_STATUS: Record<string, string> = {
-  PENDING: 'Pending',
+  // Q23 (IP-041): the firm's word for a payment Stripe is still settling (a bank debit).
+  PENDING: 'Payment pending',
   SUCCEEDED: 'Paid',
   FAILED: 'Failed',
   REFUNDED: 'Refunded',
@@ -297,7 +306,7 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                       </span>
                       {/* Q22: the client's tip, charged with it; it never pays the invoice. */}
                       {p.tipCents > 0 ? ` + ${money(p.tipCents, p.currency)} tip` : ''} · Online
-                      (Stripe) · {PAYMENT_STATUS[p.status] ?? p.status} ·{' '}
+                      (Stripe{methodText(p)}) · {PAYMENT_STATUS[p.status] ?? p.status} ·{' '}
                       {dayText(p.paidAt ?? p.createdAt)}
                       {p.refundedCents > 0
                         ? ` · Refunded ${money(p.refundedCents, p.currency)}`

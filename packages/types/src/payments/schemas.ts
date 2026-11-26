@@ -297,6 +297,12 @@ export type InvoiceRefund = z.infer<typeof InvoiceRefund>;
 export const FirmInvoicePayment = InvoicePayment.extend({
   /** FAILED ones: Stripe's short code (e.g. "card_declined"); otherwise null. */
   failureCode: z.string().nullable(),
+  /**
+   * Q23 (IP-041): how the client paid, once Stripe says: "card" or "us_bank_account" (ACH), and
+   * the last 4 digits; null before the checkout completes (and for older payments).
+   */
+  methodType: z.string().nullable().default(null),
+  last4: z.string().nullable().default(null),
   /** Newest first. */
   refunds: z.array(InvoiceRefund),
   /**
@@ -1063,6 +1069,11 @@ export const MyInvoiceList = z.object({
    * Now anywhere; say "Contact the firm to pay".
    */
   paymentsEnabled: z.boolean(),
+  /**
+   * Q23 (IP-041): Pay Now also takes a U.S. bank account (ACH, instant verification only): the
+   * firm turned bank payments on and Stripe's ACH is active for it.
+   */
+  bankPayments: z.boolean().default(false),
 });
 export type MyInvoiceList = z.infer<typeof MyInvoiceList>;
 
