@@ -13,8 +13,9 @@ test('Dashboard: range, four KPIs, category cards, quick reports and the three l
   await expect(page.getByRole('heading', { name: 'Reports', level: 1 })).toBeVisible();
   await expect(page.getByTestId('reports-kpis').getByRole('listitem')).toHaveCount(4);
   await expect(page.getByTestId('category-cards').locator(':scope > li')).toHaveCount(9);
-  // 12, and Tax Planning's two (C18: Projected Savings by Plan, Planning Plans by Status).
-  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(14);
+  // 12, Tax Planning's two (C18: Projected Savings by Plan, Planning Plans by Status), and R04's
+  // four (Revenue by Service, AR Aging, Clients by Service, Client Lifecycle).
+  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(18);
   await expect(page.getByTestId('recent')).toContainText('Revenue Summary');
   await expect(page.getByTestId('scheduled')).toContainText('Weekly Revenue Report');
   await expect(page.getByTestId('insights')).toContainText('Insights');
@@ -716,48 +717,47 @@ test('R-N03: Accessible names for move and remove column controls match friendly
   await expect(selectedList.getByRole('button', { name: 'Remove Client Since' })).toBeVisible();
 });
 
-test('R03: Bookkeeping, Payroll, and Communications report categories show Not Connected empty states', async ({
+test('R04: Missing named reports for Financial (Revenue by Service, AR Aging) and Client (Retention, By Service, Lifecycle)', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
 
-  // 1. Dashboard: all categories present, disconnected categories show Not Connected state
-  await page.goto(base);
-  const cards = page.getByTestId('category-cards');
-  await expect(cards.getByRole('heading', { name: 'Bookkeeping Reports' })).toBeVisible();
-  await expect(cards.getByRole('heading', { name: 'Payroll Reports' })).toBeVisible();
-  await expect(cards.getByRole('heading', { name: 'Communications Reports' })).toBeVisible();
+  // 1. Financial category: Revenue by Service
+  await page.goto(`${base}/revenue-by-service`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Revenue by Service');
+  const rbsTable = page.getByTestId('report-table');
+  await expect(rbsTable.locator('th').first()).toContainText('Service Category');
+  await expect(rbsTable).toContainText('Tax Preparation');
+  await expect(rbsTable).toContainText('Bookkeeping');
 
-  await expect(page.getByTestId('not-connected-bookkeeping')).toBeVisible();
-  await expect(page.getByTestId('not-connected-payroll')).toBeVisible();
-  await expect(page.getByTestId('not-connected-communications')).toBeVisible();
+  // 2. Financial category: AR Aging
+  await page.goto(`${base}/ar-aging`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('AR Aging');
+  const arTable = page.getByTestId('report-table');
+  await expect(arTable.locator('th').first()).toContainText('Aging Bucket');
+  await expect(arTable).toContainText('Current');
+  await expect(arTable).toContainText('1–30 Days');
 
-  // 2. Report Detail for disconnected category shows clear banner and empty state, zero fake data
-  await page.goto(`${base}/bookkeeping-status`);
-  await expect(page.getByTestId('category-not-connected-banner')).toBeVisible();
-  await expect(
-    page.getByText('Bookkeeping reports require QuickBooks Online or Xero'),
-  ).toBeVisible();
-  await expect(page.getByTestId('report-table')).toContainText('Provider Not Connected');
+  // 3. Client category: Client Retention
+  await page.goto(`${base}/client-retention`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Client Retention');
+  const retTable = page.getByTestId('report-table');
+  await expect(retTable.locator('th').first()).toContainText('Status');
 
-  await page.goto(`${base}/payroll-summary`);
-  await expect(page.getByTestId('category-not-connected-banner')).toBeVisible();
-  await expect(page.getByText('Payroll reports require Gusto or ADP')).toBeVisible();
-  await expect(page.getByTestId('report-table')).toContainText('Provider Not Connected');
+  // 4. Client category: Clients by Service
+  await page.goto(`${base}/clients-by-service`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Clients by Service');
+  const cbsTable = page.getByTestId('report-table');
+  await expect(cbsTable.locator('th').first()).toContainText('Primary Service');
+  await expect(cbsTable).toContainText('Tax Preparation');
 
-  // 3. Report Builder: categories and layouts selectable, preview shows Not Connected guidance
-  await page.goto(`${base}/builder`);
-  await page.getByLabel('Report Category').selectOption('BOOKKEEPING');
-  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
-  await expect(page.getByTestId('selected-columns')).toContainText('Accounting Software');
-
-  await page.getByLabel('Report Category').selectOption('PAYROLL');
-  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
-  await expect(page.getByTestId('selected-columns')).toContainText('Employees');
-
-  await page.getByLabel('Report Category').selectOption('COMMUNICATIONS');
-  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
-  await expect(page.getByTestId('selected-columns')).toContainText('Channel');
+  // 5. Client category: Client Lifecycle
+  await page.goto(`${base}/client-lifecycle`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Client Lifecycle');
+  const clTable = page.getByTestId('report-table');
+  await expect(clTable.locator('th').first()).toContainText('Lifecycle Stage');
+  await expect(clTable).toContainText('Active');
+  await expect(clTable).toContainText('Lead');
 });
 
 test('R05: Rename and Edit Definition controls on saved report detail and library rows', async ({
