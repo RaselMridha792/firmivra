@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { record, routeClientRecord } from './r23-fixtures';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
+const JAMIE = '0199b6a1-0000-7000-8000-000000000001';
 
 test('the dashboard: counters, recent documents and their filters', async ({ page }) => {
   // The mock requests are dated early October 2026 (expiry and the 30-day window follow them).
@@ -12,7 +14,8 @@ test('the dashboard: counters, recent documents and their filters', async ({ pag
   for (const [key, count] of [
     ['DRAFT', 12],
     ['NEEDS_APPROVAL', 3],
-    ['SENT', 18],
+    ['SENT', 14],
+    ['DELIVERED', 4],
     ['COMPLETED', 42],
     ['VOIDED', 0],
   ] as const) {
@@ -61,11 +64,49 @@ test('a counter opens All requests with its status', async ({ page }) => {
   await expect(page.getByLabel('Status')).toHaveValue('COMPLETED');
 });
 
-test('tiles for screens not built yet say Soon and keep their subtitles', async ({ page }) => {
+test('FS-003: Send from Client Record shortcut is keyboard-accessible and routes to client selection', async ({
+  page,
+}) => {
   await page.goto(app('/firm-sign'));
   const start = page.getByRole('group', { name: 'Start a request' });
-  await expect(start.getByText('PDF, Word, and more')).toBeVisible();
-  await expect(start.getByRole('link', { name: /Send from Client Record/ })).toHaveCount(0);
-  await expect(start.getByText('Send from Client Record')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'In-Person Signing' })).toHaveCount(0);
+  const clientRecordLink = start.getByRole('link', { name: /Send from Client Record/ });
+  await expect(clientRecordLink).toBeVisible();
+  await expect(clientRecordLink).toHaveAttribute('href', '/clients');
+  await clientRecordLink.click();
+  await expect(page).toHaveURL(/\/clients$/);
+});
+
+test('FS-001: Delivered status has its own counter, filter option, and does not merge into Sent', async ({
+  page,
+}) => {
+  await page.goto(app('/firm-sign'));
+
+  // 1. Dashboard Delivered counter shows 4
+  const deliveredCounter = page.getByTestId('counter-DELIVERED');
+  await expect(deliveredCounter).toBeVisible();
+  await expect(deliveredCounter).toContainText('4');
+  await expect(deliveredCounter).toContainText('Delivered');
+
+  // 2. Click Delivered counter -> opens All requests filtered by DELIVERED
+  await deliveredCounter.click();
+  await expect(page).toHaveURL(/\/firm-sign\/requests\?status=DELIVERED$/);
+  const statusSelect = page.getByLabel('Status');
+  await expect(statusSelect).toHaveValue('DELIVERED');
+
+  // Verify rows show Delivered badge
+  const table = page.getByRole('table', { name: 'Signature requests' });
+  await expect(table.getByRole('row').first()).toBeVisible();
+  await expect(table.getByText('Delivered').first()).toBeVisible();
+
+  // 3. Switch filter to Sent -> shows Sent requests, not Delivered
+  await statusSelect.selectOption('SENT');
+  await expect(statusSelect).toHaveValue('SENT');
+  await expect(table.getByText('Sent').first()).toBeVisible();
+
+  // 4. Verify Delivered is available in client Signatures tab
+  await routeClientRecord(page, record(1, { id: JAMIE, displayName: 'Jamie Sample' }));
+  await page.goto(app(`/clients/${JAMIE}/signatures`));
+  const clientStatusSelect = page.getByLabel('Status');
+  await expect(clientStatusSelect).toBeVisible();
+  await expect(clientStatusSelect.locator('option[value="DELIVERED"]')).toHaveText('Delivered');
 });

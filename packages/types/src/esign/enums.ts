@@ -224,7 +224,7 @@ export const ESIGN_STATUS_LABELS = {
   DRAFT: 'Draft',
   NEEDS_APPROVAL: 'Needs Approval',
   SENT: 'Sent',
-  DELIVERED: 'Sent',
+  DELIVERED: 'Delivered',
   VIEWED: 'Viewed',
   PARTIALLY_SIGNED: 'Partially Signed',
   COMPLETED: 'Completed',
@@ -233,11 +233,12 @@ export const ESIGN_STATUS_LABELS = {
   VOIDED: 'Voided',
 } as const satisfies Record<EsignRequestStatus, string>;
 
-/** The dashboard's 9 counters, in the mockup's order (`EsignSummary.counts`). */
+/** The dashboard's counters (`EsignSummary.counts`). */
 export const ESIGN_COUNTERS = [
   'DRAFT',
   'NEEDS_APPROVAL',
   'SENT',
+  'DELIVERED',
   'VIEWED',
   'PARTIALLY_SIGNED',
   'COMPLETED',

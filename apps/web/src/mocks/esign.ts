@@ -830,9 +830,7 @@ export function createEsignMock(
         .details.filter(visible)
         .filter(
           (r) =>
-            (!q.status ||
-              r.status === q.status ||
-              (q.status === 'SENT' && r.status === 'DELIVERED')) &&
+            (!q.status || r.status === q.status) &&
             (!q.quickFilter || quick[q.quickFilter]!(r)) &&
             (!q.clientId || r.client?.id === q.clientId) &&
             (!q.senderId || r.sender.userId === q.senderId) &&
@@ -854,8 +852,7 @@ export function createEsignMock(
         ESIGN_COUNTERS.map((s) => [s, 0]),
       ) as EsignSummary['counts'];
       for (const r of mine) {
-        const key = r.status === 'DELIVERED' ? 'SENT' : r.status;
-        counts[key] += 1;
+        counts[r.status] += 1;
       }
       const quickFilters = Object.fromEntries(
         Object.entries(quick).map(([k, test]) => [k, mine.filter(test).length]),
