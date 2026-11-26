@@ -328,59 +328,60 @@ export function ReportBuilder() {
                   className="flex max-h-72 flex-col gap-1 overflow-auto"
                   data-testid="selected-columns"
                 >
-                  {cols.map((k) => (
-                    <li
-                      key={k}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.effectAllowed = 'move';
-                        e.dataTransfer.setData('text/plain', k);
-                        setDragged(k);
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        dropOn(k);
-                        setDragged(undefined);
-                      }}
-                      onDragEnd={() => setDragged(undefined)}
-                      className={`flex cursor-grab items-center gap-1 rounded-lg border px-2 py-1 text-sm ${dragged === k ? 'border-action bg-accent-soft' : 'border-divider'}`}
-                    >
-                      <DotsSixVertical
-                        aria-hidden
-                        weight="bold"
-                        className="size-4 shrink-0 text-muted"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-heading">
-                        {fields.find((f) => f.key === k)?.label ?? k}
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Move ${k} up`}
-                        onClick={() => move(k, -1)}
-                        className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas"
+                  {cols.map((k) => {
+                    const label = fields.find((f) => f.key === k)?.label ?? k;
+                    return (
+                      <li
+                        key={k}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', k);
+                          setDragged(k);
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          dropOn(k);
+                          setDragged(undefined);
+                        }}
+                        onDragEnd={() => setDragged(undefined)}
+                        className={`flex cursor-grab items-center gap-1 rounded-lg border px-2 py-1 text-sm ${dragged === k ? 'border-action bg-accent-soft' : 'border-divider'}`}
                       >
-                        <ArrowUp aria-hidden weight="bold" className="size-3" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Move ${k} down`}
-                        onClick={() => move(k, 1)}
-                        className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas"
-                      >
-                        <ArrowDown aria-hidden weight="bold" className="size-3" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${k}`}
-                        disabled={cols.length === 1}
-                        onClick={() => setColumns(cols.filter((c) => c !== k))}
-                        className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas disabled:opacity-40"
-                      >
-                        <X aria-hidden weight="bold" className="size-3" />
-                      </button>
-                    </li>
-                  ))}
+                        <DotsSixVertical
+                          aria-hidden
+                          weight="bold"
+                          className="size-4 shrink-0 text-muted"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-heading">{label}</span>
+                        <button
+                          type="button"
+                          aria-label={`Move ${label} up`}
+                          onClick={() => move(k, -1)}
+                          className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas"
+                        >
+                          <ArrowUp aria-hidden weight="bold" className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Move ${label} down`}
+                          onClick={() => move(k, 1)}
+                          className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas"
+                        >
+                          <ArrowDown aria-hidden weight="bold" className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${label}`}
+                          disabled={cols.length === 1}
+                          onClick={() => setColumns(cols.filter((c) => c !== k))}
+                          className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas disabled:opacity-40"
+                        >
+                          <X aria-hidden weight="bold" className="size-3" />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             </div>

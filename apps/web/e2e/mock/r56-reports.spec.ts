@@ -672,3 +672,46 @@ test('R06: Returning from a record preserves date/filter/sort/page context and n
   await expect(page.getByTestId('report-table')).toContainText('Showing 1 –');
   await expect(page.getByTestId('row-link').first()).toBeVisible();
 });
+
+test('R-N03: Accessible names for move and remove column controls match friendly visible labels', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/builder`);
+
+  // Default source is Payments (FINANCIAL category)
+  const selectedList = page.getByTestId('selected-columns');
+  await expect(selectedList).toBeVisible();
+
+  // Audit selected column buttons: accessible names must match friendly labels, not raw field keys
+  await expect(selectedList.getByRole('button', { name: 'Move Invoice up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Move Invoice down' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Invoice' })).toBeVisible();
+
+  await expect(selectedList.getByRole('button', { name: 'Move Client up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Move Client down' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Client' })).toBeVisible();
+
+  await expect(
+    selectedList.getByRole('button', { name: 'Move Amount Collected up' }),
+  ).toBeVisible();
+  await expect(
+    selectedList.getByRole('button', { name: 'Move Amount Collected down' }),
+  ).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Amount Collected' })).toBeVisible();
+
+  // Switch to Invoices & Payments to audit invoice-specific fields (Invoice Date, Payment Status)
+  await page.getByLabel('Data Source').selectOption('invoices_payments');
+  await expect(selectedList.getByRole('button', { name: 'Move Invoice Date up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Move Invoice Date down' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Invoice Date' })).toBeVisible();
+
+  await expect(selectedList.getByRole('button', { name: 'Move Payment Status up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Payment Status' })).toBeVisible();
+
+  // Switch to Client Reports category to audit across categories
+  await page.getByLabel('Report Category').selectOption('CLIENT');
+  await expect(selectedList.getByRole('button', { name: 'Move Client Name up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Move Client Since up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Client Since' })).toBeVisible();
+});
