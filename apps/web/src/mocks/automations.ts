@@ -29,7 +29,7 @@ import {
   RerunAutomationRequest,
   SaveAutomationDefinitionRequest,
   SaveAutomationSettingsRequest,
-  ResumeAutomationsRequest,
+  RerunAutomationRequest as ResumeAutomationsRequest,
   SaveRuleAsTemplateRequest,
   TestAutomationRuleRequest,
   UpdateAutomationRuleRequest,
