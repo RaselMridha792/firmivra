@@ -676,6 +676,7 @@ function PickDialog({
         </>
       }
     >
+      <DialogLead area="categories">Choose the category for the selected templates.</DialogLead>
       <Select label={label} value={v} onChange={(e) => setV(e.target.value)} options={options} />
     </Modal>
   );
