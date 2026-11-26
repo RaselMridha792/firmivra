@@ -97,7 +97,7 @@ export class EsignListService {
     return { items, nextCursor: rows.length > q.limit && last ? encodeCursor(last) : null };
   }
 
-  /** The 10 counters and the quick filters' counts. */
+  /** The 9 counters (DELIVERED counts as SENT) and the quick filters' counts. */
   async summary(businessId: string, actor: EsignActor): Promise<EsignSummary> {
     const now = Date.now();
     const visible = this.visible(actor);
@@ -105,6 +105,7 @@ export class EsignListService {
     const counts = Object.fromEntries(
       ESIGN_COUNTERS.map((s) => [s, byStatus[s] ?? 0]),
     ) as EsignSummary['counts'];
+    counts.SENT += byStatus.DELIVERED ?? 0;
     const quick = await Promise.all(
       EsignQuickFilter.options.map(async (k) => {
         const filter = both(visible, QUICK[k](actor, now));
@@ -134,7 +135,8 @@ export class EsignListService {
 
   /** The query as a repository filter; null when nothing can match. */
   private filterOf(actor: EsignActor, q: Query, now: number): EsignRequestFilter | null {
-    const statuses: EsignRequestStatus[] | undefined = q.status ? [q.status] : undefined;
+    const statuses: EsignRequestStatus[] | undefined =
+      q.status && (q.status === 'SENT' ? ['SENT', 'DELIVERED'] : [q.status]);
     const filter: EsignRequestFilter = {
       ...this.visible(actor),
       ...(statuses && { statuses }),

@@ -8,7 +8,6 @@ import {
 } from '@firmivra/types';
 import {
   AlarmClock,
-  CheckCheck,
   CircleCheck,
   CircleMinus,
   Clock,
@@ -194,7 +193,6 @@ const COUNTER_ICON: Record<EsignCounter, LucideIcon> = {
   DRAFT: File,
   NEEDS_APPROVAL: Clock,
   SENT: Send,
-  DELIVERED: CheckCheck,
   VIEWED: Eye,
   PARTIALLY_SIGNED: PenLine,
   COMPLETED: CircleCheck,
@@ -216,14 +214,14 @@ const TONE_CLASS = {
   danger: 'border-danger-soft bg-danger-soft text-danger',
 };
 
-/** The 10 counters (including Delivered). Each opens All requests with that status. */
+/** The 9 counters (Delivered counts as Sent). Each opens All requests with that status. */
 function Counters() {
   const summary = useApiQuery(['esign', 'requests', 'summary'], () => api.esign.summary());
   return (
     <PageState query={summary} isEmpty={() => false}>
       {(s) => (
         <nav aria-label="Requests by status">
-          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-5 xl:grid-cols-10">
+          <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5 xl:grid-cols-9">
             {ESIGN_COUNTERS.map((key) => {
               const Icon = COUNTER_ICON[key];
               const label = ESIGN_STATUS_LABELS[key];

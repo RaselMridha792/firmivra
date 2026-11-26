@@ -204,7 +204,6 @@ export const EsignSummary = z.object({
     DRAFT: z.number().int(),
     NEEDS_APPROVAL: z.number().int(),
     SENT: z.number().int(),
-    DELIVERED: z.number().int(),
     VIEWED: z.number().int(),
     PARTIALLY_SIGNED: z.number().int(),
     COMPLETED: z.number().int(),

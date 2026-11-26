@@ -306,6 +306,6 @@ describe('esign schemas', () => {
     expect(Object.keys(ESIGN_STATUS_LABELS).sort()).toEqual([...EsignRequestStatus.options].sort());
     expect(Object.keys(ESIGN_MERGE_LABELS)).toEqual(EsignMergeKey.options);
     expect(EsignMergeKey.options).toHaveLength(17);
-    expect(ESIGN_COUNTERS).toHaveLength(10);
+    expect(ESIGN_COUNTERS).toHaveLength(9);
   });
 });

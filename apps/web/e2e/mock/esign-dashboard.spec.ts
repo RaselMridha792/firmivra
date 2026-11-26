@@ -14,8 +14,7 @@ test('the dashboard: counters, recent documents and their filters', async ({ pag
   for (const [key, count] of [
     ['DRAFT', 12],
     ['NEEDS_APPROVAL', 3],
-    ['SENT', 14],
-    ['DELIVERED', 4],
+    ['SENT', 18],
     ['COMPLETED', 42],
     ['VOIDED', 0],
   ] as const) {
@@ -76,34 +75,29 @@ test('FS-003: Send from Client Record shortcut is keyboard-accessible and routes
   await expect(page).toHaveURL(/\/clients$/);
 });
 
-test('FS-001: Delivered status has its own counter, filter option, and does not merge into Sent', async ({
+test('FS-001: Delivered status is filterable and visible on full list and client tab', async ({
   page,
 }) => {
-  await page.goto(app('/firm-sign'));
+  await page.clock.setFixedTime(new Date('2026-10-08T18:00:00Z'));
 
-  // 1. Dashboard Delivered counter shows 4
-  const deliveredCounter = page.getByTestId('counter-DELIVERED');
-  await expect(deliveredCounter).toBeVisible();
-  await expect(deliveredCounter).toContainText('4');
-  await expect(deliveredCounter).toContainText('Delivered');
-
-  // 2. Click Delivered counter -> opens All requests filtered by DELIVERED
-  await deliveredCounter.click();
-  await expect(page).toHaveURL(/\/firm-sign\/requests\?status=DELIVERED$/);
+  // 1. All requests: status filter offers Delivered
+  await page.goto(app('/firm-sign/requests'));
   const statusSelect = page.getByLabel('Status');
-  await expect(statusSelect).toHaveValue('DELIVERED');
+  await expect(statusSelect.locator('option[value="DELIVERED"]')).toHaveText('Delivered');
 
-  // Verify rows show Delivered badge
+  // Filter explicitly by DELIVERED -> shows Delivered requests with Delivered badge
+  await statusSelect.selectOption('DELIVERED');
+  await expect(statusSelect).toHaveValue('DELIVERED');
   const table = page.getByRole('table', { name: 'Signature requests' });
   await expect(table.getByRole('row').first()).toBeVisible();
   await expect(table.getByText('Delivered').first()).toBeVisible();
 
-  // 3. Switch filter to Sent -> shows Sent requests, not Delivered
+  // 2. Sent filter includes SENT and DELIVERED (folding)
   await statusSelect.selectOption('SENT');
   await expect(statusSelect).toHaveValue('SENT');
   await expect(table.getByText('Sent').first()).toBeVisible();
 
-  // 4. Verify Delivered is available in client Signatures tab
+  // 3. Client Signatures tab offers Delivered filter option
   await routeClientRecord(page, record(1, { id: JAMIE, displayName: 'Jamie Sample' }));
   await page.goto(app(`/clients/${JAMIE}/signatures`));
   const clientStatusSelect = page.getByLabel('Status');
