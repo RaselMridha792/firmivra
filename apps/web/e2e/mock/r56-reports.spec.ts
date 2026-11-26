@@ -717,6 +717,82 @@ test('R-N03: Accessible names for move and remove column controls match friendly
   await expect(selectedList.getByRole('button', { name: 'Remove Client Since' })).toBeVisible();
 });
 
+test('R03: Bookkeeping, Payroll, and Communications report categories show Not Connected empty states', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. Dashboard: all categories present, disconnected categories show Not Connected state
+  await page.goto(base);
+  const cards = page.getByTestId('category-cards');
+  await expect(cards.getByRole('heading', { name: 'Bookkeeping Reports' })).toBeVisible();
+  await expect(cards.getByRole('heading', { name: 'Payroll Reports' })).toBeVisible();
+  await expect(cards.getByRole('heading', { name: 'Communications Reports' })).toBeVisible();
+
+  await expect(page.getByTestId('not-connected-bookkeeping')).toBeVisible();
+  await expect(page.getByTestId('not-connected-payroll')).toBeVisible();
+  await expect(page.getByTestId('not-connected-communications')).toBeVisible();
+
+  // 2. Report Detail for disconnected category shows clear banner and empty state, zero fake data
+  await page.goto(`${base}/bookkeeping-status`);
+  await expect(page.getByTestId('category-not-connected-banner')).toBeVisible();
+  await expect(
+    page.getByText('Bookkeeping reports require QuickBooks Online or Xero'),
+  ).toBeVisible();
+  await expect(page.getByTestId('report-table')).toContainText('Provider Not Connected');
+
+  await page.goto(`${base}/payroll-summary`);
+  await expect(page.getByTestId('category-not-connected-banner')).toBeVisible();
+  await expect(page.getByText('Payroll reports require Gusto or ADP')).toBeVisible();
+  await expect(page.getByTestId('report-table')).toContainText('Provider Not Connected');
+
+  // 3. Report Builder: categories and layouts selectable, preview shows Not Connected guidance
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Report Category').selectOption('BOOKKEEPING');
+  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
+  await expect(page.getByTestId('selected-columns')).toContainText('Accounting Software');
+
+  await page.getByLabel('Report Category').selectOption('PAYROLL');
+  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
+  await expect(page.getByTestId('selected-columns')).toContainText('Employees');
+
+  await page.getByLabel('Report Category').selectOption('COMMUNICATIONS');
+  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
+  await expect(page.getByTestId('selected-columns')).toContainText('Channel');
+});
+
+test('R08: Financial metric definitions in field picker and accurate labeling of unsupported accrual revenue', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. In report builder, field picker shows metric definitions
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Data Source').selectOption('invoices_payments');
+
+  // Check Amount / Gross Invoiced definition
+  const amountHelp = page.getByRole('button', { name: 'About Amount', exact: true });
+  await expect(amountHelp).toBeVisible();
+  await amountHelp.click();
+  await expect(
+    page
+      .getByTestId('help-tip')
+      .getByText('Gross Invoiced: total billed before discounts, refunds, or processing fees'),
+  ).toBeVisible();
+
+  // Check Recognized Revenue: must be marked Not Supported and disabled
+  await expect(page.getByTestId('not-supported-badge')).toBeVisible();
+  const recRevHelp = page.getByRole('button', { name: 'About Recognized Revenue' });
+  await expect(recRevHelp).toBeVisible();
+  await recRevHelp.click();
+  await expect(
+    page
+      .getByTestId('help-tip')
+      .getByText('Not supported — Firmivra reports on cash collected or invoices issued'),
+  ).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Recognized Revenue' })).toBeDisabled();
+});
+
 test('R04: Missing named reports for Financial (Revenue by Service, AR Aging) and Client (Retention, By Service, Lifecycle)', async ({
   page,
 }) => {

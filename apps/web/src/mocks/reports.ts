@@ -354,6 +354,11 @@ function sources(): Record<string, SourceDef> {
         fld('method', 'Payment Method', 'TEXT'),
         fld('processor', 'Processor', 'TEXT'),
         fld('paidOn', 'Paid Date', 'DATE', { groupable: false }),
+        fld('refunds', 'Refunds', 'MONEY'),
+        fld('fees', 'Processing Fees', 'MONEY'),
+        fld('discounts', 'Discounts', 'MONEY'),
+        fld('taxAllocation', 'Tax Allocation', 'MONEY'),
+        fld('recognizedRevenue', 'Recognized Revenue', 'MONEY'),
       ],
       ['invoice', 'client', 'amount', 'method', 'paidOn'],
       'paidOn',
@@ -397,6 +402,11 @@ function sources(): Record<string, SourceDef> {
         fld('agingBucket', 'Aging Bucket', 'STATUS', {
           options: opts('Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days'),
         }),
+        fld('refunds', 'Refunds', 'MONEY'),
+        fld('fees', 'Processing Fees', 'MONEY'),
+        fld('discounts', 'Discounts', 'MONEY'),
+        fld('taxAllocation', 'Tax Allocation', 'MONEY'),
+        fld('recognizedRevenue', 'Recognized Revenue', 'MONEY'),
       ],
       [
         'clientName',

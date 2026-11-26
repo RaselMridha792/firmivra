@@ -4,6 +4,7 @@ import { ApiRequestError, type ReportDefinitionView } from '@firmivra/types';
 import {
   Button,
   Checkbox,
+  HelpTip,
   KpiCard,
   Modal,
   Select,
@@ -66,6 +67,48 @@ const section = (n: number, title: string) => (
     {title}
   </h2>
 );
+
+export const FINANCIAL_FIELD_DEFINITIONS: Record<
+  string,
+  { definition: string; available?: boolean; unavailableReason?: string }
+> = {
+  amount: {
+    definition:
+      'Gross Invoiced: total billed before discounts, refunds, or processing fees, by invoice issue date.',
+    available: true,
+  },
+  amountPaid: {
+    definition: 'Collected Revenue: actual funds received against invoices, by payment date.',
+    available: true,
+  },
+  balanceDue: {
+    definition: 'Open Accounts Receivable: balance remaining unpaid on issued invoices.',
+    available: true,
+  },
+  refunds: {
+    definition: 'Total refunds returned to clients in the period, by refund transaction date.',
+    available: true,
+  },
+  fees: {
+    definition: 'Merchant processing fees (Stripe card/ACH) deducted from collected payouts.',
+    available: true,
+  },
+  discounts: {
+    definition: 'Promotional and contractual discounts applied to invoice subtotals.',
+    available: true,
+  },
+  taxAllocation: {
+    definition:
+      'Sales and service tax collected and allocated separately from net service revenue.',
+    available: true,
+  },
+  recognizedRevenue: {
+    definition: 'Accrual-basis revenue recognized on service delivery.',
+    available: false,
+    unavailableReason:
+      'Not supported — Firmivra reports on cash collected or invoices issued; accrual-basis recognized revenue schedules are not supported.',
+  },
+};
 
 /** /reports/builder: Create Custom Report: type and data, columns, filters, grouping and a live preview. */
 export function ReportBuilder() {
@@ -372,20 +415,42 @@ export function ReportBuilder() {
                 <ul className="max-h-60 overflow-auto">
                   {fields
                     .filter((f) => f.label.toLowerCase().includes(fieldSearch.toLowerCase()))
-                    .map((f) => (
-                      <li key={f.key} className="flex items-center justify-between gap-2 py-1">
-                        <Checkbox
-                          label={f.label}
-                          checked={cols.includes(f.key)}
-                          disabled={f.locked && cols.includes(f.key)}
-                          onChange={(e) =>
-                            setColumns(
-                              e.target.checked ? [...cols, f.key] : cols.filter((c) => c !== f.key),
-                            )
-                          }
-                        />
-                      </li>
-                    ))}
+                    .map((f) => {
+                      const def = FINANCIAL_FIELD_DEFINITIONS[f.key];
+                      return (
+                        <li key={f.key} className="flex items-center justify-between gap-2 py-1">
+                          <Checkbox
+                            label={f.label}
+                            checked={cols.includes(f.key)}
+                            disabled={
+                              (f.locked && cols.includes(f.key)) || def?.available === false
+                            }
+                            onChange={(e) =>
+                              setColumns(
+                                e.target.checked
+                                  ? [...cols, f.key]
+                                  : cols.filter((c) => c !== f.key),
+                              )
+                            }
+                          />
+                          {def ? (
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {def.available === false ? (
+                                <span
+                                  className="rounded bg-muted/15 px-1.5 py-0.5 text-[11px] font-semibold text-muted"
+                                  data-testid="not-supported-badge"
+                                >
+                                  Not Supported
+                                </span>
+                              ) : null}
+                              <HelpTip topic={f.label}>
+                                {def.available === false ? def.unavailableReason! : def.definition}
+                              </HelpTip>
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                 </ul>
               </div>
               <div>
