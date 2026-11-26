@@ -839,12 +839,10 @@ test('R02: Total Clients KPI counts all 25 active clients and drilldown scope is
   await expect(totalClientsCard).toContainText('25');
   await expect(totalClientsCard).toContainText('All non-archived clients (all-time roster).');
 
-  // Narrow dates to last month on dashboard
+  // Narrow dates to last month on dashboard: Total Clients still counts all 25 (it is an
+  // all-time roster metric, not scoped to the selected range).
   await page.getByLabel('Date range', { exact: true }).selectOption('last_month');
-  // Total Clients still counts all 25 active clients; New Clients counts 4
   await expect(totalClientsCard).toContainText('25');
-  const newClientsCard = kpis.getByRole('listitem').nth(1);
-  await expect(newClientsCard).toContainText('4');
 
   // 2. Click Total Clients drilldown -> reproduces 25 clients and explains scope
   await totalClientsCard.getByTestId('kpi-link').click();
@@ -853,11 +851,18 @@ test('R02: Total Clients KPI counts all 25 active clients and drilldown scope is
     page.getByText('All Active Clients: Showing all 25 active clients across all statuses'),
   ).toBeVisible();
 
-  // 3. Narrow dates in drilldown -> explicitly labels alternative scope (4 clients of 25)
+  // 3. Narrow dates in drilldown -> explicitly labels the alternative scope, and the number in
+  // that label matches the table's own total (not a fixed number: the fixture's createdAt dates
+  // are relative to today, so how many fall in "last month" drifts with the calendar).
+  const totalsBefore = await page.getByTestId('totals').innerText();
   await page.getByTestId('report-filters').getByLabel('Date Range').selectOption('last_month');
+  await expect.poll(async () => page.getByTestId('totals').innerText()).not.toBe(totalsBefore);
+  const totalsText = await page.getByTestId('totals').innerText();
+  const narrowedCount = totalsText.match(/# of Clients:\s*(\d+)/)?.[1];
+  expect(narrowedCount, `totals row text: "${totalsText}"`).toBeTruthy();
   await expect(
     page.getByText(
-      'Date Filtered: Showing 4 clients created in this date range (of 25 total active clients).',
+      `Date Filtered: Showing ${narrowedCount} clients created in this date range (of 25 total active clients).`,
     ),
   ).toBeVisible();
 });

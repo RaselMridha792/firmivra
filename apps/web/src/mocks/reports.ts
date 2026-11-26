@@ -1682,26 +1682,24 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
           card('revenue-summary', 'invoices_payments', 'total-revenue', 'Total Revenue'),
           card('returns-by-filing-status', 'returns', 'returns-filed', 'Returns Filed'),
         ];
-        const categories = (Object.keys(CATEGORY_LABEL) as Category[])
-          .filter((cat) => cat !== 'ADVISORY')
-          .map((category) => {
-            const s = SYSTEM.find((x) => x.category === category)!;
-            const src = srcs[s.source]!;
-            const isDisconnected = ['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(category);
-            const cur = isDisconnected ? [] : apply(src, defOf(s.key), range);
-            const hk = isDisconnected ? null : (kpisOf(src, cur, null)[0] ?? null);
-            return {
-              category,
-              label: CATEGORY_LABEL[category],
-              headline: hk,
-              chart: isDisconnected ? null : breakdownChart(src, cur),
-              reportKey: s.key,
-              allowed: !(
-                role === 'STAFF' &&
-                (category === 'TEAM_PRODUCTIVITY' || category === 'FINANCIAL')
-              ),
-            };
-          });
+        const categories = (Object.keys(CATEGORY_LABEL) as Category[]).map((category) => {
+          const s = SYSTEM.find((x) => x.category === category)!;
+          const src = srcs[s.source]!;
+          const isDisconnected = ['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(category);
+          const cur = isDisconnected ? [] : apply(src, defOf(s.key), range);
+          const hk = isDisconnected ? null : (kpisOf(src, cur, null)[0] ?? null);
+          return {
+            category,
+            label: CATEGORY_LABEL[category],
+            headline: hk,
+            chart: isDisconnected ? null : breakdownChart(src, cur),
+            reportKey: s.key,
+            allowed: !(
+              role === 'STAFF' &&
+              (category === 'TEAM_PRODUCTIVITY' || category === 'FINANCIAL')
+            ),
+          };
+        });
         const insights: ReportInsight[] = [];
         for (const s of SYSTEM.slice(0, 3)) {
           const src = srcs[s.source]!;
