@@ -1,6 +1,7 @@
 import {
   type AdminBroadcastsClient,
   type AdminCommBroadcast,
+  type AdminCommMedia,
   type AdminCommSegment,
   ApiRequestError,
   CreateAdminCommBroadcastRequest,
@@ -17,6 +18,14 @@ import {
   UpdateAdminCommSegmentRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+
+/**
+ * The mock's file library (SA-COM-R1/R3): New Message and templates read their attachments from
+ * it. A confirmed file is CLEAN at once, as on the dev site (SCAN_MODE=local).
+ */
+let library: Map<string, AdminCommMedia> | undefined;
+export const mockCommLibrary = () => (library ??= new Map<string, AdminCommMedia>());
+let mockMediaSeq = 0;
 import { getAdminBroadcastDashboard } from './admin-communications-broadcasts';
 import { mockAudienceSegments } from './admin-communications-audience';
 
@@ -386,21 +395,31 @@ export function createAdminBroadcastsMock(): AdminBroadcastsClient {
         await mockDelay();
         const b = parseInput(CreateAdminCommMediaRequest, body);
         const at = new Date();
+        const media: AdminCommMedia = {
+          id: uuid('8103', ++mockMediaSeq),
+          kind: b.kind,
+          fileName: b.fileName,
+          contentType: b.contentType,
+          sizeBytes: b.sizeBytes,
+          scanStatus: 'PENDING' as const,
+          uploadedBy: ME,
+          createdAt: at.toISOString(),
+        };
+        mockCommLibrary().set(media.id, media);
         return {
-          media: {
-            id: uuid('8103', 1),
-            kind: b.kind,
-            fileName: b.fileName,
-            contentType: b.contentType,
-            sizeBytes: b.sizeBytes,
-            scanStatus: 'PENDING' as const,
-            uploadedBy: ME,
-            createdAt: at.toISOString(),
-          },
+          media,
           uploadUrl: 'mock:upload',
           headers: { 'content-type': b.contentType },
           expiresAt: new Date(at.getTime() + 15 * 60_000).toISOString(),
         };
+      },
+      confirm: async (id) => {
+        await mockDelay();
+        const media = mockCommLibrary().get(id);
+        if (!media) throw new ApiRequestError(404, 'NOT_FOUND', 'This file no longer exists.');
+        const checked = { ...media, scanStatus: 'CLEAN' as const };
+        mockCommLibrary().set(id, checked);
+        return checked;
       },
     },
   };

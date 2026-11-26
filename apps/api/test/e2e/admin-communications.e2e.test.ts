@@ -4,7 +4,7 @@
 // (through NotifyService, faked here), scheduled, cancelled, retried and deleted, with each
 // recipient's result; templates and categories with merge fields, preview and test. Firm sessions
 // get 401. Counts are compared before and after, since other tests write comm rows too.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -16,6 +16,8 @@ import {
   AdminCommContactList,
   AdminCommConversation,
   AdminCommConversationDetail,
+  AdminCommMedia,
+  AdminCommMediaTicket,
   AdminCommMessage,
   AdminCommSummary,
   AdminCommTemplate,
@@ -29,6 +31,8 @@ import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
+import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
+import { DOCUMENT_STORAGE } from '../../src/storage/document-storage.js';
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -47,6 +51,26 @@ const fakeNotify = {
     if (m.to.startsWith('fail'))
       return Promise.reject(Object.assign(new Error('refused'), { reason: 'InvalidRecipient' }));
     sent.push(m);
+    return Promise.resolve();
+  },
+};
+
+/** SA-COM-R1/R3: the library's files in memory (the PUT is written straight in). */
+const objects = new Map<string, Buffer>();
+const memoryStorage = {
+  presignUpload: (file: { key: string; contentType: string }) =>
+    Promise.resolve({
+      method: 'PUT' as const,
+      url: `memory:${file.key}`,
+      headers: { 'content-type': file.contentType },
+    }),
+  head: (k: string) => {
+    const b = objects.get(k);
+    return Promise.resolve(b ? { sizeBytes: b.length, sha256: null, contentEncoding: null } : null);
+  },
+  read: (k: string) => Promise.resolve(objects.get(k) ?? null),
+  remove: (k: string) => {
+    objects.delete(k);
     return Promise.resolve();
   },
 };
@@ -148,6 +172,10 @@ beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
     .overrideProvider(NOTIFY_SERVICE)
     .useValue(fakeNotify)
+    .overrideProvider(DOCUMENT_STORAGE)
+    .useValue(memoryStorage)
+    .overrideProvider(DOCUMENTS_CONFIG)
+    .useValue({ bucket: 'test', region: 'us-east-1', forcePathStyle: true, scanMode: 'local' })
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -609,5 +637,151 @@ describe('templates and categories', () => {
       body: 'Hi',
     });
     expect([res.status, codeOf(res)]).toEqual([409, 'CATEGORY_INACTIVE']);
+  });
+});
+
+describe('attachments (SA-COM-R1, R3)', () => {
+  /** A library file: the ticket, the bytes stored, then confirm (CLEAN at once locally). */
+  async function upload(name: string, bytes: Buffer, store = bytes) {
+    const ticket = AdminCommMediaTicket.parse(
+      await ok('post', '/media', {
+        kind: 'ATTACHMENT',
+        fileName: name,
+        contentType: 'application/pdf',
+        sizeBytes: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      }),
+    );
+    objects.set(ticket.uploadUrl.slice('memory:'.length), store);
+    return call('post', `/media/${ticket.media.id}/confirm`);
+  }
+  const pdf = (text: string) => Buffer.from(`%PDF-1.4 ${text} ${run}`);
+  const emailTo = (subject: string) =>
+    sent.filter((s) => (s.data as { subject?: string } | undefined)?.subject === subject);
+
+  it('confirms a stored file (CLEAN) and refuses one whose bytes differ', async () => {
+    const good = await upload('Terms.pdf', pdf('terms'));
+    expect(good.status, JSON.stringify(good.body)).toBe(200);
+    expect(AdminCommMedia.parse(good.body)).toMatchObject({ scanStatus: 'CLEAN' });
+    const bad = await upload('Other.pdf', pdf('other'), pdf('tampered'));
+    expect([bad.status, codeOf(bad)]).toEqual([409, 'UPLOAD_MISMATCH']);
+    const notAllowed = await call('post', '/media', {
+      kind: 'ATTACHMENT',
+      fileName: 'run.exe',
+      contentType: 'application/x-msdownload',
+      sizeBytes: 10,
+      sha256: 'b'.repeat(64),
+    });
+    expect(notAllowed.status).toBe(400);
+  });
+
+  it('R1: a new email carries its files as attachments; a text message takes none', async () => {
+    const bytes = pdf('price list');
+    const file = AdminCommMedia.parse((await upload('Price list.pdf', bytes)).body);
+    const subject = `Your price list ${run}`;
+    const m = AdminCommMessage.parse(
+      await ok('post', '/messages', {
+        contact: { type: 'FIRM', businessId: firm.id },
+        channel: 'EMAIL',
+        subject,
+        body: 'Attached.',
+        attachmentIds: [file.id],
+        mode: 'SEND',
+        idempotencyKey: key(),
+      }),
+    );
+    expect(m.status).toBe('SENT');
+    expect(m.attachments).toEqual([
+      expect.objectContaining({ id: file.id, fileName: 'Price list.pdf', scanStatus: 'CLEAN' }),
+    ]);
+    const mail = emailTo(subject);
+    expect(mail).toHaveLength(1);
+    expect(mail[0]!.attachments?.map((a) => [a.fileName, a.contentType])).toEqual([
+      ['Price list.pdf', 'application/pdf'],
+    ]);
+    expect(Buffer.from(mail[0]!.attachments![0]!.content).equals(bytes)).toBe(true);
+
+    const sms = await call('post', '/messages', {
+      contact: { type: 'FIRM', businessId: firm.id },
+      channel: 'SMS',
+      body: 'Hi',
+      attachmentIds: [file.id],
+      mode: 'DRAFT',
+      idempotencyKey: key(),
+    });
+    expect(sms.status).toBe(400);
+  });
+
+  it('R1: a draft keeps, swaps and drops its files; a file not yet checked blocks the send', async () => {
+    const a = AdminCommMedia.parse((await upload('A.pdf', pdf('a'))).body);
+    const b = AdminCommMedia.parse((await upload('B.pdf', pdf('b'))).body);
+    const draft = AdminCommMessage.parse(
+      await ok('post', '/messages', {
+        contact: { type: 'FIRM', businessId: firm.id },
+        channel: 'EMAIL',
+        subject: 'Draft with files',
+        body: 'Files',
+        attachmentIds: [a.id, b.id],
+        mode: 'DRAFT',
+        idempotencyKey: key(),
+      }),
+    );
+    expect(draft.attachments.map((x) => x.id)).toEqual([a.id, b.id]);
+    const edited = AdminCommMessage.parse(
+      await ok('patch', `/messages/${draft.id}`, { attachmentIds: [b.id] }),
+    );
+    expect(edited.attachments.map((x) => x.id)).toEqual([b.id]);
+    // A ticket with no confirm stays PENDING: attachable to a draft, never sent.
+    const pending = AdminCommMediaTicket.parse(
+      await ok('post', '/media', {
+        kind: 'ATTACHMENT',
+        fileName: 'Later.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 5,
+        sha256: 'c'.repeat(64),
+      }),
+    );
+    await ok('patch', `/messages/${draft.id}`, { attachmentIds: [b.id, pending.media.id] });
+    const refused = await call('post', `/messages/${draft.id}/send`, { idempotencyKey: key() });
+    expect([refused.status, codeOf(refused)]).toEqual([409, 'ATTACHMENT_NOT_USABLE']);
+    const cleared = AdminCommMessage.parse(
+      await ok('patch', `/messages/${draft.id}`, { attachmentIds: [] }),
+    );
+    expect(cleared.attachments).toEqual([]);
+  });
+
+  it('R3: a template saves and loads its files; a duplicate keeps them; SMS takes none', async () => {
+    const categories = (
+      await ok<{ items: { id: string; isActive: boolean }[] }>('get', '/template-categories')
+    ).items.filter((c) => c.isActive);
+    const file = AdminCommMedia.parse((await upload('Brochure.pdf', pdf('brochure'))).body);
+    const t = AdminCommTemplate.parse(
+      await ok('post', '/templates', {
+        categoryId: categories[0]!.id,
+        name: `With a file ${run}`,
+        channel: 'EMAIL',
+        subject: 'Our brochure',
+        body: 'See the brochure.',
+        attachmentIds: [file.id],
+      }),
+    );
+    expect(t.attachments.map((x) => x.fileName)).toEqual(['Brochure.pdf']);
+    expect(AdminCommTemplate.parse(await ok('get', `/templates/${t.id}`)).attachments).toHaveLength(
+      1,
+    );
+    const copy = AdminCommTemplate.parse(await ok('post', `/templates/${t.id}/duplicate`));
+    expect(copy.attachments.map((x) => x.id)).toEqual([file.id]);
+    const none = AdminCommTemplate.parse(
+      await ok('patch', `/templates/${t.id}`, { attachmentIds: [] }),
+    );
+    expect(none.attachments).toEqual([]);
+    const sms = await call('post', '/templates', {
+      categoryId: categories[0]!.id,
+      name: `Text with a file ${run}`,
+      channel: 'SMS',
+      body: 'Hi',
+      attachmentIds: [file.id],
+    });
+    expect(sms.status).toBe(400);
   });
 });

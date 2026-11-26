@@ -667,6 +667,18 @@ export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
   /** For example Firmivra support, for an information request. */
   replyTo?: string;
   data: NotifyTemplates[T];
+  /**
+   * Email only (SA-COM-R1/R3): files sent as attachments, never inline. The caller checked them
+   * (scanned CLEAN, within the size limit); an SMS template refuses any.
+   */
+  attachments?: readonly NotifyAttachment[];
+}
+
+/** One email attachment: its bytes, with the name and type the recipient sees. */
+export interface NotifyAttachment {
+  fileName: string;
+  contentType: string;
+  content: Uint8Array;
 }
 
 /** What a send that reached a provider can tell: the provider's own message id (email only). */

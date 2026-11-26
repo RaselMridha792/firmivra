@@ -1,5 +1,7 @@
 import {
+  ADMIN_COMM_ERRORS,
   ADMIN_COMM_MERGE_FIELDS,
+  type AdminCommAttachment,
   type AdminCommContact,
   type AdminCommConversation,
   type AdminCommConversationDetail,
@@ -22,6 +24,29 @@ import {
   UpdateAdminCommTemplateRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { mockCommLibrary } from './admin-broadcasts-api';
+
+/** The library files an email message or template carries (SA-COM-R1/R3). */
+function mockAttachments(ids: readonly string[] | undefined): AdminCommAttachment[] {
+  return (ids ?? []).map((id) => {
+    const m = mockCommLibrary().get(id);
+    if (!m || m.kind !== 'ATTACHMENT')
+      throw new ApiRequestError(
+        409,
+        'ATTACHMENT_NOT_USABLE',
+        ADMIN_COMM_ERRORS.ATTACHMENT_NOT_USABLE,
+      );
+    return {
+      id: m.id,
+      fileName: m.fileName,
+      contentType: m.contentType,
+      sizeBytes: m.sizeBytes,
+      scanStatus: m.scanStatus,
+    };
+  });
+}
+const notClean = (x: { attachments: AdminCommAttachment[] }) =>
+  x.attachments.some((a) => a.scanStatus !== 'CLEAN');
 import {
   type CommunicationContactType,
   type CommunicationsMock,
@@ -118,6 +143,7 @@ function build(source: CommunicationsMock, fixtures: CommunicationTemplate[]): S
         retryOfMessageId: null,
         broadcastId: null,
         recipients: [],
+        attachments: [],
         mentions: [],
         createdAt: at,
         updatedAt: at,
@@ -166,6 +192,7 @@ function build(source: CommunicationsMock, fixtures: CommunicationTemplate[]): S
       subject: f.channel === 'EMAIL' ? f.subject : null,
       body: f.body,
       mergeFields: fieldsIn(f.subject, f.body),
+      attachments: [],
       createdBy: author,
       updatedBy: author,
       createdAt: day(f.createdAt),
@@ -409,10 +436,12 @@ export function createAdminCommunicationsMock(): AdminCommunicationsClient {
                   deliveredAt: null,
                   failedAt: null,
                 })),
+          attachments: mockAttachments(b.attachmentIds),
           mentions: (b.mentionUserIds ?? []).map((userId) => ({ userId, name: ME.name })),
           createdAt: at,
           updatedAt: at,
         };
+        if (b.mode !== 'DRAFT' && notClean(x)) throw fail(409, 'ATTACHMENT_NOT_USABLE');
         if (x.status === 'SENDING') goOut(x);
         st.messages.push(x);
         st.keys.set(b.idempotencyKey, id);
@@ -427,6 +456,7 @@ export function createAdminCommunicationsMock(): AdminCommunicationsClient {
         editable(x);
         if (b.subject !== undefined) x.subject = b.subject;
         if (b.body !== undefined) x.body = b.body;
+        if (b.attachmentIds !== undefined) x.attachments = mockAttachments(b.attachmentIds);
         x.updatedAt = new Date().toISOString();
         return x;
       },
@@ -436,6 +466,7 @@ export function createAdminCommunicationsMock(): AdminCommunicationsClient {
         const x = msg(st, id);
         if (!x) throw notFound();
         editable(x);
+        if (notClean(x)) throw fail(409, 'ATTACHMENT_NOT_USABLE');
         goOut(x);
         return x;
       },
@@ -538,6 +569,7 @@ export function createAdminCommunicationsMock(): AdminCommunicationsClient {
           subject: b.subject ?? null,
           body: b.body,
           mergeFields: fieldsIn(b.subject, b.body),
+          attachments: mockAttachments(b.attachmentIds),
           createdBy: ME,
           updatedBy: ME,
           createdAt: at,
@@ -571,6 +603,7 @@ export function createAdminCommunicationsMock(): AdminCommunicationsClient {
           updatedAt: new Date().toISOString(),
         });
         t.mergeFields = fieldsIn(t.subject, t.body);
+        if (b.attachmentIds !== undefined) t.attachments = mockAttachments(b.attachmentIds);
         return t;
       },
       duplicate: async (id) => {
