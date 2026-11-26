@@ -48,7 +48,8 @@ test('a ready request is confirmed, then sent', async ({ page }) => {
   await expect(page.getByTestId('readiness')).toHaveCount(0);
   const summary = page.getByTestId('review-summary');
   await expect(summary).toContainText('W-2_2025.pdf');
-  await expect(summary).toContainText('1. Pat Example: Signs by email');
+  await expect(summary).toContainText('1. Pat Example');
+  await expect(summary).toContainText('Delivery: by email');
   await expect(summary).toContainText('a signature page is added');
 
   const send = page.getByRole('button', { name: 'Send for signature' });
@@ -56,4 +57,62 @@ test('a ready request is confirmed, then sent', async ({ page }) => {
   await page.getByLabel(/I checked the documents/).check();
   await send.click();
   await expect(page).toHaveURL(/\/firm-sign\/requests\/[0-9a-f-]+$/);
+});
+
+test('FS-004: Final review summary includes sender, auth method, explicit recipient role, and sequential/parallel mode', async ({
+  page,
+}) => {
+  await page.goto(app(`/firm-sign/new?clientId=${JAMIE}`));
+  await page.getByLabel('Document name').fill('FS-004 Review Summary Test');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(/\/prepare$/);
+
+  // Add document
+  await page.getByLabel('File', { exact: true }).selectOption({ label: 'W-2_2025.pdf' });
+  await page.getByRole('button', { name: 'Add file' }).click();
+
+  // Recipients
+  await page.getByRole('link', { name: 'Next: Recipients' }).click();
+  await page.getByRole('button', { name: 'Add a signer' }).click();
+  const row = page.getByTestId('recipient-row').first();
+  await row.getByLabel('Name').fill('Alex Signer');
+  await row.getByLabel('Email').fill('alex@example.com');
+  await page.getByRole('button', { name: 'Save recipients' }).click();
+
+  // Settings: change expiry
+  await page
+    .getByRole('navigation', { name: 'Steps' })
+    .getByRole('link', { name: 'Settings' })
+    .click();
+  await page.getByLabel('Expires after (days)').fill('45');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+
+  // Review step
+  await page
+    .getByRole('navigation', { name: 'Steps' })
+    .getByRole('link', { name: 'Review and send' })
+    .click();
+  const summary = page.getByTestId('review-summary');
+
+  // Verify sender is summarized
+  await expect(summary).toContainText('Sender');
+  await expect(summary).toContainText('Mock User');
+
+  // Verify sequential/parallel signing order is summarized
+  await expect(summary).toContainText('Signing Order');
+  await expect(summary).toContainText('Sequential (in order)');
+
+  // Verify approvers is summarized
+  await expect(summary).toContainText('Approvers');
+  await expect(summary).toContainText('None required');
+
+  // Verify recipient role, delivery, and auth method are summarized
+  await expect(summary).toContainText('Alex Signer');
+  await expect(summary).toContainText('Role: Client (Signer)');
+  await expect(summary).toContainText('Delivery: by email');
+  await expect(summary).toContainText('Auth: Email verification code');
+
+  // Verify documents, expiry, and reminders
+  await expect(summary).toContainText('W-2_2025.pdf');
+  await expect(summary).toContainText('45 days after it is sent');
 });
