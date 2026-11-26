@@ -165,3 +165,31 @@ test('FS-002: Created and Edited audit events persist with actor, timestamp, and
   await expect(timeline).toContainText('Edited (v3)');
   await expect(timeline).toContainText('Mock User');
 });
+
+test('FS-C06, FS-D01, FS-D02, FS-D03: Dashboard in-person shortcut, creation route explanations, and unclipped date filter', async ({
+  page,
+}) => {
+  await page.goto(app('/firm-sign'));
+
+  // FS-D02: creation routes have distinct labels and explanations
+  const startGroup = page.getByRole('group', { name: 'Start a request' });
+  await expect(startGroup.getByText('Start fresh with custom files and recipients')).toBeVisible();
+  await expect(
+    startGroup.getByText('Upload PDF or Word files to send for signature'),
+  ).toBeVisible();
+  await expect(
+    startGroup.getByText('Send a document from your saved firm templates'),
+  ).toBeVisible();
+
+  // FS-C06 / FS-D01: In-Person Signing shortcut is active and interactive
+  const quickActions = page.getByTestId('firm-sign-quick-actions');
+  const inPersonLink = quickActions.getByRole('link', { name: 'In-Person Signing' });
+  await expect(inPersonLink).toBeVisible();
+  await expect(inPersonLink).toHaveAttribute('href', '/firm-sign/requests');
+
+  // FS-D03: Last 30 Days label in date filter is fully legible
+  const dateFilter = page.getByLabel('Last activity');
+  await expect(dateFilter).toBeVisible();
+  await expect(dateFilter).toHaveValue('30');
+  await expect(dateFilter.locator('option[value="30"]')).toHaveText('Last 30 Days');
+});

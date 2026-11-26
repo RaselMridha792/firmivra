@@ -287,16 +287,19 @@ function Downloads({ r }: { r: EsignRequestDetail }) {
     <Card>
       <h2 className="mb-4 font-display text-2xl text-heading">Download</h2>
       <div className="flex flex-col gap-2">
-        {files.map(([file, label]) => (
-          <Button
-            key={file}
-            variant="secondary"
-            disabled={download.isPending}
-            onClick={() => download.mutate(file, { onSuccess: ({ url }) => save(url) })}
-          >
-            {label}
-          </Button>
-        ))}
+        {files.map(([file, label]) => {
+          const primary = r.status === 'COMPLETED' && (file === 'final' || file === 'certificate');
+          return (
+            <Button
+              key={file}
+              variant={primary ? 'primary' : 'secondary'}
+              disabled={download.isPending}
+              onClick={() => download.mutate(file, { onSuccess: ({ url }) => save(url) })}
+            >
+              {label}
+            </Button>
+          );
+        })}
       </div>
       {download.error && (
         <p role="alert" className="mt-2 text-sm text-danger">

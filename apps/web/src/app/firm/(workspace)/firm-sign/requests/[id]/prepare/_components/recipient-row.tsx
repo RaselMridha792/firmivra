@@ -35,6 +35,8 @@ export function RecipientRow({
   errors,
   logins,
   members,
+  contacts,
+  clientsMap,
   onChange,
   onMove,
   onRemove,
@@ -48,6 +50,19 @@ export function RecipientRow({
   logins: Choice[];
   /** The firm's members, as `staff:<id>` (approvers, and staff who sign). */
   members: Choice[];
+  /** Broader firm contacts/clients for search and autofill. */
+  contacts?: Choice[];
+  clientsMap?: Map<
+    string,
+    {
+      displayName: string;
+      email?: string | null;
+      phone?: string | null;
+      accountType?: string;
+      type?: string;
+      portalLogins?: { email: string }[];
+    }
+  >;
   onChange: (patch: Partial<RecipientDraft>) => void;
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
@@ -55,11 +70,17 @@ export function RecipientRow({
   const index = order ?? 0;
   const title = `${order ? `${order}. ` : ''}${KIND[d.kind]}`;
   const isLogin = d.who.startsWith('login:');
+  const isExternalOrClient = d.who === 'external' || d.who.startsWith('client:');
   const signer = d.kind === 'SIGNER';
   const offered: Choice[] =
     d.kind === 'APPROVER'
       ? [{ value: '', label: 'Choose a member of the firm' }, ...members]
-      : [...logins, ...(signer ? members : []), { value: 'external', label: 'Someone else' }];
+      : [
+          ...logins,
+          ...(signer ? members : []),
+          ...(contacts ?? []),
+          { value: 'external', label: 'Someone else' },
+        ];
   // A saved login or member these lists no longer offer (or cannot load) still shows as itself.
   const whoOptions = offered.some((o) => o.value === d.who)
     ? offered
@@ -104,6 +125,21 @@ export function RecipientRow({
             // The portal is only for the client's own login.
             const delivery =
               d.delivery === 'PORTAL' && !who.startsWith('login:') ? 'EMAIL' : d.delivery;
+            if (who.startsWith('client:') && clientsMap) {
+              const clientId = who.slice('client:'.length);
+              const found = clientsMap.get(clientId);
+              if (found) {
+                onChange({
+                  who,
+                  delivery,
+                  name: found.displayName ?? d.name,
+                  email: found.email ?? found.portalLogins?.[0]?.email ?? d.email,
+                  phone: found.phone ?? d.phone,
+                  role: found.type === 'BUSINESS' ? 'BUSINESS_OWNER' : 'CLIENT',
+                });
+                return;
+              }
+            }
             onChange({ who, delivery });
           }}
           options={whoOptions}
@@ -125,7 +161,7 @@ export function RecipientRow({
             onChange={(e) => onChange({ roleLabel: e.target.value })}
           />
         )}
-        {d.who === 'external' && (
+        {isExternalOrClient && (
           <>
             <Input
               label="Name"
@@ -162,6 +198,19 @@ export function RecipientRow({
               { value: 'IN_PERSON', label: 'In person, on this device' },
             ]}
           />
+        )}
+        {signer && d.delivery === 'IN_PERSON' && (
+          <div
+            data-testid="in-person-policy"
+            className="rounded-control border border-border bg-subtle p-3 text-xs text-muted md:col-span-2"
+          >
+            <p className="font-medium text-heading">In-person signing policy</p>
+            <p className="mt-1">
+              Identity verified in person by staff. Staff presents this device to the signer for
+              affirmative electronic consent and signing. Device control returns to staff upon
+              completion.
+            </p>
+          </div>
         )}
         {signer && d.delivery !== 'IN_PERSON' && (
           <Select

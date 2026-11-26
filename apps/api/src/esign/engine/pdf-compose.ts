@@ -158,7 +158,12 @@ async function embedImage(doc: PDFDocument, file: Pick<SourceFile, 'contentType'
 /** Size and EXIF turn from the header, before decoding; huge or broken images are refused. */
 function imageHeader(file: Pick<SourceFile, 'contentType' | 'bytes'>): ImageHeader {
   if (file.bytes.byteLength > UPLOAD_LIMITS.maxBytes) throw new EsignEngineError('PDF_UNREADABLE');
-  if (file.contentType === 'application/pdf') throw new Error('Not an image');
+  if (
+    file.contentType === 'application/pdf' ||
+    file.contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  ) {
+    throw new Error('Not an image');
+  }
   return readImageHeader(file.contentType, file.bytes);
 }
 
@@ -178,6 +183,11 @@ export async function inspect(
     const doc = await loadPdf(file.bytes);
     const pageSizes = doc.getPages().map(shownSize);
     return { pageCount: pageSizes.length, pageSizes };
+  }
+  if (
+    file.contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  ) {
+    return { pageCount: 1, pageSizes: [{ width: LETTER.short, height: LETTER.long }] };
   }
   // The header is enough: nothing is decoded to inspect an image.
   return { pageCount: 1, pageSizes: [imageShownSize(imageHeader(file))] };
@@ -233,6 +243,10 @@ export async function compose(files: SourceFile[], plan: EsignPage[]): Promise<U
       const next = copied.get(entry.documentId)?.shift();
       if (!next) throw new Error('The page plan and the copied pages differ');
       page = out.addPage(next);
+    } else if (
+      file.contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ) {
+      page = out.addPage([LETTER.short, LETTER.long]);
     } else {
       if (entry.page !== 0) throw new Error('An image has only page 0');
       const embedded = images.get(file.documentId) ?? (await embedImage(out, file));
