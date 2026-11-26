@@ -127,6 +127,8 @@ const paymentSelect = {
   // Only a completed checkout means Stripe is still settling it (a bank debit); a declined card's
   // payment_intent.payment_failed never blocks Pay Now.
   _count: { select: { events: { where: { type: 'checkout.session.completed' } } } },
+  // Q23 (IP-041): the client disputed it with their bank (the firm's "Disputed").
+  events: { where: { type: 'charge.dispute.created' }, select: { id: true }, take: 1 },
   refunds: {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
@@ -373,6 +375,7 @@ function toFirmPayment(p: PaymentRow): FirmInvoicePayment {
     failureCode: p.status === 'FAILED' ? p.failureCode : null,
     methodType: p.methodType,
     last4: p.last4,
+    disputed: p.events.length > 0,
     refunds: p.refunds.map((r) => ({
       id: r.id,
       amountCents: r.amountCents,

@@ -27,6 +27,10 @@ interface EventObject {
   payment_intent?: string | { id: string } | null;
   amount_total?: number | null;
   amount_received?: number;
+  /** A refund's or a dispute's cents. */
+  amount?: number;
+  /** A dispute's reason (e.g. "fraudulent"). */
+  reason?: string | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -94,6 +98,20 @@ export class StripeWebhookService {
     let intentConfirmed = false;
     let refund: { paymentId: string | null; refunds: StripeRefund[] } | null = null;
     let method: { methodType: string; last4: string | null } | null = null;
+    // Q23 (IP-041): the payment a dispute or a bank debit's refund is about (its payment intent).
+    let intentPaymentId: string | null = null;
+    const paymentOfIntent = async () => {
+      const intent = intentId(object);
+      if (!intent) return null;
+      const info = await stripe.retrievePaymentIntent(accountId, intent).catch((error: unknown) => {
+        const name = stripeErrorName(error);
+        // Not this account's payment intent: recorded and ignored.
+        if (name.endsWith(':resource_missing')) return null;
+        this.logger.warn(`Stripe payment intent lookup failed for ${event.id}: ${name}`);
+        throw providerUnavailable();
+      });
+      return info?.paymentId ?? null;
+    };
     switch (event.type) {
       case 'checkout.session.completed': {
         // Q23 (IP-041): how the client paid (card or bank account, and its last 4), kept with the
@@ -163,6 +181,14 @@ export class StripeWebhookService {
         }
         break;
       }
+      case 'charge.dispute.created':
+      case 'charge.dispute.closed':
+        intentPaymentId = await paymentOfIntent();
+        break;
+      case 'refund.updated':
+        // A bank debit's refund is final only once Stripe says it succeeded, days later.
+        if (object.status === 'succeeded') intentPaymentId = await paymentOfIntent();
+        break;
       default:
         break;
     }
@@ -177,6 +203,7 @@ export class StripeWebhookService {
       const ctx = { tx, businessId, accountId, eventRowId: row.id };
       let paid: { invoiceId: string; paymentId: string } | null = null;
       let failedInvoice: string | null = null;
+      let disputedInvoice: string | null = null;
       switch (event.type) {
         case 'checkout.session.completed':
           paid =
@@ -202,7 +229,13 @@ export class StripeWebhookService {
           // A refund canceled at Stripe is as good as failed: its cents are refundable again.
           if (event.type === 'refund.failed' || SETTLED_AT_STRIPE.has(object.status ?? '')) {
             await this.refundFailed(ctx, object.id ?? '');
+          } else if (object.status === 'succeeded') {
+            await this.confirmBankRefund(ctx, intentPaymentId, object);
           }
+          break;
+        case 'charge.dispute.created':
+        case 'charge.dispute.closed':
+          disputedInvoice = await this.dispute(ctx, intentPaymentId, event.type, object);
           break;
         default:
           // payment_intent.payment_failed changes nothing: the client may try another card in the
@@ -210,7 +243,7 @@ export class StripeWebhookService {
           break;
       }
       await tx.paymentEvent.update({ where: { id: row.id }, data: { processedAt: new Date() } });
-      return { paid, failedInvoice };
+      return { paid, failedInvoice, disputedInvoice };
     });
     // The firm's notice, and the client's receipt only with Automatic Receipts on (IP-F12).
     if (outcome?.paid) {
@@ -222,6 +255,16 @@ export class StripeWebhookService {
     // (an abandoned checkout, which only expires, is not).
     if (outcome?.failedInvoice) {
       await this.notices.send('payment.failed', businessId, outcome.failedInvoice);
+    }
+    // Q23 (IP-041): a dispute opened or closed: the firm is told (it answers in Stripe).
+    if (outcome?.disputedInvoice) {
+      await this.notices.send(
+        event.type === 'charge.dispute.created' ? 'payment.disputed' : 'payment.dispute-closed',
+        businessId,
+        outcome.disputedInvoice,
+        null,
+        'staff',
+      );
     }
   }
 
@@ -371,6 +414,8 @@ export class StripeWebhookService {
   private async confirmRefund(ctx: Ctx, paymentId: string | null, refunds: StripeRefund[]) {
     const payment = await this.linkPayment(ctx, paymentId);
     if (!payment) return;
+    // Q23 (IP-041): a bank debit's refund comes back days later; refund.updated confirms it.
+    if (payment.methodType === BANK_DEBIT) return;
     const { tx, businessId } = ctx;
     const live = refunds.filter((r) => !SETTLED_AT_STRIPE.has(r.status));
     const rows = await tx.paymentRefund.findMany({
@@ -416,6 +461,84 @@ export class StripeWebhookService {
     );
   }
 
+  /**
+   * Q23 (IP-041): a bank debit's refund that Stripe says succeeded (refund.updated). Its PENDING row
+   * (made by Firmivra) becomes SUCCEEDED; with no row (made in the firm's Stripe dashboard) it is
+   * inserted SUCCEEDED. A card's refund is confirmed by charge.refunded instead, so this changes
+   * nothing for it.
+   */
+  private async confirmBankRefund(ctx: Ctx, paymentId: string | null, object: EventObject) {
+    const refundId = object.id;
+    if (!refundId) return;
+    const payment = await this.linkPayment(ctx, paymentId);
+    if (!payment || payment.methodType !== BANK_DEBIT) return;
+    const { tx, businessId } = ctx;
+    const confirmed = {
+      status: 'SUCCEEDED' as const,
+      eventId: ctx.eventRowId,
+      refundedAt: new Date(),
+    };
+    const row = await tx.paymentRefund.findFirst({
+      where: { businessId, processorRefundId: refundId, accountId: ctx.accountId },
+    });
+    let amountCents: number;
+    if (row) {
+      if (row.paymentId !== payment.id || row.status !== 'PENDING') return; // Final already.
+      await tx.paymentRefund.update({ where: { id: row.id }, data: confirmed });
+      amountCents = row.amountCents;
+    } else {
+      if (!Number.isInteger(object.amount) || (object.amount ?? 0) < 1) return;
+      amountCents = object.amount as number;
+      await tx.paymentRefund.create({
+        data: {
+          businessId,
+          paymentId: payment.id,
+          processorRefundId: refundId,
+          accountId: ctx.accountId,
+          amountCents,
+          currency: payment.currency,
+          ...confirmed,
+        },
+      });
+    }
+    await this.audit.logIn(
+      tx,
+      'payment.refunded',
+      { type: 'payment', id: payment.id },
+      { ...STRIPE, invoiceId: payment.invoiceId, amountCents },
+      { businessId },
+    );
+  }
+
+  /**
+   * Q23 (IP-041): a dispute of the payment opened or closed. The lead's call: it only notifies. The
+   * invoice stays PAID, no status changes; the event is linked to the payment (the firm's
+   * "Disputed") and audited with Stripe's short status and reason codes. The invoice for the
+   * firm's notice, or null when the payment is not this account's.
+   */
+  private async dispute(
+    ctx: Ctx,
+    paymentId: string | null,
+    type: 'charge.dispute.created' | 'charge.dispute.closed',
+    object: EventObject,
+  ): Promise<string | null> {
+    const payment = await this.linkPayment(ctx, paymentId);
+    if (!payment) return null;
+    await this.audit.logIn(
+      ctx.tx,
+      type === 'charge.dispute.created' ? 'payment.disputed' : 'payment.dispute_closed',
+      { type: 'payment', id: payment.id },
+      {
+        ...STRIPE,
+        invoiceId: payment.invoiceId,
+        status: sanitize(object.status ?? null),
+        reason: sanitize(object.reason ?? null),
+      },
+      { businessId: ctx.businessId },
+    );
+    return payment.invoiceId;
+  }
+
   /** A PENDING refund that failed at Stripe: its cents are refundable again. */
   private async refundFailed(ctx: Ctx, refundId: string) {
     const { tx, businessId } = ctx;
@@ -444,6 +567,8 @@ export class StripeWebhookService {
 }
 
 const SETTLED_AT_STRIPE = new Set(['failed', 'canceled']);
+/** Q23 (IP-041): Stripe's method type of a bank debit (ACH). */
+const BANK_DEBIT = 'us_bank_account';
 
 /** The payment named in the object's metadata, on this firm's account. */
 function findPayment(tx: TxClient, businessId: string, accountId: string, object: EventObject) {
@@ -459,6 +584,7 @@ function findPayment(tx: TxClient, businessId: string, accountId: string, object
       currency: true,
       status: true,
       processorRef: true,
+      methodType: true,
     },
   });
 }

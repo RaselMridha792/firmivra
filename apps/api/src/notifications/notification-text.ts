@@ -248,6 +248,21 @@ const TEXT: Record<NotificationEvent, Writer> = {
           : `Your bank did not complete your payment for ${invoice}. The invoice is still open: pay it again.`,
     };
   },
+  // Q23 (IP-041): a dispute of a Stripe payment, for the firm only.
+  'payment.disputed': (p) => {
+    const invoice = text(p, 'number') ? `invoice ${text(p, 'number')}` : 'an invoice';
+    return {
+      title: 'Payment disputed',
+      body: `${who(p)} disputed a payment for ${invoice} with their bank. Answer it in Stripe.`,
+    };
+  },
+  'payment.dispute-closed': (p) => {
+    const invoice = text(p, 'number') ? `invoice ${text(p, 'number')}` : 'an invoice';
+    return {
+      title: 'Dispute closed',
+      body: `The dispute of ${who(p)}'s payment for ${invoice} is closed. Stripe shows how it ended.`,
+    };
+  },
   'account.password-changed': () => ({
     title: 'Password changed',
     body: "Your password was changed. If this wasn't you, contact your firm right away.",
