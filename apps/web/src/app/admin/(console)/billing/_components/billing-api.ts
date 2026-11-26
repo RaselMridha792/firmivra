@@ -1156,6 +1156,13 @@ export function issuerOf(firm: BillingFirm | null): BillingFirm | null {
 }
 
 /** What the Billing screens call: the API, or the mock in mock mode. */
+/**
+ * SA-BIL-R1 / C2: Super Admin bills firms. On the API the customer is the firm itself (bill-to =
+ * its billing contact), so the forms show no second "Client" picker and no "Client #" number.
+ * The mock still models clients inside a firm until its data is reworked.
+ */
+export const FIRM_IS_CUSTOMER = !mocked('adminBilling');
+
 export const adminBilling: typeof real = mocked('adminBilling')
   ? (mockBilling as unknown as typeof real)
   : real;

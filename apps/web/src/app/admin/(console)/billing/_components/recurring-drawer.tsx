@@ -23,7 +23,7 @@ import {
   RECURRING_FREQUENCY_LABELS,
   RECURRING_STATUS_LABELS,
 } from './billing-labels';
-import { adminBilling } from './billing-api';
+import { adminBilling, FIRM_IS_CUSTOMER } from './billing-api';
 
 /**
  * The one recurring invoice form (docx §9.2, §16 "Recurring Create/Edit"): the Recurring page's
@@ -107,7 +107,11 @@ export function RecurringForm({
   );
   const clientOptions = (clients.data ?? [])
     .filter((client) => client.id === clientId || activeFirms.has(client.firmId))
-    .map((client) => ({ value: client.id, label: `${client.name} (Client #${client.number})` }));
+    // SA-BIL-R1: a firm has no client number; "Client #0" was the firm itself.
+    .map((client) => ({
+      value: client.id,
+      label: FIRM_IS_CUSTOMER ? client.name : `${client.name} (Client #${client.number})`,
+    }));
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -137,13 +141,18 @@ export function RecurringForm({
 
   return (
     <form noValidate onSubmit={submit} data-testid="recurring-form" className="flex flex-col gap-4">
-      <FormField label="Client" htmlFor={`${id}-client`} required error={errors['clientId']}>
+      <FormField
+        label={FIRM_IS_CUSTOMER ? 'Firm' : 'Client'}
+        htmlFor={`${id}-client`}
+        required
+        error={errors['clientId']}
+      >
         <SelectControl
           id={`${id}-client`}
           value={clientId}
           disabled={lockClient}
           invalid={Boolean(errors['clientId'])}
-          placeholder="Select a client..."
+          placeholder={FIRM_IS_CUSTOMER ? 'Select a firm...' : 'Select a client...'}
           options={clientOptions}
           onChange={(event) => setClientId(event.target.value)}
         />
