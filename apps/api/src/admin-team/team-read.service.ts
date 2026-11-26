@@ -38,6 +38,7 @@ import {
   type Person,
   reach,
   roleGate,
+  executiveLocked,
   statusTargets,
 } from './team-rules.js';
 import {
@@ -414,11 +415,13 @@ export function formOptionsOf(ctx: TeamContext, memberId?: string): AdminTeamFor
   const currentRoleId = current ? heldRoleId(current) : undefined;
   const reachOk = person ? reach(actor, ctx.chart, person) === 'OK' : true;
   const waiting = current?.status === 'PENDING_DEPARTMENT_HEAD_APPROVAL';
+  // SA-TEAM-F01: an executive keeps their role unless the platform owner edits them.
+  const locked = person ? executiveLocked(actor, person) : false;
   // On edit: other roles only with the keys for them; on Add (and bulk) every role the member may give.
   const otherDepartments =
-    !person || (reachOk && !waiting && holds(actor, ADMIN_TEAM_KEYS.ASSIGN_DEPARTMENT));
+    !person || (reachOk && !waiting && !locked && holds(actor, ADMIN_TEAM_KEYS.ASSIGN_DEPARTMENT));
   const sameDepartment =
-    !person || (reachOk && !waiting && holds(actor, ADMIN_TEAM_KEYS.CHANGE_ROLE));
+    !person || (reachOk && !waiting && !locked && holds(actor, ADMIN_TEAM_KEYS.CHANGE_ROLE));
   const departmentOk = (id: string) =>
     ctx.departments.get(id)?.isActive === true &&
     departmentAllowed(actor, id) &&

@@ -45,6 +45,11 @@ export interface Actor {
   person: Person | null;
   /** The CEO, or a Super Admin with no org-chart row: no ceiling. */
   unrestricted: boolean;
+  /**
+   * SA-TEAM-F01: the platform owner (`platform_admins.is_platform_owner`), the only one who gives
+   * or changes an executive (Chief Officer) role. A CEO, Super Admin or HR label alone does not.
+   */
+  owner: boolean;
   /** Their effective keys (every catalog key when unrestricted). */
   keys: ReadonlySet<string>;
 }
@@ -150,8 +155,16 @@ export function reach(actor: Actor, chart: OrgChart, target: Person): Reach {
 /** May the member give this role: directly, as a hire that waits for the department head, or not. */
 export type RoleGate = 'direct' | 'approval' | 'no';
 
+/** The executive roles below the CEO (SA-TEAM-F01): given and changed by the platform owner only. */
+export const isExecutive = (level: AdminTeamLevel): boolean => level === 'CHIEF_OFFICER';
+
+/** Someone holding an executive role keeps it unless the platform owner changes it (SA-TEAM-F01). */
+export const executiveLocked = (actor: Actor, target: Person): boolean =>
+  isExecutive(target.level) && !actor.owner;
+
 /**
- * No route gives the CEO role. The CEO gives any other role; a Chief Officer VP / Director and
+ * No route gives the CEO role, and only the platform owner gives a Chief Officer role
+ * (SA-TEAM-F01). The CEO gives any other role; a Chief Officer VP / Director and
  * below in their department; HR any department, Manager and below directly and VP / Director as
  * a hire that waits for that department's Chief Officer (the CHRO gives HR's own directly); a
  * VP / Director Manager and below in their department; a Manager Lead / Supervisor and
@@ -162,9 +175,10 @@ export function roleGate(
   role: { level: AdminTeamLevel; departmentId: string },
 ): RoleGate {
   if (role.level === 'CEO') return 'no';
+  if (isExecutive(role.level)) return actor.owner ? 'direct' : 'no';
   if (actor.unrestricted) return 'direct';
   const me = actor.person;
-  if (!me || role.level === 'CHIEF_OFFICER') return 'no';
+  if (!me) return 'no';
   if (isHr(actor)) {
     if (levelNumber(role.level) >= levelNumber('MANAGER')) return 'direct';
     return me.level === 'CHIEF_OFFICER' && me.departmentId === role.departmentId
