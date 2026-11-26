@@ -12,7 +12,6 @@ import { MemberTable } from './member-table';
 import { MessageDialog, type MessagePreset, type MessageVariant } from './message-dialog';
 import {
   type AccessLevel,
-  ADD_MEMBER_AVAILABLE,
   adminTeam,
   type AdminTeamMember,
   errorMessage,
@@ -213,9 +212,7 @@ export function TeamScreen() {
               <PaperPlaneTilt aria-hidden weight="fill" className="size-5" />
               Team Communication
             </Button>
-            {/* On the API the button stays (the design's) until R2's invite route: the Add page's
-                submit says adding is not available yet. */}
-            {can?.add || (can && !ADD_MEMBER_AVAILABLE) ? (
+            {can?.add ? (
               <ButtonLink href="/team/new">
                 <Plus aria-hidden weight="bold" className="size-5" />
                 Add Team Member
