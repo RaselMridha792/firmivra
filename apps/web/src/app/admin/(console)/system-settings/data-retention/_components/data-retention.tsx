@@ -173,6 +173,17 @@ export function DataRetention() {
                           <td className="px-3 py-2.5">
                             <span className="block font-semibold text-heading">{name}</span>
                             <span className="block text-xs text-muted">{hint}</span>
+                            {/* SA-SYS-F2: the saved policy's floor, effective date and version. */}
+                            <span className="mt-1 block text-xs text-muted">
+                              Minimum {periodText(p.minimumDays)} (locked) · Effective{' '}
+                              {new Date(p.effectiveFrom).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })}{' '}
+                              · Version {p.version}
+                              {p.updatedBy ? ` · ${p.updatedBy}` : ''}
+                            </span>
                           </td>
                           <td className="px-3 py-2.5">
                             <Select
