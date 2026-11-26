@@ -100,6 +100,8 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   },
   'appointment.lead-booked': leadAppointment,
   'appointment.lead-reminder': leadAppointment,
+  'appointment.completed': { ...appointment, status: 'COMPLETED' },
+  'appointment.no-show': { ...appointment, status: 'NO_SHOW' },
   'appointment.cancelled': {
     name: 'Robin Example',
     title: 'Tax review',

@@ -35,11 +35,15 @@ export function WaitlistRow({
   item,
   waitlist,
   onNotice,
+  clientTimezone,
+  firmTimezone,
 }: {
   slug: string;
   item: MyAppointment;
   waitlist: UseQueryResult<MyWaitlist>;
   onNotice: (notice: { text: string; failed: boolean } | null) => void;
+  clientTimezone?: string;
+  firmTimezone?: string;
 }) {
   const invalidate = myAppointmentsKey(slug);
   const client = api.myWaitlist(slug);
@@ -110,7 +114,7 @@ export function WaitlistRow({
   const offer = entry.offer;
   if (!offer) return null;
   // The day and time (the offer may be on another day than the appointment).
-  const range = when(offer.startsAt);
+  const range = when(offer.startsAt, clientTimezone, firmTimezone);
   if (entry.status === 'REQUESTED') {
     return (
       <p

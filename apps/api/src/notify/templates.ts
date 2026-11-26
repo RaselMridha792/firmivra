@@ -231,6 +231,48 @@ function appointment(
   };
   const message = words('message');
   const instructions = words('instructions');
+
+  let actionBlocks: Block[] = [];
+  if (portal) {
+    const apptLink = link(data as NotifyTemplates['appointment.booked'], 'link', o);
+    const apptId = (field(data, 'appointmentId') ?? field(data, 'id')) as string | undefined;
+    const status = (field(data, 'status') as string | undefined)?.toUpperCase();
+    const isConfirmAsk =
+      field(data as NotifyTemplates['appointment.booked'], 'confirmAsk') === true;
+
+    const buildUrl = (action: string) => {
+      try {
+        const u = new URL(apptLink);
+        u.searchParams.set('action', action);
+        if (apptId) u.searchParams.set('id', apptId);
+        return u.href;
+      } catch {
+        return apptLink;
+      }
+    };
+
+    const confirmUrl = (field(data, 'confirmLink') as string) || buildUrl('confirm');
+    const rescheduleUrl = (field(data, 'rescheduleLink') as string) || buildUrl('reschedule');
+    const cancelUrl = (field(data, 'cancelLink') as string) || buildUrl('cancel');
+
+    if (status === 'COMPLETED' || status === 'CANCELLED' || status === 'NO_SHOW') {
+      actionBlocks = [button('View appointment', apptLink)];
+    } else if (isConfirmAsk) {
+      actionBlocks = [
+        button('Confirm / Accept', confirmUrl),
+        button('Reschedule', rescheduleUrl),
+        button('Cancel', cancelUrl),
+        button('View appointment', apptLink),
+      ];
+    } else {
+      actionBlocks = [
+        button('View appointment', apptLink),
+        button('Reschedule', rescheduleUrl),
+        button('Cancel', cancelUrl),
+      ];
+    }
+  }
+
   return {
     channel: 'email',
     subject: subject(firm),
@@ -251,12 +293,7 @@ function appointment(
         ? [text('Please confirm this appointment in your client portal.')]
         : []),
       ...(portal
-        ? [
-            button(
-              'View appointment',
-              link(data as NotifyTemplates['appointment.booked'], 'link', o),
-            ),
-          ]
+        ? actionBlocks
         : [text('To change or cancel it, reply to this email or contact the firm.')]),
     ],
   };
@@ -650,6 +687,24 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       (firm) => `This is a reminder of your appointment with ${firm}.`,
       (firm) => `Reminder: your appointment with ${firm}`,
       false,
+    ),
+
+  'appointment.completed': (d, b, o) =>
+    appointment(
+      d,
+      b,
+      o,
+      (firm) => `Your appointment with ${firm} is complete.`,
+      (firm) => `Your appointment with ${firm} is completed`,
+    ),
+
+  'appointment.no-show': (d, b, o) =>
+    appointment(
+      d,
+      b,
+      o,
+      (firm) => `We missed you at your scheduled appointment with ${firm}.`,
+      (firm) => `Missed appointment with ${firm}`,
     ),
 
   // Tax Planning Review 2 (Project Deadlines): a member's reminder, never the description.

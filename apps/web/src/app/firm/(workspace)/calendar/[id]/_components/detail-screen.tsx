@@ -359,19 +359,27 @@ export function DetailScreen({ id }: { id: string }) {
                 </p>
                 {r.notices.length ? (
                   <ul className="flex flex-col divide-y divide-divider text-sm">
-                    {r.notices.map((n) => (
-                      <li
-                        key={`${n.at}-${n.kind}-${n.channel}`}
-                        className="flex flex-wrap justify-between gap-2 py-1.5"
-                      >
-                        <span className="text-heading">
-                          {n.kind.charAt(0)}
-                          {n.kind.slice(1).toLowerCase()} · {n.channel.toLowerCase()} ·{' '}
-                          {n.recipient}
-                        </span>
-                        <span className="text-muted">{n.status.toLowerCase()}</span>
-                      </li>
-                    ))}
+                    {r.notices.map((n) => {
+                      const sentTime = dateAndTime(n.at, r.timezone).join(' ');
+                      return (
+                        <li
+                          key={`${n.at}-${n.kind}-${n.channel}`}
+                          className="flex flex-wrap items-center justify-between gap-2 py-1.5"
+                        >
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-medium text-heading">
+                              {n.kind.charAt(0)}
+                              {n.kind.slice(1).toLowerCase()} · {n.channel.toLowerCase()} ·{' '}
+                              {n.recipient}
+                            </span>
+                            <span className="text-xs text-muted">Sent: {sentTime}</span>
+                          </div>
+                          <span className="text-xs text-muted capitalize">
+                            {n.status.toLowerCase()}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p className="text-xs text-muted">No notices sent yet.</p>

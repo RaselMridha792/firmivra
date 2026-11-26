@@ -234,6 +234,8 @@ export interface NotifyTemplates {
   'appointment.booked': AppointmentData;
   'appointment.changed': AppointmentData;
   'appointment.reminder': AppointmentData;
+  'appointment.completed': AppointmentData;
+  'appointment.no-show': AppointmentData;
   /**
    * A7: a configured Text reminder, to a client who agreed to appointment texts, when the firm
    * sends texts. The time and the portal link, the reminder's own note, and the client
@@ -394,6 +396,12 @@ export interface AppointmentData extends IgnoredFirmName {
   instructions?: string | null;
   /** Review 2 (row 8): the firm booked it and asks the client to confirm it in the portal. */
   confirmAsk?: boolean;
+  status?: string;
+  id?: string;
+  appointmentId?: string;
+  confirmLink?: string;
+  rescheduleLink?: string;
+  cancelLink?: string;
 }
 
 /** P4-1: a lead's appointment notice: as a client's, without the portal link or confirm ask. */
@@ -432,6 +440,8 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.reminder-sms': 'sms',
   'appointment.lead-booked': 'email',
   'appointment.lead-reminder': 'email',
+  'appointment.completed': 'email',
+  'appointment.no-show': 'email',
   'appointment.cancelled': 'email',
   'appointment.waitlist-offer': 'email',
   'project-deadline.reminder': 'email',
@@ -502,6 +512,8 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.reminder-sms': 'firm',
   'appointment.lead-booked': 'firm',
   'appointment.lead-reminder': 'firm',
+  'appointment.completed': 'firm',
+  'appointment.no-show': 'firm',
   'appointment.cancelled': 'firm',
   'appointment.waitlist-offer': 'firm',
   'project-deadline.reminder': 'firm',
@@ -612,6 +624,8 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.reminder-sms': 'APPOINTMENTS',
   'appointment.lead-booked': 'APPOINTMENTS',
   'appointment.lead-reminder': 'APPOINTMENTS',
+  'appointment.completed': 'APPOINTMENTS',
+  'appointment.no-show': 'APPOINTMENTS',
   'appointment.cancelled': 'APPOINTMENTS',
   'appointment.waitlist-offer': 'APPOINTMENTS',
   'project-deadline.reminder': 'SERVICES',

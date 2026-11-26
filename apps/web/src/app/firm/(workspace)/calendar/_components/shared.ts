@@ -28,7 +28,7 @@ export const CALENDAR_ERRORS: Record<string, string> = {
   CHANGE_WINDOW_CLOSED: 'It is too close to the appointment to change it online.',
   APPOINTMENT_CLOSED: 'This appointment is no longer scheduled.',
   APPOINTMENT_NOT_STARTED:
-    "This appointment hasn't started yet. You can mark it completed once it starts.",
+    'This appointment has not started yet. You can mark it as a no show once it starts.',
   TYPE_ARCHIVED: 'This appointment type is archived. Choose another one.',
   CLIENT_ARCHIVED: 'This client is archived.',
   BLOCKS_APPOINTMENT: 'An appointment is booked in that time. Move or cancel it first.',
