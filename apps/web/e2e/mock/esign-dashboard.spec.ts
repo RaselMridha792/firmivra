@@ -104,3 +104,64 @@ test('FS-001: Delivered status is filterable and visible on full list and client
   await expect(clientStatusSelect).toBeVisible();
   await expect(clientStatusSelect.locator('option[value="DELIVERED"]')).toHaveText('Delivered');
 });
+
+test('FS-005: Dashboard recent documents show sender, next action, and expiry', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-08T18:00:00Z'));
+  await page.goto(app('/firm-sign'));
+
+  const table = page.getByRole('table', { name: 'Recent documents' });
+  await expect(table.locator('th', { hasText: 'Sender' })).toBeVisible();
+  await expect(table.locator('th', { hasText: 'Waiting On' })).toBeVisible();
+  await expect(table.locator('th', { hasText: 'Expires' })).toBeVisible();
+
+  // Verify rows contain sender and waiting on details
+  const firstRow = table.getByRole('row').nth(1);
+  await expect(firstRow).toBeVisible();
+  await expect(firstRow).toContainText('Mock User');
+});
+
+test('FS-002: Created and Edited audit events persist with actor, timestamp, and version across reload', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-08T18:00:00Z'));
+
+  // 1. Create a fresh draft
+  await page.goto(app('/firm-sign/new'));
+  await page.getByLabel('Document name').fill('Draft Audit Test');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.waitForURL(/\/firm-sign\/requests\/[0-9a-f-]+\/prepare$/);
+
+  const requestId = page.url().match(/requests\/([0-9a-f-]+)\/prepare/)?.[1];
+  expect(requestId).toBeTruthy();
+
+  // 2. Perform two edits in the prepare settings step (internal note)
+  await page.goto(app(`/firm-sign/requests/${requestId}/prepare?step=settings`));
+  await page.getByLabel('Only your team sees this note').fill('First edit note');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+
+  // Edit 2: update note again
+  await page.getByLabel('Only your team sees this note').fill('Second edit note');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+
+  // 3. View request detail timeline
+  await page.goto(app(`/firm-sign/requests/${requestId}`));
+  const timeline = page.getByTestId('timeline');
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Created (v1)');
+  await expect(timeline).toContainText('Edited (v2)');
+  await expect(timeline).toContainText('Edited (v3)');
+  await expect(timeline).toContainText('Mock User');
+
+  // 4. Reload page and verify all audit records persist
+  await page.reload();
+  await expect(timeline).toBeVisible();
+  await expect(timeline.locator('li')).toHaveCount(3);
+  await expect(timeline).toContainText('Created (v1)');
+  await expect(timeline).toContainText('Edited (v2)');
+  await expect(timeline).toContainText('Edited (v3)');
+  await expect(timeline).toContainText('Mock User');
+});

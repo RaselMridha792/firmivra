@@ -835,6 +835,8 @@ export const EsignEvent = z.object({
   reason: z.string().nullable(),
   /** AUTH_PASSED, AUTH_FAILED, CONSENTED and SIGNED: how the signer proved who they are. */
   authMethod: EsignAuthMethod.nullable(),
+  /** Version number for CREATED/EDITED events (FS-002). */
+  version: z.number().int().nullable().optional(),
 });
 export type EsignEvent = z.infer<typeof EsignEvent>;
 
