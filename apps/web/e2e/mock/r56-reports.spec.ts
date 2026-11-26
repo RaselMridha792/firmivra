@@ -13,8 +13,9 @@ test('Dashboard: range, four KPIs, category cards, quick reports and the three l
   await expect(page.getByRole('heading', { name: 'Reports', level: 1 })).toBeVisible();
   await expect(page.getByTestId('reports-kpis').getByRole('listitem')).toHaveCount(4);
   await expect(page.getByTestId('category-cards').locator(':scope > li')).toHaveCount(9);
-  // 12, and Tax Planning's two (C18: Projected Savings by Plan, Planning Plans by Status).
-  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(14);
+  // 12, Tax Planning's two (C18: Projected Savings by Plan, Planning Plans by Status), and R04's
+  // four (Revenue by Service, AR Aging, Clients by Service, Client Lifecycle).
+  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(18);
   await expect(page.getByTestId('recent')).toContainText('Revenue Summary');
   await expect(page.getByTestId('scheduled')).toContainText('Weekly Revenue Report');
   await expect(page.getByTestId('insights')).toContainText('Insights');
@@ -758,6 +759,81 @@ test('R03: Bookkeeping, Payroll, and Communications report categories show Not C
   await page.getByLabel('Report Category').selectOption('COMMUNICATIONS');
   await expect(page.getByTestId('builder-not-connected')).toBeVisible();
   await expect(page.getByTestId('selected-columns')).toContainText('Channel');
+});
+
+test('R08: Financial metric definitions in field picker and accurate labeling of unsupported accrual revenue', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. In report builder, field picker shows metric definitions
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Data Source').selectOption('invoices_payments');
+
+  // Check Amount / Gross Invoiced definition
+  const amountHelp = page.getByRole('button', { name: 'About Amount', exact: true });
+  await expect(amountHelp).toBeVisible();
+  await amountHelp.click();
+  await expect(
+    page
+      .getByTestId('help-tip')
+      .getByText('Gross Invoiced: total billed before discounts, refunds, or processing fees'),
+  ).toBeVisible();
+
+  // Check Recognized Revenue: must be marked Not Supported and disabled
+  await expect(page.getByTestId('not-supported-badge')).toBeVisible();
+  const recRevHelp = page.getByRole('button', { name: 'About Recognized Revenue' });
+  await expect(recRevHelp).toBeVisible();
+  await recRevHelp.click();
+  await expect(
+    page
+      .getByTestId('help-tip')
+      .getByText('Not supported — Firmivra reports on cash collected or invoices issued'),
+  ).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Recognized Revenue' })).toBeDisabled();
+});
+
+test('R04: Missing named reports for Financial (Revenue by Service, AR Aging) and Client (Retention, By Service, Lifecycle)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. Financial category: Revenue by Service
+  await page.goto(`${base}/revenue-by-service`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Revenue by Service');
+  const rbsTable = page.getByTestId('report-table');
+  await expect(rbsTable.locator('th').first()).toContainText('Service Category');
+  await expect(rbsTable).toContainText('Tax Preparation');
+  await expect(rbsTable).toContainText('Bookkeeping');
+
+  // 2. Financial category: AR Aging
+  await page.goto(`${base}/ar-aging`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('AR Aging');
+  const arTable = page.getByTestId('report-table');
+  await expect(arTable.locator('th').first()).toContainText('Aging Bucket');
+  await expect(arTable).toContainText('Current');
+  await expect(arTable).toContainText('1–30 Days');
+
+  // 3. Client category: Client Retention
+  await page.goto(`${base}/client-retention`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Client Retention');
+  const retTable = page.getByTestId('report-table');
+  await expect(retTable.locator('th').first()).toContainText('Status');
+
+  // 4. Client category: Clients by Service
+  await page.goto(`${base}/clients-by-service`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Clients by Service');
+  const cbsTable = page.getByTestId('report-table');
+  await expect(cbsTable.locator('th').first()).toContainText('Primary Service');
+  await expect(cbsTable).toContainText('Tax Preparation');
+
+  // 5. Client category: Client Lifecycle
+  await page.goto(`${base}/client-lifecycle`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Client Lifecycle');
+  const clTable = page.getByTestId('report-table');
+  await expect(clTable.locator('th').first()).toContainText('Lifecycle Stage');
+  await expect(clTable).toContainText('Active');
+  await expect(clTable).toContainText('Lead');
 });
 
 test('R05: Rename and Edit Definition controls on saved report detail and library rows', async ({
