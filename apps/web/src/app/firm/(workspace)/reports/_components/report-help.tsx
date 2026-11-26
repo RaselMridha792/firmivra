@@ -10,6 +10,10 @@ const HELP = {
     topic: 'Report cards',
     text: 'Each card counts one thing in the chosen range, on your firm’s calendar. Its line under it says what it counts; open it to see the report behind the number.',
   },
+  financialMetrics: {
+    topic: 'Financial metric definitions',
+    text: 'Collected Revenue counts payments received by paid date. Invoiced Revenue counts charges issued by invoice date. Balance Due is open AR. Note: Accrual-basis recognized revenue is not supported (reports reflect cash collected or invoices issued).',
+  },
   categories: {
     topic: 'Report categories',
     text: 'Reports grouped by area: Financial, Clients, Tax and more. A card shows a short summary; View Report opens the full report on the same range.',
