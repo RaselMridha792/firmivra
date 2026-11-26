@@ -28,6 +28,7 @@ import type { Construct } from 'constructs';
 import { type EnvConfig, resourceName } from '../config';
 import { firmKeyStatements } from '../firm-key-policy';
 import type { AuthStack } from './auth-stack';
+import { AppAlarms } from './app-alarms';
 import type { DataStack } from './data-stack';
 import type { EmailStack } from './email-stack';
 import { MalwareScan } from './malware-scan';
@@ -56,6 +57,7 @@ export const NO_IMAGE = 'none';
  * certificate needed on it. Without config.customDomain the sites use their *.cloudfront.net
  * domains; with it they get the certificate, aliases and DNS records.
  * Also the alarm topic, and GuardDuty's malware scan of uploads with its result queue (malware-scan.ts).
+ * On prod, the app's own alarms: 5xx, target health, database storage and CPU (app-alarms.ts).
  */
 export class AppStack extends Stack {
   readonly repositories: Record<'api' | 'web' | 'migrate', ecr.Repository>;
@@ -616,6 +618,17 @@ export class AppStack extends Stack {
       conditions: [fromCloudFront],
       action: elbv2.ListenerAction.forward([webTargets]),
     });
+
+    // Prod only: dev's tasks run on Spot (interruptions fail health checks), its 5xx are part of
+    // development, and its topic emails a person, who would get every one of them.
+    if (config.envName === 'prod') {
+      new AppAlarms(this, 'AppAlarms', {
+        config,
+        alarmTopic: this.alarmTopic,
+        alb,
+        targets: { api: apiTargets, web: webTargets },
+      });
+    }
 
     // ---------- Outputs for people and the deploy pipeline ----------
     new CfnOutput(this, 'AdminUrl', { value: sites.ADMIN_BASE_URL });
