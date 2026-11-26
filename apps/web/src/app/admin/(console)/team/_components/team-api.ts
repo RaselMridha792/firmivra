@@ -161,13 +161,6 @@ export const TEAM_ERROR_MESSAGES: Readonly<Record<string, string>> = MOCKED
   ? MOCK_ERROR_MESSAGES
   : ADMIN_TEAM_ERRORS;
 
-/**
- * Add Team Member has no API route yet (R2's admin-invite service, R60-team note 30), so `can.add`
- * is false for everyone: the Add page keeps its form (its submit answers 422) instead of the
- * no-permission line. Turn on with the route.
- */
-export const ADD_MEMBER_AVAILABLE = MOCKED;
-
 // ---------- Errors ----------
 
 /** A message written for the screen (a feature not available yet, a check made here). */
@@ -832,9 +825,39 @@ const real = {
     };
   },
 
-  /** No route yet (note 30): the form's submit shows this. */
-  createMember: async (_body: SaveTeamMember): Promise<AdminTeamMember> => {
-    throw notYet('Adding team members is not available yet.');
+  /**
+   * Add Team Member (SA-TEAM-T01): the API creates the login, the team row (Pending Invitation,
+   * or Pending Approval for a VP / Director entered by HR) and sends the invitation.
+   */
+  createMember: async (body: SaveTeamMember): Promise<AdminTeamMember> => {
+    await loadCatalog();
+    if (body.scope && !apiScope(body.scope))
+      throw new TeamFieldError(
+        { scope: 'Choose an access scope' },
+        new ApiRequestError(400, 'VALIDATION_FAILED', 'Choose an access scope'),
+      );
+    const request: CreateAdminTeamMemberRequest = {
+      firstName: body.firstName,
+      lastName: body.lastName,
+      email: body.email.trim(),
+      phone: body.phone.trim(),
+      departmentId: body.departmentId,
+      roleId: body.roleId,
+      reportsToId: body.reportsToId || null,
+      invite: body.invite,
+    };
+    if (body.scope) request.scope = body.scope;
+    // Only a change from the role's template is sent; the API loads the template otherwise.
+    const template = formRoles.get(body.roleId)?.template ?? [];
+    const grid = gridToKeys(body.permissions);
+    if (!adminTeamSamePermissions(grid, gridToKeys(keysToGrid(template))))
+      request.permissions = [...grid, ...offGrid(template)];
+    check(CreateAdminTeamMemberRequest, request);
+    try {
+      return memberOut((await api.adminTeam.createMember(request)).member);
+    } catch (error) {
+      throw withFields(error);
+    }
   },
 
   /** Name and phone answer 400 on their field until R0 lets admin scope save them (note 38). */
@@ -872,9 +895,10 @@ const real = {
     };
   },
 
-  /** No route yet (note 30); the menus hide it (`allowed.resendInvitation`). */
-  resendInvitation: async (_memberIds: string[]): Promise<{ sent: number }> => {
-    throw notYet('Invitations cannot be resent yet.');
+  /** A new invitation link for each person still Pending Invitation (`allowed.resendInvitation`). */
+  resendInvitation: async (memberIds: string[]): Promise<{ sent: number }> => {
+    const result = await api.adminTeam.resendInvitation({ ids: memberIds });
+    return { sent: result.sent };
   },
 
   /** The decision sends no invitation yet (note 36): `invitationSent` says so. */
