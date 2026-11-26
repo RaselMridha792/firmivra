@@ -161,6 +161,19 @@ function buildRows(empty: boolean) {
     const amount = (300 + ((i * 137) % 1800)) * 100;
     const state = i % 7;
     const paid = state === 5 ? Math.round(amount / 2) : state === 6 || state === 4 ? 0 : amount;
+    const overdueDays = Math.max(0, Math.round(i * 1.5) - 10);
+    const agingBucket =
+      paid >= amount
+        ? 'Current'
+        : overdueDays <= 0
+          ? 'Current'
+          : overdueDays <= 30
+            ? '1–30 Days'
+            : overdueDays <= 60
+              ? '31–60 Days'
+              : overdueDays <= 90
+                ? '61–90 Days'
+                : '90+ Days';
     rows.invoices_payments!.push({
       invoiceNumber: `INV-${1001 + i}`,
       clientName: NAMES[i % NAMES.length]!,
@@ -172,6 +185,7 @@ function buildRows(empty: boolean) {
       balanceDue: amount - paid,
       paymentStatus:
         paid === amount ? 'Paid' : paid === 0 ? (state === 6 ? 'Unpaid' : 'Overdue') : 'Partial',
+      agingBucket,
     });
     // IP-F22: the payment of that invoice, Stripe's (card, ACH) or recorded by hand (cash, check).
     if (paid > 0) {
@@ -190,6 +204,9 @@ function buildRows(empty: boolean) {
     }
   }
   for (let i = 0; i < 48; i += 1) {
+    const lifecycleStage =
+      i % 9 === 0 ? 'Inactive' : i < 5 ? 'Lead' : i < 10 ? 'Onboarding' : 'Active';
+    const primaryService = SERVICES[i % SERVICES.length]!;
     rows.clients!.push({
       clientName: `${NAMES[i % NAMES.length]} ${i < 12 ? '' : i}`.trim(),
       clientType: i % 3 === 0 ? 'Individual' : 'Business',
@@ -197,6 +214,8 @@ function buildRows(empty: boolean) {
       createdAt: at(i * 7),
       assignedTo: STAFF[i % STAFF.length]!,
       services: 1 + (i % 3),
+      primaryService,
+      lifecycleStage,
     });
   }
   const ST = ['Filed', 'Accepted', 'Pending', 'Rejected'];
@@ -399,6 +418,9 @@ function sources(): Record<string, SourceDef> {
         fld('paymentStatus', 'Payment Status', 'STATUS', {
           options: opts('Paid', 'Partial', 'Unpaid', 'Overdue'),
         }),
+        fld('agingBucket', 'Aging Bucket', 'STATUS', {
+          options: opts('Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days'),
+        }),
       ],
       [
         'clientName',
@@ -458,6 +480,10 @@ function sources(): Record<string, SourceDef> {
         fld('createdAt', 'Client Since', 'DATE'),
         fld('assignedTo', 'Assigned To', 'STATUS', { options: opts(...STAFF) }),
         fld('services', 'Services', 'NUMBER'),
+        fld('primaryService', 'Primary Service', 'STATUS', { options: opts(...SERVICES) }),
+        fld('lifecycleStage', 'Lifecycle Stage', 'STATUS', {
+          options: opts('Lead', 'Onboarding', 'Active', 'Inactive'),
+        }),
       ],
       ['clientName', 'clientType', 'status', 'createdAt', 'assignedTo'],
       'createdAt',
@@ -763,6 +789,27 @@ const SYSTEM: {
     groupBy: null,
   },
   {
+    key: 'revenue-by-service',
+    name: 'Revenue by Service',
+    description: 'Revenue grouped by service category.',
+    category: 'FINANCIAL',
+    source: 'invoices_payments',
+    groupBy: 'serviceCategory',
+    columns: ['serviceCategory', 'amount', 'amountPaid'],
+    showTotals: true,
+  },
+  {
+    key: 'ar-aging',
+    name: 'AR Aging',
+    description:
+      'Unpaid invoices bucketed by days overdue (Current, 1–30, 31–60, 61–90, 90+ days).',
+    category: 'FINANCIAL',
+    source: 'invoices_payments',
+    groupBy: 'agingBucket',
+    columns: ['agingBucket', 'balanceDue', 'amount'],
+    showTotals: true,
+  },
+  {
     key: 'new-clients-month',
     name: 'New Clients This Month',
     description: 'Clients added in the range.',
@@ -778,6 +825,26 @@ const SYSTEM: {
     source: 'clients',
     groupBy: 'status',
     columns: ['status', 'services'],
+  },
+  {
+    key: 'clients-by-service',
+    name: 'Clients by Service',
+    description: 'Clients grouped by primary service.',
+    category: 'CLIENT',
+    source: 'clients',
+    groupBy: 'primaryService',
+    columns: ['primaryService', 'services'],
+    showTotals: true,
+  },
+  {
+    key: 'client-lifecycle',
+    name: 'Client Lifecycle',
+    description: 'Clients grouped by lifecycle stage (Lead, Onboarding, Active, Inactive).',
+    category: 'CLIENT',
+    source: 'clients',
+    groupBy: 'lifecycleStage',
+    columns: ['lifecycleStage', 'services'],
+    showTotals: true,
   },
   {
     key: 'returns-by-filing-status',

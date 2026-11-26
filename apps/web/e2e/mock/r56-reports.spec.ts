@@ -672,3 +672,46 @@ test('R06: Returning from a record preserves date/filter/sort/page context and n
   await expect(page.getByTestId('report-table')).toContainText('Showing 1 –');
   await expect(page.getByTestId('row-link').first()).toBeVisible();
 });
+
+test('R04: Missing named reports for Financial (Revenue by Service, AR Aging) and Client (Retention, By Service, Lifecycle)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. Financial category: Revenue by Service
+  await page.goto(`${base}/revenue-by-service`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Revenue by Service');
+  const rbsTable = page.getByTestId('report-table');
+  await expect(rbsTable.locator('th').first()).toContainText('Service Category');
+  await expect(rbsTable).toContainText('Tax Preparation');
+  await expect(rbsTable).toContainText('Bookkeeping');
+
+  // 2. Financial category: AR Aging
+  await page.goto(`${base}/ar-aging`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('AR Aging');
+  const arTable = page.getByTestId('report-table');
+  await expect(arTable.locator('th').first()).toContainText('Aging Bucket');
+  await expect(arTable).toContainText('Current');
+  await expect(arTable).toContainText('1–30 Days');
+
+  // 3. Client category: Client Retention
+  await page.goto(`${base}/client-retention`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Client Retention');
+  const retTable = page.getByTestId('report-table');
+  await expect(retTable.locator('th').first()).toContainText('Status');
+
+  // 4. Client category: Clients by Service
+  await page.goto(`${base}/clients-by-service`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Clients by Service');
+  const cbsTable = page.getByTestId('report-table');
+  await expect(cbsTable.locator('th').first()).toContainText('Primary Service');
+  await expect(cbsTable).toContainText('Tax Preparation');
+
+  // 5. Client category: Client Lifecycle
+  await page.goto(`${base}/client-lifecycle`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Client Lifecycle');
+  const clTable = page.getByTestId('report-table');
+  await expect(clTable.locator('th').first()).toContainText('Lifecycle Stage');
+  await expect(clTable).toContainText('Active');
+  await expect(clTable).toContainText('Lead');
+});
