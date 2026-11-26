@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
   type Appointment,
@@ -24,7 +24,8 @@ import { returnReassignAuthority } from '../tax-returns/return-authority.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { reachesLead } from './appointment-party.js';
-import { AppointmentNotices } from './appointment-notices.js';
+import { type AppointmentNotice, AppointmentNotices } from './appointment-notices.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { type CompleteBody as CompleteSchema, inCalendarYears } from './appointments.input.js';
 import { freeStarts, MINUTE, zonedDate, zonedInstant } from './calendar.js';
 import {
@@ -94,6 +95,8 @@ export function endsInCalendar(endsAt: number): void {
 
 @Injectable()
 export class AppointmentsService {
+  private readonly sentFinishNotices = new Set<string>();
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
@@ -104,6 +107,7 @@ export class AppointmentsService {
     private readonly notifier: Notifier,
     private readonly leadFollowUps: LeadFollowUpsService,
     private readonly intakes: IntakeSendService,
+    @Optional() @Inject(NOTIFY_SERVICE) private readonly notifyService?: NotifyService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -587,7 +591,24 @@ export class AppointmentsService {
       }
       return updated;
     });
+    if (after.clientId) {
+      await this.sendFinishNotice(businessId, after.id, status);
+    }
     return toAppointment(after);
+  }
+
+  private async sendFinishNotice(
+    businessId: string,
+    appointmentId: string,
+    status: 'COMPLETED' | 'NO_SHOW',
+  ): Promise<void> {
+    const dedupeKey = `${businessId}:${appointmentId}:${status}`;
+    if (this.sentFinishNotices.has(dedupeKey)) return;
+    this.sentFinishNotices.add(dedupeKey);
+
+    const template: AppointmentNotice =
+      status === 'COMPLETED' ? 'appointment.completed' : 'appointment.no-show';
+    await this.notices.send(template, businessId, appointmentId);
   }
 
   /**

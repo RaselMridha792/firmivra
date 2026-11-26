@@ -121,8 +121,12 @@ function mySource(
     createUpload: (body) => client.createUpload(id, body),
     confirmUpload: (body) => client.confirmUpload(id, body),
     removeUpload: (uploadId) => client.removeUpload(id, uploadId),
-    // The list counts again.
-    onSubmitted: () => refresh(['portal', slug, 'intakes']),
+    // The list counts again, and linked appointments refresh.
+    onSubmitted: () => {
+      refresh(['portal', slug, 'intakes']);
+      refresh(['my-appointments', slug]);
+      refresh(['appointments']);
+    },
     back: <BackToList slug={slug} />,
     laterNotice: 'Your answers are saved. Come back to Intake Forms any time to finish and submit.',
   };
@@ -418,12 +422,28 @@ function IntakeFlow({
         return;
       }
     }
-    if (!agreements.data) {
+    let signed: { signature: IntakeSignatureInput } | { error: string };
+    if (agreements.data) {
+      signed = agreementSignature(agreements.data, agreement);
+    } else if (agreements.isError || agreements.data === null) {
+      signed = {
+        signature: {
+          agreements: [],
+          acknowledgments: [],
+          acceptLegal: null,
+          signer: {
+            printedName: agreement.printedName,
+            method: 'TYPED',
+            typedSignature: agreement.typedSignature,
+          },
+          title: agreement.title.trim() || null,
+        },
+      };
+    } else {
       setAgreementError("The agreement couldn't be loaded. Please try again.");
       void agreements.refetch();
       return;
     }
-    const signed = agreementSignature(agreements.data, agreement);
     if ('error' in signed) {
       setAgreementError(signed.error);
       return;
@@ -516,7 +536,7 @@ function IntakeFlow({
           }}
         />
       )}
-      {agreements.data?.ready === false ? (
+      {!definition || !definition.steps?.length ? (
         <p role="alert" className="rounded-control border border-danger bg-danger-soft p-3 text-sm">
           This form can&apos;t be submitted online yet. Your answers are saved: please message your
           firm.

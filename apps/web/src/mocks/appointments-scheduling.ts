@@ -561,6 +561,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
     endsAt: string;
     excludeAppointmentId?: string;
     equipmentIds?: readonly string[];
+    roomId?: string | null | undefined;
     /** The client being booked: one already booked then is a hard conflict (W10), as the API. */
     clientId?: string | undefined;
   }): ConflictResult {
@@ -594,6 +595,23 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           endsAt: r.endsAt,
           message: `${e.name} is already booked at this time`,
         });
+      }
+    }
+    // R02: a room another live appointment holds then; never overridden.
+    if (input.roomId) {
+      for (const r of s.records) {
+        if (r.id === input.excludeAppointmentId || r.status === 'CANCELED' || r.status === 'DRAFT')
+          continue;
+        if (!overlaps(r, input)) continue;
+        if (r.place.room?.id === input.roomId) {
+          found.push({
+            kind: 'ROOM',
+            staff: null,
+            startsAt: r.startsAt,
+            endsAt: r.endsAt,
+            message: `${r.place.room.name} is already booked at this time`,
+          });
+        }
       }
     }
     for (const staff of staffByIds(input.staffUserIds)) {
@@ -879,6 +897,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         startsAt: input.startsAt,
         endsAt: input.endsAt,
         equipmentIds: input.equipmentIds ?? [],
+        roomId: input.roomId,
         clientId: input.contact.kind === 'CLIENT' ? input.contact.id : undefined,
       });
       if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
@@ -1089,6 +1108,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           endsAt,
           excludeAppointmentId: id,
           equipmentIds: equipment.map((e) => e.id),
+          roomId: input.roomId !== undefined ? input.roomId : r.place.room?.id,
           clientId: r.contact.kind === 'CLIENT' ? (r.contact.id ?? undefined) : undefined,
         });
         if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
@@ -1158,6 +1178,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       if (['CANCELED', 'COMPLETED', 'NO_SHOW'].includes(r.status))
         throw fail(409, 'NOT_SCHEDULED', 'This appointment is closed');
       r.status = 'CONFIRMED';
+      if (r.contact.email) r.notices.push(notice('CONFIRMATION'));
       bump(r);
       return copy(r);
     },
