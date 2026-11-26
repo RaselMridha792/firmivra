@@ -36,6 +36,30 @@ const FIX: Partial<Record<EsignReadinessCode, StepId | 'settings-page'>> = {
 
 const KIND = { SIGNER: 'Signs', APPROVER: 'Approves first', CC: 'Gets a copy' } as const;
 const DELIVERY = { EMAIL: 'by email', PORTAL: 'in the client portal', IN_PERSON: 'in person' };
+const AUTH_LABELS: Record<string, string> = {
+  LINK: 'Signing link only',
+  EMAIL_CODE: 'Email verification code',
+  ACCESS_CODE: 'Access code',
+  PORTAL_SESSION: 'Client portal sign-in',
+  IN_PERSON: 'In person',
+};
+const ROLE_LABELS: Record<string, string> = {
+  CLIENT: 'Client (Signer)',
+  SPOUSE: 'Spouse',
+  BUSINESS_OWNER: 'Business Owner',
+  EMPLOYEE: 'Employee',
+  PREPARER: 'Preparer',
+  MANAGER: 'Manager',
+  WITNESS: 'Witness',
+  CUSTOM: 'Custom',
+};
+
+const roleOf = (x: EsignRequestDetail['recipients'][number]) =>
+  x.kind === 'APPROVER'
+    ? 'Approver'
+    : x.kind === 'CC'
+      ? 'Receives Copy'
+      : x.roleLabel || ROLE_LABELS[x.role] || KIND[x.kind];
 
 /** Step 5: what is missing, a summary, an explicit confirmation, then send. */
 export function ReviewStep({ r }: { r: EsignRequestDetail }) {
@@ -81,6 +105,7 @@ export function ReviewStep({ r }: { r: EsignRequestDetail }) {
   const busy = send.isPending || update.isPending || readiness.isFetching;
   const name = (id: string | null) => r.recipients.find((x) => x.id === id)?.name;
   const signers = r.recipients.filter((x) => x.kind === 'SIGNER');
+  const approvers = r.recipients.filter((x) => x.kind === 'APPROVER');
 
   return (
     <div className="flex flex-col gap-6">
@@ -123,6 +148,16 @@ export function ReviewStep({ r }: { r: EsignRequestDetail }) {
           data-testid="review-summary"
           className="grid gap-x-6 gap-y-2 text-sm md:grid-cols-[auto_1fr]"
         >
+          <dt className="text-muted">Sender</dt>
+          <dd className="text-text">{r.sender.name}</dd>
+          <dt className="text-muted">Signing Order</dt>
+          <dd className="text-text">
+            {r.routing === 'SEQUENTIAL' ? 'Sequential (in order)' : 'Parallel (any order)'}
+          </dd>
+          <dt className="text-muted">Approvers</dt>
+          <dd className="text-text">
+            {approvers.length === 0 ? 'None required' : approvers.map((a) => a.name).join(', ')}
+          </dd>
           <dt className="text-muted">Documents</dt>
           <dd className="text-text">
             {r.documents.map((d) => d.fileName).join(', ') || 'None'} ({r.pagePlan.length}{' '}
@@ -130,12 +165,24 @@ export function ReviewStep({ r }: { r: EsignRequestDetail }) {
           </dd>
           <dt className="text-muted">Recipients</dt>
           <dd className="text-text">
-            <ol className="flex flex-col gap-1">
+            <ol className="flex flex-col gap-1.5">
               {r.recipients.map((x) => (
                 <li key={x.id}>
                   {r.routing === 'SEQUENTIAL' && `${x.routingOrder}. `}
-                  {x.name}: {KIND[x.kind]}
-                  {x.kind === 'SIGNER' && ` ${DELIVERY[x.delivery]}`}
+                  <span className="font-medium text-heading">{x.name}</span>
+                  <span className="text-muted"> — Role: {roleOf(x)}</span>
+                  {x.kind === 'SIGNER' && (
+                    <>
+                      <span className="text-muted"> · Delivery: {DELIVERY[x.delivery]}</span>
+                      <span className="text-muted">
+                        {' '}
+                        · Auth:{' '}
+                        {x.authMethod
+                          ? (AUTH_LABELS[x.authMethod] ?? x.authMethod)
+                          : 'Signing link'}
+                      </span>
+                    </>
+                  )}
                 </li>
               ))}
             </ol>
