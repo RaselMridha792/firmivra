@@ -37,6 +37,7 @@ import {
   SS,
   stamp,
 } from '../../_components/settings-kit';
+import { ReadinessPanel } from '../../_components/readiness-panel';
 
 const SERVICES: Record<AdminSystemHealth['services'][number]['key'], string> = {
   api: 'Application Server',
@@ -182,6 +183,8 @@ export function SystemConfiguration({ appUrl, apiUrl }: { appUrl: string; apiUrl
           {notice.text}
         </p>
       ) : null}
+
+      <ReadinessPanel />
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-2">
         <SectionCard
