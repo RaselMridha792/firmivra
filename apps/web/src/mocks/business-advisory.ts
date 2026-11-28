@@ -1743,6 +1743,7 @@ export function createAdvisoryMock({
           canCreatePlan: true,
           canManageGoals: true,
           canSend,
+          canManageResources: role !== 'STAFF',
         };
       }),
     serviceOptions: () => run(() => SERVICES),
@@ -3035,7 +3036,7 @@ export function createAdvisoryMock({
         admin();
         const req = parseInput(SaveAdvisoryResourceRequest, body);
         const made: AdvisoryResource = {
-          key: `r-${id('0199b7a1')}`,
+          key: `r-${id('a910')}`,
           ...resourceWords(req),
           source: 'FIRM',
           edited: false,
@@ -3095,7 +3096,7 @@ export function createAdvisoryMock({
         const pending = resourceUploads.get(uploadToken);
         if (!pending) throw fail(410, 'UPLOAD_EXPIRED', 'The upload took too long. Add it again.');
         resourceUploads.delete(uploadToken);
-        const file: AdvisoryResourceFile = { id: id('0199b7a2'), ...pending, status: 'READY' };
+        const file: AdvisoryResourceFile = { id: id('a920'), ...pending, status: 'READY' };
         resourceFiles.set(file.id, file);
         return { ...file };
       }),

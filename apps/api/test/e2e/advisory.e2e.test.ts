@@ -2507,14 +2507,25 @@ describe('the overview, meetings, resources, settings and activity', () => {
     expect(o.meetings.map((m) => m.client.id)).toEqual([clients.c1, clients.c2]);
     expect(o.resources).toHaveLength(5);
     expect(o.serviceOptions.length).toBeGreaterThanOrEqual(3);
-    expect(o).toMatchObject({ canCreatePlan: true, canManageGoals: true, canSend: true });
+    expect(o).toMatchObject({
+      canCreatePlan: true,
+      canManageGoals: true,
+      canSend: true,
+      canManageResources: true,
+    });
     expect(o.disclaimer).toMatch(/not guarantees/);
     const staff = AdvisoryOverview.parse(ok(await call('get', '/overview', staffA)));
     expect(staff.upcomingMeetings.value).toBe(1);
+    expect(staff.canManageResources).toBe(false);
     expect(staff.recentClients.every((c) => c.client.id === clients.c1)).toBe(true);
     expect(staff.meetings.every((m) => m.client.id === clients.c1)).toBe(true);
     const reader = AdvisoryOverview.parse(ok(await call('get', '/overview', preparerA)));
-    expect(reader).toMatchObject({ canCreatePlan: false, canManageGoals: false, canSend: false });
+    expect(reader).toMatchObject({
+      canCreatePlan: false,
+      canManageGoals: false,
+      canSend: false,
+      canManageResources: false,
+    });
     const b = AdvisoryOverview.parse(ok(await call('get', '/overview', ownerB, undefined, 'b')));
     expect(b.activeClients.value).toBe(1);
     expect(b.recentClients.map((c) => c.client.id)).toEqual([clients.cB]);

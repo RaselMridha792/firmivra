@@ -6,12 +6,21 @@ import {
   type AdvisoryResourceFormat,
 } from '@firmivra/types';
 import { Badge, Button, Modal, Select, Textarea } from '@firmivra/ui';
-import { ArrowSquareOut, BookOpen, PaperPlaneTilt } from '@phosphor-icons/react';
+import {
+  Archive,
+  ArrowSquareOut,
+  BookOpen,
+  DownloadSimple,
+  PaperPlaneTilt,
+  PencilSimple,
+  Plus,
+} from '@phosphor-icons/react';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { ErrorLine } from './ba-dialogs';
 import { FilterSelect, SearchBox, useAct } from './ba-list-kit';
+import { ResourceDialog } from './resource-dialog';
 import { BaShell } from './ba-shell';
 import {
   BA_KEY,
@@ -37,11 +46,17 @@ const CATEGORIES = [
   'Education',
 ];
 
-/** /business-advisory/resources: the resource library, by category; client-facing ones can be sent. */
+/**
+ * /business-advisory/resources: the resource library, by category; client-facing ones can be sent.
+ * A-X10: Owner and Admin (or the grid's Manage) add the firm's own resources, edit any (a built-in
+ * one as the firm's copy) and archive the firm's own; a resource's file opens once it is clean.
+ */
 export function ResourceLibrary() {
-  const { toast, say } = useAct();
+  const { toast, say, act, ask } = useAct();
   const overview = useApiQuery([...BA_KEY, 'overview'], () => api.advisory.overview());
   const canSend = overview.data?.canSend ?? false;
+  const canManage = overview.data?.canManageResources ?? false;
+  const [editing, setEditing] = useState<AdvisoryResource | 'new'>();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [audience, setAudience] = useState('');
@@ -87,6 +102,11 @@ export function ResourceLibrary() {
               { value: 'staff', label: 'Staff only' },
             ]}
           />
+          {canManage ? (
+            <Button className="ml-auto" onClick={() => setEditing('new')}>
+              <Plus aria-hidden weight="bold" className="size-4" /> Add Resource
+            </Button>
+          ) : null}
         </div>
         {q.isError ? (
           <p role="alert" className={quiet}>
@@ -128,6 +148,13 @@ export function ResourceLibrary() {
                       ) : (
                         <Badge tone="neutral">Staff only</Badge>
                       )}
+                      {r.source === 'FIRM' ? <Badge tone="purple">Firm resource</Badge> : null}
+                      {r.edited ? <Badge tone="neutral">Edited</Badge> : null}
+                      {r.file?.status === 'CHECKING' ? (
+                        <Badge tone="warning">Checking file</Badge>
+                      ) : r.file?.status === 'BLOCKED' ? (
+                        <Badge tone="danger">File blocked</Badge>
+                      ) : null}
                       {r.url ? (
                         <a
                           href={r.url}
@@ -137,6 +164,55 @@ export function ResourceLibrary() {
                         >
                           Open <ArrowSquareOut aria-hidden weight="bold" className="size-4" />
                         </a>
+                      ) : null}
+                      {r.file?.status === 'READY' ? (
+                        <button
+                          type="button"
+                          className="inline-flex min-h-9 items-center gap-1 px-2 text-sm font-medium text-link hover:underline"
+                          aria-label={`Open ${r.file.fileName}`}
+                          onClick={() =>
+                            void act(
+                              async () => {
+                                const link = await api.advisory.resourceFileLink(r.key);
+                                window.open(link.url, '_blank', 'noopener,noreferrer');
+                              },
+                              `Opening ${r.file?.fileName ?? 'the file'}.`,
+                            )
+                          }
+                        >
+                          Open file <DownloadSimple aria-hidden weight="bold" className="size-4" />
+                        </button>
+                      ) : null}
+                      {canManage ? (
+                        <button
+                          type="button"
+                          className={`${outlined} min-h-9 px-3`}
+                          aria-label={`Edit ${r.title}`}
+                          onClick={() => setEditing(r)}
+                        >
+                          <PencilSimple aria-hidden weight="bold" className="size-4" /> Edit
+                        </button>
+                      ) : null}
+                      {canManage && r.source === 'FIRM' ? (
+                        <button
+                          type="button"
+                          className={`${outlined} min-h-9 px-3`}
+                          aria-label={`Archive ${r.title}`}
+                          onClick={() =>
+                            ask(
+                              {
+                                title: 'Archive Resource',
+                                message: `Archive ${r.title}? It leaves the library and the portals of clients it was sent to.`,
+                                confirm: 'Archive',
+                                danger: true,
+                              },
+                              () => api.advisory.archiveResource(r.key),
+                              `${r.title} archived.`,
+                            )
+                          }
+                        >
+                          <Archive aria-hidden weight="bold" className="size-4" /> Archive
+                        </button>
                       ) : null}
                       {canSend && r.clientFacing ? (
                         <button
@@ -165,6 +241,21 @@ export function ResourceLibrary() {
           needs, these are checklists and referrals, not advice.
         </p>
       </section>
+      {editing ? (
+        <ResourceDialog
+          resource={editing === 'new' ? undefined : editing}
+          categories={CATEGORIES}
+          onClose={() => setEditing(undefined)}
+          onSaved={(title, file) => {
+            setEditing(undefined);
+            say(
+              file?.status === 'CHECKING'
+                ? `${title} saved. Its file is being checked for viruses; it can be opened and sent once clean.`
+                : `${title} saved.`,
+            );
+          }}
+        />
+      ) : null}
       {sending ? (
         <SendResourceDialog
           resource={sending}

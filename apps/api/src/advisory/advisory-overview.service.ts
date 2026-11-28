@@ -331,6 +331,7 @@ export class AdvisoryOverviewService {
         canCreatePlan: ctx.perms.createPlans,
         canManageGoals: ctx.perms.manageGoals,
         canSend: ctx.perms.send,
+        canManageResources: ctx.perms.advisoryAdmin,
       };
     });
   }
