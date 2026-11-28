@@ -165,8 +165,13 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     value: 'brand-basics-guide',
     routes: /\/business\/advisory\/resources\/:key(\/(archive|file))?$/,
   },
-  // B28: the PDF of a library resource the firm sent a client (kept in code), not a record.
-  { param: 'key', value: 'cash-flow-basics', routes: /\/me\/advisory\/resources\/:key\/pdf$/ },
+  // B28: the PDF of a library resource the firm sent a client (kept in code), not a record;
+  // A-X10: its file (a firm's own resource's key names its id: firm Q's is not found at firm P).
+  {
+    param: 'key',
+    value: 'cash-flow-basics',
+    routes: /\/me\/advisory\/resources\/:key\/(pdf|file)$/,
+  },
 ];
 const fixedOf = (path: string): Record<string, string> =>
   Object.fromEntries(

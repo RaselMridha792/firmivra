@@ -4,13 +4,13 @@ import {
   ADVISORY_RESOURCE_FORMAT_LABELS,
   MY_ADVISORY_PLAN_STATE_LABELS,
   type MyAdvisory,
-  type MyAdvisoryResource,
 } from '@firmivra/types';
 import { Badge, Button, Card } from '@firmivra/ui';
 import {
   BookOpen,
   BriefcaseBusiness,
   ChevronRight,
+  ExternalLink,
   FileText,
   Lightbulb,
   ListChecks,
@@ -257,7 +257,33 @@ function AdvisoryView({ advisory: a, slug }: { advisory: MyAdvisory; slug: strin
                 <p className="mt-1 text-xs text-muted">
                   Sent {dayText(r.sentAt)} · {ADVISORY_RESOURCE_FORMAT_LABELS[r.format]}
                 </p>
-                {r.format === 'PDF' ? <PdfDownload slug={slug} resource={r} /> : null}
+                {r.url ? (
+                  <a
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-link hover:underline"
+                  >
+                    Open link <ExternalLink aria-hidden className="size-4" />
+                    <span className="sr-only">: {r.title} (opens in a new tab)</span>
+                  </a>
+                ) : null}
+                {r.file ? (
+                  <Download
+                    label="Download file"
+                    name={`${r.title}: ${r.file.fileName}`}
+                    fileName={r.file.fileName}
+                    fetchLink={() => api.myAdvisory(slug).resourceFile(r.key)}
+                  />
+                ) : null}
+                {r.format === 'PDF' ? (
+                  <Download
+                    label="Download PDF"
+                    name={`${r.title} (PDF)`}
+                    fileName={`${r.key}.pdf`}
+                    fetchLink={() => api.myAdvisory(slug).resourcePdf(r.key)}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>
@@ -295,8 +321,22 @@ function AdvisoryView({ advisory: a, slug }: { advisory: MyAdvisory; slug: strin
   );
 }
 
-/** B28: a resource the firm sent as a PDF downloads behind a short-lived link. */
-function PdfDownload({ slug, resource }: { slug: string; resource: MyAdvisoryResource }) {
+/**
+ * B28: a resource the firm sent as a PDF, and A-X10: the file the firm uploaded for one, download
+ * behind a short-lived link.
+ */
+function Download({
+  label,
+  name,
+  fileName,
+  fetchLink,
+}: {
+  label: string;
+  /** What the button downloads, for screen readers. */
+  name: string;
+  fileName: string;
+  fetchLink: () => Promise<{ url: string }>;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
@@ -304,15 +344,15 @@ function PdfDownload({ slug, resource }: { slug: string; resource: MyAdvisoryRes
       <Button
         variant="secondary"
         disabled={busy}
-        aria-label={`Download ${resource.title} (PDF)`}
+        aria-label={`Download ${name}`}
         onClick={async () => {
           setBusy(true);
           setError('');
           try {
-            const link = await api.myAdvisory(slug).resourcePdf(resource.key);
+            const link = await fetchLink();
             const save = document.createElement('a');
             save.href = link.url;
-            save.download = `${resource.key}.pdf`;
+            save.download = fileName;
             save.rel = 'noopener';
             save.click();
           } catch (e) {
@@ -322,7 +362,7 @@ function PdfDownload({ slug, resource }: { slug: string; resource: MyAdvisoryRes
           }
         }}
       >
-        {busy ? 'Preparing…' : 'Download PDF'}
+        {busy ? 'Preparing…' : label}
       </Button>
       {error ? (
         <p role="alert" className="text-sm text-danger">

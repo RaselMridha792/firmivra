@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { type ApiRequest, parseInput } from '../client.js';
 import { portalMe } from '../clients/client.js';
 import { CalendarDate } from '../clients/schemas.js';
+import { DownloadLink } from '../documents/schemas.js';
 import {
   AdvisoryActionStatus,
   AdvisoryGoalStatus,
@@ -102,6 +103,16 @@ export const MyAdvisoryResource = z.object({
   /** B28: how the firm sent it; a PDF one downloads (`resourcePdf`). */
   format: AdvisoryResourceFormat,
   sentAt: DateTime,
+  /** A-X10: the resource's https link (a link or a video), opened in a new tab. */
+  url: z.string().nullable().default(null),
+  /**
+   * A-X10: the file the firm uploaded for it, only once its virus scan is clean; it downloads
+   * behind a 5-minute link (`resourceFile`).
+   */
+  file: z
+    .object({ fileName: z.string(), contentType: z.string(), sizeBytes: z.number().int() })
+    .nullable()
+    .default(null),
 });
 export type MyAdvisoryResource = z.infer<typeof MyAdvisoryResource>;
 
@@ -204,6 +215,9 @@ export function createMyAdvisoryClient(request: ApiRequest, firmSlug: string) {
         MyAdvisoryResourcePdf,
         `${base()}/resources/${parseInput(AdvisoryResourceKey, key)}/pdf`,
       ),
+    /** A-X10: a 5-minute link to the file of a resource the firm sent (only once it is clean). */
+    resourceFile: (key: string): Promise<DownloadLink> =>
+      request(DownloadLink, `${base()}/resources/${parseInput(AdvisoryResourceKey, key)}/file`),
   };
 }
 export type MyAdvisoryClient = ReturnType<typeof createMyAdvisoryClient>;

@@ -4,6 +4,7 @@ import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   AdvisoryArea,
   ApproveMyAdvisoryPlanRequest,
+  DownloadLink,
   MyAdvisory,
   MyAdvisoryPlan,
   MyAdvisoryPlanRow,
@@ -19,7 +20,7 @@ import { type PortalCaller, type PortalLogin, portalLogin } from '../storage/doc
 import { visible } from '../storage/my-documents.service.js';
 import { day, memberNames, notFound } from '../workspaces/common.js';
 import { advErrors, DISCLAIMER, todayIn } from './advisory.common.js';
-import { resourceOf } from './catalog.js';
+import { AdvisoryResourcesService } from './advisory-resources.service.js';
 import { renderResourcePdf } from './resource-pdf.js';
 
 /** What a version keeps (advisory-plans.service.ts `Content`), as the client may read it. */
@@ -77,6 +78,7 @@ export class MyAdvisoryService {
     private readonly audit: AuditService,
     private readonly notifier: Notifier,
     @Inject(REPORT_FILES) private readonly files: ReportFiles,
+    private readonly library: AdvisoryResourcesService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -256,7 +258,9 @@ export class MyAdvisoryService {
 
   /**
    * The resources the firm sent this client (each `advisory_resource.sent` row), newest first and
-   * once per resource; only client-facing ones of the library.
+   * once per resource; only client-facing ones of the library. A-X10: as the library has it now
+   * (the firm's edits, its own resources, a link, a file once it is clean); one the firm archived
+   * since is no longer shown.
    */
   private async sentResources(
     tx: TxClient,
@@ -273,12 +277,15 @@ export class MyAdvisoryService {
       take: 200,
       select: { metadata: true, createdAt: true },
     });
+    const library = rows.length
+      ? new Map((await this.library.all(tx, businessId)).map((r) => [r.key, r]))
+      : new Map();
     const out: MyAdvisoryResource[] = [];
     const seen = new Set<string>();
     for (const row of rows) {
       const meta = (row.metadata ?? {}) as Record<string, unknown>;
       const key = typeof meta['resourceKey'] === 'string' ? meta['resourceKey'] : '';
-      const r = resourceOf(key);
+      const r = library.get(key);
       if (!r?.clientFacing || seen.has(key)) continue;
       seen.add(key);
       out.push({
@@ -290,6 +297,15 @@ export class MyAdvisoryService {
         // B28: sent before the choice existed: a link.
         format: meta['format'] === 'PDF' ? 'PDF' : 'SECURE_LINK',
         sentAt: row.createdAt.toISOString(),
+        url: r.url,
+        file:
+          r.file?.status === 'READY'
+            ? {
+                fileName: r.file.fileName,
+                contentType: r.file.contentType,
+                sizeBytes: r.file.sizeBytes,
+              }
+            : null,
       });
     }
     return out;
@@ -481,6 +497,31 @@ export class MyAdvisoryService {
       { advisoryClientId: found.advisoryClientId, resourceKey: key, format: 'PDF', by: 'CLIENT' },
     );
     return { url, expiresAt: new Date(Date.now() + 300_000).toISOString() };
+  }
+
+  /**
+   * A-X10: a 5-minute link to the file of a resource the firm sent this client; 409 SCAN_PENDING
+   * or FILE_BLOCKED until it is clean; a resource not sent, or with no file, is 404. Audited.
+   */
+  async resourceFile(caller: PortalCaller, key: string): Promise<DownloadLink> {
+    const { businessId } = caller;
+    const found = await this.inFirm(businessId, async (tx) => {
+      const mine = await this.mine(tx, caller);
+      if (!mine) throw notFound();
+      const sent = (await this.sentResources(tx, businessId, mine.advisory.id)).some(
+        (r) => r.key === key,
+      );
+      const file = sent ? (await this.library.resolve(tx, businessId, key))?.fileRow : null;
+      if (!file) throw notFound();
+      return { advisoryClientId: mine.advisory.id, file };
+    });
+    const link = await this.library.link(businessId, found.file);
+    await this.audit.log(
+      'advisory_resource.downloaded',
+      { type: 'advisory_client', id: found.advisoryClientId },
+      { advisoryClientId: found.advisoryClientId, resourceKey: key, format: 'FILE', by: 'CLIENT' },
+    );
+    return link;
   }
 
   /** The plan's advisor and sender get a bell item; a failure is logged, never the client's error. */
