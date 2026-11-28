@@ -94,6 +94,20 @@ const checksRequired = () =>
     code: 'CHECKS_REQUIRED',
     message: `Record the three checks for this client record first (they count for ${SIGN_UP_CHECKS_HOURS} hours)`,
   });
+/** Q44 D2.13: Retry Email when the newest approval email did not fail. */
+const nothingToRetry = () =>
+  new ConflictException({
+    code: 'NOTHING_TO_RETRY',
+    message: 'The approval email is not waiting for a retry',
+  });
+
+/** What a recorded `INVITE_DELIVERY` says: which email, and whether it went out. */
+function deliveryOf(result: unknown): { email: 'APPROVAL' | 'RECOVERY'; delivered: boolean } {
+  const r = (result ?? {}) as { delivered?: unknown; reason?: unknown; email?: unknown };
+  const recovery = r.email === 'RECOVERY' || r.reason === 'recovery_email_failed';
+  return { email: recovery ? 'RECOVERY' : 'APPROVAL', delivered: r.delivered === true };
+}
+
 const noPortalLogin = () =>
   new ConflictException({
     code: 'NO_PORTAL_LOGIN',
@@ -253,14 +267,41 @@ export class ClientSignUpsService {
     });
     if (!row) throw notFound();
     const waiting = row.status === 'PENDING_APPROVAL';
-    const { candidates, reviews, steps } = await this.inFirm(actor.businessId, async (tx) => {
-      const found = waiting ? await signUpCandidates(tx, row.id) : [];
-      return {
-        candidates: found,
-        reviews: await this.reviewOf(tx, row.id, found),
-        steps: await this.reviewSteps(tx, row.id),
-      };
-    });
+    const { candidates, reviews, steps, deliveries } = await this.inFirm(
+      actor.businessId,
+      async (tx) => {
+        const found = waiting ? await signUpCandidates(tx, row.id) : [];
+        return {
+          candidates: found,
+          reviews: await this.reviewOf(tx, row.id, found),
+          steps: await this.reviewSteps(tx, row.id),
+          // Q44 D2.13: the decision's email when it failed (one row per sign-up; a retry updates it).
+          deliveries: await tx.clientSignupOperation.findMany({
+            where: { clientAccountId: row.id, kind: 'INVITE_DELIVERY' },
+            select: { result: true, attempts: true, updatedAt: true },
+            take: 1,
+          }),
+        };
+      },
+    );
+    const newest = deliveries[0];
+    const delivery = newest ? deliveryOf(newest.result) : null;
+    const emailDelivery =
+      newest && delivery
+        ? {
+            email: delivery.email,
+            status: delivery.delivered ? ('SENT' as const) : ('FAILED' as const),
+            at: newest.updatedAt.toISOString(),
+            // The first send, then each retry.
+            attempts: newest.attempts + 1,
+          }
+        : null;
+    // Only the approval notice is sent again here; a failed recovery email is shown (the person
+    // can use Forgot Password on the portal).
+    const canRetry =
+      row.status === 'ACTIVE' &&
+      emailDelivery?.status === 'FAILED' &&
+      emailDelivery.email === 'APPROVAL';
     const deciders = [
       row.approvedByUserId,
       row.declinedByUserId,
@@ -302,6 +343,7 @@ export class ClientSignUpsService {
     return ClientSignUpDetail.parse({
       ...this.item(row, open.length > 0),
       automatic: row.decidedAutomatically,
+      emailDelivery,
       allowedActions: waiting
         ? [
             ...(open.length ? [] : ['APPROVE']),
@@ -309,7 +351,9 @@ export class ClientSignUpsService {
             'KEEP_PENDING',
             ...(resolvable ? ['NOT_A_MATCH'] : []),
           ]
-        : [],
+        : canRetry
+          ? ['RETRY_EMAIL']
+          : [],
       history,
       candidates: candidates.map((c) => {
         const review = reviews.get(c.clientId);
@@ -562,6 +606,101 @@ export class ClientSignUpsService {
       });
     }
     return result;
+  }
+
+  /**
+   * Q44 D2.13: sends the approval notice again after it failed (the newest INVITE_DELIVERY for
+   * this person, which approve records when the email is refused). Each attempt is recorded as
+   * INVITE_DELIVERY with its outcome and audited; a failed retry leaves Retry Email offered. The
+   * same key answers as the first time and sends nothing again. 409 NOTHING_TO_RETRY otherwise.
+   */
+  async retryEmail(
+    actor: Actor,
+    clientAccountId: string,
+    body: { idempotencyKey: string },
+  ): Promise<ClientSignUpDetail> {
+    if (!UUID.test(clientAccountId)) throw notFound();
+    const key = body.idempotencyKey;
+    // The person's one INVITE_DELIVERY row (the database keeps one per sign-up): a retry changes
+    // only its state. Claimed as PENDING first, so two retries at once never send twice.
+    const claim = await this.inFirm(actor.businessId, async (tx) => {
+      const account = await tx.clientAccount.findFirst({
+        where: { id: clientAccountId },
+        select: { status: true, email: true, user: { select: { name: true } } },
+      });
+      if (!account) throw notFound();
+      const row = await tx.clientSignupOperation.findFirst({
+        where: { clientAccountId, kind: 'INVITE_DELIVERY' },
+        select: { id: true, status: true, result: true },
+      });
+      const result = (row?.result ?? {}) as Record<string, unknown>;
+      // The same key again answers as the first time and sends nothing.
+      if (row && result['lastRetryKey'] === key) return null;
+      const last = row ? deliveryOf(row.result) : null;
+      // Only an approved person (ACTIVE) with a failed approval email has something to retry.
+      if (
+        account.status !== 'ACTIVE' ||
+        !row ||
+        !last ||
+        last.delivered ||
+        last.email !== 'APPROVAL'
+      )
+        throw nothingToRetry();
+      const claimed = await tx.clientSignupOperation.updateMany({
+        // A claim left PENDING by a crash is taken again after two minutes.
+        where: {
+          id: row.id,
+          OR: [
+            { status: { not: 'PENDING' } },
+            { updatedAt: { lt: new Date(Date.now() - 120_000) } },
+          ],
+        },
+        data: { status: 'PENDING', result: { ...result, lastRetryKey: key } },
+      });
+      if (claimed.count === 0) return null;
+      return { id: row.id, result, email: account.email, name: account.user.name };
+    });
+    if (!claim) return this.get(actor, clientAccountId);
+
+    const firm = await this.firm(actor.businessId);
+    let delivered = true;
+    try {
+      await this.sender.signUpApproved({
+        to: claim.email,
+        businessId: actor.businessId,
+        businessName: firm.name,
+        name: claim.name,
+        signInUrl: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/sign-in`,
+      });
+    } catch {
+      // Ids only (hard rule 4).
+      this.logger.warn(`Retry of the approval notice failed for client account ${clientAccountId}`);
+      delivered = false;
+    }
+    const correlationId = randomUUID();
+    await this.inFirm(actor.businessId, (tx) =>
+      tx.clientSignupOperation.update({
+        where: { id: claim.id },
+        data: {
+          status: delivered ? 'SUCCEEDED' : 'FAILED',
+          attempts: { increment: 1 },
+          lastErrorCode: delivered ? null : 'send_failed',
+          result: {
+            ...claim.result,
+            email: 'APPROVAL',
+            delivered,
+            reason: delivered ? null : 'send_failed',
+            lastRetryKey: key,
+          } as Prisma.InputJsonObject,
+        },
+      }),
+    );
+    await this.audit.log(
+      'client_account.approval_email_retried',
+      { type: 'client_account', id: clientAccountId },
+      { delivered, correlationId },
+    );
+    return this.get(actor, clientAccountId);
   }
 
   /**

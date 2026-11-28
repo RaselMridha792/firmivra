@@ -767,6 +767,66 @@ describe('#72 review', () => {
     }
     expect(await account(signUps.notice)).toMatchObject({ status: 'ACTIVE' });
   });
+
+  it('Q44 D2.13: staff see the failed approval email and retry it until it goes out', async () => {
+    const path = `/${signUps.notice.accountId}`;
+    const detail = async () => (await as(staff.ownerX, 'get', path)).body as ClientSignUpDetail;
+    const failed = await detail();
+    expect(failed.emailDelivery).toMatchObject({
+      email: 'APPROVAL',
+      status: 'FAILED',
+      attempts: 1,
+    });
+    expect(failed.allowedActions).toEqual(['RETRY_EMAIL']);
+
+    // Still down: the attempt is recorded and Retry Email stays offered.
+    noticesFail = true;
+    try {
+      const again = await as(staff.ownerX, 'post', `${path}/retry-email`, {
+        idempotencyKey: randomUUID(),
+      });
+      expect(again.status, JSON.stringify(again.body)).toBe(200);
+      expect((again.body as ClientSignUpDetail).emailDelivery).toMatchObject({
+        status: 'FAILED',
+        attempts: 2,
+      });
+    } finally {
+      noticesFail = false;
+    }
+
+    // Mail is back: it goes out once, even when the same key is sent again.
+    const sentBefore = outbox.filter((n) => n.to === signUps.notice.email).length;
+    const key = randomUUID();
+    const ok = await as(staff.ownerX, 'post', `${path}/retry-email`, { idempotencyKey: key });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    const sent = ok.body as ClientSignUpDetail;
+    expect(sent.emailDelivery).toMatchObject({ email: 'APPROVAL', status: 'SENT', attempts: 3 });
+    expect(sent.allowedActions).toEqual([]);
+    const replay = await as(staff.ownerX, 'post', `${path}/retry-email`, { idempotencyKey: key });
+    expect(replay.status).toBe(200);
+    const mine = outbox.filter((n) => n.to === signUps.notice.email);
+    expect(mine.length - sentBefore).toBe(1);
+    expect(mine.at(-1)).toMatchObject({ kind: 'approved' });
+
+    // Nothing left to retry; another firm never reaches it.
+    const done = await as(staff.ownerX, 'post', `${path}/retry-email`, {
+      idempotencyKey: randomUUID(),
+    });
+    expect([done.status, (done.body as { error?: { code?: string } }).error?.code]).toEqual([
+      409,
+      'NOTHING_TO_RETRY',
+    ]);
+    const stranger = await as(
+      ownerY,
+      'post',
+      `${path}/retry-email`,
+      {
+        idempotencyKey: randomUUID(),
+      },
+      firmY.id,
+    );
+    expect(stranger.status).toBe(404);
+  });
 });
 
 describe('after the decisions', () => {
