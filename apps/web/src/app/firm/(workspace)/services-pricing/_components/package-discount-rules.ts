@@ -14,10 +14,18 @@ const money = (cents: number) =>
 export const PRICE_INCLUDES_DISCOUNT = 'The price you entered already includes any discount.';
 export const PRICE_FROM_DISCOUNT = 'Worked out from the discount. Choose None to enter a price.';
 
+/** Q21 R2: the words each required field shows, beside it and in the summary (never zod's own). */
+export const FIELD_TEXT = {
+  name: 'Enter the package name.',
+  categoryId: 'Choose a category.',
+  shortDescription: 'Enter a short description.',
+} as const;
+
 /** The ids the error summary focuses. */
 export const FIELD_ID = {
   name: 'package-name-field',
   categoryId: 'package-category-field',
+  shortDescription: 'package-description-field',
   discountValue: 'package-discount-value',
 } as const;
 

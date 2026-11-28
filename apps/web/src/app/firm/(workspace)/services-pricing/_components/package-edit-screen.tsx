@@ -34,6 +34,7 @@ import {
   DISCOUNT_PROBLEM_TEXT,
   DISCOUNT_REFUSED,
   FIELD_ID,
+  FIELD_TEXT,
   PRICE_FROM_DISCOUNT,
   PRICE_INCLUDES_DISCOUNT,
   discountFieldError,
@@ -170,8 +171,11 @@ function Builder({
     (panel?.discountProblem ? DISCOUNT_PROBLEM_TEXT[panel.discountProblem] : null) ??
     (refused ? DISCOUNT_REFUSED : null);
   const problems: FieldProblem[] = [
-    ...(name.trim() ? [] : [{ id: FIELD_ID.name, message: 'Enter the package name.' }]),
-    ...(categoryId ? [] : [{ id: FIELD_ID.categoryId, message: 'Choose a category.' }]),
+    ...(name.trim() ? [] : [{ id: FIELD_ID.name, message: FIELD_TEXT.name }]),
+    ...(categoryId ? [] : [{ id: FIELD_ID.categoryId, message: FIELD_TEXT.categoryId }]),
+    ...(description.trim()
+      ? []
+      : [{ id: FIELD_ID.shortDescription, message: FIELD_TEXT.shortDescription }]),
     ...(discountError ? [{ id: FIELD_ID.discountValue, message: discountError }] : []),
   ];
   const included = services.filter((s) => s.included);
@@ -322,7 +326,7 @@ function Builder({
               <Select
                 id={FIELD_ID.categoryId}
                 label="Package Category *"
-                error={checked && !categoryId ? 'Choose a category.' : undefined}
+                error={checked && !categoryId ? FIELD_TEXT.categoryId : undefined}
                 value={categoryId}
                 onChange={(event) => setCategoryId(event.target.value)}
                 options={[
@@ -337,10 +341,12 @@ function Builder({
               />
               <div className="md:col-span-2">
                 <Textarea
+                  id={FIELD_ID.shortDescription}
                   label="Short Description *"
                   rows={2}
                   maxLength={200}
                   value={description}
+                  error={checked && !description.trim() ? FIELD_TEXT.shortDescription : undefined}
                   onChange={(event) => setDescription(event.target.value)}
                 />
                 <p className="text-right text-xs text-muted">{description.length}/200</p>

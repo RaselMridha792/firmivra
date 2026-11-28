@@ -34,6 +34,7 @@ import {
   DISCOUNT_PROBLEM_TEXT,
   DISCOUNT_REFUSED,
   FIELD_ID,
+  FIELD_TEXT,
   PRICE_FROM_DISCOUNT,
   PRICE_INCLUDES_DISCOUNT,
   discountFieldError,
@@ -128,8 +129,11 @@ export function PackageBuilder() {
   const showDiscountError =
     !!discountError && (checked || (value.discountValue ?? 0) !== 0 || refused);
   const problems: FieldProblem[] = [
-    ...(value.name?.trim() ? [] : [{ id: FIELD_ID.name, message: 'Enter the package name.' }]),
-    ...(value.categoryId ? [] : [{ id: FIELD_ID.categoryId, message: 'Choose a category.' }]),
+    ...(value.name?.trim() ? [] : [{ id: FIELD_ID.name, message: FIELD_TEXT.name }]),
+    ...(value.categoryId ? [] : [{ id: FIELD_ID.categoryId, message: FIELD_TEXT.categoryId }]),
+    ...(value.shortDescription?.trim()
+      ? []
+      : [{ id: FIELD_ID.shortDescription, message: FIELD_TEXT.shortDescription }]),
     ...(discountError ? [{ id: FIELD_ID.discountValue, message: discountError }] : []),
   ];
   // Q1 (decided Nov 19): a typed price wins; a discount works out the price only without one.
@@ -227,7 +231,7 @@ export function PackageBuilder() {
                   id={FIELD_ID.name}
                   label="Package Name *"
                   {...register('name')}
-                  error={errors.name?.message}
+                  error={checked && !value.name?.trim() ? FIELD_TEXT.name : errors.name?.message}
                   data-testid="package-name"
                 />
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -241,16 +245,25 @@ export function PackageBuilder() {
                         .filter((c) => c.status === 'ACTIVE')
                         .map((c) => ({ value: c.id, label: c.name })),
                     ]}
-                    error={errors.categoryId?.message}
+                    error={
+                      errors.categoryId || (checked && !value.categoryId)
+                        ? FIELD_TEXT.categoryId
+                        : undefined
+                    }
                     data-testid="package-category"
                   />
                   <div>
                     <Textarea
+                      id={FIELD_ID.shortDescription}
                       label="Short Description *"
                       maxLength={200}
                       rows={3}
                       {...register('shortDescription')}
-                      error={errors.shortDescription?.message}
+                      error={
+                        checked && !value.shortDescription?.trim()
+                          ? FIELD_TEXT.shortDescription
+                          : errors.shortDescription?.message
+                      }
                     />
                     <p className="text-right text-xs text-muted">
                       {value.shortDescription?.length ?? 0}/200
