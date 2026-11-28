@@ -44,7 +44,7 @@ const FEATURE_ERRORS = { DUPLICATE_LABEL: 'Two tabs have the same name. Give eac
 export function PortalFeatures() {
   const query = useApiQuery(QUERY, () => api.portalTabs.get());
   return (
-    <Card className="flex flex-col gap-4">
+    <Card className="flex min-w-0 flex-col gap-4">
       <div className="flex items-start gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-action text-on-action">
           <Settings2 aria-hidden className="size-5" />
@@ -120,7 +120,7 @@ function FeaturesForm({ saved }: { saved: PortalTabs }) {
 
   return (
     <>
-      <div className="flex flex-col gap-4 xl:flex-row">
+      <div className="flex min-w-0 flex-col gap-4 xl:flex-row">
         <div className="min-w-0 flex-1 overflow-x-auto">
           <table className="w-full min-w-xl text-left text-sm">
             <caption className="sr-only">Default portal tabs</caption>
@@ -276,7 +276,7 @@ function TabsPreview({
   );
   return (
     <aside
-      className="flex w-full flex-col gap-3 rounded-card border border-border bg-canvas p-4 xl:w-72"
+      className="flex min-w-0 w-full flex-col gap-3 rounded-card border border-border bg-canvas p-4 xl:w-72"
       aria-label="Tab preview"
       data-testid="tabs-preview"
     >

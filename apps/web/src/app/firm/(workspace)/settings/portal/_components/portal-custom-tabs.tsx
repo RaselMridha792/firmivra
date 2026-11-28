@@ -54,7 +54,7 @@ export function PortalCustomTabs() {
     invalidate: INVALIDATE,
   });
   return (
-    <Card className="flex flex-col gap-4" data-testid="portal-custom-tabs">
+    <Card className="flex min-w-0 flex-col gap-4" data-testid="portal-custom-tabs">
       <div className="flex flex-wrap items-start gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-action text-on-action">
           <LayoutGrid aria-hidden className="size-5" />
