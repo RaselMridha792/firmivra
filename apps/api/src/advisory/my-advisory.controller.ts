@@ -5,6 +5,7 @@ import {
   ApproveMyAdvisoryPlanRequest,
   type MyAdvisory,
   type MyAdvisoryPlan,
+  type DownloadLink,
   type MyAdvisoryResourcePdf,
 } from '@firmivra/types';
 import type { z } from 'zod';
@@ -68,5 +69,15 @@ export class MyAdvisoryController {
     @Param('key', new ZodValidationPipe(AdvisoryResourceKey)) key: string,
   ): Promise<MyAdvisoryResourcePdf> {
     return this.mine.resourcePdf(caller(auth, tenant), key);
+  }
+
+  /** A-X10: the file of a resource the firm sent, behind a 5-minute link once it is clean. */
+  @Get('resources/:key/file')
+  resourceFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('key', new ZodValidationPipe(AdvisoryResourceKey)) key: string,
+  ): Promise<DownloadLink> {
+    return this.mine.resourceFile(caller(auth, tenant), key);
   }
 }

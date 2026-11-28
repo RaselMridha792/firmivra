@@ -203,6 +203,33 @@ function seed(): { view: MyAdvisory; plans: MyAdvisoryPlan[] } {
         },
       ],
       resources: [
+        // A-X10: the firm's own resources: one is a link, one an uploaded file (its scan clean).
+        {
+          key: 'r-0199d604-0000-7000-8000-000000000001',
+          title: 'Local Grant Programs (sample)',
+          category: 'Funding',
+          kind: 'LINK',
+          summary: 'Small-business grants offered near you, and how to apply.',
+          format: 'SECURE_LINK',
+          sentAt: ago(2),
+          url: 'https://example.com/grants',
+          file: null,
+        },
+        {
+          key: 'r-0199d604-0000-7000-8000-000000000002',
+          title: 'First Hire Checklist (sample)',
+          category: 'Growth / Operations',
+          kind: 'CHECKLIST',
+          summary: 'What to have ready before your first employee starts.',
+          format: 'SECURE_LINK',
+          sentAt: ago(3),
+          url: null,
+          file: {
+            fileName: 'First hire checklist.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 182_400,
+          },
+        },
         {
           key: 'funding-readiness-checklist',
           title: 'Funding Readiness Checklist',
@@ -211,6 +238,8 @@ function seed(): { view: MyAdvisory; plans: MyAdvisoryPlan[] } {
           summary: 'What lenders and investors look for before they say yes.',
           format: 'SECURE_LINK',
           sentAt: ago(5),
+          url: null,
+          file: null,
         },
         {
           key: 'cash-flow-basics',
@@ -220,6 +249,8 @@ function seed(): { view: MyAdvisory; plans: MyAdvisoryPlan[] } {
           summary: 'How to read and forecast your cash flow.',
           format: 'PDF',
           sentAt: ago(6),
+          url: null,
+          file: null,
         },
       ],
       files: [
@@ -271,6 +302,17 @@ export function createMyAdvisoryMock(options: { enrolled?: boolean } = {}): MyAd
       if (r?.format !== 'PDF') throw notFound();
       return {
         url: `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock PDF: ${r.title}`)}`,
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      };
+    },
+    // A-X10, as the API: only a sent resource with a file (clean) downloads (404 otherwise).
+    resourceFile: async (key) => {
+      await mockDelay();
+      const r =
+        options.enrolled === false ? undefined : all().view.resources.find((x) => x.key === key);
+      if (!r?.file) throw notFound();
+      return {
+        url: `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock file: ${r.file.fileName}`)}`,
         expiresAt: new Date(Date.now() + 300_000).toISOString(),
       };
     },

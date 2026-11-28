@@ -1,5 +1,6 @@
 // End-to-end: A-X10 (Q28, Business Advisory Review Two B28), the firm's own advisory resources
-// beside the built-in library, and its edits of built-in ones, on R1's advisory_resources. Files
+// beside the built-in library, and its edits of built-in ones, on R1's advisory_resources (part 2:
+// as the client sees them in the portal once sent, with their link or file). Files
 // take Documents' three steps under tenant/{firm}/advisory-resources/ and are offered (a link, or
 // Send) only once their virus scan is CLEAN. Owner and Admin manage; Staff see the library; firm B
 // sees none of firm A's. Storage and the notify service are replaced: nothing leaves. Synthetic
@@ -17,6 +18,8 @@ import {
   AdvisoryResourceFile,
   AdvisoryResourceList,
   AdvisoryResourcePreview,
+  DownloadLink,
+  MyAdvisory,
   type UploadTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -84,9 +87,12 @@ const people = {
   staffA: person('staff-a'),
   ownerB: person('owner-b'),
 };
+/** The advisory client's portal login (PRIMARY). */
+const clientX = person('client-x');
 type Who = (typeof people)[keyof typeof people];
 const { ownerA, adminA, staffA, ownerB } = people;
 const firms = { a: '', b: '' };
+const slugs = { a: '', b: '' };
 let advisoryClientId = '';
 
 let app: INestApplication;
@@ -126,6 +132,12 @@ async function call(
     .set('x-business-id', firms[firm])
     .set('authorization', `Bearer ${await tokenFor(who.email)}`);
   return body === undefined ? req : req.send(body);
+}
+/** The client's own portal route: `/api/v1/portal/{slug}/me/advisory{path}`. */
+async function portal(path: string, firm: 'a' | 'b' = 'a'): Promise<Response> {
+  return request(app.getHttpServer())
+    .get(`/api/v1/portal/${slugs[firm]}/me/advisory${path}`)
+    .set('authorization', `Bearer ${await tokenFor(clientX.email)}`);
 }
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 const expectError = (res: Response, status: number, code: string) =>
@@ -185,10 +197,19 @@ beforeAll(async () => {
       await tx.user.create({
         data: { id: p.id, cognitoSub: p.id, pool: 'STAFF', email: p.email, name: `Fake ${key}` },
       });
+    await tx.user.create({
+      data: {
+        id: clientX.id,
+        cognitoSub: clientX.id,
+        pool: 'CLIENT',
+        email: clientX.email,
+        name: 'Fake client x',
+      },
+    });
     for (const key of ['a', 'b'] as const)
       firms[key] = (
         await tx.business.create({
-          data: { slug: `q28-${key}-${run}`, name: `Firm ${key}`, status: 'ACTIVE' },
+          data: { slug: (slugs[key] = `q28-${key}-${run}`), name: `Firm ${key}`, status: 'ACTIVE' },
           select: { id: true },
         })
       ).id;
@@ -208,6 +229,19 @@ beforeAll(async () => {
     const client = await tx.client.create({
       data: { businessId: firms.a, displayName: 'Jamie Sample (fake)', assignedUserId: staffA.id },
       select: { id: true },
+    });
+    // Its portal login, so a Send by portal message reaches it.
+    await tx.clientAccount.create({
+      data: {
+        businessId: firms.a,
+        userId: clientX.id,
+        clientId: client.id,
+        email: clientX.email,
+        portalRole: 'PRIMARY',
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+        phoneVerifiedAt: new Date(),
+      },
     });
     return (
       await tx.advisoryClient.create({
@@ -419,5 +453,120 @@ describe('A-X10: resource files through the scan pipeline', () => {
       'UPLOAD_MISMATCH',
     );
     expectError(await upload(PDF, staffA), 403, 'FORBIDDEN');
+  });
+});
+
+describe('A-X10 part 2: what the client sees in the portal', () => {
+  const send = async (key: string) =>
+    ok(
+      await call('post', `/resources/${key}/send`, ownerA, {
+        advisoryClientId,
+        channel: 'PORTAL_MESSAGE',
+      }),
+    );
+  const mine = async () => MyAdvisory.parse(ok(await portal(''))).resources;
+
+  it("shows the firm's own resources and its edits, with their link or a clean file", async () => {
+    const link = AdvisoryResource.parse(
+      ok(
+        await call(
+          'post',
+          '/resources',
+          ownerA,
+          save({ title: `Fake link ${run}`, kind: 'LINK', url: 'https://example.com/fake-link' }),
+        ),
+        201,
+      ),
+    );
+    const file = AdvisoryResourceFile.parse(ok(await upload(PDF), 201));
+    await scan(file.id, 'NO_THREATS_FOUND');
+    const withFile = AdvisoryResource.parse(
+      ok(await call('post', '/resources', ownerA, save({ fileId: file.id })), 201),
+    );
+    ok(
+      await call(
+        'put',
+        '/resources/website-launch-checklist',
+        ownerA,
+        save({ title: `Fake launch list ${run}`, category: 'Website' }),
+      ),
+    );
+    // Nothing until sent.
+    expect((await mine()).map((r) => r.key)).not.toContain(link.key);
+    expectError(await portal(`/resources/${withFile.key}/file`), 404, 'NOT_FOUND');
+
+    for (const key of [link.key, withFile.key, 'website-launch-checklist']) await send(key);
+    const sent = new Map((await mine()).map((r) => [r.key, r]));
+    expect(sent.get(link.key)).toMatchObject({
+      title: `Fake link ${run}`,
+      kind: 'LINK',
+      url: 'https://example.com/fake-link',
+      file: null,
+    });
+    expect(sent.get(withFile.key)).toMatchObject({
+      url: null,
+      file: {
+        fileName: 'Fake checklist.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: PDF.length,
+      },
+    });
+    expect(sent.get('website-launch-checklist')?.title).toBe(`Fake launch list ${run}`);
+
+    const got = DownloadLink.parse(ok(await portal(`/resources/${withFile.key}/file`)));
+    expect(got.url).toContain('/advisory-resources/');
+    expect(await audit(advisoryClientId)).toContainEqual(
+      expect.objectContaining({
+        action: 'advisory_resource.downloaded',
+        metadata: expect.objectContaining({
+          resourceKey: withFile.key,
+          format: 'FILE',
+          by: 'CLIENT',
+        }),
+      }),
+    );
+    // A resource with no file, or one never sent, has no file to give.
+    expectError(await portal(`/resources/${link.key}/file`), 404, 'NOT_FOUND');
+    expectError(await portal('/resources/brand-basics-guide/file'), 404, 'NOT_FOUND');
+    // Another firm's portal never has it.
+    expect((await portal(`/resources/${withFile.key}/file`, 'b')).status).not.toBe(200);
+  });
+
+  it('hides a file again while a new one is checked, and an archived resource', async () => {
+    const first = AdvisoryResourceFile.parse(ok(await upload(PDF), 201));
+    await scan(first.id, 'NO_THREATS_FOUND');
+    const made = AdvisoryResource.parse(
+      ok(
+        await call(
+          'post',
+          '/resources',
+          ownerA,
+          save({ title: `Fake swap ${run}`, fileId: first.id }),
+        ),
+        201,
+      ),
+    );
+    await send(made.key);
+    expect((await mine()).find((r) => r.key === made.key)?.file).not.toBeNull();
+
+    // The firm swaps in a file still being checked: the portal offers none until it is clean.
+    const next = AdvisoryResourceFile.parse(ok(await upload(PDF), 201));
+    ok(
+      await call(
+        'put',
+        `/resources/${made.key}`,
+        ownerA,
+        save({ title: `Fake swap ${run}`, fileId: next.id }),
+      ),
+    );
+    expect((await mine()).find((r) => r.key === made.key)?.file).toBeNull();
+    expectError(await portal(`/resources/${made.key}/file`), 409, 'SCAN_PENDING');
+    await scan(next.id, 'NO_THREATS_FOUND');
+    DownloadLink.parse(ok(await portal(`/resources/${made.key}/file`)));
+
+    // Archived: it leaves the client's list and its file.
+    ok(await call('post', `/resources/${made.key}/archive`, ownerA));
+    expect((await mine()).map((r) => r.key)).not.toContain(made.key);
+    expectError(await portal(`/resources/${made.key}/file`), 404, 'NOT_FOUND');
   });
 });
