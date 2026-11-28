@@ -5,6 +5,8 @@ import {
   AdminCommBroadcastId,
   type AdminCommBroadcastSummary,
   type AdminCommBroadcastTestSent,
+  type AdminCommMedia,
+  AdminCommMediaId,
   type AdminCommMediaTicket,
   type AdminCommSegment,
   type AdminCommSegmentCount,
@@ -194,5 +196,12 @@ export class AdminBroadcastsController {
     @Body(pipe(CreateAdminCommMediaRequest)) b: z.output<typeof CreateAdminCommMediaRequest>,
   ): Promise<AdminCommMediaTicket> {
     return this.broadcasts.createMedia(b);
+  }
+
+  /** SA-COM-R1/R3: after the PUT, the stored file is checked (and, locally, marked CLEAN). */
+  @Post('media/:id/confirm')
+  @HttpCode(200)
+  confirmMedia(@Param('id', pipe(AdminCommMediaId)) id: string): Promise<AdminCommMedia> {
+    return this.broadcasts.confirmMedia(id);
   }
 }

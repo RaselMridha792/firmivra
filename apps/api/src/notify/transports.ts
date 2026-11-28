@@ -14,6 +14,14 @@ export interface OutgoingEmail {
   subject: string;
   text: string;
   html: string;
+  /** Files sent as attachments (SA-COM-R1/R3); none when absent. */
+  attachments?: readonly OutgoingAttachment[];
+}
+
+export interface OutgoingAttachment {
+  fileName: string;
+  contentType: string;
+  content: Uint8Array;
 }
 
 export interface OutgoingSms {
@@ -98,6 +106,17 @@ export class SesEmailTransport implements EmailTransport {
           Simple: {
             Subject: utf8(mail.subject),
             Body: { Text: utf8(mail.text), Html: utf8(mail.html) },
+            ...(mail.attachments?.length
+              ? {
+                  Attachments: mail.attachments.map((a) => ({
+                    RawContent: a.content,
+                    FileName: a.fileName,
+                    ContentType: a.contentType,
+                    ContentDisposition: 'ATTACHMENT' as const,
+                    ContentTransferEncoding: 'BASE64' as const,
+                  })),
+                }
+              : {}),
           },
         },
       }),
@@ -115,6 +134,7 @@ export interface MailTransporter {
     subject: string;
     text: string;
     html: string;
+    attachments?: { filename: string; contentType: string; content: Buffer }[];
   }): Promise<unknown>;
 }
 
@@ -130,6 +150,15 @@ export class SmtpEmailTransport implements EmailTransport {
       subject: mail.subject,
       text: mail.text,
       html: mail.html,
+      ...(mail.attachments?.length
+        ? {
+            attachments: mail.attachments.map((a) => ({
+              filename: a.fileName,
+              contentType: a.contentType,
+              content: Buffer.from(a.content),
+            })),
+          }
+        : {}),
     });
     const id = (info as { messageId?: unknown } | undefined)?.messageId;
     return typeof id === 'string' ? id : undefined;

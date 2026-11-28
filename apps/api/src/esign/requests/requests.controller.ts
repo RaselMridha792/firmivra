@@ -198,7 +198,8 @@ export class EsignRequestsController {
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
-    @Query('file', new ZodValidationPipe(EsignDownloadFile)) file: EsignDownloadFile,
+    @Query('file', new ZodValidationPipe(EsignDownloadFile.default('original')))
+    file: EsignDownloadFile,
   ): Promise<DownloadLink> {
     return this.requests.download(tenant.businessId, actorOf(auth, tenant), id, file);
   }

@@ -55,7 +55,7 @@ import {
 import { hasReceipt, PaymentPanel, type PanelState } from './payment-panel';
 import { PaymentBadge, PaymentTable } from './payment-table';
 import { ReceiptViewer } from './receipt-viewer';
-import { adminBilling } from '../../_components/billing-api';
+import { adminBilling, FIRM_IS_CUSTOMER } from '../../_components/billing-api';
 
 /**
  * Payments (firmivra-payments-dashboard.jpg, docx §12): the payment transaction center. Totals,
@@ -434,20 +434,23 @@ export function PaymentsCenter() {
               }}
               more={
                 <>
-                  <FilterGroup title="Client">
-                    <SelectControl
-                      aria-label="Client"
-                      value={draft.clientId}
-                      placeholder="All clients"
-                      options={(clients.data ?? []).map((client) => ({
-                        value: client.id,
-                        label: client.name,
-                      }))}
-                      onChange={(event) =>
-                        setDraft({ clientId: event.target.value, invoiceId: '' })
-                      }
-                    />
-                  </FilterGroup>
+                  {/* SA-BIL-R1: the firm is the customer; the Firm filter covers it. */}
+                  {FIRM_IS_CUSTOMER ? null : (
+                    <FilterGroup title="Client">
+                      <SelectControl
+                        aria-label="Client"
+                        value={draft.clientId}
+                        placeholder="All clients"
+                        options={(clients.data ?? []).map((client) => ({
+                          value: client.id,
+                          label: client.name,
+                        }))}
+                        onChange={(event) =>
+                          setDraft({ clientId: event.target.value, invoiceId: '' })
+                        }
+                      />
+                    </FilterGroup>
+                  )}
                   <FilterGroup title="Invoice">
                     <SelectControl
                       aria-label="Invoice"

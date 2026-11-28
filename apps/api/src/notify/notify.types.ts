@@ -316,6 +316,8 @@ export interface NotifyTemplates {
     link: string;
   };
   'payment.received': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
+  /** Q23 (IP-041): a bank payment did not go through; the portal link to pay again. */
+  'payment.failed': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
 
   // ----- Firm Sign (R13): titles, names, dates, links and the sender's own note on a request;
   // never a field value, document content or a decline or void reason -----
@@ -450,6 +452,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'invoice.reminder': 'email',
   'invoice.overdue': 'email',
   'payment.received': 'email',
+  'payment.failed': 'email',
   'esign.request': 'email',
   'esign.code': 'email',
   'esign.reminder': 'email',
@@ -522,6 +525,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'invoice.reminder': 'firm',
   'invoice.overdue': 'firm',
   'payment.received': 'firm',
+  'payment.failed': 'firm',
   'esign.request': 'firm',
   'esign.code': 'firm',
   'esign.reminder': 'firm',
@@ -634,6 +638,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'invoice.reminder': 'BILLING',
   'invoice.overdue': 'BILLING',
   'payment.received': 'BILLING',
+  'payment.failed': 'BILLING',
   // No e-sign category yet: Firm Sign notices are document notices, except the always-sent ones.
   'esign.request': 'ACCOUNT',
   'esign.code': 'ACCOUNT',
@@ -681,6 +686,18 @@ export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
   /** For example Firmivra support, for an information request. */
   replyTo?: string;
   data: NotifyTemplates[T];
+  /**
+   * Email only (SA-COM-R1/R3): files sent as attachments, never inline. The caller checked them
+   * (scanned CLEAN, within the size limit); an SMS template refuses any.
+   */
+  attachments?: readonly NotifyAttachment[];
+}
+
+/** One email attachment: its bytes, with the name and type the recipient sees. */
+export interface NotifyAttachment {
+  fileName: string;
+  contentType: string;
+  content: Uint8Array;
 }
 
 /** What a send that reached a provider can tell: the provider's own message id (email only). */

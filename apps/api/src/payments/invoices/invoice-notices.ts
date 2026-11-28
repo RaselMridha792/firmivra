@@ -6,6 +6,11 @@ import { Notifier } from '../../notifications/notifier.js';
 export type InvoiceNotice =
   | 'invoice.sent'
   | 'payment.received'
+  // Q23 (IP-041): a bank payment the bank did not complete, to both sides.
+  | 'payment.failed'
+  // Q23 (IP-041): a dispute of a Stripe payment opened or closed, to the firm only (bell items).
+  | 'payment.disputed'
+  | 'payment.dispute-closed'
   // Invoices Review 2 (I-C02, I-N04): before the due date, and overdue.
   | 'invoice.reminder'
   | 'invoice.overdue';
@@ -62,8 +67,14 @@ export class InvoiceNotices {
   ): Promise<boolean> {
     try {
       // The invoice's "Send email notification to client" decides its reminders' emails too.
+      // A dispute's notices are bell items for the firm only (no email copy either way).
       const email =
-        event === 'payment.received' ? true : await this.emailsClient(businessId, invoiceId);
+        event === 'payment.received' ||
+        event === 'payment.failed' ||
+        event === 'payment.disputed' ||
+        event === 'payment.dispute-closed'
+          ? true
+          : await this.emailsClient(businessId, invoiceId);
       const result = await this.notifier.notify({
         businessId,
         event,

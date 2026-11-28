@@ -712,6 +712,89 @@ export const BillingPaymentSummary = z.object({
 });
 export type BillingPaymentSummary = z.infer<typeof BillingPaymentSummary>;
 
+// ---------- Revenue (SA-BIL-A1, SA-DSH-F05) ----------
+
+/** Which revenue: invoices from a subscription or a recurring schedule are recurring. */
+export const BillingRevenueType = z.enum(['ALL', 'ONE_TIME', 'RECURRING']);
+export type BillingRevenueType = z.infer<typeof BillingRevenueType>;
+export const BILLING_REVENUE_TYPE_LABELS: Readonly<Record<BillingRevenueType, string>> = {
+  ALL: 'One-time and recurring',
+  ONE_TIME: 'One-time',
+  RECURRING: 'Recurring',
+};
+
+/** The longest period the Revenue tab reads at once. */
+export const BILLING_REVENUE_MAX_DAYS = 366;
+
+const shiftDay = (dayText: string, days: number) => {
+  const d = new Date(`${dayText}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
+/** The first and last day of a `YYYY-MM-DD`'s calendar month. */
+export function billingMonthOf(dayText: string): { from: string; to: string } {
+  const from = `${dayText.slice(0, 7)}-01`;
+  const next = new Date(`${from}T00:00:00.000Z`);
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  return { from, to: shiftDay(next.toISOString().slice(0, 10), -1) };
+}
+
+/**
+ * The period "Compare" sets beside `from`..`to`: the previous calendar month when the period is
+ * one whole month ("Compare to last month"), else the same number of days just before `from`.
+ */
+export function billingRevenuePrevious(from: string, to: string): { from: string; to: string } {
+  const month = billingMonthOf(from);
+  if (month.from === from && month.to === to) return billingMonthOf(shiftDay(from, -1));
+  const length = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+  const end = shiftDay(from, -1);
+  return { from: shiftDay(end, -length), to: end };
+}
+
+/**
+ * GET /admin/billing/revenue: `from` to `to` inclusive (billing days, America/New_York).
+ * `compare`: also the period before (the previous calendar month for a whole month, else the
+ * same number of days just before `from`), side by side.
+ */
+export const BillingRevenueQuery = z
+  .strictObject({
+    from: Day,
+    to: Day,
+    type: BillingRevenueType.default('ALL'),
+    compare: z.union([z.boolean(), z.stringbool()]).optional().default(false),
+  })
+  .refine((q) => q.from <= q.to, { message: 'Choose a start on or before the end', path: ['to'] })
+  .refine((q) => (Date.parse(q.to) - Date.parse(q.from)) / 86_400_000 < BILLING_REVENUE_MAX_DAYS, {
+    message: `Choose at most ${BILLING_REVENUE_MAX_DAYS} days`,
+    path: ['to'],
+  });
+export type BillingRevenueQuery = z.input<typeof BillingRevenueQuery>;
+
+/**
+ * One period's revenue (basis A1a): collected payments, gross, by payment date. Refunds completed
+ * in the period are their own line, never netted from `collectedCents`. Not MRR.
+ */
+export const BillingRevenuePeriod = z.object({
+  from: Day,
+  to: Day,
+  /** "Collected (gross)" for the chosen type. */
+  collectedCents: Cents,
+  oneTimeCents: Cents,
+  recurringCents: Cents,
+  payments: z.number().int().min(0),
+  refundedCents: Cents,
+  refunds: z.number().int().min(0),
+});
+export type BillingRevenuePeriod = z.infer<typeof BillingRevenuePeriod>;
+
+export const BillingRevenue = z.object({
+  type: BillingRevenueType,
+  current: BillingRevenuePeriod,
+  previous: BillingRevenuePeriod.nullable(),
+});
+export type BillingRevenue = z.infer<typeof BillingRevenue>;
+
 export const BillingEstimateSummary = z.object({
   totalCents: Cents,
   totalCount: z.number().int(),
