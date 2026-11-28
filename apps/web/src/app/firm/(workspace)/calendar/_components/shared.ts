@@ -45,6 +45,7 @@ export const CALENDAR_ERRORS: Record<string, string> = {
   VIDEO_LINK_MISSING:
     'The staff member has no meeting link yet, so Generate Zoom Link has nothing to add. Paste a link, or add theirs in Settings > Availability.',
   SMS_UNAVAILABLE: 'Text reminders are not available for this firm or this contact.',
+  SMS_STOPPED: 'This client has opted out of text messages, so no text reminder was sent.',
   LEAD_APPOINTMENT: 'This appointment is for a lead. Convert the lead to a client first.',
   OFFER_TAKEN: 'That time was taken since it was offered.',
   RATE_LIMITED: 'The calendar is busy with another change. Try again in a moment.',

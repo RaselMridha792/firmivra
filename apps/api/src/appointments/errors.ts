@@ -7,7 +7,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { databaseErrorCode } from '@firmivra/db';
-import type { AppointmentErrorCode, ConflictResult, SchedulingErrorCode } from '@firmivra/types';
+import {
+  type AppointmentErrorCode,
+  type ConflictResult,
+  type SchedulingErrorCode,
+  TEXTS_STOPPED_LABELS,
+  type TextsStoppedReason,
+} from '@firmivra/types';
 
 const conflict = (
   code:
@@ -89,6 +95,12 @@ export const errors = {
     new BadRequestException({
       code: 'SMS_UNAVAILABLE',
       message: 'Text reminders need the firm to turn on SMS and the contact to have a phone number',
+    }),
+  /** A-X07 (B21): the client's texts are stopped (communication_consents), with the reason. */
+  smsStopped: (reason: TextsStoppedReason) =>
+    new BadRequestException({
+      code: 'SMS_STOPPED',
+      message: `Text reminders can't go to this client: ${TEXTS_STOPPED_LABELS[reason]}. Use email or the portal; a new opt-in is recorded in Communications.`,
     }),
   /** 400 for something the form can send but the database cannot keep yet (see the PR's gaps). */
   unsupported: (message: string) => new BadRequestException({ code: 'VALIDATION_FAILED', message }),

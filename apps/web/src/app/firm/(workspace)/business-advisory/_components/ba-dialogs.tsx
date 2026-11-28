@@ -1,6 +1,6 @@
 'use client';
 
-import type { AdvisoryServiceOption } from '@firmivra/types';
+import { type AdvisoryServiceOption } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, Select, Textarea } from '@firmivra/ui';
 import { Plus, Trash } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -25,6 +25,24 @@ export function useMembers() {
   return (q.data ?? [])
     .filter((m) => m.status === 'ACTIVE')
     .map((m) => ({ value: m.user.id, label: m.user.name }));
+}
+
+/** A-X14: a service with no Services & Pricing category is under General Advisory. */
+const GENERAL = 'general';
+export const focusOf = (s: AdvisoryServiceOption) => s.category?.id ?? GENERAL;
+
+/**
+ * A-X14 (Business Advisory Review Two, B35): the primary focus categories offered, the firm's own
+ * Services & Pricing categories of its advisory services, in the services' order, then General
+ * Advisory for the services with none.
+ */
+export function focusChoices(services: readonly AdvisoryServiceOption[]) {
+  const seen = new Map<string, string>();
+  for (const s of services) if (s.category) seen.set(s.category.id, s.category.name);
+  return [
+    ...[...seen].map(([value, label]) => ({ value, label })),
+    ...(services.some((s) => !s.category) ? [{ value: GENERAL, label: 'General Advisory' }] : []),
+  ];
 }
 
 export const ErrorLine = ({ text }: { text: string | undefined }) =>
@@ -52,8 +70,12 @@ export function AddClientDialog({
   const services = useApiQuery([...BA_KEY, 'services'], () => api.advisory.serviceOptions());
   const members = useMembers();
   const [clientId, setClientId] = useState('');
+  // A-X14: the primary focus category narrows the primary service ('' is every focus).
+  const [focus, setFocus] = useState('');
   const [primaryId, setPrimaryId] = useState('');
   const [additional, setAdditional] = useState<string[]>([]);
+  const focuses = focusChoices(services.data ?? []);
+  const inFocus = (svc: AdvisoryServiceOption) => !focus || focusOf(svc) === focus;
   const [advisor, setAdvisor] = useState('');
   const [industry, setIndustry] = useState('');
   const [stage, setStage] = useState('');
@@ -116,6 +138,19 @@ export function AddClientDialog({
             ...(firmClients.data?.items ?? []).map((c) => ({ value: c.id, label: c.displayName })),
           ]}
         />
+        {focuses.length > 1 ? (
+          <Select
+            label="Primary focus"
+            value={focus}
+            onChange={(e) => {
+              const next = e.target.value;
+              setFocus(next);
+              const kept = (services.data ?? []).find((x) => x.serviceId === primaryId);
+              if (kept && next && focusOf(kept) !== next) setPrimaryId('');
+            }}
+            options={[{ value: '', label: 'All focus areas' }, ...focuses]}
+          />
+        ) : null}
         <Select
           label="Primary service focus"
           required
@@ -126,7 +161,9 @@ export function AddClientDialog({
               value: '',
               label: services.isError ? 'Services could not be loaded' : 'Choose a service…',
             },
-            ...(services.data ?? []).map((s) => ({ value: s.serviceId, label: label(s) })),
+            ...(services.data ?? [])
+              .filter(inFocus)
+              .map((s) => ({ value: s.serviceId, label: label(s) })),
           ]}
         />
         {services.data && services.data.length > 1 ? (

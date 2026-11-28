@@ -23,6 +23,7 @@ import {
   Flag,
   ListChecks,
   NotePencil,
+  PencilSimple,
   Play,
   Plus,
   Prohibit,
@@ -364,6 +365,8 @@ export function ActionItemsSection({ advisoryClientId: fixed }: { advisoryClient
   const members = useMembers();
   const clientId = fixed ?? '';
   const [adding, setAdding] = useState(false);
+  // A-X11 (B30): Edit Action Item.
+  const [editing, setEditing] = useState<AdvisoryActionItemRow>();
   // Action items.
   const [taskSearch, setTaskSearch] = useState('');
   const [taskStatus, setTaskStatus] = useState('');
@@ -587,6 +590,15 @@ export function ActionItemsSection({ advisoryClientId: fixed }: { advisoryClient
               label={`Actions for ${a.title}`}
               trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-5" />}
               sections={[
+                {
+                  items: [
+                    {
+                      label: 'Edit Action Item',
+                      icon: PencilSimple,
+                      onSelect: () => setEditing(a),
+                    },
+                  ],
+                },
                 { items: taskMoves(a) },
                 {
                   items: [
@@ -623,18 +635,36 @@ export function ActionItemsSection({ advisoryClientId: fixed }: { advisoryClient
           }}
         />
       ) : null}
+      {editing ? (
+        <AddActionItemDialog
+          editing={editing}
+          onClose={() => setEditing(undefined)}
+          onAdded={(title) => {
+            setEditing(undefined);
+            say(`Action item saved: ${title}`);
+          }}
+        />
+      ) : null}
     </>
   );
 }
 
-/** The client and, optionally, one of their plans and goals; shared by the two add dialogs. */
-function useClientLinks(preset?: string, presetPlan?: string) {
+/**
+ * The client and, optionally, one of their plans and goals; shared by the add dialogs and Edit
+ * Action Item (A-X11), where the client is fixed and the item's plan and goal come preset.
+ */
+function useClientLinks(
+  preset?: string,
+  presetPlan?: string,
+  presetGoal?: string,
+  clientFixed = false,
+) {
   const clients = useApiQuery([...BA_KEY, 'pick-clients'], () =>
     api.advisory.clients({ pageSize: 100 }),
   );
   const [clientId, setClientId] = useState(preset ?? '');
   const [planId, setPlanId] = useState(presetPlan ?? '');
-  const [goalId, setGoalId] = useState('');
+  const [goalId, setGoalId] = useState(presetGoal ?? '');
   const plans = useApiQuery([...BA_KEY, 'pick-plans', clientId], () =>
     clientId
       ? api.advisory.plans({ advisoryClientId: clientId, pageSize: 100 })
@@ -650,6 +680,7 @@ function useClientLinks(preset?: string, presetPlan?: string) {
       <Select
         label="Advisory client"
         required
+        disabled={clientFixed}
         value={clientId}
         onChange={(e) => {
           setClientId(e.target.value);
@@ -690,6 +721,8 @@ function useClientLinks(preset?: string, presetPlan?: string) {
   );
   return {
     clientId,
+    planId,
+    goalId,
     links: { ...(planId ? { planId } : {}), ...(goalId ? { goalId } : {}) },
     fields,
   };
@@ -849,44 +882,72 @@ export function AddRecommendationDialog({
   );
 }
 
+/**
+ * Add Action Item, and A-X11 (B30) Edit Action Item (`editing`): the same form, filled from the
+ * item, its client fixed. Saving an edit sends every field, so a cleared one is cleared.
+ */
 export function AddActionItemDialog({
   advisoryClientId,
   planId,
+  editing,
   onClose,
   onAdded,
 }: {
   advisoryClientId?: string;
   planId?: string;
+  editing?: AdvisoryActionItemRow;
   onClose: () => void;
   onAdded: (title: string) => void;
 }) {
   const qc = useQueryClient();
   const members = useMembers();
-  const { clientId, links, fields } = useClientLinks(advisoryClientId, planId);
-  const [title, setTitle] = useState('');
-  const [details, setDetails] = useState('');
-  const [kind, setKind] = useState('STAFF');
-  const [assignee, setAssignee] = useState('');
-  const [due, setDue] = useState('');
-  const [priority, setPriority] = useState('NORMAL');
-  const [visible, setVisible] = useState(false);
+  const links = useClientLinks(
+    editing?.advisoryClientId ?? advisoryClientId,
+    editing ? (editing.planId ?? undefined) : planId,
+    editing?.goalId ?? undefined,
+    Boolean(editing),
+  );
+  const { clientId, fields } = links;
+  const [title, setTitle] = useState(editing?.title ?? '');
+  const [details, setDetails] = useState(editing?.details ?? '');
+  const [kind, setKind] = useState<string>(editing?.assigneeKind ?? 'STAFF');
+  const [assignee, setAssignee] = useState(editing?.assignee?.userId ?? '');
+  const [due, setDue] = useState(editing?.dueOn ?? '');
+  const [priority, setPriority] = useState<string>(editing?.priority ?? 'NORMAL');
+  const [visible, setVisible] = useState(editing?.clientVisible ?? false);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  // An edit to a staff item names the person: the form has no "Me" then.
+  const needsPerson = Boolean(editing) && kind === 'STAFF' && !assignee;
   const save = async () => {
     setSaving(true);
     setError(undefined);
     try {
-      await api.advisory.createActionItem({
-        advisoryClientId: clientId,
-        title: title.trim(),
-        assigneeKind: kind as never,
-        priority: priority as never,
-        clientVisible: visible,
-        ...links,
-        ...(kind === 'STAFF' && assignee ? { assigneeUserId: assignee } : {}),
-        ...(details.trim() ? { details: details.trim() } : {}),
-        ...(due ? { dueOn: due } : {}),
-      });
+      if (editing) {
+        await api.advisory.updateActionItem(editing.id, {
+          title: title.trim(),
+          details: details.trim(),
+          assigneeKind: kind as never,
+          ...(kind === 'STAFF' ? { assigneeUserId: assignee } : {}),
+          dueOn: due || null,
+          priority: priority as never,
+          clientVisible: visible,
+          planId: links.planId || null,
+          goalId: links.goalId || null,
+        });
+      } else {
+        await api.advisory.createActionItem({
+          advisoryClientId: clientId,
+          title: title.trim(),
+          assigneeKind: kind as never,
+          priority: priority as never,
+          clientVisible: visible,
+          ...links.links,
+          ...(kind === 'STAFF' && assignee ? { assigneeUserId: assignee } : {}),
+          ...(details.trim() ? { details: details.trim() } : {}),
+          ...(due ? { dueOn: due } : {}),
+        });
+      }
       await qc.invalidateQueries({ queryKey: [...BA_KEY] });
       onAdded(title.trim());
     } catch (e) {
@@ -898,21 +959,27 @@ export function AddActionItemDialog({
   return (
     <Modal
       open
-      title="Add Action Item"
-      subtitle="A task for staff, the client or the advisory team."
+      title={editing ? 'Edit Action Item' : 'Add Action Item'}
+      subtitle={editing ? editing.title : 'A task for staff, the client or the advisory team.'}
       onClose={onClose}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={!clientId || !title.trim() || saving} onClick={() => void save()}>
-            Add Action Item
+          <Button
+            disabled={!clientId || !title.trim() || needsPerson || saving}
+            onClick={() => void save()}
+          >
+            {editing ? 'Save Action Item' : 'Add Action Item'}
           </Button>
         </>
       }
     >
-      <div className="flex flex-col gap-3" data-testid="add-action-item">
+      <div
+        className="flex flex-col gap-3"
+        data-testid={editing ? 'edit-action-item' : 'add-action-item'}
+      >
         <ErrorLine text={error} />
         {fields}
         <Input
@@ -934,7 +1001,7 @@ export function AddActionItemDialog({
               label="Staff member"
               value={assignee}
               onChange={(e) => setAssignee(e.target.value)}
-              options={[{ value: '', label: 'Me' }, ...members]}
+              options={[{ value: '', label: editing ? 'Choose…' : 'Me' }, ...members]}
             />
           ) : null}
           <Input

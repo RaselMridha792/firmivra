@@ -11,6 +11,9 @@ import {
   AddAdvisoryActionNoteRequest,
   AdvisoryActivityPage,
   AdvisoryActivityQuery,
+  AdvisoryHistoryPage,
+  AdvisoryHistoryQuery,
+  AdvisoryDeliverables,
   AdvisoryClientDetail,
   AdvisoryClientId,
   AdvisoryClientPage,
@@ -175,6 +178,15 @@ export function createAdvisoryClient(request: ApiRequest) {
       request(
         AdvisoryActivityPage,
         `${advisoryClient(id)}/activity${toQuery(parseInput(AdvisoryActivityQuery, query))}`,
+      ),
+    /** A-X14: the client's Services & Deliverables (services in progress and done, plans delivered). */
+    deliverables: async (id: string): Promise<AdvisoryDeliverables> =>
+      request(AdvisoryDeliverables, `${advisoryClient(id)}/deliverables`),
+    /** A-NEW2: the module's View History across the advisory clients the caller reaches. */
+    history: async (query: AdvisoryHistoryQuery = {}): Promise<AdvisoryHistoryPage> =>
+      request(
+        AdvisoryHistoryPage,
+        `${BASE}/history${toQuery(parseInput(AdvisoryHistoryQuery, query))}`,
       ),
 
     // ----- Business plans -----

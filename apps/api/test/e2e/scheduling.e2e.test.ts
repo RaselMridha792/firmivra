@@ -1252,6 +1252,69 @@ describe('schedule', () => {
     );
   });
 
+  it('A-X07: refuses a text reminder for a client whose texts are stopped (400 SMS_STOPPED), and the contact says why', async () => {
+    const name = `Stopped Texter ${run} (fake)`;
+    const { clientId, had } = await asOwner(ids.firmA, async (tx) => {
+      const client = await tx.client.create({
+        data: { businessId: ids.firmA, displayName: name, phone: '555-0199' },
+        select: { id: true },
+      });
+      await tx.communicationConsent.create({
+        data: {
+          businessId: ids.firmA,
+          clientId: client.id,
+          channel: 'SMS',
+          status: 'OPTED_OUT',
+          source: 'reply_stop',
+        },
+      });
+      const before = await tx.messageSettings.findUnique({ where: { businessId: ids.firmA } });
+      await tx.messageSettings.upsert({
+        where: { businessId: ids.firmA },
+        create: { businessId: ids.firmA, smsEnabled: true },
+        update: { smsEnabled: true },
+      });
+      return { clientId: client.id, had: before };
+    });
+    try {
+      const res = await call(
+        'post',
+        '/appointments/schedule',
+        people.ownerA,
+        schedule({
+          contact: { kind: 'CLIENT', id: clientId },
+          reminders: [{ channel: 'SMS', amount: 1, unit: 'DAYS' }],
+        }),
+      );
+      expectError(res, 400, 'SMS_STOPPED');
+      expect(JSON.stringify(res.body)).toMatch(/stopped texts/);
+      const found = exact(
+        ContactSearchResult,
+        await call(
+          'get',
+          `/appointments/contacts?search=${encodeURIComponent(name)}`,
+          people.ownerA,
+        ),
+      ).items;
+      expect(found).toEqual([expect.objectContaining({ id: clientId, textsStopped: 'OPTED_OUT' })]);
+      // A client whose texts are not stopped has no such field.
+      const [jamie] = exact(
+        ContactSearchResult,
+        await call('get', '/appointments/contacts?search=jamie', people.ownerA),
+      ).items;
+      expect(jamie).not.toHaveProperty('textsStopped');
+    } finally {
+      await asOwner(ids.firmA, async (tx) => {
+        if (had)
+          await tx.messageSettings.update({
+            where: { businessId: ids.firmA },
+            data: { smsEnabled: had.smsEnabled },
+          });
+        else await tx.messageSettings.deleteMany({ where: { businessId: ids.firmA } });
+      });
+    }
+  });
+
   it('Generate Zoom Link puts the staff member’s link on, refuses 409 VIDEO_LINK_MISSING without one, and the options name who has one (Advisory B11)', async () => {
     const setLink = (businessId: string, userId: string, meetingUrl: string | null) =>
       asOwner(businessId, (tx) =>

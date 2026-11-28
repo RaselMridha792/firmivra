@@ -114,6 +114,8 @@ function seed(empty: boolean): Store {
     email: `${name.split(' ')[0]?.toLowerCase() ?? 'client'}@example.test`,
     phone: `(555) 020-${String(1000 + n)}`,
     clientType: n % 4 === 0 ? 'BUSINESS' : 'INDIVIDUAL',
+    // A-X07 (B21): Grace Pruitt replied STOP to a text, so she gets no text reminder.
+    ...(name === 'Grace Pruitt' ? { textsStopped: 'OPTED_OUT' as const } : {}),
   });
   // day offset from Sunday, start, end, contact, type index, service index, staff, status, method
   const rows: [

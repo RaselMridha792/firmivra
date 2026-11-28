@@ -1,7 +1,16 @@
 'use client';
 
 import type { AdvisoryFinancialPage, AdvisoryMeetingRow } from '@firmivra/types';
-import { Badge, Callout, Checkbox, Table, type Column } from '@firmivra/ui';
+import {
+  Badge,
+  Button,
+  Callout,
+  Checkbox,
+  Modal,
+  Table,
+  Textarea,
+  type Column,
+} from '@firmivra/ui';
 import {
   ArrowRight,
   CalendarDots,
@@ -15,6 +24,7 @@ import {
   VideoCamera,
   Warning,
 } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -30,6 +40,7 @@ import {
   SectionHead,
   card,
   dayText,
+  errorText,
   money,
   outlined,
   primary,
@@ -335,8 +346,11 @@ function Place({ m }: { m: AdvisoryMeetingRow }) {
   );
 }
 
-/** One upcoming meeting: the date block, type, day, time, place, advisor, and Join or Open and Reschedule. */
-function UpcomingMeeting({ m }: { m: AdvisoryMeetingRow }) {
+/**
+ * One upcoming meeting: the date block, type, day, time, place, advisor, and Join or Open,
+ * Reschedule and (A-X11) Cancel Meeting.
+ */
+function UpcomingMeeting({ m, onCancel }: { m: AdvisoryMeetingRow; onCancel: () => void }) {
   const timeZone = useFirmZone();
   const date = zonedDateParts(m.startsAt, timeZone);
   const title = m.meetingType ?? 'Advisory meeting';
@@ -383,8 +397,95 @@ function UpcomingMeeting({ m }: { m: AdvisoryMeetingRow }) {
         >
           Reschedule
         </Link>
+        <button
+          type="button"
+          className={`${outlined} col-span-2`}
+          aria-label={`Cancel the meeting: ${title}`}
+          onClick={onCancel}
+        >
+          Cancel Meeting
+        </button>
       </span>
     </li>
+  );
+}
+
+/**
+ * A-X11 (B31): Cancel Meeting from the client's Meetings tab, with a reason. It is the
+ * appointment's own cancel (Appointments), so the calendar and this tab show the same record:
+ * the client is told, the time frees up, and the reason is kept on the appointment.
+ */
+function CancelMeetingDialog({
+  m,
+  onClose,
+  onDone,
+}: {
+  m: AdvisoryMeetingRow;
+  onClose: () => void;
+  onDone: (text: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState('');
+  const [tried, setTried] = useState(false);
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const title = m.meetingType ?? 'Advisory meeting';
+  const missing = !reason.trim();
+  const cancel = async () => {
+    setTried(true);
+    if (missing) return;
+    setSaving(true);
+    setError(undefined);
+    try {
+      await api.appointments.cancel(m.appointmentId, { reason: reason.trim() });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: [...BA_KEY] }),
+        qc.invalidateQueries({ queryKey: ['scheduling'] }),
+      ]);
+      onDone(`Meeting canceled: ${title} on ${longDay(m.startsAt)}.`);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal
+      open
+      title="Cancel Meeting"
+      subtitle={`${title} with ${m.client.name}, ${longDay(m.startsAt)} at ${timeOf(m.startsAt)}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Keep Meeting
+          </Button>
+          <Button variant="danger" disabled={saving} onClick={() => void cancel()}>
+            Cancel Meeting
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3" data-testid="cancel-meeting">
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        <p className="text-sm text-text">
+          The appointment is canceled in Appointments too: {m.client.name} is told and the time
+          frees up.
+        </p>
+        <Textarea
+          label="Reason for canceling *"
+          rows={3}
+          maxLength={500}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          {...(tried && missing ? { error: 'Enter the reason for canceling' } : {})}
+        />
+      </div>
+    </Modal>
   );
 }
 
@@ -394,8 +495,11 @@ function UpcomingMeeting({ m }: { m: AdvisoryMeetingRow }) {
  * Reschedule go to Appointments, so this tab only lists them.
  */
 export function ClientMeetingsTab({ advisoryClientId }: { advisoryClientId: string }) {
+  const { toast, say } = useAct();
   const timeZone = useFirmZone();
   const [page, setPage] = useState(1);
+  // A-X11 (B31): the meeting being canceled.
+  const [canceling, setCanceling] = useState<AdvisoryMeetingRow>();
   const client = useAdvisoryClient(advisoryClientId);
   const path = usePathname();
   const upcoming = useApiQuery([...BA_KEY, 'client-meetings', advisoryClientId, 'upcoming'], () =>
@@ -432,6 +536,17 @@ export function ClientMeetingsTab({ advisoryClientId }: { advisoryClientId: stri
   ];
   return (
     <ClientShell advisoryClientId={advisoryClientId}>
+      {toast}
+      {canceling ? (
+        <CancelMeetingDialog
+          m={canceling}
+          onClose={() => setCanceling(undefined)}
+          onDone={(text) => {
+            setCanceling(undefined);
+            say(text);
+          }}
+        />
+      ) : null}
       <section
         className={`${card} flex flex-col gap-3`}
         aria-label="Upcoming meetings"
@@ -455,7 +570,7 @@ export function ClientMeetingsTab({ advisoryClientId }: { advisoryClientId: stri
         {next.length ? (
           <ul className="flex flex-col gap-3">
             {next.map((m) => (
-              <UpcomingMeeting key={m.appointmentId} m={m} />
+              <UpcomingMeeting key={m.appointmentId} m={m} onCancel={() => setCanceling(m)} />
             ))}
           </ul>
         ) : (

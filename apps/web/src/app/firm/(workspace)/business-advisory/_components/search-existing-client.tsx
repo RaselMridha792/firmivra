@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import { focusChoices, focusOf } from './ba-dialogs';
 import { BA_KEY, errorText } from './ba-shared';
 
 /**
@@ -29,6 +30,8 @@ export function SearchExistingClientDialog({
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState<ClientListItem>();
   const [primaryId, setPrimaryId] = useState('');
+  // A-X14: the primary focus category narrows the primary service ('' is every focus).
+  const [focus, setFocus] = useState('');
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const term = search.trim();
@@ -37,6 +40,8 @@ export function SearchExistingClientDialog({
   );
   const services = useApiQuery([...BA_KEY, 'services'], () => api.advisory.serviceOptions());
   const label = (s: AdvisoryServiceOption) => (s.referralOnly ? `${s.name} (referral)` : s.name);
+  const focuses = focusChoices(services.data ?? []);
+  const inFocus = (s: AdvisoryServiceOption) => !focus || focusOf(s) === focus;
 
   const add = async () => {
     if (!picked) return;
@@ -85,6 +90,17 @@ export function SearchExistingClientDialog({
               <span className="font-semibold text-heading">{picked.displayName}</span> is not in the
               advisory program yet. Choose their primary service focus to add them.
             </p>
+            {focuses.length > 1 ? (
+              <Select
+                label="Primary focus"
+                value={focus}
+                onChange={(e) => {
+                  setFocus(e.target.value);
+                  setPrimaryId('');
+                }}
+                options={[{ value: '', label: 'All focus areas' }, ...focuses]}
+              />
+            ) : null}
             <Select
               label="Primary service focus *"
               required
@@ -95,7 +111,9 @@ export function SearchExistingClientDialog({
                   value: '',
                   label: services.isError ? 'Services could not be loaded' : 'Choose a service…',
                 },
-                ...(services.data ?? []).map((s) => ({ value: s.serviceId, label: label(s) })),
+                ...(services.data ?? [])
+                  .filter(inFocus)
+                  .map((s) => ({ value: s.serviceId, label: label(s) })),
               ]}
             />
             <button

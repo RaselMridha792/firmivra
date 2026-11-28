@@ -50,8 +50,28 @@ export type MeetingMethod = z.infer<typeof MeetingMethod>;
 export const ContactKind = z.enum(['CLIENT', 'LEAD', 'CONTACT']);
 export type ContactKind = z.infer<typeof ContactKind>;
 
+/**
+ * A-X07 (Business Advisory Review Two, B21): why texts can't reach a client. OPTED_OUT: a STOP
+ * reply or an unsubscribe; COMPLAINED: they reported a text; BOUNCED: texts to their number fail;
+ * INVALID: their number can't take texts. Communications keeps it, and only the firm records a
+ * new opt-in there.
+ */
+export const TextsStoppedReason = z.enum(['OPTED_OUT', 'COMPLAINED', 'BOUNCED', 'INVALID']);
+export type TextsStoppedReason = z.infer<typeof TextsStoppedReason>;
+export const TEXTS_STOPPED_LABELS: Record<TextsStoppedReason, string> = {
+  OPTED_OUT: 'they stopped texts (a STOP reply or an unsubscribe)',
+  COMPLAINED: 'they reported a text as unwanted',
+  BOUNCED: 'texts to their number fail',
+  INVALID: 'their number cannot receive texts',
+};
+
 export const AppointmentContact = z.object({
   kind: ContactKind,
+  /**
+   * A-X07: a client whose texts are stopped, and why, so the form offers no text reminder and
+   * says so. Absent when texts can reach them, and for a lead or a typed contact.
+   */
+  textsStopped: TextsStoppedReason.optional(),
   /** The client or lead id; null for a contact typed in the form. */
   id: z.uuid().nullable(),
   name: z.string(),
@@ -785,5 +805,7 @@ export const SchedulingErrorCode = z.enum([
   'VIDEO_LINK_MISSING',
   /** 400: SMS reminders while the firm has no SMS sender or the contact no phone. */
   'SMS_UNAVAILABLE',
+  /** 400 (A-X07): SMS reminders for a client whose texts are stopped; the message says why. */
+  'SMS_STOPPED',
 ]);
 export type SchedulingErrorCode = z.infer<typeof SchedulingErrorCode>;

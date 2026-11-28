@@ -18,6 +18,8 @@ import {
   AdvisoryActionNoteList,
   AdvisoryIndustryList,
   AdvisoryActivityPage,
+  AdvisoryHistoryPage,
+  AdvisoryDeliverables,
   AdvisoryClientDetail,
   AdvisoryClientPage,
   AdvisoryClientRow,
@@ -1737,6 +1739,65 @@ describe('recommendations and action items', () => {
     expect(JSON.stringify(await auditFor(shared.a1))).not.toMatch(/loan packet|vendor quotes/);
   });
 
+  it('A-X11: Edit Action Item saves the whole form, clearing what was emptied', async () => {
+    const planId = AdvisoryPlanPage.parse(
+      ok(await call('get', `/plans?advisoryClientId=${shared.a1}`, ownerA)),
+    ).items[0]?.id;
+    const goalId = AdvisoryGoalPage.parse(
+      ok(await call('get', `/goals?advisoryClientId=${shared.a1}`, ownerA)),
+    ).items[0]?.id;
+    const item = AdvisoryActionItemRow.parse(
+      ok(
+        await call('post', '/action-items', ownerA, {
+          advisoryClientId: shared.a1,
+          title: mark('Call the bank'),
+          details: 'Ask about the credit line',
+          ...(planId ? { planId } : {}),
+          ...(goalId ? { goalId } : {}),
+          assigneeUserId: staffA.id,
+          dueOn: day(20),
+          priority: 'HIGH',
+        }),
+        201,
+      ),
+    );
+    expect(item).toMatchObject({
+      planId: planId ?? null,
+      goalId: goalId ?? null,
+      details: 'Ask about the credit line',
+    });
+    const title = mark('Call the bank about the line');
+    const edited = AdvisoryActionItemRow.parse(
+      ok(
+        await call('patch', `/action-items/${item.id}`, ownerA, {
+          title,
+          details: '',
+          assigneeKind: 'STAFF',
+          assigneeUserId: adminA.id,
+          dueOn: null,
+          priority: 'LOW',
+          clientVisible: true,
+          planId: null,
+          goalId: null,
+        }),
+      ),
+    );
+    expect(edited).toMatchObject({
+      title,
+      details: null,
+      assigneeKind: 'STAFF',
+      assignee: { userId: adminA.id },
+      dueOn: null,
+      priority: 'LOW',
+      clientVisible: true,
+      planId: null,
+      goalId: null,
+      status: 'NOT_STARTED',
+    });
+    // Leaves the client's open tasks as they were for the tests after this one.
+    ok(await call('patch', `/action-items/${item.id}`, ownerA, { status: 'CANCELLED' }));
+  });
+
   it('A-X11: progress notes keep each note’s status, author and time, and can move the item', async () => {
     const item = AdvisoryActionItemRow.parse(
       ok(
@@ -2633,6 +2694,123 @@ describe('the overview, meetings, resources, settings and activity', () => {
       404,
       'NOT_FOUND',
     );
+  });
+
+  it('A-X14: Services & Deliverables: services in progress and completed with their engagement and files, and the plans delivered', async () => {
+    // The primary focus categories are the firm's own Services & Pricing categories.
+    const category = await inFirm('a', async (tx) => {
+      const cat = await tx.serviceCategory.create({
+        data: { businessId: firms.a, name: `Branding & Website ${run}` },
+        select: { id: true, name: true },
+      });
+      await tx.service.update({ where: { id: services.s3 }, data: { categoryId: cat.id } });
+      return cat;
+    });
+    const options = AdvisoryServiceOptionList.parse(
+      ok(await call('get', '/services', ownerA)),
+    ).items;
+    expect(options.find((o) => o.serviceId === services.s3)?.category).toEqual(category);
+    expect(options.find((o) => o.serviceId === services.s2)?.category).toBeNull();
+
+    const engaged = ['ACCEPTED', 'IN_PROGRESS', 'AWAITING_CLIENT', 'ON_HOLD'];
+    for (const id of [shared.a1, shared.a2]) {
+      const d = AdvisoryDeliverables.parse(
+        ok(await call('get', `/clients/${id}/deliverables`, ownerA)),
+      );
+      const detail = await advClient(id);
+      const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort();
+      // The client's own services, grouped: under way, and done; nothing else.
+      expect(d.inProgress.map((x) => x.workstreamId).sort()).toEqual(
+        ids(detail.workstreams.filter((w) => engaged.includes(w.status))),
+      );
+      expect(d.completed.map((x) => x.workstreamId).sort()).toEqual(
+        ids(detail.workstreams.filter((w) => w.status === 'COMPLETED')),
+      );
+      for (const x of [...d.inProgress, ...d.completed]) {
+        const w = detail.workstreams.find((y) => y.id === x.workstreamId);
+        expect(x).toMatchObject({
+          serviceId: w?.serviceId,
+          serviceName: w?.serviceName,
+          role: w?.role,
+          startedOn: w?.startedOn,
+        });
+        expect(x.fileCount).toBeGreaterThanOrEqual(0);
+        if (!x.engagementId) expect(x.fileCount).toBe(0);
+      }
+      // Delivered versions, newest first, read from the plans' versions.
+      const at = d.plansDelivered.map((p) => p.deliveredAt);
+      expect([...at].sort().reverse()).toEqual(at);
+      expect(d.plansDelivered.every((p) => p.versionNo >= 1)).toBe(true);
+    }
+    // c1's Business Development engagement (the setup's) is the primary service's.
+    const a1 = AdvisoryDeliverables.parse(
+      ok(await call('get', `/clients/${shared.a1}/deliverables`, staffA)),
+    );
+    const primary = [...a1.inProgress, ...a1.completed].find((x) => x.serviceId === services.s1);
+    if (primary) expect(primary.engagementId).toEqual(expect.any(String));
+    // Staff reach their clients only; another firm can't name one.
+    expectError(await call('get', `/clients/${shared.a2}/deliverables`, staffA), 404, 'NOT_FOUND');
+    expectError(
+      await call('get', `/clients/${shared.a1}/deliverables`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('A-NEW2: the module history lists changes across clients, each naming its record; Staff see their clients only', async () => {
+    const history = async (query: string, who: Who = ownerA, firm: 'a' | 'b' = 'a') =>
+      AdvisoryHistoryPage.parse(ok(await call('get', `/history?${query}`, who, undefined, firm)));
+    // Every client's changes, with the client's name; plans name the plan.
+    const a1Plans = await history(`advisoryClientId=${shared.a1}&area=PLAN&pageSize=100`);
+    const created = a1Plans.items.find((i) => i.action === 'advisory_plan.created');
+    expect(created).toMatchObject({
+      area: 'PLAN',
+      message: 'Business plan created',
+      advisoryClient: { id: shared.a1, name: 'Jamie Sample (fake)' },
+    });
+    expect(created?.planId).toEqual(expect.any(String));
+    expect(
+      a1Plans.items.every((i) => i.area === 'PLAN' && i.advisoryClient?.id === shared.a1),
+    ).toBe(true);
+    expect((await history(`advisoryClientId=${shared.a2}`)).total).toBeGreaterThan(0);
+    const goals = await history('area=GOAL&pageSize=100');
+    expect(goals.items.length).toBeGreaterThan(0);
+    expect(goals.items.every((i) => /^advisory_(goal|milestone)\./.test(i.action))).toBe(true);
+    // Changes only, newest first, and never a figure or a note.
+    const all = await history('pageSize=100');
+    expect(
+      all.items.every((i) => i.action.startsWith('advisory_') && !/viewed$/.test(i.action)),
+    ).toBe(true);
+    expect(Date.parse(all.items[0]?.at ?? '')).toBeGreaterThanOrEqual(
+      Date.parse(all.items[all.items.length - 1]?.at ?? ''),
+    );
+    expect(JSON.stringify(all)).not.toMatch(/Revenue goal|Grow sales|Jamie Cafe/);
+    // A time range.
+    const tomorrow = encodeURIComponent(new Date(Date.now() + DAY).toISOString());
+    expect((await history(`from=${tomorrow}`)).total).toBe(0);
+    expect((await history(`to=${tomorrow}&advisoryClientId=${shared.a1}`)).total).toBeGreaterThan(
+      0,
+    );
+    // Staff reach only the clients assigned to them (c1, so a1), and one they don't is a 404.
+    const mine = await history('pageSize=100', staffA);
+    expect(mine.items.length).toBeGreaterThan(0);
+    expect(mine.items.every((i) => i.advisoryClient?.id === shared.a1)).toBe(true);
+    expectError(
+      await call('get', `/history?advisoryClientId=${shared.a2}`, staffA),
+      404,
+      'NOT_FOUND',
+    );
+    // Another firm sees none of it, and can't name its clients.
+    const theirs = await history('pageSize=100', ownerB, 'b');
+    expect(
+      theirs.items.some((i) => [shared.a1, shared.a2].includes(i.advisoryClient?.id ?? '')),
+    ).toBe(false);
+    expectError(
+      await call('get', `/history?advisoryClientId=${shared.a1}`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(await call('get', '/history?area=NOPE', ownerA), 400, 'VALIDATION_FAILED');
   });
 
   it('A-X02: the industries are the built-in list until the firm saves its own; Advisory Admin renames, archives and adds', async () => {

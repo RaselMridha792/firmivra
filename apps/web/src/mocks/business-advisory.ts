@@ -12,6 +12,8 @@ import {
   AdvisoryClientsQuery,
   AdvisoryFinancialsQuery,
   AdvisoryGoalsQuery,
+  AdvisoryHistoryArea,
+  AdvisoryHistoryQuery,
   AdvisoryMeetingsQuery,
   AdvisoryPlansQuery,
   AdvisoryRecommendationsQuery,
@@ -52,6 +54,8 @@ import {
   type AdvisoryClient,
   type AdvisoryClientDetail,
   type AdvisoryClientRow,
+  type AdvisoryDeliverable,
+  type AdvisoryDeliverables,
   type AdvisoryFinancialRow,
   type AdvisoryGoalDetail,
   type AdvisoryGoalRow,
@@ -76,7 +80,7 @@ import {
   type MemberRef,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
-import { mockMe } from './appointments';
+import { mockAdoptAdvisoryMeeting, mockAppointmentStatus, mockMe } from './appointments';
 import { clientFixtures } from './clients';
 import {
   registerServiceClient,
@@ -150,25 +154,57 @@ const MEMBERS: MemberRef[] = [mockMe, SAM, ADAM];
 
 // ---------- Services (Services & Pricing) and the resource library ----------
 
+/**
+ * A-X14: the mock firm's Services & Pricing categories its advisory services belong to (their
+ * primary focus); one service has none (General Advisory).
+ */
+const FOCUS = (name: string, n: number) => ({ id: uid('a110', n), name });
 const serviceOptions = (): AdvisoryServiceOption[] =>
   [
     [
       'Business Planning',
       'A written plan with goals, milestones and a budget.',
       ['Growth Advisory'],
+      FOCUS('Business Planning', 2),
     ],
-    ['Growth Strategy', 'Where to grow next and what it takes.', ['Growth Advisory']],
-    ['Financial Analysis', 'Margins, cash flow and budget against actual.', ['Growth Advisory']],
-    ['Operational Efficiency', 'Systems, staffing and processes that scale.', []],
-    ['Funding & Expansion', 'Readiness for loans, investors and a second location.', []],
-    ['Business Formation', 'Entity choice, EIN and first registrations.', ['Startup Package']],
-    ['Legal & Insurance Referral', 'Introductions to licensed partners.', []],
-  ].map(([name, description, packages], i) => ({
+    [
+      'Growth Strategy',
+      'Where to grow next and what it takes.',
+      ['Growth Advisory'],
+      FOCUS('Growth Strategy', 5),
+    ],
+    [
+      'Financial Analysis',
+      'Margins, cash flow and budget against actual.',
+      ['Growth Advisory'],
+      FOCUS('Financial Analysis', 8),
+    ],
+    [
+      'Operational Efficiency',
+      'Systems, staffing and processes that scale.',
+      [],
+      FOCUS('Operations', 6),
+    ],
+    [
+      'Funding & Expansion',
+      'Readiness for loans, investors and a second location.',
+      [],
+      FOCUS('Funding Readiness', 4),
+    ],
+    [
+      'Business Formation',
+      'Entity choice, EIN and first registrations.',
+      ['Startup Package'],
+      FOCUS('Business Formation', 1),
+    ],
+    ['Legal & Insurance Referral', 'Introductions to licensed partners.', [], null],
+  ].map(([name, description, packages, category], i) => ({
     serviceId: uid('a100', i + 1),
     name: name as string,
     description: description as string,
     packages: packages as string[],
     referralOnly: name === 'Legal & Insurance Referral',
+    category: category as AdvisoryServiceOption['category'],
   }));
 
 /**
@@ -1073,6 +1109,15 @@ export function createAdvisoryMock({
       video = true,
     ) => {
       const cl = C(c);
+      // A-X11: an upcoming one is an appointment of the appointments mock too, so Cancel Meeting
+      // cancels it there.
+      if (offset >= 0)
+        mockAdoptAdvisoryMeeting({
+          id: uid('a800', n),
+          clientName: cl.client.name,
+          startsAt: at(offset, hour),
+          endsAt: at(offset, hour + 1),
+        });
       meetings.push({
         appointmentId: uid('a800', n),
         startsAt: at(offset, hour),
@@ -1504,6 +1549,23 @@ export function createAdvisoryMock({
   });
   const visibleClients = () => clients.filter(reachable);
   const visibleIds = () => new Set(visibleClients().map((c) => c.id));
+  // A-NEW2: each history area, by this mock's own logged action names (api/advisory/
+  // advisory-clients.service.ts's AREA_PREFIXES uses a different action-name format).
+  const AREA_PREFIXES: Record<AdvisoryHistoryArea, readonly string[]> = {
+    CLIENT: ['advisory.client_'],
+    SERVICE: ['advisory.engagement_', 'advisory.workstream_'],
+    PLAN: ['advisory.plan_'],
+    GOAL: ['advisory.goal_'],
+    FINANCIAL: ['advisory.financial_'],
+    RECOMMENDATION: ['advisory.recommendation_'],
+    ACTION: ['advisory.action_item_'],
+    RESOURCE: ['advisory.resource_'],
+    SETTINGS: ['advisory.settings_'],
+  };
+  const historyAreaOf = (action: string): AdvisoryHistoryArea | null =>
+    (Object.keys(AREA_PREFIXES) as AdvisoryHistoryArea[]).find((area) =>
+      AREA_PREFIXES[area].some((prefix) => action.startsWith(prefix)),
+    ) ?? null;
   const findPlan = (planId: string) => {
     const p = plans.find((x) => x.id === planId);
     if (!p || !visibleIds().has(p.advisoryClientId)) throw notFound();
@@ -1879,6 +1941,75 @@ export function createAdvisoryMock({
           .filter((a) => a.advisoryClientId === advisoryClientId)
           .sort((a, b) => b.at.localeCompare(a.at))
           .map(({ advisoryClientId: _a, ...a }) => a);
+        return page(rows, query.page, query.pageSize);
+      }),
+    // A-X14: the client's Services & Deliverables (the files are in the Documents mock).
+    deliverables: (advisoryClientId) =>
+      run((): AdvisoryDeliverables => {
+        const c = findClient(advisoryClientId);
+        const engagements = serviceMockEngagements(c.client.id);
+        const row = (w: AdvisoryWorkstream): AdvisoryDeliverable => ({
+          workstreamId: w.id,
+          serviceId: w.serviceId,
+          serviceName: w.serviceName,
+          role: w.role,
+          status: w.status,
+          packageName: w.packageName,
+          startedOn: w.startedOn,
+          completedOn: w.completedOn,
+          staff: c.advisor,
+          engagementId: engagements.find((e) => e.service?.id === w.serviceId)?.id ?? null,
+          fileCount: 0,
+        });
+        return {
+          inProgress: c.workstreams.filter((w) => ENGAGED.includes(w.status)).map(row),
+          completed: c.workstreams.filter((w) => w.status === 'COMPLETED').map(row),
+          plansDelivered: plans
+            .filter((p) => p.advisoryClientId === c.id)
+            .flatMap((p) =>
+              p.versions.flatMap((v) =>
+                v.deliveredAt
+                  ? [
+                      {
+                        planId: p.id,
+                        planName: p.name,
+                        versionNo: v.versionNo,
+                        deliveredAt: v.deliveredAt,
+                        channel: v.deliveredChannel,
+                        by: v.deliveredBy,
+                      },
+                    ]
+                  : [],
+              ),
+            )
+            .sort((a, b) => b.deliveredAt.localeCompare(a.deliveredAt)),
+        };
+      }),
+    // A-NEW2: the module's View History across the clients the signed-in person reaches.
+    history: (q = {}) =>
+      run(() => {
+        const query = parseInput(AdvisoryHistoryQuery, q);
+        if (query.advisoryClientId) findClient(query.advisoryClientId);
+        const ids = visibleIds();
+        const rows = activity
+          .filter(
+            (a) =>
+              ids.has(a.advisoryClientId) &&
+              (!query.advisoryClientId || a.advisoryClientId === query.advisoryClientId) &&
+              (!query.area || historyAreaOf(a.action) === query.area) &&
+              (!query.from || a.at >= query.from) &&
+              (!query.to || a.at <= query.to),
+          )
+          .sort((a, b) => b.at.localeCompare(a.at))
+          .map(({ advisoryClientId, ...a }) => {
+            const c = clients.find((x) => x.id === advisoryClientId);
+            return {
+              ...a,
+              area: historyAreaOf(a.action),
+              advisoryClient: c ? { id: c.id, name: c.client.name } : null,
+              planId: null,
+            };
+          });
         return page(rows, query.page, query.pageSize);
       }),
 
@@ -2682,6 +2813,8 @@ export function createAdvisoryMock({
           .filter(
             (m) =>
               ids.has(m.advisoryClientId) &&
+              // As the API: a canceled appointment is no advisory meeting.
+              mockAppointmentStatus(m.appointmentId) !== 'CANCELLED' &&
               (!query.advisoryClientId || m.advisoryClientId === query.advisoryClientId) &&
               (query.when === 'all' ||
                 (query.when === 'upcoming' ? m.startsAt >= now : m.startsAt < now)),

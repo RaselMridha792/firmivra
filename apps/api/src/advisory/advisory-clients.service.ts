@@ -2,6 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import type {
   AdvisoryActivityPage,
+  AdvisoryDeliverable,
+  AdvisoryDeliverables,
+  AdvisoryHistoryArea,
+  AdvisoryHistoryPage,
   AdvisoryClientDetail,
   AdvisoryClientPage,
   AdvisoryClientRow,
@@ -35,6 +39,7 @@ import {
 import type {
   ActivityQuery,
   AddWorkstreamBody,
+  HistoryQuery,
   ClientsQuery,
   CreateClientBody,
   UpdateClientBody,
@@ -64,7 +69,10 @@ const ACTIVITY: Record<string, string> = {
   'advisory_plan.sent': 'Plan sent',
   'advisory_plan.archived': 'Plan archived',
   'advisory_plan.restored': 'Plan restored',
+  'advisory_plan.approval_requested': 'Plan sent to the client for approval',
+  'advisory_plan.client_approved': 'Plan approved by the client',
   'advisory_financial.added': 'Financial figures added',
+  'advisory_financial.corrected': 'Financial figures corrected',
   'advisory_goal.created': 'Goal added',
   'advisory_goal.updated': 'Goal changed',
   'advisory_goal.archived': 'Goal archived',
@@ -78,6 +86,30 @@ const ACTIVITY: Record<string, string> = {
   'advisory_action_item.note_added': 'Progress note added',
   'advisory_industries.updated': 'Industries changed',
   'advisory_resource.sent': 'Resource sent',
+  'advisory_resource.downloaded': 'Resource downloaded',
+  'advisory_settings.updated': 'Advisory settings changed',
+};
+
+/** A-NEW2: each history area, by the audit actions' prefixes. */
+const AREA_PREFIXES: Record<AdvisoryHistoryArea, readonly string[]> = {
+  CLIENT: ['advisory_client.'],
+  SERVICE: ['advisory_workstream.'],
+  PLAN: ['advisory_plan.'],
+  GOAL: ['advisory_goal.', 'advisory_milestone.'],
+  FINANCIAL: ['advisory_financial.'],
+  RECOMMENDATION: ['advisory_recommendation.'],
+  ACTION: ['advisory_action_item.'],
+  RESOURCE: ['advisory_resource.'],
+  SETTINGS: ['advisory_settings.'],
+};
+const areaOf = (action: string): AdvisoryHistoryArea | null =>
+  (Object.keys(AREA_PREFIXES) as AdvisoryHistoryArea[]).find((area) =>
+    AREA_PREFIXES[area].some((prefix) => action.startsWith(prefix)),
+  ) ?? null;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const idIn = (meta: Record<string, unknown>, key: string): string | null => {
+  const v = meta[key];
+  return typeof v === 'string' && UUID.test(v) ? v : null;
 };
 
 const pctChange = (value: number | null, previous: number | null): number | null =>
@@ -781,6 +813,220 @@ export class AdvisoryClientsService {
         total,
         page: q.page,
         pageSize: q.pageSize,
+      };
+    });
+  }
+
+  /**
+   * A-NEW2 (Business Advisory Review Two): the module's View History, newest first. Every
+   * advisory change (never a view) of the advisory clients the caller reaches: Staff see their
+   * assigned clients' only, and Owners and Admins also see firm-wide changes (settings). One
+   * client's filter answers 404 for a client the caller doesn't reach, as its Activity Log does.
+   */
+  history(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    q: Out<typeof HistoryQuery>,
+  ): Promise<AdvisoryHistoryPage> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      const empty = { items: [], total: 0, page: q.page, pageSize: q.pageSize };
+      let clients: Prisma.AuditLogWhereInput = {};
+      if (q.advisoryClientId) {
+        await this.read.loadClient(ctx, q.advisoryClientId);
+        clients = { metadata: { path: ['advisoryClientId'], equals: q.advisoryClientId } };
+      } else if (ctx.reachOnly) {
+        const reached = await ctx.tx.advisoryClient.findMany({
+          where: { businessId, ...this.read.reach(ctx) },
+          select: { id: true },
+        });
+        if (reached.length === 0) return empty;
+        clients = {
+          OR: reached.map((c) => ({ metadata: { path: ['advisoryClientId'], equals: c.id } })),
+        };
+      }
+      const where: Prisma.AuditLogWhereInput = {
+        businessId,
+        AND: [
+          { action: { startsWith: 'advisory_', not: { endsWith: 'viewed' } } },
+          q.area
+            ? { OR: AREA_PREFIXES[q.area].map((prefix) => ({ action: { startsWith: prefix } })) }
+            : {},
+          clients,
+        ],
+        ...(q.from || q.to
+          ? {
+              createdAt: {
+                ...(q.from ? { gte: new Date(q.from) } : {}),
+                ...(q.to ? { lte: new Date(q.to) } : {}),
+              },
+            }
+          : {}),
+      };
+      const [total, rows] = await Promise.all([
+        ctx.tx.auditLog.count({ where }),
+        ctx.tx.auditLog.findMany({
+          where,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          skip: (q.page - 1) * q.pageSize,
+          take: q.pageSize,
+          select: {
+            id: true,
+            action: true,
+            actorUserId: true,
+            createdAt: true,
+            entityType: true,
+            entityId: true,
+            metadata: true,
+          },
+        }),
+      ]);
+      const metaOf = (m: unknown) =>
+        m && typeof m === 'object' && !Array.isArray(m) ? (m as Record<string, unknown>) : {};
+      const clientIds = [
+        ...new Set(rows.map((r) => idIn(metaOf(r.metadata), 'advisoryClientId')).filter(Boolean)),
+      ] as string[];
+      const [names, found] = await Promise.all([
+        memberNames(
+          ctx.tx,
+          businessId,
+          rows.map((r) => r.actorUserId),
+        ),
+        clientIds.length
+          ? ctx.tx.advisoryClient.findMany({
+              where: { businessId, id: { in: clientIds } },
+              select: { id: true, client: { select: { displayName: true } } },
+            })
+          : Promise.resolve([]),
+      ]);
+      const clientName = new Map(found.map((c) => [c.id, c.client.displayName]));
+      return {
+        items: rows.map((r) => {
+          const meta = metaOf(r.metadata);
+          const acId = idIn(meta, 'advisoryClientId');
+          const name = acId ? clientName.get(acId) : undefined;
+          const planId =
+            r.entityType === 'advisory_plan' && r.entityId && UUID.test(r.entityId)
+              ? r.entityId
+              : idIn(meta, 'planId');
+          return {
+            id: r.id,
+            message: ACTIVITY[r.action] ?? r.action.replace(/^advisory_/, '').replace(/[._]/g, ' '),
+            action: r.action,
+            actor: memberRef(names, r.actorUserId),
+            at: r.createdAt.toISOString(),
+            area: areaOf(r.action),
+            advisoryClient: acId && name !== undefined ? { id: acId, name } : null,
+            planId,
+          };
+        }),
+        total,
+        page: q.page,
+        pageSize: q.pageSize,
+      };
+    });
+  }
+
+  // ---------- Services & Deliverables ----------
+
+  /**
+   * A-X14 (Business Advisory Review Two, B35): the client's Services & Deliverables. In Progress:
+   * the services under way (accepted, in progress, waiting on the client, on hold); Completed: the
+   * ones done. Each with its dates, who carries it out (the staff member assigned to the client's
+   * newest engagement on it, else the advisor), the files on that engagement (archived ones left
+   * out) and the engagement to open. Plans Delivered: the plan versions delivered to the client,
+   * read from the versions themselves (nothing is copied). The caller's reach, as every tab.
+   */
+  deliverables(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+  ): Promise<AdvisoryDeliverables> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      const { tx } = ctx;
+      const c = await this.read.loadClient(ctx, id);
+      const shown = c.workstreams.filter((w) => isEngaged(w.status) || w.status === 'COMPLETED');
+      const [engagements, versions] = await Promise.all([
+        shown.length
+          ? tx.engagement.findMany({
+              where: {
+                businessId,
+                clientId: c.clientId,
+                serviceId: { in: shown.map((w) => w.serviceId) },
+              },
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+              select: { id: true, serviceId: true, assignedUserId: true },
+            })
+          : Promise.resolve([]),
+        tx.advisoryPlanVersion.findMany({
+          where: { businessId, deliveredAt: { not: null }, plan: { advisoryClientId: c.id } },
+          orderBy: [{ deliveredAt: 'desc' }, { versionNo: 'desc' }],
+          take: 100,
+          select: {
+            planId: true,
+            versionNo: true,
+            deliveredAt: true,
+            deliveredChannel: true,
+            deliveredByUserId: true,
+            plan: { select: { name: true } },
+          },
+        }),
+      ]);
+      const newest = new Map<string, { id: string; assignedUserId: string | null }>();
+      for (const e of engagements) if (!newest.has(e.serviceId)) newest.set(e.serviceId, e);
+      const engagementIds = [...newest.values()].map((e) => e.id);
+      const files = engagementIds.length
+        ? await tx.document.groupBy({
+            by: ['engagementId'],
+            where: {
+              businessId,
+              clientId: c.clientId,
+              engagementId: { in: engagementIds },
+              archivedAt: null,
+            },
+            _count: { _all: true },
+          })
+        : [];
+      const fileCount = new Map(files.map((f) => [f.engagementId, f._count._all]));
+      const names = await memberNames(tx, businessId, [
+        c.advisorUserId,
+        ...[...newest.values()].map((e) => e.assignedUserId),
+        ...versions.map((v) => v.deliveredByUserId),
+      ]);
+      const row = (w: (typeof shown)[number]): AdvisoryDeliverable => {
+        const e = newest.get(w.serviceId);
+        return {
+          workstreamId: w.id,
+          serviceId: w.serviceId,
+          serviceName: w.service.name,
+          role: w.role,
+          status: w.status,
+          packageName: w.packageName,
+          startedOn: day(w.startedOn),
+          completedOn: day(w.completedOn),
+          staff: memberRef(names, e?.assignedUserId ?? c.advisorUserId),
+          engagementId: e?.id ?? null,
+          fileCount: e ? (fileCount.get(e.id) ?? 0) : 0,
+        };
+      };
+      return {
+        inProgress: shown.filter((w) => w.status !== 'COMPLETED').map(row),
+        completed: shown.filter((w) => w.status === 'COMPLETED').map(row),
+        plansDelivered: versions.flatMap((v) =>
+          v.deliveredAt
+            ? [
+                {
+                  planId: v.planId,
+                  planName: v.plan.name,
+                  versionNo: v.versionNo,
+                  deliveredAt: v.deliveredAt.toISOString(),
+                  channel: v.deliveredChannel,
+                  by: memberRef(names, v.deliveredByUserId),
+                },
+              ]
+            : [],
+        ),
       };
     });
   }

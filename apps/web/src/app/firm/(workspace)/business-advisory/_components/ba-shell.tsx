@@ -27,6 +27,8 @@ const TABS = [
   { href: `${BASE}/action-plans`, label: 'Action Plans' },
   { href: `${BASE}/resources`, label: 'Resources' },
   { href: `${BASE}/reports`, label: 'Reports' },
+  // A-NEW2 (Business Advisory Review Two): every advisory change across clients.
+  { href: `${BASE}/history`, label: 'View History' },
 ].map((t) => ({ ...t, match: t.match ?? ((p: string) => p.startsWith(t.href)) }));
 
 const trend = (k: AdvisoryKpi): { trend?: KpiTrend; note?: string } =>

@@ -1,5 +1,9 @@
 import type { Database } from '@firmivra/db';
-import { LOCKED_NOTIFICATION_CATEGORIES, type NotificationCategory } from '@firmivra/types';
+import {
+  LOCKED_NOTIFICATION_CATEGORIES,
+  type NotificationCategory,
+  TextsStoppedReason,
+} from '@firmivra/types';
 import { announcementSettingsOf } from '../client-portal/announcement-policy.js';
 import type { NotifyChannel } from './notify.types.js';
 
@@ -14,8 +18,11 @@ export type Recipient = { userId: string } | { clientAccountId: string };
 export const isLockedCategory = (category: NotificationCategory) =>
   (LOCKED_NOTIFICATION_CATEGORIES as readonly NotificationCategory[]).includes(category);
 
-/** SMS standings that stop every text: a STOP reply, an unsubscribe, a complaint, a dead number. */
-const TEXTS_STOPPED: readonly string[] = ['OPTED_OUT', 'COMPLAINED', 'BOUNCED', 'INVALID'];
+/**
+ * SMS standings that stop every text: a STOP reply, an unsubscribe, a complaint, a dead number
+ * (the contract's TextsStoppedReason, which Schedule Appointment shows too: A-X07).
+ */
+const TEXTS_STOPPED: readonly string[] = TextsStoppedReason.options;
 
 /**
  * Whether the client's texts are stopped at this firm (`communication_consents`, SMS). Client
