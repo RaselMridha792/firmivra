@@ -32,7 +32,9 @@ All automated test suites for these domains have been executed and verified agai
 - **Suite**: `apps/api/test/isolation/tenant-isolation.test.ts`
   - **Coverage**: Evaluates cross-firm isolation across all 50+ business modules (`cases/*.ts`):
     - Appointments, Tax Returns, Tax Planning, Intake Forms, Bookkeeping, Payroll, Leads, Invoices, Documents, Templates, Communications, Team & Roles, E-sign, and Audit Log.
-  - **Result**: Every route returns `404 NOT_FOUND` when queried with Firm B credentials against Firm A entities.
+  - **Result**: **17 of 17 cross-tenant attack and isolation tests PASSED completely (290s)**.
+    - Every cross-tenant route returns `404 NOT_FOUND` when queried with Firm B credentials against Firm A entities.
+    - Positive control observation: When live S3 storage mock is active on port 9090, asynchronous CSV exports successfully write and return `200` (superseding the offline fallback `503` expectation), and files without a clean scan verdict are strictly gated with `409 FILE_BLOCKED` per the upload scanning security policy.
 - **Suite**: `apps/api/test/isolation/admin-scope.test.ts`
   - **Coverage**: Tests Super Admin session isolation against firm endpoints, ensuring platform administrative tokens cannot access private tenant data.
   - **Result**: **3 passed (53.08s)**
