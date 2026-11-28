@@ -318,6 +318,8 @@ export const AdvisoryOverview = z.object({
   canCreatePlan: z.boolean(),
   canManageGoals: z.boolean(),
   canSend: z.boolean(),
+  /** A-X10: Advisory Admin (Owner, Admin or the grid's Manage): add, edit and archive resources. */
+  canManageResources: z.boolean().default(false),
 });
 export type AdvisoryOverview = z.infer<typeof AdvisoryOverview>;
 
