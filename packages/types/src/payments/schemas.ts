@@ -303,6 +303,12 @@ export const FirmInvoicePayment = InvoicePayment.extend({
    */
   methodType: z.string().nullable().default(null),
   last4: z.string().nullable().default(null),
+  /**
+   * Q23 (IP-041): the client disputed the charge with their bank (Stripe's charge.dispute.created).
+   * The invoice stays PAID; the firm answers the dispute in Stripe. Kept once it closes (the
+   * firm's notice and the audit log say it closed).
+   */
+  disputed: z.boolean().default(false),
   /** Newest first. */
   refunds: z.array(InvoiceRefund),
   /**
@@ -913,8 +919,9 @@ export const PaymentId = z.uuid();
 /**
  * POST /business/invoices/{id}/payments/{paymentId}/refunds (Owner and Admin): returns part or
  * all of a SUCCEEDED payment to the client's card or account through Stripe. The refund is
- * PENDING until Stripe's webhook confirms it; the invoice stays PAID. 409 NOT_REFUNDABLE or
- * REFUND_TOO_LARGE; 503 PAYMENT_PROVIDER_UNAVAILABLE.
+ * PENDING until Stripe's webhook confirms it; the invoice stays PAID. A bank payment (ACH) is
+ * refunded in full only (Q23 IP-041), confirmed once Stripe's refund.updated says it succeeded.
+ * 409 NOT_REFUNDABLE, REFUND_TOO_LARGE or BANK_REFUND_FULL_ONLY; 503 PAYMENT_PROVIDER_UNAVAILABLE.
  */
 export const RefundPaymentRequest = z.strictObject({
   /** At most the payment's `refundableCents`. */
@@ -1176,6 +1183,8 @@ export const InvoiceErrorCode = z.enum([
   'NOT_REFUNDABLE',
   /** 409 (refund): more than the payment's `refundableCents`. */
   'REFUND_TOO_LARGE',
+  /** 409 (refund, Q23 IP-041): a bank payment (ACH) is refunded in full only. */
+  'BANK_REFUND_FULL_ONLY',
   /**
    * 409 (IP-F03, create or update): a file to attach is internal, still being checked for viruses,
    * or blocked; share it with the client in Documents, or wait for its check.
@@ -1258,6 +1267,7 @@ export const INVOICE_ERRORS = {
   TIP_NOT_OFFERED: 'A tip cannot be added to this invoice. Pay without a tip.',
   NOT_REFUNDABLE: 'This payment cannot be refunded. Reload to see its status.',
   REFUND_TOO_LARGE: 'The refund is more than what is left of this payment.',
+  BANK_REFUND_FULL_ONLY: 'A bank payment can only be refunded in full.',
   ATTACHMENT_NOT_SHAREABLE:
     'A file can be attached once it is shared with the client and has passed its virus check.',
   OPTION_NOT_ENABLED: 'Turn this option on in Settings > Payments first.',
