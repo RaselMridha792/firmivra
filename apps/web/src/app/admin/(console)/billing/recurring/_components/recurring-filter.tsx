@@ -5,7 +5,7 @@ import { Funnel } from '@phosphor-icons/react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useApiQuery } from '../../../../../../lib/query';
 import { SelectControl } from '../../_components/billing-fields';
-import { adminBilling } from '../../_components/billing-api';
+import { adminBilling, FIRM_IS_CUSTOMER } from '../../_components/billing-api';
 
 /**
  * The Recurring list's "Filter" button (the design's label; the kit's FilterBar says "More
@@ -95,18 +95,21 @@ export function RecurringFilter({
               onChange={(event) => setDraft({ ...draft, firmId: event.target.value, clientId: '' })}
             />
           </FormField>
-          <FormField label="Client" htmlFor={`${id}-client`}>
-            <SelectControl
-              id={`${id}-client`}
-              value={draft.clientId}
-              placeholder="All Clients"
-              options={(clients.data ?? []).map((client) => ({
-                value: client.id,
-                label: client.name,
-              }))}
-              onChange={(event) => setDraft({ ...draft, clientId: event.target.value })}
-            />
-          </FormField>
+          {/* SA-BIL-R1: the firm is the customer; the Firm filter covers it. */}
+          {FIRM_IS_CUSTOMER ? null : (
+            <FormField label="Client" htmlFor={`${id}-client`}>
+              <SelectControl
+                id={`${id}-client`}
+                value={draft.clientId}
+                placeholder="All Clients"
+                options={(clients.data ?? []).map((client) => ({
+                  value: client.id,
+                  label: client.name,
+                }))}
+                onChange={(event) => setDraft({ ...draft, clientId: event.target.value })}
+              />
+            </FormField>
+          )}
           <DateRangePicker
             label="Next Invoice Date"
             value={draft.next}
