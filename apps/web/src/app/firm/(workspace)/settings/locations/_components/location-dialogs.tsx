@@ -322,15 +322,19 @@ export function ActivateLocationDialog({
 export function ReassignManagerDialog({
   location,
   members,
+  initialManagerUserId,
   onClose,
   onDone,
 }: {
   location: LocationProfile;
   members: Members;
+  initialManagerUserId?: string;
   onClose: () => void;
   onDone: (text: string) => void;
 }) {
-  const [userId, setUserId] = useState('');
+  const [userId, setUserId] = useState(() =>
+    members.some((member) => member.userId === initialManagerUserId) ? initialManagerUserId! : '',
+  );
   const [later, setLater] = useState(false);
   const [at, setAt] = useState('');
   const zone = location.effectiveTimeZone;
@@ -374,7 +378,11 @@ export function ReassignManagerDialog({
             .map((m) => ({ value: m.userId, label: m.name })),
         ]}
       />
-      <Link href="/team/new" className="w-fit font-semibold text-link hover:underline">
+      <Link
+        href="/team/new"
+        onClick={() => sessionStorage.setItem('firmivra:manager-return-location', location.id)}
+        className="w-fit font-semibold text-link hover:underline"
+      >
         Create New Manager in Staff Management
       </Link>
       <When zone={zone} later={later} onLater={setLater} at={at} onAt={setAt} />

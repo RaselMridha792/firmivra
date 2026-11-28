@@ -5,6 +5,28 @@ import { expect, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 
+test('Company Profile quick actions reach contact, branding, theme and login preview', async ({
+  page,
+}) => {
+  await page.goto(app('/settings/profile'));
+  const quick = page.getByTestId('brand-actions');
+  await expect(quick.getByRole('heading', { name: 'Quick Actions' })).toBeVisible();
+
+  await quick.getByRole('button', { name: 'Edit Contact' }).click();
+  await expect(page.getByTestId('contact-information')).toBeInViewport();
+  await quick.getByRole('button', { name: 'Branding' }).click();
+  await expect(page.getByTestId('brand-assets')).toBeInViewport();
+  await quick.getByRole('button', { name: 'Theme' }).click();
+  await expect(page.getByTestId('theme-colors')).toBeInViewport();
+  await quick.getByRole('button', { name: 'Preview Login' }).click();
+  const preview = page.getByRole('dialog', { name: 'Preview Full Platform' });
+  await expect(preview).toBeVisible();
+  await expect(preview.getByRole('tab', { name: 'Login Page' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
 test('an owner changes the profile, branding and client portal', async ({ page }) => {
   await page.goto(app('/settings/profile'));
   await expect(page.getByTestId('page-title')).toHaveText('Company Profile & Branding');

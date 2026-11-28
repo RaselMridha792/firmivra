@@ -15,6 +15,31 @@ test.describe.configure({ timeout: 180_000 });
 const row = (page: Page, name: string) =>
   page.getByTestId('location-row').filter({ hasText: name });
 
+test('staff creation offers a one-time return to the location with the new manager selected', async ({
+  page,
+}) => {
+  const locationId = '00000000-0000-4000-8000-000000000001';
+  const staffId = '00000000-0000-4000-8000-000000000002';
+  await page.addInitScript((id) => {
+    sessionStorage.setItem('firmivra:manager-return-location', id);
+  }, locationId);
+  await page.goto(app(`/team/${staffId}/created`));
+
+  const returnLink = page.getByRole('link', { name: 'Continue to assign this manager' });
+  await expect(returnLink).toHaveAttribute(
+    'href',
+    `/settings/locations/${locationId}/edit?managerUserId=${staffId}`,
+  );
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('firmivra:manager-return-location')))
+    .toBe(locationId);
+  await returnLink.click();
+  await expect(page).toHaveURL(new RegExp(`/settings/locations/${locationId}/edit`));
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('firmivra:manager-return-location')))
+    .toBeNull();
+});
+
 async function openList(page: Page) {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto(app('/settings/locations'));
@@ -121,9 +146,41 @@ test('Edit Location with Reassign Manager, and a scheduled deactivation cancelle
   page,
 }) => {
   await openList(page);
-  await row(page, 'Lawrenceville Office').getByRole('link', { name: 'Edit' }).click();
+  const editLink = row(page, 'Lawrenceville Office').getByRole('link', { name: 'Edit' });
+  const editHref = await editLink.getAttribute('href');
+  await editLink.click();
   await expect(page.getByTestId('page-title')).toHaveText('Edit Location', { timeout: 60_000 });
   await expect(page.getByLabel('EIN')).toHaveValue('••-•••4321');
+
+  // The staff-created page returns here with the new manager selected in this dialog.
+  await page.getByRole('button', { name: 'Reassign Manager' }).click();
+  const reassignDialog = page.getByRole('dialog', { name: 'Reassign Manager' });
+  const firstAvailableManager = await page
+    .getByTestId('reassign-manager-dialog')
+    .getByLabel('New manager')
+    .locator('option')
+    .nth(1)
+    .getAttribute('value');
+  expect(editHref).toBeTruthy();
+  expect(firstAvailableManager).toBeTruthy();
+  await reassignDialog.getByRole('button', { name: 'Cancel' }).click();
+  await page.goto(`${app(editHref!)}?managerUserId=${firstAvailableManager}`);
+  const prefilledDialog = page.getByRole('dialog', { name: 'Reassign Manager' });
+  await expect(prefilledDialog).toBeVisible();
+  await expect(page.getByTestId('reassign-manager-dialog').getByLabel('New manager')).toHaveValue(
+    firstAvailableManager!,
+  );
+  await prefilledDialog.getByRole('button', { name: 'Cancel' }).click();
+
+  // Both links out of the edit form protect unsaved edits.
+  await page.getByLabel('Location Name *').fill('Lawrenceville Office draft');
+  await page.getByRole('button', { name: 'Go to Company Profile' }).click();
+  await expect(page.getByTestId('unsaved-location')).toBeVisible();
+  await page.getByRole('button', { name: 'Keep Editing' }).click();
+  await page.getByRole('button', { name: 'Services & Pricing' }).click();
+  await expect(page.getByTestId('unsaved-location')).toBeVisible();
+  await page.getByRole('button', { name: 'Keep Editing' }).click();
+
   await page.getByRole('button', { name: 'Reassign Manager' }).click();
   const reassign = page.getByTestId('reassign-manager-dialog');
   await reassign.getByLabel('New manager').selectOption({ label: 'Olivia Owner' });
@@ -150,6 +207,6 @@ test('Edit Location with Reassign Manager, and a scheduled deactivation cancelle
   await page.getByRole('button', { name: 'More actions for Lawrenceville Branch' }).click();
   await page.getByRole('menuitem', { name: 'Edit Schedule' }).click();
   await page.getByRole('button', { name: 'Cancel Schedule' }).click();
-  await expect(page.getByText('Deactivation cancelled.')).toBeVisible();
+  await expect(page.getByTestId('location-activity')).toContainText('Scheduled change cancelled');
   await expect(row(page, 'Lawrenceville Branch')).not.toContainText('Change scheduled');
 });

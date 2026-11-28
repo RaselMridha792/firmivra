@@ -31,8 +31,7 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { type ReactNode, useEffect, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -269,6 +268,7 @@ export function LocationForm({ id }: { id?: string }) {
 
 function Form({ location, options }: { location?: LocationProfile; options: LocationOptions }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const qc = useQueryClient();
   const editing = !!location;
   const [start] = useState(() => initialValues(location));
@@ -278,7 +278,10 @@ function Form({ location, options }: { location?: LocationProfile; options: Loca
   const [saving, setSaving] = useState(false);
   const [photo, setPhoto] = useState<File>();
   const [leaving, setLeaving] = useState<string>();
-  const [dialog, setDialog] = useState<'reassign' | 'deactivate-manager' | 'deactivate'>();
+  const managerUserId = searchParams.get('managerUserId');
+  const [dialog, setDialog] = useState<
+    'reassign' | 'deactivate-manager' | 'deactivate' | undefined
+  >(() => (managerUserId ? 'reassign' : undefined));
   const dirty = JSON.stringify(v) !== JSON.stringify(start) || !!photo;
   const set = (patch: Partial<Values>) => setV((was) => ({ ...was, ...patch }));
   const field = (name: keyof Values) => ({
@@ -288,6 +291,11 @@ function Form({ location, options }: { location?: LocationProfile; options: Loca
       set({ [name]: e.target.value } as Partial<Values>),
   });
   const virtual = v.kind === 'VIRTUAL';
+
+  useEffect(() => {
+    if (!editing || !location || !managerUserId) return;
+    router.replace(`/settings/locations/${location.id}/edit`, { scroll: false });
+  }, [editing, location, managerUserId, router]);
 
   // A full reload or a closed tab with unsaved changes asks the browser's question.
   useEffect(() => {
@@ -539,12 +547,13 @@ function Form({ location, options }: { location?: LocationProfile; options: Loca
               title="Company Information (Legal Entity)"
               icon={IdentificationCard}
               aside={
-                <Link
-                  href="/settings/profile"
+                <button
+                  type="button"
+                  onClick={() => go('/settings/profile')}
                   className="inline-flex min-h-9 items-center rounded-control border border-action px-3 text-sm font-semibold text-action hover:bg-folder-surface"
                 >
                   Go to Company Profile
-                </Link>
+                </button>
               }
             >
               <p className="text-sm text-muted">
@@ -678,9 +687,13 @@ function Form({ location, options }: { location?: LocationProfile; options: Loca
           <Section title="Services Offered" icon={Gear}>
             <p className="text-sm text-muted">
               Select the services offered at this location. Services are managed in{' '}
-              <Link href="/services-pricing" className="text-link hover:underline">
+              <button
+                type="button"
+                onClick={() => go('/services-pricing')}
+                className="text-link hover:underline"
+              >
                 Services &amp; Pricing
-              </Link>
+              </button>
               .
             </p>
             {options.services.length ? (
@@ -778,6 +791,7 @@ function Form({ location, options }: { location?: LocationProfile; options: Loca
         <ReassignManagerDialog
           location={location}
           members={options.members}
+          initialManagerUserId={managerUserId ?? undefined}
           onClose={() => setDialog(undefined)}
           onDone={() => {
             setDialog(undefined);

@@ -17,6 +17,7 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { useSyncExternalStore } from 'react';
 import { useFirm } from '../../../../../../../components/firm-context';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
@@ -59,6 +60,17 @@ const CONFETTI = [
   'bottom-4 right-16 bg-gold',
 ];
 
+const MANAGER_RETURN_KEY = 'firmivra:manager-return-location';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const subscribeToManagerReturn = (onChange: () => void) => {
+  window.addEventListener('storage', onChange);
+  return () => window.removeEventListener('storage', onChange);
+};
+const managerReturnSnapshot = () => {
+  const locationId = sessionStorage.getItem(MANAGER_RETURN_KEY);
+  return locationId && UUID.test(locationId) ? locationId : null;
+};
+
 /**
  * Staff Account Created Successfully (succesfully-created-staff.jpg, guide §11): the new member's
  * summary (`api.staff.get`), Resend Invitation (a fresh link, never a second account), View Staff
@@ -67,6 +79,11 @@ const CONFETTI = [
  */
 export function CreatedScreen({ id, documentsFailed }: { id: string; documentsFailed: number }) {
   const { firm } = useFirm();
+  const returnLocationId = useSyncExternalStore(
+    subscribeToManagerReturn,
+    managerReturnSnapshot,
+    () => null,
+  );
   const member = useApiQuery(['staff', 'detail', id], () => api.staff.get(id));
   const resend = useApiMutation(() => api.staff.resendInvite(id), { invalidate: ['staff'] });
   const m = member.data;
@@ -301,6 +318,16 @@ export function CreatedScreen({ id, documentsFailed }: { id: string; documentsFa
       </div>
 
       <div className="flex flex-col items-center gap-3 pb-4">
+        {returnLocationId ? (
+          <Link
+            href={`/settings/locations/${returnLocationId}/edit?managerUserId=${id}`}
+            onClick={() => sessionStorage.removeItem(MANAGER_RETURN_KEY)}
+            className="inline-flex min-h-12 items-center gap-2 rounded-control border border-action px-10 font-semibold text-action hover:bg-folder-surface"
+          >
+            Continue to assign this manager
+            <ArrowRight aria-hidden weight="bold" className="size-5" />
+          </Link>
+        ) : null}
         <Link
           href="/team"
           className="inline-flex min-h-12 items-center gap-2 rounded-control bg-action px-10 font-semibold text-on-action hover:brightness-110"

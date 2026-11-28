@@ -819,9 +819,33 @@ export function BrandActionsCard({
     },
     { invalidate: FIRM_SETTINGS },
   );
+  const jumpTo = (card: string) => {
+    document.querySelector(`[data-testid="${card}"]`)?.scrollIntoView({ behavior: 'smooth' });
+  };
   const error = state.save.error ?? reset.error;
   return (
-    <BrandCard title="Actions" testId="brand-actions">
+    <BrandCard title="Quick Actions" testId="brand-actions">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button type="button" variant="outline" onClick={() => jumpTo('contact-information')}>
+          Edit Contact
+        </Button>
+        <Button type="button" variant="outline" onClick={() => jumpTo('brand-assets')}>
+          Branding
+        </Button>
+        <Button type="button" variant="outline" onClick={() => jumpTo('theme-colors')}>
+          Theme
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setTab('login');
+            setDialog('preview');
+          }}
+        >
+          Preview Login
+        </Button>
+      </div>
       <Button
         type="button"
         className="min-h-12 text-base"
