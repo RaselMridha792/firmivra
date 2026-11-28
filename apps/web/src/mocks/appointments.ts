@@ -313,10 +313,15 @@ export function mockAdoptAdvisoryMeeting(m: {
   if (s.appointments.some((a) => a.id === m.id)) return;
   const template = s.appointments.find((a) => a.client && a.status === 'SCHEDULED');
   if (!template?.client) return;
+  const isMe = m.clientName === client.displayName;
   s.appointments.push({
     ...copy(template),
     id: m.id,
-    client: { ...template.client, displayName: m.clientName },
+    client: {
+      ...template.client,
+      id: isMe ? template.client.id : id('1', s.next++),
+      displayName: m.clientName,
+    },
     startsAt: m.startsAt,
     endsAt: m.endsAt,
     status: 'SCHEDULED',

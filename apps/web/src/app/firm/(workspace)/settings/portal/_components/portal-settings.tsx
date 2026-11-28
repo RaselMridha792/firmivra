@@ -53,7 +53,7 @@ export function PortalSettings() {
       intro="Customize what clients see when they open your portal."
     >
       {(firm) => (
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <LeaveGuard />
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -69,22 +69,34 @@ export function PortalSettings() {
               View Client Portal <ExternalLink aria-hidden className="size-4" />
             </Button>
           </div>
-          <section hidden={panel !== 'general'} aria-label="General">
+          <section hidden={panel !== 'general'} aria-label="General" className="min-w-0">
             <SettingsForm defaults={portalSettingsValues(firm)} cancel>
               {(form) => <PortalFields form={form} firm={firm} buttons />}
             </SettingsForm>
           </section>
-          <section hidden={panel !== 'registration'} aria-label="Registration & Access">
+          <section
+            hidden={panel !== 'registration'}
+            aria-label="Registration & Access"
+            className="min-w-0"
+          >
             <RegistrationPanel />
           </section>
-          <section hidden={panel !== 'announcements'} aria-label="Announcements">
+          <section
+            hidden={panel !== 'announcements'}
+            aria-label="Announcements"
+            className="min-w-0"
+          >
             <AnnouncementsPanel />
           </section>
-          <section hidden={panel !== 'contact'} aria-label="Contact Information">
+          <section
+            hidden={panel !== 'contact'}
+            aria-label="Contact Information"
+            className="min-w-0"
+          >
             <PortalContactCard />
           </section>
-          <section hidden={panel !== 'features'} aria-label="Features">
-            <div className="grid gap-4">
+          <section hidden={panel !== 'features'} aria-label="Features" className="min-w-0">
+            <div className="grid min-w-0 gap-4">
               <PortalFeatures />
               <PortalCustomTabs />
             </div>
