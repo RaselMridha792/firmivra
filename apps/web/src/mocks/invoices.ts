@@ -1140,6 +1140,17 @@ export function createInvoicesMock(
       await mockDelay();
       manager();
       const r = find(parseInput(InvoiceId, id));
+      // Q24 (I-N03, Send Now): a scheduled invoice opens now; its schedule keeps its days.
+      if (r.status === 'SCHEDULED') {
+        if (isArchived(r)) throw archived();
+        const day = today();
+        if (r.dueOn !== null && r.dueOn < day) {
+          throw fail(409, 'DUE_DATE_PASSED', 'The due date has passed; change it first');
+        }
+        const at = now();
+        Object.assign(r, { status: 'OPEN', issuedAt: at, scheduledFor: null, updatedAt: at });
+        return toInvoice(r, day);
+      }
       if (r.status !== 'DRAFT') throw notDraft();
       if (r.archivedAt) throw fail(409, 'INVOICE_ARCHIVED', 'Restore this invoice first');
       if (isArchived(r)) throw archived();
