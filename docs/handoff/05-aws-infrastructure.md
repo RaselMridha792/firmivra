@@ -3,6 +3,8 @@
 ## 1. Cloud Architecture Overview
 The Firmivra production infrastructure is hosted in **AWS us-east-1** (N. Virginia), managed exclusively via **AWS Cloud Development Kit (CDK) v2** in TypeScript (`infra/`).
 
+*(Auditor Reference: Infrastructure parameters and topology described below represent the as-designed CDK specifications deployed via `infra/src/stacks/`. Live cloud resource outputs and active AWS console states are continuously synchronized through CloudFormation deployments.)*
+
 ```
 [Internet Users]
        │

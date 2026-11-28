@@ -9,6 +9,8 @@
 | **P3 - Moderate** | Isolated functional issue affecting non-critical modules; viable workaround exists. | **< 2 hours** | Daily | **< 24 hours** |
 | **P4 - Minor** | Cosmetic defects, minor UI inconsistencies, or non-blocking documentation updates. | **< 1 business day** | Normal backlog | Next release |
 
+*(Auditor Reference: Response and resolution windows defined above represent operational targets established by platform service level agreements. Compliance measurements are audited against live PagerDuty and incident tracking post-launch.)*
+
 ---
 
 ## 2. Incident Management & Escalation Flow

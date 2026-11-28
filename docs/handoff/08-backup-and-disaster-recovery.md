@@ -2,8 +2,10 @@
 
 ## 1. Business Continuity Targets
 The Firmivra platform is engineered to meet strict availability and data retention objectives for professional accounting practices:
-- **Recovery Point Objective (RPO)**: **< 5 minutes**. Data loss is bounded to less than five minutes of transactions through continuous write-ahead log (WAL) streaming.
-- **Recovery Time Objective (RTO)**: **< 30 minutes**. Full operational restoration in an alternate availability zone or restored database cluster within thirty minutes.
+- **Recovery Point Objective (RPO)**: **< 5 minutes** (as-designed architectural target). Data loss is bounded to less than five minutes of transactions through continuous write-ahead log (WAL) streaming.
+- **Recovery Time Objective (RTO)**: **< 30 minutes** (as-designed architectural target). Full operational restoration in an alternate availability zone or restored database cluster within thirty minutes.
+
+*(Auditor Reference: The metrics above represent as-designed infrastructure specifications based on AWS RDS Multi-AZ synchronous replication and continuous S3 WAL archiving. Empirical recovery measurements are subject to scheduled live disaster recovery drills post-launch.)*
 
 ---
 

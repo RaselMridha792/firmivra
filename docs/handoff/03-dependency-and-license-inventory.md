@@ -1,10 +1,11 @@
 # 03. Dependency & Open Source License Inventory
 
 ## 1. Open Source Licensing Policy & Certification
-Firmivra enforces a strict intellectual property and licensing policy:
-- **Permissive Open Source Only**: Production runtime dependencies must be governed by commercially permissive open-source licenses: **MIT**, **Apache-2.0**, **BSD-2-Clause**, **BSD-3-Clause**, or **ISC**.
-- **Zero Copyleft Contamination**: No libraries governed by GNU GPL, AGPL, LGPL, or other reciprocal copyleft licenses are permitted in production runtime distributions.
-- **Audited Compliance**: All third-party copyrights are acknowledged in standard distribution manifests.
+Firmivra enforces a strict intellectual property and licensing compliance standard:
+- **Permissive Open Source Elective Standard**: Production runtime dependencies must be governed by commercially permissive open-source licenses: **MIT**, **Apache-2.0**, **BSD-2-Clause**, **BSD-3-Clause**, or **ISC**.
+- **Dual-Licensed Components**: Where a dependency offers dual licensing terms (such as `jszip`, which is dual-licensed under `MIT OR GPL-3.0-or-later`, pulled transitively by `mammoth` for DOCX extraction), Firmivra explicitly elects and uses the component under its permissive **MIT** license option. No GPL or reciprocal copyleft obligations attach to or govern the Firmivra platform or its distribution.
+- **Build-Time Tooling Note**: Tooling utilized solely during development or build time and not distributed in runtime images (such as `lightningcss`, licensed under MPL-2.0 and utilized by Tailwind CSS v4 during static asset compilation) is isolated from production runtimes.
+- **Audited Compliance**: All third-party copyrights and permissive notices are acknowledged in standard distribution manifests.
 
 ---
 
@@ -22,7 +23,7 @@ Firmivra enforces a strict intellectual property and licensing policy:
 | `aws-jwt-verify` | `^4.0.1` | Cryptographic JWT signature verification against Cognito JWKS | Apache-2.0 |
 | `stripe` | `^17.0.0` | Payment gateway and webhook signature processing | MIT |
 | `pdf-lib` | `^1.17.1` | PDF composition, field stamping, packet generation, and certificates | MIT |
-| `mammoth` | `1.8.0` | DOCX Word document extraction and text conversion | BSD-2-Clause |
+| `mammoth` | `1.8.0` | DOCX Word document extraction (transitive `jszip` used under MIT) | BSD-2-Clause |
 | `sanitize-html` | `^2.13.0` | HTML content sanitization and XSS mitigation | MIT |
 | `zod` | `^4.6.5` | Schema validation and contract enforcement | MIT |
 
