@@ -858,6 +858,7 @@ function InvoiceTable({
   const menu = (i: InvoiceListItem): ActionMenuSection[] => {
     const open = i.status === 'OPEN';
     const draft = i.status === 'DRAFT';
+    const scheduled = i.status === 'SCHEDULED';
     const cancelable = (draft || i.status === 'SCHEDULED' || open) && paidCents(i) === 0;
     // IP-F08: a scheduled invoice, or an open one with something to pay, keeps its number.
     const correctable = i.status === 'SCHEDULED' || (open && i.balanceDueCents > 0);
@@ -919,28 +920,31 @@ function InvoiceTable({
             : []),
         ],
       },
-      ...(canChange && (draft || remindable)
+      ...(canChange && (draft || scheduled || remindable)
         ? [
             {
               title: 'Send & Collect',
               items: draft
                 ? [{ label: 'Send Invoice', icon: PaperPlaneTilt, onSelect: () => void send(i) }]
-                : [
-                    {
-                      label: 'Resend Invoice',
-                      icon: PaperPlaneTilt,
-                      onSelect: () => void resend(i),
-                    },
-                    ...(payLink(i)
-                      ? [
-                          {
-                            label: 'Copy Payment Link',
-                            icon: LinkSimple,
-                            onSelect: () => void copyLink(i),
-                          },
-                        ]
-                      : []),
-                  ],
+                : scheduled
+                  ? // Q24 (I-N03): a scheduled invoice can go now instead of on its day.
+                    [{ label: 'Send Now', icon: PaperPlaneTilt, onSelect: () => void send(i) }]
+                  : [
+                      {
+                        label: 'Resend Invoice',
+                        icon: PaperPlaneTilt,
+                        onSelect: () => void resend(i),
+                      },
+                      ...(payLink(i)
+                        ? [
+                            {
+                              label: 'Copy Payment Link',
+                              icon: LinkSimple,
+                              onSelect: () => void copyLink(i),
+                            },
+                          ]
+                        : []),
+                    ],
             },
           ]
         : []),

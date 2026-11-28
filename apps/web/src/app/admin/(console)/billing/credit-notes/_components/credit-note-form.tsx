@@ -37,7 +37,7 @@ import {
 } from '../../_components/billing-labels';
 import { QuietLine, quietErrorText } from '../../_components/billing-parts';
 import { BillingHeader, type Crumb } from '../../_components/billing-shell';
-import { adminBilling } from '../../_components/billing-api';
+import { adminBilling, FIRM_IS_CUSTOMER } from '../../_components/billing-api';
 
 /**
  * Create Credit Note (credit-note-creation-dashboard.jpg, docx §14): the details, the credit as
@@ -295,7 +295,11 @@ function CreditNoteForm({
   const active = new Set(firms.filter((firm) => firm.status === 'ACTIVE').map((firm) => firm.id));
   const customerOptions = clients
     .filter((client) => active.has(client.firmId))
-    .map((client) => ({ value: client.id, label: `${client.name} (${firmName(client.firmId)})` }));
+    // SA-BIL-R1: the firm is the customer; its name alone, never "Firm (Firm)".
+    .map((client) => ({
+      value: client.id,
+      label: FIRM_IS_CUSTOMER ? client.name : `${client.name} (${firmName(client.firmId)})`,
+    }));
   const client = clients.find((row) => row.id === draft.clientId) ?? null;
   const invoice = (invoices.data ?? []).find((row) => row.id === draft.invoiceId) ?? null;
   const currency =
@@ -372,7 +376,7 @@ function CreditNoteForm({
           <SectionTitle id="credit-details-title">1. Credit Note Details</SectionTitle>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <FormField
-              label="Customer"
+              label={FIRM_IS_CUSTOMER ? 'Firm' : 'Customer'}
               htmlFor="credit-customer"
               required
               error={fieldErrors['clientId']}
@@ -380,7 +384,7 @@ function CreditNoteForm({
               <SelectControl
                 id="credit-customer"
                 value={draft.clientId}
-                placeholder="Select a customer"
+                placeholder={FIRM_IS_CUSTOMER ? 'Select a firm' : 'Select a customer'}
                 invalid={Boolean(fieldErrors['clientId'])}
                 options={customerOptions}
                 onChange={(event) => set({ clientId: event.target.value, invoiceId: '' })}

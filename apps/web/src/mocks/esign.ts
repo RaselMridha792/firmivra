@@ -5,6 +5,7 @@ import {
   CreateEsignUploadBody,
   type EsignAction,
   type EsignAccessRole,
+  type EsignAuthMethod,
   type EsignClient,
   EsignContentType,
   type EsignDocument,
@@ -308,11 +309,24 @@ function seeded(n: number, s: Seed): { detail: EsignRequestDetail; events: Esign
   recipients.forEach((r, i) => {
     const ref = { id: r.id, name: r.name };
     const n2 = n * 100 + 10 + i * 5;
-    if (r.viewedAt) events.push(event(n2, 'VIEWED', s.lastActivityAt, r.name, 'SIGNER', ref));
-    if (r.signedAt) events.push(event(n2 + 1, 'SIGNED', s.lastActivityAt, r.name, 'SIGNER', ref));
+    if (r.viewedAt)
+      events.push(event(n2, 'VIEWED', s.lastActivityAt, r.name, 'SIGNER', ref, null, r.authMethod));
+    if (r.signedAt)
+      events.push(
+        event(n2 + 1, 'SIGNED', s.lastActivityAt, r.name, 'SIGNER', ref, null, r.authMethod),
+      );
     if (r.declinedAt)
       events.push(
-        event(n2 + 2, 'DECLINED', s.lastActivityAt, r.name, 'SIGNER', ref, r.declineReason),
+        event(
+          n2 + 2,
+          'DECLINED',
+          s.lastActivityAt,
+          r.name,
+          'SIGNER',
+          ref,
+          r.declineReason,
+          r.authMethod,
+        ),
       );
   });
   if (completed)
@@ -357,8 +371,10 @@ function event(
   actorKind: EsignEvent['actorKind'],
   recipient: EsignEvent['recipient'] = null,
   reason: string | null = null,
+  authMethodParam: EsignAuthMethod | null = null,
 ): EsignEvent {
-  const authMethod = ['VIEWED', 'SIGNED', 'DECLINED'].includes(type) ? 'EMAIL_CODE' : null;
+  const authMethod =
+    authMethodParam ?? (['VIEWED', 'SIGNED', 'DECLINED'].includes(type) ? 'EMAIL_CODE' : null);
   return {
     id: id('7', n),
     type,
@@ -531,11 +547,45 @@ function buildFixtures(): { details: EsignRequestDetail[]; events: Map<string, E
   return { details, events };
 }
 
+const ESIGN_STORAGE_KEY = 'firmivra-mock:esign-store';
+const loadEsignStore = (): { details: EsignRequestDetail[]; events: Map<string, EsignEvent[]> } => {
+  const initial = buildFixtures();
+  if (typeof window === 'undefined') return initial;
+  try {
+    const raw = sessionStorage.getItem(ESIGN_STORAGE_KEY);
+    if (!raw) return initial;
+    const parsed = JSON.parse(raw) as {
+      details: EsignRequestDetail[];
+      events: [string, EsignEvent[]][];
+    };
+    return {
+      details: parsed.details ?? initial.details,
+      events: new Map<string, EsignEvent[]>(parsed.events ?? [...initial.events.entries()]),
+    };
+  } catch {
+    return initial;
+  }
+};
+export const persistEsignStore = () => {
+  if (typeof window === 'undefined' || !store) return;
+  try {
+    sessionStorage.setItem(
+      ESIGN_STORAGE_KEY,
+      JSON.stringify({
+        details: store.details,
+        events: [...store.events.entries()],
+      }),
+    );
+  } catch {
+    // ignore
+  }
+};
+
 let store: ReturnType<typeof buildFixtures> | undefined;
 /** New ids, shared by every mock instance, well above the seeded ones. */
 let nextId = 900_000;
-/** One store per page load. Built on first use: importing this file runs nothing. */
-export const esignStore = () => (store ??= buildFixtures());
+/** One store per session. Built on first use: importing this file runs nothing. */
+export const esignStore = () => (store ??= loadEsignStore());
 /** The fixtures as built (for tests and other mocks); copies. */
 export const esignFixtures = (): EsignRequestDetail[] => copy(esignStore().details);
 
@@ -582,7 +632,7 @@ export function createEsignMock(
     { requestId: string; fileName: string; contentType: EsignContentType; sizeBytes: number }
   >();
   const scanDoneAt = new Map<string, number>();
-  const newId = (prefix: string) => id(prefix, nextId++);
+  const newId = (_prefix: string) => crypto.randomUUID();
 
   const assigned = (clientId: string | undefined) =>
     clientFixtures().some((c) => c.id === clientId && c.assignedTo?.userId === mockStaff.userId);
@@ -651,6 +701,7 @@ export function createEsignMock(
       ...extra,
     });
     esignStore().events.set(r.id, list);
+    persistEsignStore();
   };
   /** After a change; a changed DRAFT loses every approval so far. */
   const touched = (r: EsignRequestDetail) => {
@@ -897,7 +948,8 @@ export function createEsignMock(
       });
       derive(r);
       esignStore().details.push(r);
-      record(r, 'CREATED');
+      record(r, 'CREATED', { version: 1 });
+      persistEsignStore();
       return view(r);
     },
     update: async (requestId, body) => {
@@ -919,7 +971,10 @@ export function createEsignMock(
         if (value !== undefined) Object.assign(r, { [key]: value });
       }
       touched(r);
-      record(r, 'EDITED');
+      const existingEvents = esignStore().events.get(r.id) ?? [];
+      const editCount = existingEvents.filter((e) => e.type === 'EDITED').length;
+      record(r, 'EDITED', { version: editCount + 2 });
+      persistEsignStore();
       return view(r);
     },
     discard: async (requestId) => {
@@ -1002,7 +1057,8 @@ export function createEsignMock(
       );
       if (!source) throw notFound();
       const contentType = EsignContentType.options.find((t) => t === source.contentType);
-      if (!contentType) throw fail(409, 'FILE_TYPE_NOT_ALLOWED', 'Only PDF, JPG and PNG files');
+      if (!contentType)
+        throw fail(409, 'FILE_TYPE_NOT_ALLOWED', 'Only PDF, JPG, PNG and Word files');
       if (source.scanStatus === 'PENDING') throw fail(409, 'SCAN_PENDING', 'Still being checked');
       if (source.scanStatus !== 'CLEAN') throw fail(409, 'FILE_BLOCKED', 'The file is blocked');
       const pageCount = contentType === 'application/pdf' ? 2 : 1;

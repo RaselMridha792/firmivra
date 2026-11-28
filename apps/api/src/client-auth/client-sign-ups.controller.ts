@@ -14,6 +14,7 @@ import {
   LinkSignUpRequest,
   RecordSignUpChecksRequest,
   RestoreSignUpAccessRequest,
+  RetrySignUpEmailRequest,
   type RestoreSignUpAccessResponse,
   SignUpNotAMatchRequest,
   type SignUpNotAMatchResponse,
@@ -87,6 +88,23 @@ export class ClientSignUpsController {
     @CurrentAuth() auth: AuthContext,
   ): Promise<ApproveSignUpResponse> {
     return this.signUps.approve(
+      { businessId: tenant.businessId, userId: auth.userId },
+      clientAccountId,
+      body,
+    );
+  }
+
+  /** Q44 D2.13: the approval email again, after it failed. */
+  @Post(':clientAccountId/retry-email')
+  @HttpCode(200)
+  retryEmail(
+    @Param('clientAccountId') clientAccountId: string,
+    @Body(new ZodValidationPipe(RetrySignUpEmailRequest))
+    body: z.output<typeof RetrySignUpEmailRequest>,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<ClientSignUpDetail> {
+    return this.signUps.retryEmail(
       { businessId: tenant.businessId, userId: auth.userId },
       clientAccountId,
       body,

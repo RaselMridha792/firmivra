@@ -39,6 +39,7 @@ import {
   SignUpState,
   UpdateClientSignUpSettingsRequest,
   VerifyCodeRequest,
+  RetrySignUpEmailRequest,
 } from './schemas.js';
 
 /**
@@ -194,6 +195,15 @@ export function createClientSignUpsClient(request: ApiRequest) {
       request(KeepSignUpPendingResponse, `${one(clientAccountId)}/keep-pending`, {
         method: 'POST',
         body: parseInput(KeepSignUpPendingRequest, body),
+      }),
+    /** Q44 D2.13: sends the failed approval email again. 409 NOTHING_TO_RETRY. */
+    retryEmail: async (
+      clientAccountId: string,
+      body: RetrySignUpEmailRequest,
+    ): Promise<ClientSignUpDetail> =>
+      request(ClientSignUpDetail, `${one(clientAccountId)}/retry-email`, {
+        method: 'POST',
+        body: parseInput(RetrySignUpEmailRequest, body),
       }),
   };
 }

@@ -13,7 +13,7 @@ import { OriginLink } from '../../../../../components/origin-link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { useApiQuery } from '../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ACCOUNT_TYPES, formatPhone } from '../../clients/_components/client-parts';
 import { ApproveDialog } from './approve-dialog';
 import { DeclineDialog } from './decline-dialog';
@@ -171,7 +171,10 @@ export function RequestPanel({
           </p>
         </div>
       ) : (
-        <Decision request={r} />
+        <>
+          <Decision request={r} />
+          <EmailDelivery request={r} onNotice={onNotice} />
+        </>
       )}
 
       <ApproveDialog
@@ -431,6 +434,76 @@ function Decision({ request: r }: { request: ClientSignUpDetail }) {
             ? `Reason (your firm only): ${r.declineReason}`
             : 'No reason was recorded.'}
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Q44 D2.13: the decision's email when it did not go out (approve or Restore Access record it),
+ * with Retry Email for the approval notice. Once a retry goes out it says so.
+ */
+function EmailDelivery({
+  request: r,
+  onNotice,
+}: {
+  request: ClientSignUpDetail;
+  onNotice: (notice: Notice) => void;
+}) {
+  const retry = useApiMutation(
+    () => api.clientSignUps.retryEmail(r.clientAccountId, { idempotencyKey: crypto.randomUUID() }),
+    { invalidate: [...SIGN_UPS] },
+  );
+  const d = r.emailDelivery;
+  if (!d) return null;
+  const which = d.email === 'APPROVAL' ? 'approval email' : 'recovery email';
+  const tries = `${d.attempts} ${d.attempts === 1 ? 'attempt' : 'attempts'}`;
+  if (d.status === 'SENT') {
+    return (
+      <p data-testid="email-delivery" className="mt-3 text-sm text-success">
+        The {which} went out {momentText(d.at)} ({tries}).
+      </p>
+    );
+  }
+  const canRetry = r.allowedActions.includes('RETRY_EMAIL');
+  return (
+    <div
+      data-testid="email-delivery"
+      className="mt-3 flex items-start gap-3 rounded-lg border border-divider bg-warning-soft p-4"
+    >
+      <Warning aria-hidden weight="fill" className="mt-0.5 size-5 shrink-0 text-warning" />
+      <div className="min-w-0 text-sm">
+        <p className="font-semibold text-heading">The {which} did not go out</p>
+        <p className="mt-1 text-text">
+          {d.email === 'APPROVAL'
+            ? 'The client can use the portal but was not told. '
+            : 'Ask the client to use Forgot Password on the portal sign-in page. '}
+          Last tried {momentText(d.at)} ({tries}).
+        </p>
+        {canRetry ? (
+          <Button
+            variant="secondary"
+            className="mt-3"
+            disabled={retry.isPending}
+            onClick={() =>
+              retry.mutate(undefined, {
+                onSuccess: (next) =>
+                  onNotice(
+                    next.emailDelivery?.status === 'SENT'
+                      ? { ok: true, text: `The approval email went to ${r.email}.` }
+                      : {
+                          ok: false,
+                          text: 'The approval email still did not go out. Try again later.',
+                        },
+                  ),
+                onError: (error) =>
+                  onNotice({ ok: false, text: errorMessage(error, SIGN_UP_ERRORS) }),
+              })
+            }
+          >
+            {retry.isPending ? 'Sending…' : 'Retry Email'}
+          </Button>
+        ) : null}
       </div>
     </div>
   );

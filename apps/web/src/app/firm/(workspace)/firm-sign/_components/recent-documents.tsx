@@ -14,7 +14,7 @@ export function RecentDocuments() {
           View All
         </Link>
       </div>
-      <RequestsTable limit={5} caption="Recent documents" compact />
+      <RequestsTable limit={5} caption="Recent documents" compact detailed />
     </Card>
   );
 }

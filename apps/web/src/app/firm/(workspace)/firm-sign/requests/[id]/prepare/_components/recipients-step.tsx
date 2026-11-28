@@ -41,6 +41,15 @@ export function RecipientsStep({ r }: { r: EsignRequestDetail }) {
   const logins: Choice[] = (client.data?.portalLogins ?? [])
     .filter((l) => l.status === 'ACTIVE')
     .map((l) => ({ value: `login:${l.clientAccountId}`, label: `${l.email} (portal login)` }));
+  const firmClients = useQuery({
+    queryKey: ['clients', 'list', 'recipients-contacts'],
+    queryFn: () => api.clients.list({ limit: 50 }),
+  });
+  const contacts: Choice[] = (firmClients.data?.items ?? []).map((c) => ({
+    value: `client:${c.id}`,
+    label: `${c.displayName} (${c.accountType === 'INDIVIDUAL' ? 'Individual' : 'Business'})`,
+  }));
+  const clientDataMap = new Map((firmClients.data?.items ?? []).map((c) => [c.id, c]));
   // Only Owners and Admins can list the members; anyone else adds people as "Someone else".
   const status = useApiQuery(['esign', 'status'], () => api.esign.status());
   const manager = isOwnerOrAdmin(status.data?.myEsignRole ?? null);
@@ -143,6 +152,8 @@ export function RecipientsStep({ r }: { r: EsignRequestDetail }) {
                   errors={errors.rows[i] ?? {}}
                   logins={logins}
                   members={d.kind === 'APPROVER' ? approvers : members}
+                  contacts={contacts}
+                  clientsMap={clientDataMap}
                   onChange={(patch) => change(i, patch)}
                   onMove={(by) => move(i, by)}
                   onRemove={() => edit(rows.filter((_, k) => k !== i))}

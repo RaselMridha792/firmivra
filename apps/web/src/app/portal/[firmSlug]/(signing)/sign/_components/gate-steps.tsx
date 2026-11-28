@@ -217,6 +217,15 @@ export function ConsentStep({ signing, firmSlug, opening, state, onState, onLost
             }}
             noValidate
           >
+            <div className="rounded-control border border-border bg-subtle p-3 text-xs text-muted">
+              <p className="font-medium text-heading">Electronic signing disclosure</p>
+              <p className="mt-1">
+                You are reviewing documents from {state.firmName}. If you choose to sign
+                electronically, your signature will be associated with this document. Review the
+                entire document before signing. Selecting &quot;Finish and Sign&quot; confirms your
+                intent to sign it.
+              </p>
+            </div>
             <div
               data-testid="consent-text"
               className="max-h-96 overflow-y-auto rounded-control border border-border p-4"

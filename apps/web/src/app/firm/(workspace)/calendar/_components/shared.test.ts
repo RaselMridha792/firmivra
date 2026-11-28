@@ -13,7 +13,7 @@ describe('CALENDAR_ERRORS', () => {
 
   it('says why Mark Completed waits for the start', () => {
     expect(CALENDAR_ERRORS['APPOINTMENT_NOT_STARTED']).toBe(
-      "This appointment hasn't started yet. You can mark it completed once it starts.",
+      'This appointment has not started yet. You can mark it as a no show once it starts.',
     );
   });
 });

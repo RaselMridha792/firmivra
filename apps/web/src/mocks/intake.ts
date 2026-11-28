@@ -43,6 +43,7 @@ import { intakeBlockFixture } from './agreements';
 import { engagementFixtures } from './engagements';
 import { mockBusiness } from './me';
 import { mockUploadTicket } from './upload-ticket';
+import { appointmentIntakes } from './appointment-intakes';
 
 /**
  * Mock data for `api.myIntakes(slug)` (R11): the signed-in portal client's Intake Forms tab
@@ -875,6 +876,11 @@ export function createMyIntakesMock(
         updatedAt: now(),
       };
       row.signature = { printedName: signature.signer.printedName, signedAt: now() };
+      for (const entry of appointmentIntakes().values()) {
+        if (entry.id === row.item.id) {
+          entry.completed = true;
+        }
+      }
       return view(row);
     },
     createUpload: async (id, body) => {

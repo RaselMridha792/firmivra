@@ -16,6 +16,7 @@ import {
   type InvoiceRow,
   invoiceSelect,
   notFound,
+  achAccepted,
   paymentsEnabled,
   tippingOn,
   toMyInvoice,
@@ -99,6 +100,12 @@ export class MyInvoicesService {
       const { today, timeZone } = await firmToday(tx, businessId);
       const on = await paymentsEnabled(tx, businessId);
       const tips = await tippingOn(tx, businessId);
+      // Q23 (IP-041): Pay Now takes a U.S. bank account too (the portal says how it works).
+      const account = await tx.stripeAccount.findUnique({
+        where: { businessId },
+        select: { achPaymentsActive: true },
+      });
+      const bank = on && (await achAccepted(tx, businessId, account?.achPaymentsActive ?? false));
       const term = q.search?.toLowerCase();
       const wanted = new Set(MY_INVOICE_VIEWS[q.view]);
       const shown = rows
@@ -127,6 +134,7 @@ export class MyInvoicesService {
         items: page,
         nextCursor: more && page.length > 0 ? encode(page.at(-1)!) : null,
         paymentsEnabled: on,
+        bankPayments: bank,
       };
     });
     await this.audit.log('my_invoices.listed', { type: 'invoice' }, { count: list.items.length });

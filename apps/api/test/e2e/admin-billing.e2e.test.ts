@@ -16,6 +16,7 @@ import {
   BillingInvoiceDetail,
   BillingInvoicePage,
   BillingPayment,
+  BillingRevenue,
   BillingRecurring,
   BillingSettings,
 } from '@firmivra/types';
@@ -447,6 +448,72 @@ describe('invoices, payments and refunds', () => {
       number
     >;
     expect(summary.refundsCents).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('GET /revenue (SA-BIL-A1): collected gross by payment date and type; the Dashboard tile matches', async () => {
+    const revenue = async (query: string) =>
+      BillingRevenue.parse(ok(await call('get', `/revenue?${query}`)));
+    const day = `from=${t0}&to=${t0}`;
+    const [allBefore, recurringBefore] = await Promise.all([
+      revenue(day),
+      revenue(`${day}&type=RECURRING`),
+    ]);
+    const inv = await sentInvoice({
+      lines: [{ description: 'Fake one-time setup', quantity: 1, rateCents: 3_000 }],
+    });
+    const payment = BillingPayment.parse(
+      ok(
+        await call('post', `/invoices/${inv.id}/payments`, {
+          requestId: randomUUID(),
+          amountCents: 3_000,
+          paidOn: t0,
+          method: 'CARD',
+        }),
+        201,
+      ),
+    );
+    ok(
+      await call('post', `/payments/${payment.id}/refunds`, {
+        type: 'PARTIAL',
+        amountCents: 500,
+        reason: 'Fake: goodwill',
+        confirmed: true,
+      }),
+    );
+    const all = await revenue(`${day}&compare=true`);
+    // Gross: the refund is its own line, never taken off the collected total.
+    expect(all.current.collectedCents - allBefore.current.collectedCents).toBe(3_000);
+    expect(all.current.oneTimeCents - allBefore.current.oneTimeCents).toBe(3_000);
+    expect(all.current.payments - allBefore.current.payments).toBe(1);
+    expect(all.current.refundedCents - allBefore.current.refundedCents).toBe(500);
+    // One day compared: the day before.
+    expect(all.previous).toMatchObject({ from: plus(-1), to: plus(-1) });
+    const recurring = await revenue(`${day}&type=RECURRING`);
+    expect(recurring.current.collectedCents).toBe(recurringBefore.current.collectedCents);
+
+    // A whole month compares with the previous calendar month.
+    const month = await revenue(`from=2026-03-01&to=2026-03-31&compare=true`);
+    expect(month.previous).toMatchObject({ from: '2026-02-01', to: '2026-02-28' });
+
+    // The Dashboard's Monthly Revenue is this query for this month (America/New_York), both types.
+    const nyToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format();
+    const first = `${nyToday.slice(0, 7)}-01`;
+    const next = new Date(`${first}T00:00:00Z`);
+    next.setUTCMonth(next.getUTCMonth() + 1);
+    next.setUTCDate(0);
+    const thisMonth = await revenue(`from=${first}&to=${next.toISOString().slice(0, 10)}`);
+    const dashboard = await request(app.getHttpServer())
+      .get('/api/v1/admin/dashboard')
+      .set('authorization', `Bearer ${await tokenFor(fx.users.admin.email)}`)
+      .set('x-forwarded-for', viewer());
+    expect((ok(dashboard) as { monthlyRevenueCents: number }).monthlyRevenueCents).toBe(
+      thisMonth.current.collectedCents,
+    );
+
+    const reversed = await call('get', `/revenue?from=${t0}&to=${plus(-1)}`);
+    expect([reversed.status, code(reversed)]).toEqual([400, 'VALIDATION_FAILED']);
+    const tooLong = await call('get', `/revenue?from=${plus(-400)}&to=${t0}`);
+    expect(tooLong.status).toBe(400);
   });
 });
 

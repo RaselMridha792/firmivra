@@ -1,6 +1,7 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { OkResponse } from '../schemas.js';
 import {
+  AdminCommMedia,
   AdminCommBroadcast,
   AdminCommBroadcastId,
   AdminCommBroadcastSummary,
@@ -158,6 +159,12 @@ export function createAdminBroadcastsClient(request: ApiRequest) {
       /** An upload ticket; PUT the file to `uploadUrl`, then wait for the scan. */
       create: async (body: CreateAdminCommMediaRequest): Promise<AdminCommMediaTicket> =>
         post(AdminCommMediaTicket, `${BASE}/media`, parseInput(CreateAdminCommMediaRequest, body)),
+      /**
+       * After the PUT: the API checks the stored bytes against the ticket (409 UPLOAD_MISMATCH,
+       * the file removed). Locally and on dev the file is CLEAN at once; else it waits for the scan.
+       */
+      confirm: async (id: string): Promise<AdminCommMedia> =>
+        post(AdminCommMedia, `${BASE}/media/${encodeURIComponent(id)}/confirm`),
     },
   };
 }

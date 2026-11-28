@@ -1470,6 +1470,7 @@ export function PlanningResources() {
   const [editing, setEditing] = useState<string>();
   // Tax Planning resources (audit, Nov 20): Add Resource and Create Checklist.
   const [creating, setCreating] = useState<'GUIDE' | 'CHECKLIST'>();
+  const [categoryFilter, setCategoryFilter] = useState('');
   const term = useDeferredValue(search.trim());
   const q = useApiQuery([...TP_KEY, 'resources', term], () =>
     api.taxPlanning.resources({ ...(term ? { search: term } : {}) }),
@@ -1483,6 +1484,9 @@ export function PlanningResources() {
   const [channel, setChannel] = useState<'PORTAL_MESSAGE' | 'EMAIL'>('PORTAL_MESSAGE');
   const [note, setNote] = useState('');
   const presetName = clients.data?.items.find((c) => c.client.id === presetClient)?.client.name;
+  const allResources = q.data ?? [];
+  const categories = Array.from(new Set(allResources.map((r) => r.category))).sort();
+  const filtered = allResources.filter((r) => !categoryFilter || r.category === categoryFilter);
   return (
     <TpShell>
       {msg ? (
@@ -1498,6 +1502,19 @@ export function PlanningResources() {
             Planning Resources
           </h2>
           {searchBox(search, setSearch, 'Search resources')}
+          {categories.length > 0 ? (
+            <div className="w-48">
+              <Select
+                label="Category"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                options={[
+                  { value: '', label: 'All Categories' },
+                  ...categories.map((c) => ({ value: c, label: c })),
+                ]}
+              />
+            </div>
+          ) : null}
           <button
             type="button"
             className={`${subtle} min-h-9`}
@@ -1519,9 +1536,9 @@ export function PlanningResources() {
             <span className="font-semibold text-heading">{presetName}</span>.
           </p>
         ) : null}
-        {q.data && q.data.length === 0 ? <p className={quiet}>No resources match.</p> : null}
+        {filtered.length === 0 ? <p className={quiet}>No resources match.</p> : null}
         <ul>
-          {(q.data ?? []).map((r) => (
+          {filtered.map((r) => (
             <li
               key={r.key}
               className="flex flex-wrap items-center gap-3 border-t border-divider py-2 first:border-t-0"
@@ -1707,9 +1724,17 @@ function ResourceView({
             Close
           </Button>
           {r ? (
-            <Button variant="secondary" onClick={onEdit}>
-              Edit
-            </Button>
+            <>
+              <Button variant="secondary" onClick={() => downloadResource(r)}>
+                Download
+              </Button>
+              <Button variant="secondary" onClick={() => printResource(r)}>
+                Print
+              </Button>
+              <Button variant="secondary" onClick={onEdit}>
+                Edit
+              </Button>
+            </>
           ) : null}
           {r?.clientFacing ? <Button onClick={onSend}>Send to Client</Button> : null}
         </>
@@ -1723,6 +1748,11 @@ function ResourceView({
             {r.clientFacing ? 'Client-facing' : 'Staff only: never sent to a client'}
           </span>
           <p className="text-text">{r.summary ?? 'No summary.'}</p>
+          {r.body ? (
+            <div className="rounded-control border border-divider bg-subtle p-3 text-xs whitespace-pre-wrap font-mono">
+              {r.body}
+            </div>
+          ) : null}
           {r.edited ? (
             <p className="text-xs text-muted">Edited by your firm; the built-in version is kept.</p>
           ) : null}

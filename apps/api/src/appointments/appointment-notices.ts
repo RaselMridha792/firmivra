@@ -9,7 +9,11 @@ import { firmTimeZone } from './calendar-data.js';
 import { leadNotice, type LeadNoticeTemplate, noticeWords } from './notice-words.js';
 
 export type AppointmentNotice =
-  'appointment.booked' | 'appointment.changed' | 'appointment.reminder';
+  | 'appointment.booked'
+  | 'appointment.changed'
+  | 'appointment.reminder'
+  | 'appointment.completed'
+  | 'appointment.no-show';
 
 /** Review 2 (B8): the audit action a booking's confirmation notice leaves (notice history). */
 export const CONFIRMATION_SENT = 'appointment.confirmation_sent';
@@ -137,7 +141,13 @@ export class AppointmentNotices {
           },
         },
       });
-      if (!a || a.status !== 'SCHEDULED' || a.startsAt.getTime() <= Date.now()) return [];
+      if (template === 'appointment.completed') {
+        if (!a || a.status !== 'COMPLETED') return [];
+      } else if (template === 'appointment.no-show') {
+        if (!a || a.status !== 'NO_SHOW') return [];
+      } else if (!a || a.status !== 'SCHEDULED' || a.startsAt.getTime() <= Date.now()) {
+        return [];
+      }
       const only = to.clientIds && new Set(to.clientIds.map((id) => id.toLowerCase()));
       // P4-1: a lead's own appointment has no client to tell here (its lead is told separately).
       const people = [
@@ -157,6 +167,9 @@ export class AppointmentNotices {
         startsAt: a.startsAt,
         timeZone: await firmTimeZone(tx, businessId),
         link: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/appointments`,
+        status: a.status,
+        id: appointmentId,
+        appointmentId,
         // Review 2 (B7, B9): the firm's own words and the instructions shown in email.
         ...(await noticeWords(tx, businessId, appointmentId, template)),
       };

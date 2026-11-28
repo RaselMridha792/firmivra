@@ -39,6 +39,7 @@ import {
   platformHref,
 } from './integrations-shell';
 import { PlatformActions, type Notice } from './platform-actions';
+import { ReadinessPanel } from '../../system-settings/_components/readiness-panel';
 
 /**
  * The Integrations dashboard (firmivra-integrations-admin-dashboard.jpg; docx §2 and §13): the
@@ -167,6 +168,9 @@ export function IntegrationsDashboard() {
       {notice ? (
         <Toast message={notice.text} tone={notice.tone} onDismiss={() => setNotice(null)} />
       ) : null}
+
+      {/* SA-SYS-A3: the same readiness states as Settings and Notifications. */}
+      <ReadinessPanel />
 
       <section
         aria-label="Integration summary"

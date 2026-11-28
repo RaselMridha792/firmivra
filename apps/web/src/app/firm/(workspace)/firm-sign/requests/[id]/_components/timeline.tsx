@@ -84,7 +84,10 @@ export function Timeline({ id }: { id: string }) {
             >
               {[...d.items].reverse().map((e) => (
                 <li key={e.id} className="flex flex-col gap-1">
-                  <span className={`font-semibold ${tone(e.type)}`}>{EVENT_LABELS[e.type]}</span>
+                  <span className={`font-semibold ${tone(e.type)}`}>
+                    {EVENT_LABELS[e.type]}
+                    {e.version != null ? ` (v${e.version})` : ''}
+                  </span>
                   <span className="text-sm break-words text-text">{who(e)}</span>
                   {e.reason && (
                     <span className="text-sm break-words text-text">Reason: {e.reason}</span>

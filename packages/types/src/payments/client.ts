@@ -119,7 +119,8 @@ export function createInvoicesClient(request: ApiRequest) {
       request(Invoice, one(id), { method: 'PUT', body: parseInput(UpdateInvoiceRequest, body) }),
     /**
      * Sends a draft to the client: OPEN now, or SCHEDULED (Upcoming) when its scheduled day is
-     * later. 409 NOT_DRAFT, CLIENT_ARCHIVED, ZERO_TOTAL or DUE_DATE_PASSED.
+     * later. Q24 (I-N03, Send Now): a SCHEDULED invoice opens now instead of on its day. 409
+     * NOT_DRAFT (sent, paid or canceled), CLIENT_ARCHIVED, ZERO_TOTAL or DUE_DATE_PASSED.
      */
     send: async (id: string): Promise<Invoice> =>
       request(Invoice, `${one(id)}/send`, { method: 'POST', body: {} }),

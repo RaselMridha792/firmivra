@@ -69,6 +69,8 @@ describe('no path removes a record of the six retention categories (14b)', () =>
 
   it('removes stored files only in these places, none of them a record of the six', () => {
     const REASONS: Record<string, string> = {
+      'admin-communications/comm-broadcasts.service.ts':
+        'Super Admin communications library: an upload whose stored bytes are not its ticket (SA-COM-R1/R3)',
       'admin-settings/admin-branding.service.ts': 'platform branding: an upload never confirmed',
       'admin-support/support-files.service.ts': 'support files: an upload never confirmed',
       // A-X10 (Q28): only an upload refused at confirm; a recorded resource file is kept forever.

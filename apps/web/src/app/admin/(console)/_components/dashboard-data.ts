@@ -51,8 +51,9 @@ export const dashboardStats = [
   {
     key: 'monthlyRevenueCents',
     label: 'Monthly Revenue',
-    href: undefined,
-    linkLabel: 'View Billing',
+    // SA-BIL-A1 / SA-DSH-F05: Billing > Revenue, this month, both types (the same query).
+    href: '/billing/revenue',
+    linkLabel: 'View Revenue',
     icon: CreditCard,
     tone: 'gold',
     testId: 'stat-monthly-revenue',
