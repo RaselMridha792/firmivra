@@ -66,6 +66,41 @@ test('R2, R3, R10: Create Package refuses 101%; the whole total makes a $0 packa
   await expect(page.getByText('Use a percentage of 100% or less.')).toHaveCount(0);
 });
 
+test('Q21 R2: an empty Create Package names every required field in plain words, beside it and in the summary', async ({
+  page,
+}) => {
+  await page.goto(app('/services-pricing/packages/new'));
+  await page.getByRole('button', { name: 'Save as Draft', exact: true }).click();
+  const summary = page.getByRole('alert').filter({ hasText: 'Fix these 3 fields' });
+  await expect(summary).toContainText('Enter the package name.');
+  await expect(summary).toContainText('Choose a category.');
+  await expect(summary).toContainText('Enter a short description.');
+  await expect(page.locator('#package-category-field-error')).toHaveText('Choose a category.');
+  await expect(page.locator('#package-description-field-error')).toHaveText(
+    'Enter a short description.',
+  );
+  await expect(page.getByText('Invalid UUID')).toHaveCount(0);
+  await expect(page.getByText('Enter a value')).toHaveCount(0);
+  await expect(page.locator('#package-name-field')).toBeFocused();
+});
+
+test('Q21 R2: Edit Package with the short description cleared names it and saves nothing', async ({
+  page,
+}) => {
+  await page.goto(app(`${firstPackage}/edit`));
+  await expect(page.getByTestId('builder-preview')).toContainText('Small Business Tax Bundle', {
+    timeout: 60_000,
+  });
+  await page.getByLabel('Short Description *').fill('   ');
+  await page.getByTestId('package-save').click();
+  await expect(page.getByTestId('package-errors')).toContainText('Enter a short description.');
+  await expect(page.locator('#package-description-field-error')).toHaveText(
+    'Enter a short description.',
+  );
+  await expect(page.getByLabel('Short Description *')).toBeFocused();
+  await expect(page).toHaveURL(/\/edit$/);
+});
+
 test('R4: a recurring price reads "/ month" in the list and in the editor', async ({ page }) => {
   await page.goto(app('/services-pricing'));
   await page.getByRole('textbox', { name: 'Search services' }).fill('Bookkeeping Services');
