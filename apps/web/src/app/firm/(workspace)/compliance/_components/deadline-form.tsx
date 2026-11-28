@@ -3,7 +3,15 @@
 import type { ComplianceDeadline, DeadlineSource, DeadlineType } from '@firmivra/types';
 import { COMPLIANCE_STATES } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, Radio, Textarea, Toast, Toggle } from '@firmivra/ui';
-import { ArrowLeft, Bank, CalendarPlus, Plus, X } from '@phosphor-icons/react';
+import {
+  ArrowLeft,
+  Bank,
+  CalendarPlus,
+  CheckCircle,
+  Plus,
+  X,
+  XCircle,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
@@ -353,6 +361,14 @@ function DeadlineForm({
     after: 'open' | 'again' | 'recurring';
     selectedTaskIds: Set<string>;
   } | null>(null);
+  // Compliance R07 (Review Two): after the deadline saves, each chosen task's own result, shown
+  // before leaving the form, so one failed task is never reported as done.
+  const [taskResults, setTaskResults] = useState<{
+    deadline: ComplianceDeadline;
+    after: 'open' | 'again' | 'recurring';
+    dueOn: string;
+    rows: { id: string; title: string; ok: boolean; why?: string }[];
+  } | null>(null);
   const [round, setRound] = useState(0);
   const { clients } = useClients();
   const { members } = useMembers();
@@ -492,39 +508,41 @@ function DeadlineForm({
     save.mutate(undefined, {
       onSuccess: async (d) => {
         if (tasksToUpdate && tasksToUpdate.size > 0 && initial?.tasks) {
-          const successes: string[] = [];
-          const failures: string[] = [];
+          const rows: { id: string; title: string; ok: boolean; why?: string }[] = [];
           for (const t of initial.tasks) {
-            if (tasksToUpdate.has(t.id)) {
-              try {
-                await api.tasks.update(t.id, { dueOn: f.dueOn });
-                successes.push(t.title);
-              } catch {
-                failures.push(t.title);
-              }
+            if (!tasksToUpdate.has(t.id)) continue;
+            try {
+              await api.tasks.update(t.id, { dueOn: f.dueOn });
+              rows.push({ id: t.id, title: t.title, ok: true });
+            } catch (error) {
+              rows.push({
+                id: t.id,
+                title: t.title,
+                ok: false,
+                why: errorMessage(error, COMPLIANCE_ERRORS),
+              });
             }
           }
-          if (failures.length > 0) {
-            setMessage({
-              text: `Saved deadline. Updated ${successes.length} task(s). Failed to update: ${failures.join(', ')}`,
-              tone: 'error',
-            });
-            return;
-          }
+          setTaskResults({ deadline: d, after, dueOn: f.dueOn, rows });
+          return;
         }
-        if (after === 'again') {
-          setF(blank());
-          setErrors({});
-          setRound(round + 1);
-          setMessage({ text: `${d.name} saved. Add the next one.`, tone: 'success' });
-        } else if (after === 'recurring') {
-          router.push(`/compliance/recurring/new?deadline=${d.id}`);
-        } else {
-          router.push(`/compliance/${d.id}`);
-        }
+        finish(d, after);
       },
       onError: fail,
     });
+  };
+
+  const finish = (d: ComplianceDeadline, after: 'open' | 'again' | 'recurring') => {
+    if (after === 'again') {
+      setF(blank());
+      setErrors({});
+      setRound(round + 1);
+      setMessage({ text: `${d.name} saved. Add the next one.`, tone: 'success' });
+    } else if (after === 'recurring') {
+      router.push(`/compliance/recurring/new?deadline=${d.id}`);
+    } else {
+      router.push(`/compliance/${d.id}`);
+    }
   };
 
   const run = (after: 'open' | 'again' | 'recurring') => {
@@ -1180,6 +1198,7 @@ function DeadlineForm({
                 Keep Current Dates
               </Button>
               <Button
+                disabled={taskPrompt.selectedTaskIds.size === 0}
                 onClick={() => {
                   const after = taskPrompt.after;
                   const selected = taskPrompt.selectedTaskIds;
@@ -1227,6 +1246,66 @@ function DeadlineForm({
               })}
             </ul>
           </div>
+        </Modal>
+      ) : null}
+      {taskResults ? (
+        <Modal
+          open
+          title="Linked Tasks"
+          subtitle={`${taskResults.deadline.name} saved with its new due date, ${dayText(taskResults.dueOn)}.`}
+          onClose={() => {
+            const { deadline, after } = taskResults;
+            setTaskResults(null);
+            finish(deadline, after);
+          }}
+          footer={
+            <Button
+              data-testid="task-results-done"
+              onClick={() => {
+                const { deadline, after } = taskResults;
+                setTaskResults(null);
+                finish(deadline, after);
+              }}
+            >
+              Done
+            </Button>
+          }
+        >
+          <ul className="flex flex-col gap-2 py-2" data-testid="task-results">
+            {taskResults.rows.map((r) => (
+              <li
+                key={r.id}
+                data-testid={`task-result-${r.id}`}
+                className="flex items-start gap-2 rounded-lg border border-border bg-canvas p-3 text-sm"
+              >
+                {r.ok ? (
+                  <CheckCircle
+                    aria-hidden
+                    weight="fill"
+                    className="mt-0.5 size-5 shrink-0 text-success"
+                  />
+                ) : (
+                  <XCircle
+                    aria-hidden
+                    weight="fill"
+                    className="mt-0.5 size-5 shrink-0 text-danger"
+                  />
+                )}
+                <span>
+                  <span className="font-medium text-heading">{r.title}</span>
+                  {r.ok
+                    ? `: due date moved to ${dayText(taskResults.dueOn)}.`
+                    : `: not changed (${r.why ?? 'it could not be saved'}). Its due date stays as it was; change it on the task.`}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {taskResults.rows.some((r) => !r.ok) ? (
+            <p role="alert" className="text-sm text-danger">
+              {taskResults.rows.filter((r) => !r.ok).length} of {taskResults.rows.length}{' '}
+              {taskResults.rows.length === 1 ? 'task' : 'tasks'} could not be updated.
+            </p>
+          ) : null}
         </Modal>
       ) : null}
     </div>

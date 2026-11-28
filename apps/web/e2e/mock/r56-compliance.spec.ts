@@ -159,10 +159,18 @@ test('R07: editing deadline date prompts for linked tasks update and offers expl
   await expect(modal).toBeVisible();
   await expect(modal.getByTestId('linked-tasks-prompt-list')).toBeVisible();
 
-  // Select the task to update
+  // Nothing chosen yet: Update is held back; the task's current date is listed.
   const row = modal.locator('[data-testid^="task-prompt-row-"]').first();
+  await expect(row).toContainText('Current due date:');
+  await expect(modal.getByTestId('task-prompt-update')).toBeDisabled();
   await row.getByRole('checkbox').check();
   await modal.getByTestId('task-prompt-update').click();
+
+  // Each chosen task's own result before leaving the form (R07: per-task success or failure).
+  const results = page.getByRole('dialog', { name: 'Linked Tasks' });
+  await expect(results.getByTestId('task-results')).toContainText('due date moved to Feb 15, 2028');
+  await expect(results.getByRole('alert')).toHaveCount(0);
+  await results.getByTestId('task-results-done').click();
   await expect(page).toHaveURL(new RegExp(`/compliance/${FIRST}$`));
 
   // Navigate to the linked task and verify its due date was updated
