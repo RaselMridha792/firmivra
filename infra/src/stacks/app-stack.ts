@@ -36,6 +36,11 @@ import type { NetworkStack } from './network-stack';
 export type Site = 'admin' | 'app' | 'portal';
 const SITES: Site[] = ['admin', 'app', 'portal'];
 
+const SERVICE_ENDPOINTS = {
+  api: { port: 4000, healthPath: '/api/v1/health' },
+  web: { port: 3000, healthPath: '/healthz' },
+} as const;
+
 export interface AppStackProps extends StackProps {
   config: EnvConfig;
   network: NetworkStack;
@@ -328,6 +333,25 @@ export class AppStack extends Stack {
     const stripe = config.stripeSecretName
       ? secretsmanager.Secret.fromSecretNameV2(this, 'StripeKeys', config.stripeSecretName)
       : undefined;
+
+    // ECS only counts container checks declared in the task definition. With these checks, the
+    // prod scheduler waits for both the container and the ALB before counting a replacement task.
+    const prodContainerHealth = (
+      key: keyof typeof SERVICE_ENDPOINTS,
+    ): Pick<ecs.ContainerDefinitionOptions, 'healthCheck'> => {
+      if (config.envName !== 'prod') return {};
+      const { port, healthPath } = SERVICE_ENDPOINTS[key];
+      return {
+        healthCheck: {
+          command: ['CMD', 'wget', '-qO-', `http://127.0.0.1:${port}${healthPath}`],
+          interval: Duration.seconds(30),
+          timeout: Duration.seconds(5),
+          startPeriod: Duration.seconds(20),
+          retries: 3,
+        },
+      };
+    };
+
     const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', {
       family: name('api'),
       cpu: config.task.cpu,
@@ -336,7 +360,8 @@ export class AppStack extends Stack {
     });
     apiTask.addContainer('api', {
       image: ecs.ContainerImage.fromEcrRepository(this.repositories.api, tag),
-      portMappings: [{ containerPort: 4000 }],
+      portMappings: [{ containerPort: SERVICE_ENDPOINTS.api.port }],
+      ...prodContainerHealth('api'),
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'api', logGroup: apiLogs }),
       // SIGTERM comes at the start of a Fargate Spot interruption's two minutes; 60 s lets the scan
       // result in hand (about 48 s worst case) and open requests finish before SIGKILL.
@@ -345,7 +370,7 @@ export class AppStack extends Stack {
         NODE_ENV: 'production',
         AUTH_MODE: 'cognito',
         LOG_LEVEL: 'info',
-        API_PORT: '4000',
+        API_PORT: String(SERVICE_ENDPOINTS.api.port),
         ...sites,
         ...database,
         DB_APP_USER: 'firmivra_app',
@@ -485,10 +510,11 @@ export class AppStack extends Stack {
     });
     webTask.addContainer('web', {
       image: ecs.ContainerImage.fromEcrRepository(this.repositories.web, tag),
-      portMappings: [{ containerPort: 3000 }],
+      portMappings: [{ containerPort: SERVICE_ENDPOINTS.web.port }],
+      ...prodContainerHealth('web'),
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'web', logGroup: logGroup('web') }),
       environment: {
-        PORT: '3000',
+        PORT: String(SERVICE_ENDPOINTS.web.port),
         HOSTNAME: '0.0.0.0',
         NEXT_TELEMETRY_DISABLED: '1',
         ADMIN_HOST: this.siteHosts.admin,
@@ -580,8 +606,9 @@ export class AppStack extends Stack {
       }
     }
 
-    const targetGroup = (key: string, port: number, healthPath: string) =>
-      new elbv2.ApplicationTargetGroup(this, `${key}Targets`, {
+    const targetGroup = (key: keyof typeof SERVICE_ENDPOINTS) => {
+      const { port, healthPath } = SERVICE_ENDPOINTS[key];
+      return new elbv2.ApplicationTargetGroup(this, `${key}Targets`, {
         targetGroupName: name(key),
         vpc: network.vpc,
         port,
@@ -601,8 +628,9 @@ export class AppStack extends Stack {
           unhealthyThresholdCount: 6,
         },
       });
-    const apiTargets = targetGroup('api', 4000, '/api/v1/health');
-    const webTargets = targetGroup('web', 3000, '/healthz');
+    };
+    const apiTargets = targetGroup('api');
+    const webTargets = targetGroup('web');
     apiService.attachToApplicationTargetGroup(apiTargets);
     webService.attachToApplicationTargetGroup(webTargets);
     const fromCloudFront = elbv2.ListenerCondition.httpHeader('X-Origin-Verify', [originHeader]);

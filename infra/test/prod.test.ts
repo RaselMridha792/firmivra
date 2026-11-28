@@ -109,6 +109,46 @@ describe('prod stacks', () => {
     }
   });
 
+  it('keeps healthy tasks serving until replacements pass container and ALB checks', () => {
+    const app = t(stacks.app);
+    app.allResourcesProperties('AWS::ECS::Service', {
+      DeploymentConfiguration: Match.objectLike({
+        MinimumHealthyPercent: 100,
+        MaximumPercent: 200,
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true },
+      }),
+      HealthCheckGracePeriodSeconds: 60,
+    });
+
+    for (const [name, port, path] of [
+      ['api', 4000, '/api/v1/health'],
+      ['web', 3000, '/healthz'],
+    ] as const) {
+      app.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        Family: `firmivra-prod-${name}`,
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: name,
+            Essential: true,
+            HealthCheck: {
+              Command: ['CMD', 'wget', '-qO-', `http://127.0.0.1:${port}${path}`],
+              Interval: 30,
+              Timeout: 5,
+              StartPeriod: 20,
+              Retries: 3,
+            },
+          }),
+        ]),
+      });
+      app.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+        Name: `firmivra-prod-${name}`,
+        Port: port,
+        HealthCheckPath: path,
+        Matcher: { HttpCode: '200' },
+      });
+    }
+  });
+
   it('leave the task count to auto scaling: 2 to 6 per service on 55% CPU, 0 without an image', () => {
     const app = t(stacks.app);
     // No count in the template once there is an image: a deploy keeps a scaled-out service.
@@ -276,5 +316,17 @@ describe('dev keeps its settings', () => {
       CapacityProviderStrategy: [{ CapacityProvider: 'FARGATE_SPOT', Weight: 1 }],
     });
     app.resourceCountIs('AWS::ApplicationAutoScaling::ScalableTarget', 0);
+  });
+
+  it('keeps the dev API and web checks on the ALB', () => {
+    const app = Template.fromStack(dev.app);
+    for (const name of ['api', 'web']) {
+      app.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        Family: `firmivra-dev-${name}`,
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({ Name: name, HealthCheck: Match.absent() }),
+        ]),
+      });
+    }
   });
 });
