@@ -610,6 +610,10 @@ export const RecordSignUpChecksRequest = z.strictObject({
   identityResult: SignupIdentityResult,
   /** The client's permission and what it covers; null when not given. */
   permissionScope: SignupPermissionScope.nullable(),
+  /** The version it read (409 STALE_VERSION on mismatch). Optional: older callers omit it. */
+  version: z.number().int().min(1).optional(),
+  /** One key per attempt (retry-safe). Optional: older callers omit it. */
+  idempotencyKey: z.uuid().optional(),
 });
 export type RecordSignUpChecksRequest = z.input<typeof RecordSignUpChecksRequest>;
 

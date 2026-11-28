@@ -261,6 +261,8 @@ const WRITES: Record<
       sha256: 'a'.repeat(64),
     },
   },
+  // SA-COM-R1/R3: a file already checked (CLEAN) answers as it is, without reading storage.
+  'POST /api/v1/admin/communications/media/:id/confirm': { body: {}, comm: 'media' },
   'PATCH /api/v1/admin/communications/template-categories/:id': {
     body: { isActive: true },
     comm: 'cat',
@@ -348,6 +350,21 @@ async function seedComms(tx: Parameters<Parameters<typeof runInScope>[2]>[0]) {
       },
     })
   ).id;
+  const mediaId = randomUUID();
+  const media = await tx.commMedia.create({
+    data: {
+      id: mediaId,
+      kind: 'ATTACHMENT',
+      fileName: 'fake-scope-confirmed.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: 'd'.repeat(64),
+      // The database keeps a file under its own id: platform/communications/<id>/.
+      s3Key: `platform/communications/${mediaId}/fake-scope-confirmed.pdf`,
+    },
+  });
+  await tx.commMedia.update({ where: { id: media.id }, data: { scanStatus: 'CLEAN' } });
+  comms['media'] = media.id;
   await seedBroadcasts(tx);
 }
 

@@ -41,6 +41,8 @@ import {
   type BillingPaymentSummary,
   type BillingRecurring,
   type BillingRecurringCounts,
+  type BillingRevenue,
+  BillingRevenueQuery,
   BillingRecurringId,
   type BillingRecurringPage,
   BillingRecurringQuery,
@@ -210,6 +212,14 @@ export class AdminBillingController {
     @Query(pipe(BillingPaymentsQuery)) q: Out<typeof BillingPaymentsQuery>,
   ): Promise<BillingPaymentSummary> {
     return this.billing.paymentSummary(q);
+  }
+
+  /** SA-BIL-A1: collected revenue for a period (Billing > Revenue; the Dashboard tile's query). */
+  @Get('revenue')
+  revenue(
+    @Query(pipe(BillingRevenueQuery)) q: Out<typeof BillingRevenueQuery>,
+  ): Promise<BillingRevenue> {
+    return this.billing.revenue(q);
   }
 
   @Get('payments/:id')

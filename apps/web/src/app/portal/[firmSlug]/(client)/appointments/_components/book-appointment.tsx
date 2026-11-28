@@ -14,6 +14,7 @@ import {
   LOCATION_LABELS,
   myAppointmentsKey,
   TAKEN,
+  TimezoneSelector,
   today,
   when,
 } from './shared';
@@ -37,6 +38,9 @@ export function ScheduleModal({
   date,
   typeId,
   packageId,
+  clientTimezone,
+  firmTimezone,
+  onTimezoneChange,
   onClose,
   onBooked,
 }: {
@@ -45,6 +49,9 @@ export function ScheduleModal({
   date?: string;
   typeId?: string;
   packageId?: string;
+  clientTimezone?: string;
+  firmTimezone?: string;
+  onTimezoneChange?: (tz: string) => void;
   onClose: () => void;
   /** Booked: the page says so above the list. */
   onBooked: (text: string) => void;
@@ -57,6 +64,9 @@ export function ScheduleModal({
           date={date}
           typeId={typeId}
           packageId={packageId}
+          clientTimezone={clientTimezone}
+          firmTimezone={firmTimezone}
+          onTimezoneChange={onTimezoneChange}
           onBooked={onBooked}
         />
       ) : null}
@@ -69,12 +79,18 @@ function BookableTypes({
   date,
   typeId,
   packageId,
+  clientTimezone,
+  firmTimezone,
+  onTimezoneChange,
   onBooked,
 }: {
   slug: string;
   date?: string;
   typeId?: string;
   packageId?: string;
+  clientTimezone?: string;
+  firmTimezone?: string;
+  onTimezoneChange?: (tz: string) => void;
   onBooked: (text: string) => void;
 }) {
   const types = useApiQuery([...myAppointmentsKey(slug), 'types'], () =>
@@ -89,6 +105,9 @@ function BookableTypes({
           initialDate={date}
           initialTypeId={typeId}
           packageId={packageId}
+          clientTimezone={clientTimezone}
+          firmTimezone={firmTimezone}
+          onTimezoneChange={onTimezoneChange}
           onBooked={onBooked}
           onTypeGone={() => void types.refetch()}
         />
@@ -103,6 +122,9 @@ function Booking({
   initialDate,
   initialTypeId,
   packageId,
+  clientTimezone,
+  firmTimezone,
+  onTimezoneChange,
   onBooked,
   onTypeGone,
 }: {
@@ -113,10 +135,13 @@ function Booking({
   initialTypeId?: string;
   /** S12: the package page the link came from; sent with a booking of the link's type only. */
   packageId?: string;
+  clientTimezone?: string;
+  firmTimezone?: string;
+  onTimezoneChange?: (tz: string) => void;
   onBooked: (text: string) => void;
   onTypeGone: () => void;
 }) {
-  const [first] = useState(today);
+  const [first] = useState(() => today(clientTimezone));
   const [type, setType] = useState<BookableType | null>(
     () => types.find((t) => t.id === initialTypeId) ?? null,
   );
@@ -147,7 +172,7 @@ function Booking({
     book.mutate(slot, {
       onSuccess: (appointment) => {
         onBooked(
-          `Booked: ${appointment.type?.name ?? 'Appointment'}, ${when(appointment.startsAt)}.`,
+          `Booked: ${appointment.type?.name ?? 'Appointment'}, ${when(appointment.startsAt, clientTimezone, firmTimezone)}.`,
         );
       },
       onError: (error) => {
@@ -166,6 +191,15 @@ function Booking({
 
   return (
     <div className="flex flex-col gap-4">
+      {onTimezoneChange && clientTimezone ? (
+        <div className="flex justify-end">
+          <TimezoneSelector
+            value={clientTimezone}
+            onChange={onTimezoneChange}
+            firmTimezone={firmTimezone}
+          />
+        </div>
+      ) : null}
       {linkRefused ? (
         <p
           role="alert"
@@ -200,6 +234,7 @@ function Booking({
           min={firstDay(first)}
           picked={picked}
           round={round}
+          clientTimezone={clientTimezone}
           onDate={(next) => {
             setDate(next);
             setPicked(null);
@@ -211,7 +246,7 @@ function Booking({
       {type && picked ? (
         <div className="flex flex-col items-start gap-2 rounded-card border border-border bg-canvas p-4">
           <p className="text-sm text-text">
-            {type.name} · {when(picked.startsAt)}
+            {type.name} · {when(picked.startsAt, clientTimezone, firmTimezone)}
           </p>
           <Button variant="dark" onClick={() => confirm(picked)} disabled={book.isPending}>
             {book.isPending ? 'Booking…' : 'Confirm booking'}

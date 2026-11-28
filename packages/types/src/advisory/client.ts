@@ -1,5 +1,6 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { OkResponse } from '../schemas.js';
+import { ConfirmUploadRequest, DownloadLink, UploadTicket } from '../documents/schemas.js';
 import {
   AddAdvisoryWorkstreamRequest,
   AdvisoryActionItemId,
@@ -38,6 +39,8 @@ import {
   AdvisoryRecommendationPage,
   AdvisoryRecommendationRow,
   AdvisoryRecommendationsQuery,
+  AdvisoryResource,
+  AdvisoryResourceFile,
   AdvisoryResourceKey,
   AdvisoryResourceList,
   AdvisoryResourcePreview,
@@ -64,7 +67,9 @@ import {
   AdvisoryIndustryList,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
+  SaveAdvisoryResourceRequest,
   SendAdvisoryResourceRequest,
+  StartAdvisoryResourceFileRequest,
   SetAdvisoryPlanStatusRequest,
   UpdateAdvisoryActionItemRequest,
   UpdateAdvisoryClientRequest,
@@ -407,6 +412,55 @@ export function createAdvisoryClient(request: ApiRequest) {
         `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/preview`,
         post(parseInput(SendAdvisoryResourceRequest, body)),
       ),
+    /**
+     * A-X10 (Q28): adds the firm's own resource (Owner and Admin, or "Manage"). 409 FILE_BLOCKED,
+     * FILE_IN_USE.
+     */
+    createResource: async (body: SaveAdvisoryResourceRequest): Promise<AdvisoryResource> =>
+      request(
+        AdvisoryResource,
+        `${BASE}/resources`,
+        post(parseInput(SaveAdvisoryResourceRequest, body)),
+      ),
+    /**
+     * A-X10: edits the firm's own resource, or its copy of a built-in one (the first edit makes
+     * the copy). 409 RESOURCE_ARCHIVED, FILE_BLOCKED, FILE_IN_USE.
+     */
+    updateResource: async (
+      key: string,
+      body: SaveAdvisoryResourceRequest,
+    ): Promise<AdvisoryResource> =>
+      request(AdvisoryResource, `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}`, {
+        method: 'PUT',
+        body: parseInput(SaveAdvisoryResourceRequest, body),
+      }),
+    /** A-X10: archives the firm's own resource (it leaves the library). 409 RESOURCE_BUILT_IN. */
+    archiveResource: async (key: string): Promise<OkResponse> =>
+      request(
+        OkResponse,
+        `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/archive`,
+        post(),
+      ),
+    /** A-X10: step 1 of a resource file's upload. 400 for a type or size it doesn't take. */
+    startResourceFile: async (body: StartAdvisoryResourceFileRequest): Promise<UploadTicket> =>
+      request(
+        UploadTicket,
+        `${BASE}/resources/files`,
+        post(parseInput(StartAdvisoryResourceFileRequest, body)),
+      ),
+    /**
+     * A-X10: step 3: the stored bytes checked, the file recorded (CHECKING until its virus scan).
+     * 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED, FILE_HAS_MACROS.
+     */
+    confirmResourceFile: async (body: ConfirmUploadRequest): Promise<AdvisoryResourceFile> =>
+      request(
+        AdvisoryResourceFile,
+        `${BASE}/resources/files/confirm`,
+        post(parseInput(ConfirmUploadRequest, body)),
+      ),
+    /** A-X10: a 5-minute link to a resource's file. 409 SCAN_PENDING or FILE_BLOCKED. */
+    resourceFileLink: async (key: string): Promise<DownloadLink> =>
+      request(DownloadLink, `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/file`),
     settings: async (): Promise<AdvisorySettingsView> =>
       request(AdvisorySettingsView, `${BASE}/settings`),
     saveSettings: async (body: SaveAdvisorySettingsRequest): Promise<AdvisorySettingsView> =>

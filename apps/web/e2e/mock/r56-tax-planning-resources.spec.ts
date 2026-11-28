@@ -58,3 +58,32 @@ test('Add Resource takes a guide with its content, and a built-in one downloads 
   ]);
   expect(download.suggestedFilename()).toBe('retirement-contribution-guide.txt');
 });
+
+test('Resources category filter and view modal with body content, download, and print', async ({
+  page,
+}) => {
+  await page.goto(app('/tax-planning/resources'));
+  const list = page.getByTestId('tp-resources');
+  await expect(list.getByRole('button', { name: 'Add Resource' })).toBeVisible({ timeout: 60_000 });
+
+  // Category filter
+  const categorySelect = page.getByLabel('Category');
+  await expect(categorySelect).toBeVisible();
+  await categorySelect.selectOption({ label: 'Retirement' });
+  await expect(list.getByRole('listitem')).toHaveCount(1);
+  await expect(list.getByText('Retirement Contribution Guide')).toBeVisible();
+
+  // Reset category filter
+  await categorySelect.selectOption({ label: 'All Categories' });
+  expect(await list.getByRole('listitem').count()).toBeGreaterThan(1);
+
+  // View modal
+  await list.getByTestId('view-resource').first().click();
+  const viewModal = page.getByTestId('resource-view');
+  await expect(viewModal).toBeVisible();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: 'Download' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Print' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+});

@@ -7,14 +7,17 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   type CreateEsignRequestBody,
+  type DownloadLink,
   ESIGN_ERRORS,
   type EsignErrorCode,
   type EsignAccessRole,
   type EsignDocument,
+  type EsignDownloadFile,
   EsignField,
   type EsignPage,
   type EsignPutRecipientsBody,
@@ -34,6 +37,10 @@ import {
   ESIGN_STORE,
   type EsignStore,
 } from '../engine/engine.types.js';
+import {
+  COMPLETION_REPOSITORY,
+  type EsignCompletionRepository,
+} from '../completion/completion.repository.js';
 import { allowedActions, nextAction, signersOf } from './actions.js';
 import { type DirectoryClient, ESIGN_DIRECTORY, type EsignDirectory } from './esign-directory.js';
 import {
@@ -96,9 +103,13 @@ export class EsignRequestsService {
     @Inject(ESIGN_REPOSITORY) private readonly repo: EsignRepository,
     @Inject(ESIGN_DIRECTORY) private readonly directory: EsignDirectory,
     @Inject(BUSINESS_MODULES) private readonly modules: BusinessModules,
-    @Inject(ESIGN_STORE) private readonly store: Pick<EsignStore, 'remove'>,
+    @Inject(ESIGN_STORE)
+    private readonly store: Pick<EsignStore, 'remove' | 'presignDownload' | 'keyFor'>,
     @Inject(AuditService) private readonly audit: Pick<AuditService, 'log'>,
     @Inject(CODE_HASHER) private readonly codes: Pick<CodeHasher, 'hash'>,
+    @Optional()
+    @Inject(COMPLETION_REPOSITORY)
+    private readonly completed?: Pick<EsignCompletionRepository, 'files'>,
   ) {}
 
   /** Never MODULE_OFF: off is `{ enabled: false, myEsignRole: null }`. */
@@ -525,6 +536,46 @@ export class EsignRequestsService {
       finalDocumentId: null,
       certificateDocumentId: null,
     };
+  }
+
+  async download(
+    businessId: string,
+    actor: EsignActor,
+    id: string,
+    file: EsignDownloadFile,
+  ): Promise<DownloadLink> {
+    const { record: q } = await this.reach(businessId, actor, id, 'read');
+    if (file === 'original') {
+      if (!q.sentAt || !q.originalSha256) throw esignRefusal('INVALID_STATE');
+      const key = this.store.keyFor(businessId, id, `packet-${q.originalSha256}.pdf`);
+      const url = await this.store.presignDownload(businessId, {
+        key,
+        fileName: `${q.title}.pdf`,
+        contentType: 'application/pdf',
+      });
+      await this.audit.log(
+        'esign.downloaded',
+        { type: 'esign_request', id },
+        { userId: actor.userId, file },
+      );
+      return { url, expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+    }
+    if (q.status !== 'COMPLETED') throw esignRefusal('INVALID_STATE');
+    const files = await this.completed?.files(businessId, id);
+    if (!files) throw esignRefusal('INVALID_STATE');
+    const target = files[file];
+    if (!target) throw notFound();
+    const url = await this.store.presignDownload(businessId, {
+      key: target.key,
+      fileName: target.fileName,
+      contentType: 'application/pdf',
+    });
+    await this.audit.log(
+      'esign.downloaded',
+      { type: 'esign_request', id },
+      { userId: actor.userId, file },
+    );
+    return { url, expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
   }
 }
 

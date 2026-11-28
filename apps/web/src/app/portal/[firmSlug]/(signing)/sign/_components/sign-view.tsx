@@ -244,8 +244,18 @@ export function SignView({ signing, envelope, onState }: SignViewProps) {
               {adoptedOnServer ? 'Change signature' : 'Adopt signature'}
             </Button>
           )}
+          <a
+            href={envelope.packetUrl || signing.packetUrl()}
+            download={`${envelope.title || 'document'}.pdf`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center rounded-control border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text hover:bg-subtle"
+            data-testid="pre-signing-download"
+          >
+            Download document
+          </a>
           <Button onClick={submit} disabled={finish.isPending}>
-            Finish
+            Finish and Sign
           </Button>
           <Button variant="ghost" onClick={() => setDeclining(true)}>
             Decline to sign

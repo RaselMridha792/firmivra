@@ -56,6 +56,7 @@ import {
   useNotice,
   type Notice,
 } from '../../_components/billing-parts';
+import { BillingFirmAccount } from '../../_components/billing-firm-account';
 import { BillingHeader } from '../../_components/billing-shell';
 import { InvoiceDocument, type InvoiceDocumentData } from '../../_components/invoice-document';
 import { invoiceAbilities, useInvoiceActions } from '../../_components/invoice-actions';
@@ -466,6 +467,7 @@ export function InvoiceDetails({ invoiceId, saved }: { invoiceId: string; saved:
                   : []),
               ]}
             />
+            <BillingFirmAccount firmId={invoice.firmId} />
           </>
         }
       />

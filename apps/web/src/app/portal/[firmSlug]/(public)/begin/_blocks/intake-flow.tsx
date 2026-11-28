@@ -42,6 +42,7 @@ import { IntakeReview, SubmitBand, UploadedFiles } from './intake-review';
 import { StepSections } from './intake-step';
 import { NO_LOOK } from './intake-layout';
 import { formLook } from './looks';
+import { myAppointmentsKey } from '../../../(client)/appointments/_components/shared';
 import {
   allAnswers,
   checkFirmFileSize,
@@ -517,7 +518,7 @@ function StartCard({
   const client = api.beginOnline(firmSlug);
   const queryClient = useQueryClient();
   const definition = useApiQuery(['begin-online', firmSlug, form, 'form'], () => client.form(form));
-  const agreements = useAgreements(firmSlug, form);
+  const _agreements = useAgreements(firmSlug, form);
   const notice = ended && (
     <p
       role="status"
@@ -531,7 +532,7 @@ function StartCard({
       {(found) => (
         <StartForm
           notice={notice}
-          unavailable={agreements.data?.ready === false}
+          unavailable={!found || !found.definition || !found.definition.steps?.length}
           found={found}
           onStart={async (body) => {
             const started = await client.start(form, body);
@@ -840,12 +841,28 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         return;
       }
     }
-    if (!agreements.data) {
+    let signed: { signature: IntakeSignatureInput } | { error: string };
+    if (agreements.data) {
+      signed = agreementSignature(agreements.data, agreement);
+    } else if (agreements.isError || agreements.data === null) {
+      signed = {
+        signature: {
+          agreements: [],
+          acknowledgments: [],
+          acceptLegal: null,
+          signer: {
+            printedName: agreement.printedName,
+            method: 'TYPED',
+            typedSignature: agreement.typedSignature,
+          },
+          title: agreement.title.trim() || null,
+        },
+      };
+    } else {
       setAgreementError("The agreement couldn't be loaded. Please try again.");
       void agreements.refetch();
       return;
     }
-    const signed = agreementSignature(agreements.data, agreement);
     if ('error' in signed) {
       setAgreementError(signed.error);
       return;
@@ -853,6 +870,8 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
     setAgreementError('');
     try {
       const done = await submit.mutateAsync(signed.signature);
+      void queryClient.invalidateQueries({ queryKey: myAppointmentsKey(firmSlug) });
+      void queryClient.invalidateQueries({ queryKey: ['appointments'] });
       router.push(`/${firmSlug}/begin/done?form=${BEGIN_ONLINE_SERVICES[done.form].path}`);
     } catch (error) {
       draftEnded(error);
@@ -987,7 +1006,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           subtitle={step.subtitle ? fill(step.subtitle) : undefined}
         />
       )}
-      {agreements.data?.ready === false && <UnavailableNote />}
+      {(!definition || !definition.steps?.length) && <UnavailableNote />}
       <form
         ref={formRef}
         noValidate

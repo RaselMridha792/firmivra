@@ -115,6 +115,8 @@ export class SendingNotifyService implements NotifyService {
     const to = typeof message.to === 'string' ? message.to.trim() : '';
     const valid = channel === 'sms' ? PHONE.test(to) : EMAIL.safeParse(to).success;
     if (!valid) throw fail('InvalidRecipient');
+    if (channel === 'sms' && message.attachments?.length)
+      throw new NotifyTemplateError('A text message carries no attachments');
     const replyTo = message.replyTo?.trim() || null;
     if (replyTo !== null && !EMAIL.safeParse(replyTo).success) {
       throw new NotifyTemplateError('replyTo must be an email address');
@@ -156,6 +158,7 @@ export class SendingNotifyService implements NotifyService {
           subject: rendered.subject,
           text: rendered.text,
           html: rendered.html,
+          ...(message.attachments?.length ? { attachments: message.attachments } : {}),
         });
         this.logger.log(`${what} sent`);
         return { providerMessageId: providerMessageId || null };

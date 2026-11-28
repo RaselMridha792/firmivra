@@ -336,6 +336,9 @@ describe('api.invoices (firm)', () => {
       paidAt: at,
       createdAt: at,
       failureCode: null,
+      methodType: 'us_bank_account',
+      last4: '6789',
+      disputed: false,
       refunds: [
         {
           id,

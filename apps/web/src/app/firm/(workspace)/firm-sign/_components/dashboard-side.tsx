@@ -29,13 +29,12 @@ const ACTIONS: Action[] = [
   { label: 'Upload a Template', icon: Upload, href: '/firm-sign/new', who: 'create' },
   { label: 'Manage Templates', icon: Layers, href: '/firm-sign/templates', who: 'create' },
   { label: 'Bulk Send', icon: Users, href: '/firm-sign/bulk', who: 'create' },
-  // In person starts on request detail, which lands later in this stack.
+  // In-person signing shortcut (FS-C06): routes to requests list to select or launch signing.
   {
     label: 'In-Person Signing',
     icon: Monitor,
     href: '/firm-sign/requests',
     who: 'create',
-    soon: true,
   },
   {
     label: 'Signing Settings',

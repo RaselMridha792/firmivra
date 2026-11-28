@@ -14,6 +14,8 @@ import {
 import type { z } from 'zod';
 import {
   CreateEsignRequestBody,
+  type DownloadLink,
+  EsignDownloadFile,
   EsignPutFieldsBody,
   EsignPutPagePlanBody,
   EsignPutRecipientsBody,
@@ -189,6 +191,17 @@ export class EsignRequestsController {
     @Param('id', idPipe) id: string,
   ): Promise<EsignReadiness> {
     return this.prepare.readiness(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Get(':id/download')
+  download(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Query('file', new ZodValidationPipe(EsignDownloadFile.default('original')))
+    file: EsignDownloadFile,
+  ): Promise<DownloadLink> {
+    return this.requests.download(tenant.businessId, actorOf(auth, tenant), id, file);
   }
 
   /** `confirm: true` is the review screen's explicit confirmation (the pipe checks it). */

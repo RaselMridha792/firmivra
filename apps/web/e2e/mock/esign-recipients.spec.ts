@@ -73,3 +73,41 @@ test('an approver must be picked from the firm', async ({ page }) => {
   await expect(page.getByTestId('recipient-row')).toHaveCount(0);
   await expect(page.getByText('Save your changes to continue.')).toBeVisible();
 });
+
+test('FS-006: recipient picker offers firm client/contact search with autofill', async ({
+  page,
+}) => {
+  await draft(page);
+  const rows = page.getByTestId('recipient-row');
+  await page.getByRole('button', { name: 'Add a signer' }).click();
+
+  // Search for client by name
+  const searchInput = rows.first().getByLabel('Search client or contact');
+  await expect(searchInput).toBeVisible();
+  await searchInput.fill('Jamie');
+
+  const whoSelect = rows.first().getByLabel('Who');
+  await expect(whoSelect).toBeVisible();
+
+  // Select the matching searched client
+  const jamieOption = whoSelect.locator('option').filter({ hasText: 'Jamie' });
+  const val = await jamieOption.getAttribute('value');
+  if (val) await whoSelect.selectOption(val);
+  // Verify name and email are autofilled
+  await expect(rows.first().getByLabel('Name')).toHaveValue('Jamie Sample');
+  await expect(rows.first().getByLabel('Email')).not.toHaveValue('');
+});
+
+test('FS-C06: in-person signing selection explicitly displays the in-person signing policy', async ({
+  page,
+}) => {
+  await draft(page);
+  const row = page.getByTestId('recipient-row').first();
+  await page.getByRole('button', { name: 'Add a signer' }).click();
+
+  await row.getByLabel('How they sign').selectOption({ label: 'In person, on this device' });
+  const policy = row.getByTestId('in-person-policy');
+  await expect(policy).toBeVisible();
+  await expect(policy).toContainText('In-person signing policy');
+  await expect(policy).toContainText('Identity verified in person by staff');
+});

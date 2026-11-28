@@ -22,6 +22,10 @@ const r = (
   // B28: a document-like resource goes as a Secure Link or a PDF; a video or a link as a link.
   formats: kind === 'VIDEO' || kind === 'LINK' ? ['SECURE_LINK'] : ['SECURE_LINK', 'PDF'],
   summary,
+  // A-X10: the approved library; the firm's edits come from advisory_resources.
+  source: 'BUILT_IN',
+  edited: false,
+  file: null,
 });
 
 /** The approved library of guides and checklists (no table yet: see the notes). */
@@ -108,4 +112,5 @@ export const RESOURCES: readonly ResourceDef[] = [
   ),
 ];
 export const resourceOf = (key: string) => RESOURCES.find((x) => x.key === key);
-export const toResource = ({ summary: _summary, ...rest }: ResourceDef): AdvisoryResource => rest;
+/** A-X10: the summary is answered too (the firm edits it). */
+export const toResource = (r: ResourceDef): AdvisoryResource => r;
