@@ -25,6 +25,7 @@ import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { reachesLead } from './appointment-party.js';
 import { type AppointmentNotice, AppointmentNotices } from './appointment-notices.js';
+import { WaitlistJob } from './waitlist.job.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { type CompleteBody as CompleteSchema, inCalendarYears } from './appointments.input.js';
 import { freeStarts, MINUTE, zonedDate, zonedInstant } from './calendar.js';
@@ -108,6 +109,7 @@ export class AppointmentsService {
     private readonly leadFollowUps: LeadFollowUpsService,
     private readonly intakes: IntakeSendService,
     @Optional() @Inject(NOTIFY_SERVICE) private readonly notifyService?: NotifyService,
+    @Optional() @Inject(WaitlistJob) private readonly waitlistJob?: WaitlistJob,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -419,6 +421,7 @@ export class AppointmentsService {
     });
     if (!after) return toAppointment(before);
     await this.notices.send('appointment.changed', businessId, after.id);
+    this.waitlistJob?.trigger();
     return toAppointment(after);
   }
 
@@ -545,6 +548,7 @@ export class AppointmentsService {
         eventKey: `appointment.cancelled:${after.id}`,
       });
     }
+    this.waitlistJob?.trigger();
     return toAppointment(cancelled[0]!);
   }
 
