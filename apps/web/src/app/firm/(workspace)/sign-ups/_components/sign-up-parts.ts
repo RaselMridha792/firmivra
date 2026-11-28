@@ -5,6 +5,7 @@ export const SIGN_UPS = ['client-sign-ups'] as const;
 
 /** The sign-ups API's own codes, in the words the firm's staff see. */
 export const SIGN_UP_ERRORS: Record<string, string> = {
+  NOTHING_TO_RETRY: 'The approval email is not waiting for a retry. The request is now up to date.',
   NOT_PENDING: 'Someone at your firm already handled this sign-up. The list is now up to date.',
   DUPLICATE_EMAIL:
     'A client of your firm already uses this email. Review the existing client record first.',

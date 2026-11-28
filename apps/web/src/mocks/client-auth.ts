@@ -46,6 +46,7 @@ import {
   SignUpRequest,
   SignUpState,
   VerifyCodeRequest,
+  type SignUpEmailDelivery,
 } from '@firmivra/types';
 import lvpLogoDark from './assets/lvp-logo-dark.png';
 import { mockFormBranding } from './intake-forms';
@@ -707,6 +708,18 @@ export function createClientSignUpsMock(
   let policy = ClientSignUpSettings.parse({ mode: 'MANUAL', version: 1, changedAt: null });
   /** Each key's first outcome, so a retry returns it (the API's idempotency). */
   const outcomes = new Map<string, unknown>();
+  // Q44 D2.13: one approved request whose approval email did not go out (Retry Email to try).
+  const deliveries = new Map<string, SignUpEmailDelivery>([
+    [
+      signUpItem(4, {}).clientAccountId,
+      {
+        email: 'APPROVAL',
+        status: 'FAILED',
+        at: new Date(Date.now() - 3_600_000).toISOString(),
+        attempts: 1,
+      },
+    ],
+  ]);
   // Resolve Existing Account (D2): resolutions and checks per request and record, and the
   // review's own steps for the history.
   const pair = (accountId: string, clientId: string) => `${accountId}:${clientId}`;
@@ -831,9 +844,11 @@ export function createClientSignUpsMock(
         open.length > 0 &&
         !open.some((c) => c.matchedOn.includes('email')) &&
         open.every((c) => c.resolution === 'OPEN');
+      const delivery = deliveries.get(row.clientAccountId) ?? null;
       return ClientSignUpDetail.parse({
         ...withMatch(row),
         automatic: false,
+        emailDelivery: delivery,
         allowedActions: waiting
           ? [
               ...(open.length ? [] : ['APPROVE']),
@@ -841,7 +856,9 @@ export function createClientSignUpsMock(
               'KEEP_PENDING',
               ...(resolvable ? ['NOT_A_MATCH'] : []),
             ]
-          : [],
+          : delivery?.status === 'FAILED' && delivery.email === 'APPROVAL'
+            ? ['RETRY_EMAIL']
+            : [],
         history: [
           { kind: 'SUBMITTED', at: row.signedUpAt, actorName: null },
           { kind: 'EMAIL_VERIFIED', at: at(1), actorName: null },
@@ -1105,6 +1122,21 @@ export function createClientSignUpsMock(
       const done = { clientAccountId: row.clientAccountId, correlationId: crypto.randomUUID() };
       outcomes.set(idempotencyKey, done);
       return copy(done);
+    },
+    /** Q44 D2.13: the mock's mail is always up, so a retry goes out. */
+    retryEmail: async (clientAccountId) => {
+      await pause();
+      allowed();
+      const delivery = deliveries.get(clientAccountId);
+      if (delivery?.status !== 'FAILED' || delivery.email !== 'APPROVAL')
+        throw fail(409, error('NOTHING_TO_RETRY', 'The approval email is not waiting for a retry'));
+      deliveries.set(clientAccountId, {
+        email: 'APPROVAL',
+        status: 'SENT',
+        at: new Date().toISOString(),
+        attempts: delivery.attempts + 1,
+      });
+      return client.get(clientAccountId);
     },
   };
   return client;
