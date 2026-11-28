@@ -29,6 +29,15 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { AdminPrisma } from '../firm-applications/admin-prisma.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
+import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
+import {
+  attachmentLinks,
+  attachmentRows,
+  attachmentsOf,
+  readAttachments,
+  requireCleanAttachments,
+  setAttachments,
+} from './comm-attachments.js';
 import {
   contactValues,
   destinationFor,
@@ -61,6 +70,7 @@ const messageInclude = {
   template: { select: { id: true, name: true } },
   recipients: { orderBy: [{ kind: 'asc' }, { createdAt: 'asc' }] },
   mentions: { select: { userId: true, user: { select: { user: { select: { name: true } } } } } },
+  media: attachmentLinks,
 } satisfies Prisma.CommMessageInclude;
 type MessageRow = Prisma.CommMessageGetPayload<{ include: typeof messageInclude }>;
 
@@ -81,6 +91,7 @@ export class CommInboxService {
     private readonly admin: AdminPrisma,
     private readonly audit: AuditService,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
+    @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
   ) {}
 
   // ---------- Cards ----------
@@ -379,6 +390,11 @@ export class CommInboxService {
       } else {
         await this.addRecipients(tx, message.id, conversation, to!, b.cc ?? [], b.bcc ?? []);
       }
+      // SA-COM-R1: email files; a send (now or scheduled) needs every one CLEAN.
+      if (b.attachmentIds?.length) {
+        await setAttachments(tx, { messageId: message.id }, b.attachmentIds);
+        if (b.mode !== 'DRAFT') await requireCleanAttachments(tx, message.id);
+      }
       const entity = { type: 'comm_message', id: message.id };
       if (b.mode === 'SEND' && !internal) {
         await tx.commMessage.update({ where: { id: message.id }, data: { status: 'SENDING' } });
@@ -413,6 +429,12 @@ export class CommInboxService {
           ...(b.templateId !== undefined ? { templateId: b.templateId } : {}),
         },
       });
+      if (b.attachmentIds !== undefined) {
+        if (msg.channel !== 'EMAIL' && b.attachmentIds.length > 0)
+          throw commFailure('ATTACHMENT_NOT_USABLE');
+        await setAttachments(tx, { messageId: id }, b.attachmentIds);
+        if (msg.status === 'SCHEDULED') await requireCleanAttachments(tx, id);
+      }
       if (b.cc || b.bcc) {
         if (msg.channel !== 'EMAIL' && ((b.cc?.length ?? 0) > 0 || (b.bcc?.length ?? 0) > 0))
           throw commFailure('NO_DESTINATION');
@@ -443,6 +465,7 @@ export class CommInboxService {
       if (msg.channel === 'EMAIL' && !msg.subject)
         throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Add a subject' });
       if (msg.recipients.length === 0) throw commFailure('NO_DESTINATION');
+      await requireCleanAttachments(tx, id);
       await tx.commMessage.update({ where: { id }, data: { status: 'SENDING' } });
       await this.audit.logIn(
         tx,
@@ -463,6 +486,7 @@ export class CommInboxService {
     if (!inFuture(b.scheduledAt)) throw commFailure('SCHEDULE_IN_PAST');
     await this.admin.transaction(async (tx) => {
       await this.editable(tx, id, 'SCHEDULE');
+      await requireCleanAttachments(tx, id);
       await tx.commMessage.update({
         where: { id },
         data: {
@@ -522,6 +546,17 @@ export class CommInboxService {
           address: r.address,
         })),
       });
+      // The retry carries the same files (the failed message keeps its own links).
+      const files = await tx.commMediaLink.findMany({
+        where: { messageId: id, usage: 'ATTACHMENT' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { mediaId: true },
+      });
+      await setAttachments(
+        tx,
+        { messageId: copy.id },
+        files.map((f) => f.mediaId),
+      );
       await tx.commMessage.update({ where: { id: copy.id }, data: { status: 'SENDING' } });
       await this.audit.logIn(
         tx,
@@ -571,11 +606,17 @@ export class CommInboxService {
       });
       const sender = await tx.user.findUnique({ where: { id: me }, select: { name: true } });
       return msg && msg.status === 'SENDING'
-        ? { msg, senderName: sender?.name ?? 'Firmivra' }
+        ? {
+            msg,
+            senderName: sender?.name ?? 'Firmivra',
+            files: msg.channel === 'EMAIL' ? await attachmentRows(tx, id) : [],
+          }
         : null;
     });
     if (!plan) return;
     const { msg, senderName } = plan;
+    // SA-COM-R1: the files' bytes once for every recipient; none readable fails every one.
+    const attachments = plan.files.length ? await readAttachments(this.storage, plan.files) : [];
     const results: { id: string; ok: boolean; code: string | null }[] = [];
     for (const r of msg.recipients) {
       const values = contactValues({
@@ -585,6 +626,10 @@ export class CommInboxService {
         senderName,
       });
       const body = fillMergeFields(msg.body, values).text;
+      if (attachments === null) {
+        results.push({ id: r.id, ok: false, code: 'attachment_unavailable' });
+        continue;
+      }
       try {
         if (msg.channel === 'EMAIL')
           await this.notify.send({
@@ -592,6 +637,7 @@ export class CommInboxService {
             to: r.address,
             businessId: null,
             data: { name: r.name, subject: fillMergeFields(msg.subject ?? '', values).text, body },
+            ...(attachments.length ? { attachments } : {}),
           });
         else
           await this.notify.send({
@@ -953,6 +999,7 @@ export class CommInboxService {
         deliveredAt: iso(x.deliveredAt),
         failedAt: iso(x.failedAt),
       })),
+      attachments: attachmentsOf(r.media),
       mentions: r.mentions.map((m) => ({ userId: m.userId, name: m.user.user.name })),
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
