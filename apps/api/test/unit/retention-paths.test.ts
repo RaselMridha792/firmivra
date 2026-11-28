@@ -73,6 +73,9 @@ describe('no path removes a record of the six retention categories (14b)', () =>
         'Super Admin communications library: an upload whose stored bytes are not its ticket (SA-COM-R1/R3)',
       'admin-settings/admin-branding.service.ts': 'platform branding: an upload never confirmed',
       'admin-support/support-files.service.ts': 'support files: an upload never confirmed',
+      // A-X10 (Q28): only an upload refused at confirm; a recorded resource file is kept forever.
+      'advisory/advisory-resources.service.ts':
+        'advisory resource files: an upload refused at confirm',
       'agreements/agreement-files.service.ts': 'agreements: an upload never confirmed',
       'begin-online/begin-online.service.ts': 'lead drafts nobody reopened (lead uploads)',
       'begin-online/draft-submit.service.ts': 'lead uploads in hidden slots at submit',
