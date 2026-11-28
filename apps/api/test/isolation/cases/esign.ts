@@ -330,7 +330,7 @@ export const cases: CaseModule['cases'] = {
   },
   'GET /api/v1/esign/requests/:id/merge-values': { params: { id: 'esignDraft' } },
   'GET /api/v1/esign/requests/:id/readiness': { params: { id: 'esignDraft' } },
-  'GET /api/v1/esign/requests/:id/download': { params: { id: 'esignDraft' } },
+  'GET /api/v1/esign/requests/:id/download': { params: { id: 'esignSent' } },
   'GET /api/v1/esign/requests/:id/events': { params: { id: 'esignDraft' } },
   'POST /api/v1/esign/requests/:id/send': { params: { id: 'esignDraft' }, body: { confirm: true } },
   'POST /api/v1/esign/requests/:id/documents/uploads': {
