@@ -118,6 +118,8 @@ const paymentSelect = {
   status: true,
   // I-N10: card or bank (ACH), for the list's Payment Method filter.
   methodType: true,
+  // Q23: its last 4 digits, for the firm.
+  last4: true,
   failureCode: true,
   paidAt: true,
   refundReservedCents: true,
@@ -369,6 +371,8 @@ function toFirmPayment(p: PaymentRow): FirmInvoicePayment {
   return {
     ...toPayment(p),
     failureCode: p.status === 'FAILED' ? p.failureCode : null,
+    methodType: p.methodType,
+    last4: p.last4,
     refunds: p.refunds.map((r) => ({
       id: r.id,
       amountCents: r.amountCents,

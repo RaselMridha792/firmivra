@@ -183,6 +183,11 @@ export const NOTIFICATION_EVENTS = {
   'invoice.reminder': { category: 'BILLING', kind: 'invoice', to: 'client' },
   'invoice.overdue': { category: 'BILLING', kind: 'invoice', to: 'client' },
   'payment.received': { category: 'BILLING', kind: 'invoice', to: 'both' },
+  /**
+   * Q23 (IP-041): a bank payment (ACH) the bank did not complete; the invoice stays open. To the
+   * client (with the portal link to pay again) and the firm.
+   */
+  'payment.failed': { category: 'BILLING', kind: 'invoice', to: 'both' },
   // ----- Account and team (locked) -----
   'account.password-changed': { category: 'ACCOUNT', kind: 'user', to: 'both' },
   /**

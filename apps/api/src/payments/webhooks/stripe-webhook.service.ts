@@ -3,6 +3,7 @@ import type { Database, TxClient } from '@firmivra/db';
 import Stripe from 'stripe';
 import { AuditService } from '../../audit/audit.service.js';
 import { DATABASE } from '../../database/database.module.js';
+import { InvoiceNotices } from '../invoices/invoice-notices.js';
 import { InvoiceReceipts } from '../invoices/invoice-receipts.js';
 import { paidCents } from '../invoices/invoice-view.js';
 import { providerUnavailable, stripeCall } from '../checkout/checkout-sessions.js';
@@ -49,6 +50,7 @@ export class StripeWebhookService {
     private readonly accounts: StripeAccountsWriter,
     private readonly audit: AuditService,
     private readonly receipts: InvoiceReceipts,
+    private readonly notices: InvoiceNotices,
   ) {}
 
   verify(raw: Buffer | undefined, signature: string | undefined): Stripe.Event {
@@ -174,6 +176,7 @@ export class StripeWebhookService {
       const row = await tx.paymentEvent.findUniqueOrThrow({ where, select: { id: true } });
       const ctx = { tx, businessId, accountId, eventRowId: row.id };
       let paid: { invoiceId: string; paymentId: string } | null = null;
+      let failedInvoice: string | null = null;
       switch (event.type) {
         case 'checkout.session.completed':
           paid =
@@ -186,7 +189,7 @@ export class StripeWebhookService {
           paid = await this.succeed(ctx, object, object.amount_received ?? null, intentConfirmed);
           break;
         case 'checkout.session.async_payment_failed':
-          await this.fail(ctx, object, sanitize(failureCode) ?? 'payment_failed');
+          failedInvoice = await this.fail(ctx, object, sanitize(failureCode) ?? 'payment_failed');
           break;
         case 'checkout.session.expired':
           await this.fail(ctx, object, 'checkout_expired');
@@ -207,13 +210,18 @@ export class StripeWebhookService {
           break;
       }
       await tx.paymentEvent.update({ where: { id: row.id }, data: { processedAt: new Date() } });
-      return { paid };
+      return { paid, failedInvoice };
     });
     // The firm's notice, and the client's receipt only with Automatic Receipts on (IP-F12).
     if (outcome?.paid) {
       await this.receipts.afterPayment(businessId, outcome.paid.invoiceId, {
         paymentId: outcome.paid.paymentId,
       });
+    }
+    // Q23 (IP-041): a bank payment the bank did not complete: the client and the firm are told
+    // (an abandoned checkout, which only expires, is not).
+    if (outcome?.failedInvoice) {
+      await this.notices.send('payment.failed', businessId, outcome.failedInvoice);
     }
   }
 
@@ -322,14 +330,15 @@ export class StripeWebhookService {
     return { invoiceId: payment.invoiceId, paymentId: payment.id };
   }
 
-  private async fail(ctx: Ctx, object: EventObject, code: string) {
+  /** The payment FAILED (from PENDING only); its invoice's id when this event changed it. */
+  private async fail(ctx: Ctx, object: EventObject, code: string): Promise<string | null> {
     const payment = await this.link(ctx, object, true);
-    if (!payment) return;
+    if (!payment) return null;
     const { count } = await ctx.tx.payment.updateMany({
       where: { businessId: ctx.businessId, id: payment.id, status: 'PENDING' },
       data: { status: 'FAILED', failureCode: code },
     });
-    if (count === 0) return; // Already SUCCEEDED or FAILED: final.
+    if (count === 0) return null; // Already SUCCEEDED or FAILED: final.
     await this.audit.logIn(
       ctx.tx,
       'payment.failed',
@@ -337,6 +346,7 @@ export class StripeWebhookService {
       { ...STRIPE, invoiceId: payment.invoiceId, failureCode: code },
       { businessId: ctx.businessId },
     );
+    return payment.invoiceId;
   }
 
   /** This account's payment by id, linked to the event (refund events name no session). */

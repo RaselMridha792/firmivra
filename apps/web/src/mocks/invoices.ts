@@ -92,10 +92,13 @@ const recurringId = (n: number) => `0199b6e6-0000-7000-8000-${String(n).padStart
 /** A payment as the database keeps it; what is refunded and refundable is computed from it. */
 type Payment = Omit<
   FirmInvoicePayment,
-  'refundedCents' | 'refundableCents' | 'receiptSentAt' | 'tipCents'
+  'refundedCents' | 'refundableCents' | 'receiptSentAt' | 'tipCents' | 'methodType' | 'last4'
 > & {
   /** Q22: the tip charged with it (none: 0). */
   tipCents?: number;
+  /** Q23: how it was paid (left out: a card ending 4242 once it went through). */
+  methodType?: string | null;
+  last4?: string | null;
 };
 /** An invoice as the database keeps it: amounts and the client's view are computed from it. */
 interface Row {
@@ -241,6 +244,9 @@ function built() {
           amountCents: 30_000,
           currency: 'usd',
           status: 'PENDING',
+          // Q23: a bank debit (ACH) the bank is still settling.
+          methodType: 'us_bank_account',
+          last4: '6789',
           paidAt: null,
           createdAt: noonOn(day(-1)),
           failureCode: null,
@@ -520,13 +526,19 @@ const refundable = (p: Payment) =>
       sum(p.refunds.filter((x) => x.status !== 'FAILED').map((x) => x.amountCents))
     : 0;
 /** The firm's view of a payment. */
-const firmPayment = (p: Payment): FirmInvoicePayment => ({
-  ...p,
-  tipCents: p.tipCents ?? 0,
-  refundedCents: refunded(p),
-  refundableCents: refundable(p),
-  receiptSentAt: receiptsSent().get(p.id) ?? null,
-});
+const firmPayment = (p: Payment): FirmInvoicePayment => {
+  // Q23: a payment that went through shows how it was paid (the mock's default: card 4242).
+  const done = p.status === 'SUCCEEDED' || p.status === 'REFUNDED';
+  return {
+    ...p,
+    tipCents: p.tipCents ?? 0,
+    methodType: p.methodType ?? (done ? 'card' : null),
+    last4: p.last4 ?? (done ? '4242' : null),
+    refundedCents: refunded(p),
+    refundableCents: refundable(p),
+    receiptSentAt: receiptsSent().get(p.id) ?? null,
+  };
+};
 /** IP-F12: the last receipt sent for each payment (Stripe or offline), by payment id. */
 let receiptTimes: Map<string, string> | undefined;
 const receiptsSent = () => (receiptTimes ??= new Map());
@@ -694,7 +706,7 @@ function toMyDetail(r: Row, day: string, paymentsEnabled: boolean): MyInvoiceDet
     // No failure codes or refund rows for the client: the page says a payment failed and offers
     // Pay again, and shows what was refunded.
     payments: r.payments.map((p) => {
-      const { failureCode: _f, refunds: _r, ...rest } = p;
+      const { failureCode: _f, refunds: _r, methodType: _m, last4: _l, ...rest } = p;
       return { ...rest, tipCents: p.tipCents ?? 0, refundedCents: refunded(p) };
     }),
     // Live ones only: method, amount and day (no reference, note or who recorded it).
@@ -1622,7 +1634,14 @@ export function createMyInvoicesMock(
             m.title.toLowerCase().includes(search),
         )
         .sort(portalOrder);
-      return copy({ ...page(found, q), paymentsEnabled });
+      // Q23: a spec turns the firm's bank payments on with sessionStorage 'firmivra-mock:ach'.
+      let bankPayments = false;
+      try {
+        bankPayments = paymentsEnabled && sessionStorage.getItem('firmivra-mock:ach') === 'active';
+      } catch {
+        // No storage: cards only.
+      }
+      return copy({ ...page(found, q), paymentsEnabled, bankPayments });
     },
     get: async (id) => {
       await mockDelay();

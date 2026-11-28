@@ -237,6 +237,17 @@ const TEXT: Record<NotificationEvent, Writer> = {
           : `Thank you. Your payment for ${invoice} was received.`,
     };
   },
+  // Q23 (IP-041): a bank payment the bank did not complete.
+  'payment.failed': (p, side) => {
+    const invoice = text(p, 'number') ? `invoice ${text(p, 'number')}` : 'an invoice';
+    return {
+      title: 'Payment did not go through',
+      body:
+        side === 'staff'
+          ? `${who(p)}'s bank payment for ${invoice} did not go through. The invoice is still open.`
+          : `Your bank did not complete your payment for ${invoice}. The invoice is still open: pay it again.`,
+    };
+  },
   'account.password-changed': () => ({
     title: 'Password changed',
     body: "Your password was changed. If this wasn't you, contact your firm right away.",

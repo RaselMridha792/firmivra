@@ -6,6 +6,8 @@ import { Notifier } from '../../notifications/notifier.js';
 export type InvoiceNotice =
   | 'invoice.sent'
   | 'payment.received'
+  // Q23 (IP-041): a bank payment the bank did not complete, to both sides.
+  | 'payment.failed'
   // Invoices Review 2 (I-C02, I-N04): before the due date, and overdue.
   | 'invoice.reminder'
   | 'invoice.overdue';
@@ -63,7 +65,9 @@ export class InvoiceNotices {
     try {
       // The invoice's "Send email notification to client" decides its reminders' emails too.
       const email =
-        event === 'payment.received' ? true : await this.emailsClient(businessId, invoiceId);
+        event === 'payment.received' || event === 'payment.failed'
+          ? true
+          : await this.emailsClient(businessId, invoiceId);
       const result = await this.notifier.notify({
         businessId,
         event,

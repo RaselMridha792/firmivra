@@ -250,6 +250,14 @@ export class InvoiceJobs implements OnApplicationBootstrap, OnModuleDestroy {
               businessId,
               status: 'OPEN',
               dueOn: { gte: toDate(addDays(today, -behind)), lte: toDate(addDays(today, ahead)) },
+              // Q23 (IP-041): none while a payment is processing (a bank debit Stripe is settling,
+              // shown as Processing): the client already paid and waits for the bank.
+              payments: {
+                none: {
+                  status: 'PENDING',
+                  events: { some: { type: 'checkout.session.completed' } },
+                },
+              },
             },
             select: { id: true, clientId: true, dueOn: true },
             orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
