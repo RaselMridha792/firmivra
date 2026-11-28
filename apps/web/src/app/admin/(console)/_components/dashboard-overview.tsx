@@ -103,25 +103,17 @@ function StatCard({
           <p className="flex items-center gap-1 text-base text-text">
             {stat.label}
             {stat.key === 'monthlyRevenueCents' ? (
-              <span title="Revenue billed this month" className="inline-flex">
+              <span title="Collected this month (gross), Eastern time" className="inline-flex">
                 <Info aria-hidden className="size-4 text-muted" />
-                <span className="sr-only">(Revenue billed this month)</span>
+                <span className="sr-only">(Collected this month, gross, Eastern time)</span>
               </span>
             ) : null}
           </p>
-          {stat.href ? (
-            <Link href={stat.href} className={`${linkClass} hover:underline`}>
-              <span className="min-w-0">{stat.linkLabel}</span>
-              <ArrowRight aria-hidden className="size-4 shrink-0" />
-            </Link>
-          ) : (
-            // Users and Billing pages come after the first release (Soon in the menu).
-            <span title="Coming soon" className={linkClass}>
-              <span className="min-w-0">{stat.linkLabel}</span>
-              <ArrowRight aria-hidden className="size-4 shrink-0" />
-              <span className="sr-only"> (coming soon)</span>
-            </span>
-          )}
+          {/* Every card opens its list (Monthly Revenue: Billing > Revenue, SA-BIL-A1). */}
+          <Link href={stat.href} className={`${linkClass} hover:underline`}>
+            <span className="min-w-0">{stat.linkLabel}</span>
+            <ArrowRight aria-hidden className="size-4 shrink-0" />
+          </Link>
         </div>
       </div>
     </Card>

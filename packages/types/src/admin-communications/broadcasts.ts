@@ -8,7 +8,7 @@ import {
   CommMediaKind,
   ScanStatus,
 } from '../db-enums.js';
-import { ADMIN_COMM_BODY_MAX, ADMIN_COMM_SMS_MAX } from './schemas.js';
+import { ADMIN_COMM_ATTACHMENT_TYPES, ADMIN_COMM_BODY_MAX, ADMIN_COMM_SMS_MAX } from './schemas.js';
 
 // Super Admin Communications, broadcasts (R0 stage B6): one message to an audience (a segment) on
 // email, SMS and in-app; the segments; the file library for images and attachments. A firm's
@@ -172,6 +172,15 @@ export const CreateAdminCommMediaRequest = z
       b.kind !== 'INLINE_IMAGE' ||
       (ADMIN_COMM_INLINE_IMAGE_TYPES as readonly string[]).includes(b.contentType),
     { message: 'An image is PNG, JPEG, GIF or WebP', path: ['contentType'] },
+  )
+  .refine(
+    (b) =>
+      b.kind !== 'ATTACHMENT' ||
+      (ADMIN_COMM_ATTACHMENT_TYPES as readonly string[]).includes(b.contentType),
+    {
+      message: 'Attach a PDF, Word, Excel, CSV, text or image file',
+      path: ['contentType'],
+    },
   );
 export type CreateAdminCommMediaRequest = z.input<typeof CreateAdminCommMediaRequest>;
 export const AdminCommMediaTicket = z.object({

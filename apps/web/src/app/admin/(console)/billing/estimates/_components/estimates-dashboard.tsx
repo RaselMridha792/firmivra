@@ -41,7 +41,7 @@ import { useEstimateActions } from './estimate-actions';
 import { EstimateDetails } from './estimate-details';
 import { DateBox, FilterSelect, SAVED_NOTICES, useWideLayout } from './estimate-parts';
 import { EstimateTable } from './estimate-table';
-import { adminBilling } from '../../_components/billing-api';
+import { adminBilling, FIRM_IS_CUSTOMER } from '../../_components/billing-api';
 
 /**
  * Estimates (firmivra-estimates-dashboard.jpg, docx §10): the firm filter and Create Estimate,
@@ -220,19 +220,22 @@ export function EstimatesDashboard({
                 setClientId('');
                 setPage(1);
               }}
+              // SA-BIL-R1: the firm is the customer; the Firm filter covers it.
               more={
-                <FilterGroup title="Client">
-                  <SelectControl
-                    aria-label="Client"
-                    value={clientDraft}
-                    placeholder="All clients"
-                    options={(clients.data ?? []).map((client) => ({
-                      value: client.id,
-                      label: client.name,
-                    }))}
-                    onChange={(event) => setClientDraft(event.target.value)}
-                  />
-                </FilterGroup>
+                FIRM_IS_CUSTOMER ? undefined : (
+                  <FilterGroup title="Client">
+                    <SelectControl
+                      aria-label="Client"
+                      value={clientDraft}
+                      placeholder="All clients"
+                      options={(clients.data ?? []).map((client) => ({
+                        value: client.id,
+                        label: client.name,
+                      }))}
+                      onChange={(event) => setClientDraft(event.target.value)}
+                    />
+                  </FilterGroup>
+                )
               }
             >
               <label className="relative block min-w-0 flex-1 basis-full sm:basis-60">

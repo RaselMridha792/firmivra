@@ -110,7 +110,28 @@ const tabs = [
 ] as const;
 
 /** The kit's LinkCard has square tiles and a round arrow; this page uses discs and chevrons. */
-function SettingsCard({ category, disabled }: { category: SettingsCategory; disabled: boolean }) {
+/** SA-SYS-F2: each landing card says when it was last changed and by whom (or never). */
+function lastChange(
+  info: { lastChangedAt: string | null; lastChangedBy: string | null } | undefined,
+) {
+  if (!info?.lastChangedAt) return 'Never changed';
+  const when = new Date(info.lastChangedAt).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  return `Last changed ${when}${info.lastChangedBy ? ` by ${info.lastChangedBy}` : ''}`;
+}
+
+function SettingsCard({
+  category,
+  disabled,
+  info,
+}: {
+  category: SettingsCategory;
+  disabled: boolean;
+  info?: { lastChangedAt: string | null; lastChangedBy: string | null };
+}) {
   const Glyph = category.icon;
 
   return (
@@ -138,6 +159,9 @@ function SettingsCard({ category, disabled }: { category: SettingsCategory; disa
           <CaretRight aria-hidden weight="bold" className="mt-1 size-4 shrink-0 text-muted" />
         </h2>
         <p className="mt-1 text-sm text-muted">{category.description}</p>
+        <p data-testid="settings-category-changed" className="mt-2 text-xs text-muted">
+          {disabled ? 'Not available' : lastChange(info)}
+        </p>
       </div>
     </Card>
   );
@@ -256,6 +280,7 @@ export function SystemSettingsScreen() {
               key={category.key}
               category={category}
               disabled={!data?.categories.some((available) => available.key === category.key)}
+              info={data?.categories.find((available) => available.key === category.key)}
             />
           ))}
         </div>

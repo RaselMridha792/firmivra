@@ -21,9 +21,13 @@ import { AuditService } from '../audit/audit.service.js';
 import { AdminPrisma } from '../firm-applications/admin-prisma.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { commFailure } from './comm-inbox.service.js';
+import { attachmentLinks, attachmentsOf, setAttachments } from './comm-attachments.js';
 import { contactValues, fillMergeFields, mergeFieldsIn, sampleValues } from './comm.rules.js';
 
-const include = { category: { select: { id: true, name: true } } } as const;
+const include = {
+  category: { select: { id: true, name: true } },
+  media: attachmentLinks,
+} as const;
 type Row = Prisma.CommTemplateGetPayload<{ include: typeof include }>;
 
 /** A unique name refused by the database becomes 409 DUPLICATE_NAME. */
@@ -93,6 +97,9 @@ export class CommTemplatesService {
             mergeFields: mergeFieldsIn(b.subject, b.body),
           },
         });
+        // SA-COM-R3: files saved with the template (email only; the schema refuses them on SMS).
+        if (b.attachmentIds?.length)
+          await setAttachments(tx, { templateId: row.id }, b.attachmentIds);
         await this.audit.logIn(tx, 'comm_template.created', { type: 'comm_template', id: row.id });
         return this.one(tx, row.id);
       }),
@@ -128,6 +135,11 @@ export class CommTemplatesService {
             mergeFields: mergeFieldsIn(subject, body),
           },
         });
+        if (b.attachmentIds !== undefined) {
+          if (t.channel !== 'EMAIL' && b.attachmentIds.length > 0)
+            throw commFailure('ATTACHMENT_NOT_USABLE');
+          await setAttachments(tx, { templateId: id }, b.attachmentIds);
+        }
         await this.audit.logIn(tx, 'comm_template.updated', { type: 'comm_template', id });
         return this.one(tx, id);
       }),
@@ -161,6 +173,18 @@ export class CommTemplatesService {
           mergeFields: t.mergeFields,
         },
       });
+      // The copy carries the same files.
+      const files = await tx.commMediaLink.findMany({
+        where: { templateId: id, usage: 'ATTACHMENT' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { mediaId: true },
+      });
+      if (files.length)
+        await setAttachments(
+          tx,
+          { templateId: copy.id },
+          files.map((x) => x.mediaId),
+        );
       await this.audit.logIn(
         tx,
         'comm_template.duplicated',
@@ -397,6 +421,7 @@ export class CommTemplatesService {
       subject: r.subject,
       body: r.body,
       mergeFields: r.mergeFields,
+      attachments: attachmentsOf(r.media),
       createdBy: ref(r.createdByUserId),
       updatedBy: ref(r.updatedByUserId),
       createdAt: r.createdAt.toISOString(),

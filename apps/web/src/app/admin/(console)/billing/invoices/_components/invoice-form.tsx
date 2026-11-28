@@ -53,7 +53,12 @@ import {
   optionsOf,
   PAYMENT_TERMS_LABELS,
 } from '../../_components/billing-labels';
-import { BillingCard, QuietLine, quietErrorText } from '../../_components/billing-parts';
+import {
+  BillingCard,
+  BillToSummary,
+  QuietLine,
+  quietErrorText,
+} from '../../_components/billing-parts';
 import { BillingHeader, type Crumb } from '../../_components/billing-shell';
 import {
   DocumentViewer,
@@ -61,7 +66,7 @@ import {
   type InvoiceDocumentData,
 } from '../../_components/invoice-document';
 import { RecurringDrawer } from '../../_components/recurring-drawer';
-import { adminBilling, issuerOf } from '../../_components/billing-api';
+import { adminBilling, FIRM_IS_CUSTOMER, issuerOf } from '../../_components/billing-api';
 
 /**
  * Create Invoice and Edit Invoice: one form (docx §7; firmivra-create-invoice-dashboard.jpg).
@@ -610,7 +615,8 @@ function InvoiceForm({
                     const next = firms.find((row) => row.id === event.target.value);
                     set({
                       firmId: event.target.value,
-                      clientId: '',
+                      // SA-BIL-R1: the firm is the customer; no client of the firm is picked.
+                      clientId: FIRM_IS_CUSTOMER ? event.target.value : '',
                       ...(next && mode === 'create'
                         ? {
                             currency: next.currency,
@@ -625,26 +631,37 @@ function InvoiceForm({
                   }}
                 />
               </FormField>
-              <FormField
-                label="Client"
-                htmlFor="invoice-client"
-                required
-                error={fieldErrors['clientId']}
-              >
-                <SelectControl
-                  id="invoice-client"
-                  value={draft.clientId}
-                  placeholder={draft.firmId ? 'Select a client...' : 'Select a firm first...'}
-                  invalid={Boolean(fieldErrors['clientId'])}
-                  disabled={
-                    !draft.firmId ||
-                    (mode === 'edit' &&
-                      (invoice?.paidCents ?? 0) + (invoice?.creditedCents ?? 0) > 0)
-                  }
-                  options={(clients.data ?? []).map((row) => ({ value: row.id, label: row.name }))}
-                  onChange={(event) => set({ clientId: event.target.value })}
+              {FIRM_IS_CUSTOMER ? (
+                <BillToSummary
+                  contactName={client?.contactName}
+                  email={client?.email}
+                  firmChosen={Boolean(draft.firmId)}
                 />
-              </FormField>
+              ) : (
+                <FormField
+                  label="Client"
+                  htmlFor="invoice-client"
+                  required
+                  error={fieldErrors['clientId']}
+                >
+                  <SelectControl
+                    id="invoice-client"
+                    value={draft.clientId}
+                    placeholder={draft.firmId ? 'Select a client...' : 'Select a firm first...'}
+                    invalid={Boolean(fieldErrors['clientId'])}
+                    disabled={
+                      !draft.firmId ||
+                      (mode === 'edit' &&
+                        (invoice?.paidCents ?? 0) + (invoice?.creditedCents ?? 0) > 0)
+                    }
+                    options={(clients.data ?? []).map((row) => ({
+                      value: row.id,
+                      label: row.name,
+                    }))}
+                    onChange={(event) => set({ clientId: event.target.value })}
+                  />
+                </FormField>
+              )}
             </div>
             <div className="grid gap-4 md:grid-cols-3">
               <FormField

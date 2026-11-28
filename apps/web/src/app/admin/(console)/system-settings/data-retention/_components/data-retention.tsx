@@ -173,6 +173,17 @@ export function DataRetention() {
                           <td className="px-3 py-2.5">
                             <span className="block font-semibold text-heading">{name}</span>
                             <span className="block text-xs text-muted">{hint}</span>
+                            {/* SA-SYS-F2: the saved policy's floor, effective date and version. */}
+                            <span className="mt-1 block text-xs text-muted">
+                              Minimum {periodText(p.minimumDays)} (locked) · Effective{' '}
+                              {new Date(p.effectiveFrom).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })}{' '}
+                              · Version {p.version}
+                              {p.updatedBy ? ` · ${p.updatedBy}` : ''}
+                            </span>
                           </td>
                           <td className="px-3 py-2.5">
                             <Select
@@ -540,18 +551,32 @@ function HoldModal({
   policies: AdminRetentionPolicy[];
   onClose: () => void;
 }) {
-  const [form, setForm] = useState({ name: '', reason: '', category: '' });
+  // SA-SYS-Y02: a hold covers one data type across all firms, or everything of one firm.
+  const blank = {
+    name: '',
+    reason: '',
+    target: 'category' as 'category' | 'firm',
+    category: '',
+    firmId: '',
+  };
+  const [form, setForm] = useState(blank);
+  const firms = useApiQuery(['admin-firms', 'hold-picker', open], () =>
+    open
+      ? api.firmApplications.listFirms({ sort: 'name', pageSize: 100 })
+      : Promise.resolve({ items: [] as { id: string; name: string }[] }),
+  );
   const create = useApiMutation(
     () =>
       api.adminSettings.createHold({
         name: form.name,
         reason: form.reason,
-        category: form.category,
+        ...(form.target === 'firm' ? { businessId: form.firmId } : { category: form.category }),
       }),
     { invalidate: [...SS] },
   );
+  const chosen = form.target === 'firm' ? Boolean(form.firmId) : Boolean(form.category);
   const close = () => {
-    setForm({ name: '', reason: '', category: '' });
+    setForm(blank);
     create.reset();
     onClose();
   };
@@ -567,9 +592,7 @@ function HoldModal({
             Cancel
           </Button>
           <Button
-            disabled={
-              !form.name.trim() || !form.reason.trim() || !form.category || create.isPending
-            }
+            disabled={!form.name.trim() || !form.reason.trim() || !chosen || create.isPending}
             onClick={() => create.mutate(undefined, { onSuccess: close })}
           >
             Place Hold
@@ -585,14 +608,37 @@ function HoldModal({
           onChange={(e) => setForm({ ...form, name: e.target.value })}
         />
         <Select
-          label="Data type"
-          value={form.category}
-          onChange={(e) => setForm({ ...form, category: e.target.value })}
+          label="Hold applies to"
+          value={form.target}
+          onChange={(e) =>
+            setForm({ ...form, target: e.target.value === 'firm' ? 'firm' : 'category' })
+          }
           options={[
-            { value: '', label: 'Choose a data type' },
-            ...policies.map((p) => ({ value: p.category, label: label(p.category)[0] })),
+            { value: 'category', label: 'One data type, in every firm' },
+            { value: 'firm', label: 'Everything of one firm' },
           ]}
         />
+        {form.target === 'firm' ? (
+          <Select
+            label="Firm"
+            value={form.firmId}
+            onChange={(e) => setForm({ ...form, firmId: e.target.value })}
+            options={[
+              { value: '', label: firms.isPending ? 'Loading firms…' : 'Choose a firm' },
+              ...(firms.data?.items ?? []).map((f) => ({ value: f.id, label: f.name })),
+            ]}
+          />
+        ) : (
+          <Select
+            label="Data type"
+            value={form.category}
+            onChange={(e) => setForm({ ...form, category: e.target.value })}
+            options={[
+              { value: '', label: 'Choose a data type' },
+              ...policies.map((p) => ({ value: p.category, label: label(p.category)[0] })),
+            ]}
+          />
+        )}
         <Textarea
           label="Reason"
           rows={3}

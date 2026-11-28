@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ChartLineUp,
   ArrowCounterClockwise,
   Buildings,
   CalendarCheck,
@@ -107,6 +108,7 @@ export type BillingTabId =
   | 'estimates'
   | 'credit-notes'
   | 'payments'
+  | 'revenue'
   | 'settings';
 export const BILLING_TABS: { id: BillingTabId; label: string; href: string; icon: Icon }[] = [
   { id: 'invoices', label: 'Invoices', href: '/billing', icon: FileText },
@@ -115,6 +117,8 @@ export const BILLING_TABS: { id: BillingTabId; label: string; href: string; icon
   { id: 'estimates', label: 'Estimates', href: '/billing/estimates', icon: Ticket },
   { id: 'credit-notes', label: 'Credit Notes', href: '/billing/credit-notes', icon: Receipt },
   { id: 'payments', label: 'Payments', href: '/billing/payments', icon: Wallet },
+  // SA-BIL-A1: its own tab, apart from Recurring (and the coming All Payment Issues).
+  { id: 'revenue', label: 'Revenue', href: '/billing/revenue', icon: ChartLineUp },
   { id: 'settings', label: 'Settings', href: '/billing/settings', icon: GearSix },
 ];
 
@@ -143,7 +147,7 @@ export function BillingTabs({
 }) {
   const pathname = usePathname();
   const current = active ?? billingTabOf(pathname);
-  const size = compact ? 'gap-1.5 px-2.5 text-sm 2xl:px-3' : 'gap-2 px-3 text-base md:px-4';
+  const size = compact ? 'gap-1 px-2 text-sm 2xl:px-3' : 'gap-2 px-3 text-base md:px-4';
   return (
     <nav aria-label="Billing sections" className="border-b border-divider">
       <ul className="-mb-px flex gap-1 overflow-x-auto">
