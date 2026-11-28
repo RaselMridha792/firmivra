@@ -193,18 +193,23 @@ export function SubscriptionsScreen() {
         title="Subscriptions"
         subtitle="Manage Firmivra subscriptions, plans, and renewals. Track revenue, usage and growth."
         actions={
-          <AddMenu
-            onAdd={() => setDialog({ kind: 'add', trial: false })}
-            onTrial={() => setDialog({ kind: 'add', trial: true })}
-            onExport={() =>
-              setDialog({
-                kind: 'export',
-                ids: rows.map((row) => row.id),
-                query,
-                scope: 'Subscriptions matching the current filters',
-              })
-            }
-          />
+          <div className="flex items-center gap-2">
+            <Link href="/subscriptions/plans">
+              <Button variant="secondary">Plan Tiers</Button>
+            </Link>
+            <AddMenu
+              onAdd={() => setDialog({ kind: 'add', trial: false })}
+              onTrial={() => setDialog({ kind: 'add', trial: true })}
+              onExport={() =>
+                setDialog({
+                  kind: 'export',
+                  ids: rows.map((row) => row.id),
+                  query,
+                  scope: 'Subscriptions matching the current filters',
+                })
+              }
+            />
+          </div>
         }
       />
 

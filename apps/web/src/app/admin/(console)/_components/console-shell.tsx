@@ -6,6 +6,7 @@ import {
   CreditCard,
   FileChartColumn,
   FileText,
+  Globe,
   Headset,
   House,
   MessageCircleMore,
@@ -43,12 +44,11 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
       },
       { label: 'Firms', icon: Building2, href: '/firms' },
     ],
-    // The modules, in the order of firmivra-sidebar-states-mockup.jpg. Leads / CRM has no route
-    // of its own yet (the pipeline holds the leads), so it stays a "Soon" item.
     [
       { label: 'Sales Center', icon: TrendingUp, href: '/sales' },
-      { label: 'Leads / CRM', icon: SquareUser, soon: true },
+      { label: 'CRM', icon: SquareUser, href: '/crm' },
       { label: 'Pipeline', icon: TrendingUp, href: '/sales/pipeline' },
+      { label: 'Website Management', icon: Globe, href: '/website' },
       { label: 'Team', icon: Users, href: '/team' },
       { label: 'Communications', icon: MessageCircleMore, href: '/communications' },
       { label: 'Subscriptions', icon: CreditCard, href: '/subscriptions' },
