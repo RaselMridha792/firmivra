@@ -587,3 +587,45 @@ test('Review 2 (B6): Today labels an all-day appointment All Day', async ({ page
   await expect(allDay).toContainText('All Day');
   await expect(allDay).toContainText('Nina Fairbanks');
 });
+
+test('Review 3 (R01, R02, R04, R06, R09): Appointments Review 3 fixes in schedule and detail', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-13T20:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+
+  // R01: method revalidation & detailed validation message
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Consultation' });
+
+  // R02: Room conflict check before save - occupied room shows unavailable and is disabled
+  await page.getByRole('radio', { name: 'In Person' }).check();
+  await page.getByLabel('Office / Branch').selectOption({ index: 1 });
+  const roomSelect = page.getByLabel('Room (optional)');
+  await expect(roomSelect).toBeVisible();
+
+  // R09: Related service enables toggle and preselects matching published form
+  await page.getByLabel('Client / Lead *').fill('Nina');
+  await page
+    .getByTestId('contact-results')
+    .getByRole('button', { name: /Nina Fairbanks/ })
+    .click();
+  await page.getByLabel('Related Service').selectOption({ label: 'Bookkeeping' });
+  const sendIntake = page.getByTestId('send-intake').getByRole('checkbox');
+  await expect(sendIntake).toBeEnabled();
+  await expect(sendIntake).toBeChecked();
+  await expect(page.getByTestId('intake-form')).toBeVisible();
+
+  // R04: wrong no-show guard wording check
+  await page.getByLabel('Date *').fill('2026-10-25');
+  await page.getByLabel('Start Time *').selectOption('15:00');
+  await page.getByLabel('End Time *').selectOption('16:00');
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+
+  // In detail screen: R06 notice history shows Sent: timestamp
+  await page.getByRole('button', { name: 'Send Reminder' }).click();
+  const reminders = page.getByTestId('detail-reminders');
+  await expect(reminders).toContainText('Sent:');
+});

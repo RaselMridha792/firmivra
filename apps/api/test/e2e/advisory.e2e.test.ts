@@ -15,6 +15,8 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   AdvisoryActionItemPage,
   AdvisoryActionItemRow,
+  AdvisoryActionNoteList,
+  AdvisoryIndustryList,
   AdvisoryActivityPage,
   AdvisoryHistoryPage,
   AdvisoryDeliverables,
@@ -1795,6 +1797,77 @@ describe('recommendations and action items', () => {
     // Leaves the client's open tasks as they were for the tests after this one.
     ok(await call('patch', `/action-items/${item.id}`, ownerA, { status: 'CANCELLED' }));
   });
+
+  it('A-X11: progress notes keep each note’s status, author and time, and can move the item', async () => {
+    const item = AdvisoryActionItemRow.parse(
+      ok(
+        await call('post', '/action-items', ownerA, {
+          advisoryClientId: shared.a1,
+          title: mark('Notes item'),
+          assigneeUserId: staffA.id,
+        }),
+        201,
+      ),
+    );
+    const first = AdvisoryActionNoteList.parse(
+      ok(
+        await call('post', `/action-items/${item.id}/notes`, staffA, {
+          body: 'Called the bank.\nThey need a statement.',
+        }),
+        201,
+      ),
+    );
+    expect(first.items).toEqual([
+      expect.objectContaining({
+        body: 'Called the bank.\nThey need a statement.',
+        status: 'NOT_STARTED',
+        author: expect.objectContaining({ userId: staffA.id }),
+      }),
+    ]);
+    // A note with a new status moves the item first, so the note records the new one.
+    const second = AdvisoryActionNoteList.parse(
+      ok(
+        await call('post', `/action-items/${item.id}/notes`, ownerA, {
+          body: 'Sent the statement.',
+          status: 'DONE',
+        }),
+        201,
+      ),
+    );
+    expect(second.items.map((n) => n.status)).toEqual(['DONE', 'NOT_STARTED']);
+    expect(Date.parse(second.items[0]?.at ?? '')).toBeGreaterThanOrEqual(
+      Date.parse(second.items[1]?.at ?? ''),
+    );
+    const row = AdvisoryActionItemPage.parse(
+      ok(await call('get', `/action-items?advisoryClientId=${shared.a1}&pageSize=100`, ownerA)),
+    ).items.find((a) => a.id === item.id);
+    expect(row).toMatchObject({ status: 'DONE' });
+    expect(row?.completedAt).not.toBeNull();
+    expect(
+      AdvisoryActionNoteList.parse(ok(await call('get', `/action-items/${item.id}/notes`, staffA)))
+        .items,
+    ).toHaveLength(2);
+    // Words are needed; who may not manage tasks and another firm are refused.
+    expectError(
+      await call('post', `/action-items/${item.id}/notes`, ownerA, { body: '   ' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', `/action-items/${item.id}/notes`, preparerA, { body: 'x' }),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call('get', `/action-items/${item.id}/notes`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    // The words never reach the audit log.
+    expect(JSON.stringify(await auditFor(shared.a1))).not.toMatch(
+      /Called the bank|Sent the statement/,
+    );
+  });
 });
 
 describe('financial analysis and the Business Health Score', () => {
@@ -2738,6 +2811,80 @@ describe('the overview, meetings, resources, settings and activity', () => {
       'NOT_FOUND',
     );
     expectError(await call('get', '/history?area=NOPE', ownerA), 400, 'VALIDATION_FAILED');
+  });
+
+  it('A-X02: the industries are the built-in list until the firm saves its own; Advisory Admin renames, archives and adds', async () => {
+    const built = AdvisoryIndustryList.parse(ok(await call('get', '/industries', staffA)));
+    expect(built).toMatchObject({ custom: false, canManage: false });
+    expect(built.items.map((i) => i.name)).toEqual(
+      expect.arrayContaining(['Construction', 'Retail']),
+    );
+    expect(built.items.every((i) => i.id === null && !i.archived)).toBe(true);
+    expectError(
+      await call('put', '/industries', staffA, { items: [{ name: 'Retail' }] }),
+      403,
+      'FORBIDDEN',
+    );
+    const clientBefore = (await advClient(shared.a1)).industry;
+    // The first save makes the list the firm's own, in its order.
+    const first = AdvisoryIndustryList.parse(
+      ok(
+        await call('put', '/industries', ownerA, {
+          items: [{ name: 'Landscaping' }, ...built.items.map((i) => ({ name: i.name }))],
+        }),
+      ),
+    );
+    expect(first.custom).toBe(true);
+    expect(first.canManage).toBe(true);
+    expect(first.items[0]).toMatchObject({ name: 'Landscaping', archived: false });
+    expect(first.items.every((i) => i.id !== null)).toBe(true);
+    const retail = first.items.find((i) => i.name === 'Retail');
+    // A rename, and one left out is archived (kept, no longer offered).
+    const second = AdvisoryIndustryList.parse(
+      ok(
+        await call('put', '/industries', adminA, {
+          items: first.items
+            .filter((i) => i.name !== 'Construction')
+            .map((i) => ({
+              id: i.id,
+              name: i.id === retail?.id ? 'Retail & E-commerce' : i.name,
+            })),
+        }),
+      ),
+    );
+    expect(second.items.find((i) => i.id === retail?.id)).toMatchObject({
+      name: 'Retail & E-commerce',
+      archived: false,
+    });
+    expect(second.items.find((i) => i.name === 'Construction')).toMatchObject({ archived: true });
+    expect(AdvisoryIndustryList.parse(ok(await call('get', '/industries', staffA))).items).toEqual(
+      second.items,
+    );
+    // Live names once each, Other is not saved, and another firm can't name these.
+    expectError(
+      await call('put', '/industries', ownerA, {
+        items: [{ name: 'Dental' }, { name: ' dental ' }],
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('put', '/industries', ownerA, { items: [{ name: 'Other' }] }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('put', '/industries', ownerB, { items: [{ id: retail?.id, name: 'X' }] }, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    // A client keeps the text it was saved with; each save is audited (counts only).
+    expect((await advClient(shared.a1)).industry).toBe(clientBefore);
+    expect(
+      await inFirm('a', (tx) =>
+        tx.auditLog.count({ where: { action: 'advisory_industries.updated' } }),
+      ),
+    ).toBe(2);
   });
 
   it('configures the health formula for new calculations only, and the default advisor', async () => {

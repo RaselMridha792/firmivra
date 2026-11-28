@@ -9,9 +9,8 @@ export default async function SignatureRequestsPage({
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
-  // A dashboard counter opens the list filtered by its status. Delivered is shown as Sent (and
-  // the API's Sent includes it).
+  // A dashboard counter opens the list filtered by its status (FS-001: DELIVERED has its own filter).
   const parsed = EsignRequestStatus.safeParse((await searchParams).status);
-  const status = parsed.success ? (parsed.data === 'DELIVERED' ? 'SENT' : parsed.data) : undefined;
+  const status = parsed.success ? parsed.data : undefined;
   return <AllRequests status={status} />;
 }

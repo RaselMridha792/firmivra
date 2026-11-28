@@ -298,6 +298,32 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** A-X10 (Q28): a file uploaded for an advisory resource, not on any resource yet. */
+  advisoryResourceFile: {
+    async create({ tx, businessId, owner }) {
+      const row = await tx.advisoryResourceFile.create({
+        data: {
+          businessId,
+          fileName: 'Fake checklist.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 10,
+          sha256: '0'.repeat(64),
+          s3Key: `tenant/${businessId}/advisory-resources/${randomUUID()}`,
+          uploadedByUserId: owner.id,
+        },
+      });
+      return row.id;
+    },
+  },
+  /** A-X02: one of the firm's own industries. */
+  advisoryIndustry: {
+    async create({ tx, businessId }) {
+      const row = await tx.advisoryIndustry.create({
+        data: { businessId, name: `Fake industry ${tag()}` },
+      });
+      return row.id;
+    },
+  },
   advisoryActionItem: {
     async create({ tx, businessId, owner, get }) {
       const row = await tx.advisoryActionItem.create({
@@ -521,7 +547,44 @@ export const cases: CaseModule['cases'] = {
       title: 'Fake renamed action',
     },
   },
+  // A-X02: the industry list; each item's id is one of the firm's.
+  [`PUT ${BASE}/industries`]: {
+    params: {},
+    bodyIds: { 'items.id': 'advisoryIndustry' },
+    body: { items: [{ id: PLACEHOLDER, name: 'Fake renamed industry' }] },
+  },
+  // A-X11: progress notes.
+  [`GET ${BASE}/action-items/:id/notes`]: { params: { id: 'advisoryActionItem' } },
+  [`POST ${BASE}/action-items/:id/notes`]: {
+    params: { id: 'advisoryActionItem' },
+    body: { body: 'Fake progress note' },
+  },
 
+  // A-X10 (Q28): a resource takes one of the firm's own uploaded files.
+  [`POST ${BASE}/resources`]: {
+    params: {},
+    bodyIds: { fileId: 'advisoryResourceFile' },
+    body: {
+      title: 'Fake resource',
+      category: 'Banking',
+      kind: 'PDF',
+      summary: 'Fake summary',
+      clientFacing: true,
+      fileId: PLACEHOLDER,
+    },
+  },
+  [`PUT ${BASE}/resources/:key`]: {
+    params: {},
+    bodyIds: { fileId: 'advisoryResourceFile' },
+    body: {
+      title: 'Fake edited resource',
+      category: 'Funding',
+      kind: 'CHECKLIST',
+      summary: 'Fake summary',
+      clientFacing: true,
+      fileId: PLACEHOLDER,
+    },
+  },
   [`POST ${BASE}/resources/:key/send`]: {
     params: {},
     bodyIds: { advisoryClientId: 'advisoryClient' },

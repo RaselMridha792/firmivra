@@ -58,7 +58,7 @@ import { BillingCard, QuietLine, quietErrorText } from '../../_components/billin
 import { BillingHeader, type Crumb } from '../../_components/billing-shell';
 import { DocumentViewer } from '../../_components/invoice-document';
 import { EstimateDocument, type EstimateDocumentData } from './estimate-document';
-import { adminBilling, issuerOf } from '../../_components/billing-api';
+import { adminBilling, FIRM_IS_CUSTOMER, issuerOf } from '../../_components/billing-api';
 
 /**
  * Create Estimate and Edit Estimate: one form (modern-estimate-creation-dashboard.jpg, docx §11).
@@ -383,16 +383,25 @@ function ClientSelect({
         onChange={(event) => onChange(event.target.value)}
         className={`min-h-11 w-full min-w-0 appearance-none truncate rounded-control border bg-surface py-2 pr-10 pl-3 text-base ${compactText} text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${invalid ? 'border-danger' : 'border-border'}`}
       >
-        <option value="">Search or select a client...</option>
-        {groups.map((group) => (
-          <optgroup key={group.firm.id} label={group.firm.name}>
-            {group.clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
+        <option value="">
+          {FIRM_IS_CUSTOMER ? 'Search or select a firm...' : 'Search or select a client...'}
+        </option>
+        {/* SA-BIL-R1: the firm is the customer, so one plain list of firms (no "Firm (Firm)"). */}
+        {FIRM_IS_CUSTOMER
+          ? groups.map((group) => (
+              <option key={group.firm.id} value={group.clients[0]?.id ?? group.firm.id}>
+                {group.firm.name}
               </option>
+            ))
+          : groups.map((group) => (
+              <optgroup key={group.firm.id} label={group.firm.name}>
+                {group.clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </optgroup>
             ))}
-          </optgroup>
-        ))}
       </select>
       <CaretDown
         aria-hidden
@@ -605,14 +614,18 @@ function EstimateForm({
         <fieldset disabled={locked} className="grid min-w-0 items-start gap-6 xl:grid-cols-3">
           <legend className="sr-only">Estimate</legend>
           <div className="flex min-w-0 flex-col gap-6 xl:col-span-2">
-            <BillingCard title="Client Information" action={<AddClientNote />} testId="client-card">
+            <BillingCard
+              title={FIRM_IS_CUSTOMER ? 'Firm Information' : 'Client Information'}
+              action={<AddClientNote />}
+              testId="client-card"
+            >
               {/* Four fields in a row once the card is wide enough (container query): the
                   client takes the free room, the email a wide column, contact and phone less. */}
               <div className="@container">
                 <div className="grid gap-4 @lg:grid-cols-2 @2xl:flex @2xl:gap-3">
                   <div className="min-w-0 @2xl:flex-1">
                     <FormField
-                      label="Client"
+                      label={FIRM_IS_CUSTOMER ? 'Firm' : 'Client'}
                       htmlFor="estimate-client"
                       required
                       error={err('clientId')}

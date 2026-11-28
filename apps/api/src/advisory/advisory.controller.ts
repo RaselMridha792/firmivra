@@ -4,6 +4,7 @@ import {
   AdvisoryActionItemId,
   type AdvisoryActionItemPage,
   type AdvisoryActionItemRow,
+  type AdvisoryActionNoteList,
   type AdvisoryActivityPage,
   type AdvisoryHistoryPage,
   type AdvisoryDeliverables,
@@ -29,10 +30,15 @@ import {
   type AdvisoryRecommendationPage,
   type AdvisoryRecommendationRow,
   AdvisoryResourceKey,
+  type AdvisoryResource,
+  type AdvisoryResourceFile,
   type AdvisoryResourceList,
+  type DownloadLink,
+  type UploadTicket,
   type AdvisoryResourcePreview,
   type AdvisoryServiceOptionList,
   type AdvisorySettingsView,
+  type AdvisoryIndustryList,
   type AdvisoryVersionDetail,
   type AdvisoryVersionList,
   type AdvisoryWorkstream,
@@ -50,6 +56,7 @@ import { AdvisoryGoalsService } from './advisory-goals.service.js';
 import {
   ActionItemsQuery,
   ActivityQuery,
+  AddActionNoteBody,
   AddWorkstreamBody,
   HistoryQuery,
   ClientsQuery,
@@ -67,6 +74,9 @@ import {
   ReportsQuery,
   PlansQuery,
   PreviewResourceBody,
+  SaveResourceBody,
+  StartResourceFileBody,
+  ConfirmResourceFileBody,
   RecommendationsQuery,
   ReorderMilestonesBody,
   RequestApprovalBody,
@@ -75,6 +85,7 @@ import {
   SendResourceBody,
   SetPlanStatusBody,
   SettingsBody,
+  IndustriesBody,
   UpdateActionItemBody,
   UpdateClientBody,
   UpdateGoalBody,
@@ -86,6 +97,7 @@ import {
 import { AdvisoryOverviewService } from './advisory-overview.service.js';
 import { AdvisoryPlansService } from './advisory-plans.service.js';
 import { AdvisoryReportsService } from './advisory-reports.service.js';
+import { AdvisoryResourcesService } from './advisory-resources.service.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -122,6 +134,7 @@ export class AdvisoryController {
     private readonly goals: AdvisoryGoalsService,
     private readonly actions: AdvisoryActionsService,
     private readonly reportsService: AdvisoryReportsService,
+    private readonly library: AdvisoryResourcesService,
   ) {}
 
   // ----- Overview and services -----
@@ -613,6 +626,29 @@ export class AdvisoryController {
     return this.actions.updateActionItem(w.businessId, w.tenant, w.userId, id, body);
   }
 
+  /** A-X11: an action item's progress notes. */
+  @Get('action-items/:id/notes')
+  actionNotes(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', actionPipe) id: string,
+  ): Promise<AdvisoryActionNoteList> {
+    const w = who(auth, tenant);
+    return this.actions.actionNotes(w.businessId, w.tenant, w.userId, id);
+  }
+
+  /** A-X11: adds a progress note, optionally with the item's new status. */
+  @Post('action-items/:id/notes')
+  addActionNote(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', actionPipe) id: string,
+    @Body(new ZodValidationPipe(AddActionNoteBody)) body: Out<typeof AddActionNoteBody>,
+  ): Promise<AdvisoryActionNoteList> {
+    const w = who(auth, tenant);
+    return this.actions.addActionNote(w.businessId, w.tenant, w.userId, id, body);
+  }
+
   // ----- Meetings, resources, settings -----
 
   @Get('meetings')
@@ -636,11 +672,83 @@ export class AdvisoryController {
     return this.reportsService.reports(w.businessId, w.tenant, w.userId, q);
   }
 
+  /** A-X10: the built-in library (with the firm's edits), then the firm's own resources. */
   @Get('resources')
-  resources(
+  async resources(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
     @Query(new ZodValidationPipe(ResourcesQuery)) q: Out<typeof ResourcesQuery>,
-  ): AdvisoryResourceList {
-    return { items: this.overview.resources(q) };
+  ): Promise<AdvisoryResourceList> {
+    const w = who(auth, tenant);
+    return { items: await this.overview.resources(w.businessId, w.tenant, w.userId, q) };
+  }
+
+  /** A-X10 (Q28): adds the firm's own resource (Owner and Admin, or "Manage"). */
+  @Post('resources')
+  createResource(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(SaveResourceBody)) body: Out<typeof SaveResourceBody>,
+  ): Promise<AdvisoryResource> {
+    const w = who(auth, tenant);
+    return this.library.create(w.businessId, w.tenant, w.userId, body);
+  }
+
+  /** A-X10: step 1 of a resource file's upload. */
+  @Post('resources/files')
+  startResourceFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(StartResourceFileBody)) body: Out<typeof StartResourceFileBody>,
+  ): Promise<UploadTicket> {
+    const w = who(auth, tenant);
+    return this.library.ticket(w.businessId, w.tenant, w.userId, body);
+  }
+
+  /** A-X10: step 3: the stored bytes checked and the file recorded (CHECKING until scanned). */
+  @Post('resources/files/confirm')
+  confirmResourceFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ConfirmResourceFileBody)) body: Out<typeof ConfirmResourceFileBody>,
+  ): Promise<AdvisoryResourceFile> {
+    const w = who(auth, tenant);
+    return this.library.confirm(w.businessId, w.tenant, w.userId, body.uploadToken);
+  }
+
+  /** A-X10: edits the firm's own resource, or its copy of a built-in one. */
+  @Put('resources/:key')
+  updateResource(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('key', new ZodValidationPipe(AdvisoryResourceKey)) key: string,
+    @Body(new ZodValidationPipe(SaveResourceBody)) body: Out<typeof SaveResourceBody>,
+  ): Promise<AdvisoryResource> {
+    const w = who(auth, tenant);
+    return this.library.update(w.businessId, w.tenant, w.userId, key, body);
+  }
+
+  /** A-X10: the firm's own resource leaves the library; a built-in one is 409. */
+  @Post('resources/:key/archive')
+  @HttpCode(200)
+  archiveResource(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('key', new ZodValidationPipe(AdvisoryResourceKey)) key: string,
+  ): Promise<OkResponse> {
+    const w = who(auth, tenant);
+    return this.library.archive(w.businessId, w.tenant, w.userId, key);
+  }
+
+  /** A-X10: a 5-minute link to the resource's file: 409 SCAN_PENDING or FILE_BLOCKED until clean. */
+  @Get('resources/:key/file')
+  resourceFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('key', new ZodValidationPipe(AdvisoryResourceKey)) key: string,
+  ): Promise<DownloadLink> {
+    const w = who(auth, tenant);
+    return this.library.fileLink(w.businessId, w.tenant, w.userId, key);
   }
 
   @Post('resources/:key/send')
@@ -685,5 +793,26 @@ export class AdvisoryController {
   ): Promise<AdvisorySettingsView> {
     const w = who(auth, tenant);
     return this.overview.saveSettings(w.businessId, w.tenant, w.userId, body);
+  }
+
+  /** A-X02: the firm's industry choices. */
+  @Get('industries')
+  industries(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<AdvisoryIndustryList> {
+    const w = who(auth, tenant);
+    return this.overview.industries(w.businessId, w.tenant, w.userId);
+  }
+
+  /** A-X02 (Advisory Admin): saves the industry list. */
+  @Put('industries')
+  saveIndustries(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(IndustriesBody)) body: Out<typeof IndustriesBody>,
+  ): Promise<AdvisoryIndustryList> {
+    const w = who(auth, tenant);
+    return this.overview.saveIndustries(w.businessId, w.tenant, w.userId, body);
   }
 }

@@ -133,7 +133,13 @@ export const ACCEPTED_PAYMENT_LOCKS = {
     'Connect Stripe first: the Owner starts it on the Stripe card above. Until then clients cannot pay by card.',
   cardNotReady:
     'Stripe cannot take payments yet: finish what the Stripe card above asks for. Until then clients cannot pay by card.',
-  ach: 'Not offered yet: checkout takes cards only for now, so bank payments stay off for every firm.',
+  /**
+   * Q23 (IP-041): bank payments need Stripe ready for cards and Stripe's ACH Direct Debit
+   * capability on the firm's account (Firmivra asks Stripe for it).
+   */
+  achNeedsStripe:
+    'Connect Stripe and finish its setup first: bank payments go through Stripe, as cards do.',
+  ach: 'Bank payments need ACH Direct Debit turned on for your Stripe account. Contact Firmivra support to turn it on; until then clients pay by card.',
   paypal: 'Connect PayPal first. PayPal is not available in Firmivra yet, so it stays off.',
 } as const;
 
@@ -146,6 +152,18 @@ export function cardLock(stripe: { connected: boolean; chargesEnabled: boolean }
 }
 
 /**
+ * Q23 (IP-041): the bank payments (ACH) lock: null once Stripe takes payments and its ACH Direct
+ * Debit capability is active on the firm's account.
+ */
+export function achLock(stripe: {
+  chargesEnabled: boolean;
+  achPaymentsActive: boolean;
+}): string | null {
+  if (!stripe.chargesEnabled) return ACCEPTED_PAYMENT_LOCKS.achNeedsStripe;
+  return stripe.achPaymentsActive ? null : ACCEPTED_PAYMENT_LOCKS.ach;
+}
+
+/**
  * GET /business/payments/setup/accepted (Owner and Admin): Accepted Client Payments (PAY-3).
  * Each method is on only where the firm chose it and its provider is ready; nothing turns on for
  * every provider. A firm that never chose takes cards through Stripe once Stripe is ready.
@@ -154,7 +172,10 @@ export const AcceptedPayments = z.object({
   /** Credit and debit cards at checkout. Off: no Pay Now on new payments; past ones stay. */
   acceptCard: z.boolean(),
   defaultCardProcessor: PaymentProcessor,
-  /** Always false for now: checkout takes cards only (`locks.ach` says so). */
+  /**
+   * Q23 (IP-041): bank payments (ACH, instant bank verification) at checkout: the firm turned them
+   * on and they are not locked (`locks.ach` null). Off while locked, whatever the row holds.
+   */
   acceptAch: z.boolean(),
   achProcessor: PaymentProcessor,
   /** The processors connected and able to take payments now: the only choices offered. */
@@ -162,7 +183,7 @@ export const AcceptedPayments = z.object({
   /** Why each control can't change now, or null when it can (IP-F14). */
   locks: z.object({
     card: z.string().nullable(),
-    ach: z.string(),
+    ach: z.string().nullable(),
     paypal: z.string(),
   }),
   /** Clients see Pay Now on open invoices: cards on and their processor ready. */
@@ -172,7 +193,7 @@ export type AcceptedPayments = z.infer<typeof AcceptedPayments>;
 
 /**
  * PUT /business/payments/setup/accepted (Owner and Admin): Save Changes. 409 ACH_NOT_OFFERED
- * (bank payments on) and PROCESSOR_NOT_READY (a card change while its processor can't take
+ * (bank payments on while `locks.ach` says why not) and PROCESSOR_NOT_READY (a card change while its processor can't take
  * payments). Turning cards off is allowed; the screen confirms it first.
  */
 export const SaveAcceptedPaymentsRequest = z.strictObject({
@@ -191,7 +212,7 @@ export const PaymentsSetupErrorCode = z.enum([
   'PAYMENTS_ALREADY_SET_UP',
   /** 503: Stripe did not answer, or payments are not configured here. Nothing changed at Stripe. */
   'PAYMENT_PROVIDER_UNAVAILABLE',
-  /** 409 (accepted): bank payments are not offered at checkout yet. */
+  /** 409 (accepted): bank payments on while they are locked (no ACH capability at Stripe). */
   'ACH_NOT_OFFERED',
   /** 409 (accepted): a card change while the chosen processor can't take payments. */
   'PROCESSOR_NOT_READY',

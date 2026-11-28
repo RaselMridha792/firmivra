@@ -143,14 +143,14 @@ describe('api.esign', () => {
     expect(calls).toEqual([]);
   });
 
-  it('refuses an Excel or Word file from uploadFile() with FILE_TYPE_NOT_ALLOWED', async () => {
+  it('refuses an Excel file from uploadFile() with FILE_TYPE_NOT_ALLOWED', async () => {
     const { fn, calls } = fakeFetch(200, {});
-    const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' as const;
+    const xlsx = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const;
     const e = await rejection(
       createEsignClient(request(fn)).createUpload(id, {
         ...facts,
-        fileName: 'a.docx',
-        contentType: docx,
+        fileName: 'a.xlsx',
+        contentType: xlsx,
       }),
     );
     expect([e.status, e.code]).toEqual([400, 'FILE_TYPE_NOT_ALLOWED']);

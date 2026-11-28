@@ -58,10 +58,15 @@ export class WaitlistJob implements OnApplicationBootstrap, OnModuleDestroy {
   start(intervalMs = WAITLIST_JOB_INTERVAL_MS): void {
     if (this.timers.length > 0) return;
     this.timers = [
-      setTimeout(() => void this.tick(), 60_000),
+      setTimeout(() => void this.tick(), 1_000),
       setInterval(() => void this.tick(), intervalMs),
     ];
     for (const timer of this.timers) timer.unref();
+  }
+
+  /** Trigger an immediate run (e.g. when an opening occurs), never rejects. */
+  trigger(): void {
+    void this.tick();
   }
 
   stop(): void {

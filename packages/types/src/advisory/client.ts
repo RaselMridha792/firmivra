@@ -1,11 +1,14 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { OkResponse } from '../schemas.js';
+import { ConfirmUploadRequest, DownloadLink, UploadTicket } from '../documents/schemas.js';
 import {
   AddAdvisoryWorkstreamRequest,
   AdvisoryActionItemId,
   AdvisoryActionItemPage,
   AdvisoryActionItemRow,
   AdvisoryActionItemsQuery,
+  AdvisoryActionNoteList,
+  AddAdvisoryActionNoteRequest,
   AdvisoryActivityPage,
   AdvisoryActivityQuery,
   AdvisoryHistoryPage,
@@ -39,6 +42,8 @@ import {
   AdvisoryRecommendationPage,
   AdvisoryRecommendationRow,
   AdvisoryRecommendationsQuery,
+  AdvisoryResource,
+  AdvisoryResourceFile,
   AdvisoryResourceKey,
   AdvisoryResourceList,
   AdvisoryResourcePreview,
@@ -61,9 +66,13 @@ import {
   FinalizeAdvisoryPlanRequest,
   ReorderAdvisoryMilestonesRequest,
   RequestAdvisoryPlanApprovalRequest,
+  SaveAdvisoryIndustriesRequest,
+  AdvisoryIndustryList,
   SaveAdvisorySettingsRequest,
   SendAdvisoryPlanRequest,
+  SaveAdvisoryResourceRequest,
   SendAdvisoryResourceRequest,
+  StartAdvisoryResourceFileRequest,
   SetAdvisoryPlanStatusRequest,
   UpdateAdvisoryActionItemRequest,
   UpdateAdvisoryClientRequest,
@@ -365,6 +374,19 @@ export function createAdvisoryClient(request: ApiRequest) {
         method: 'PATCH',
         body: parseInput(UpdateAdvisoryActionItemRequest, body),
       }),
+    /** A-X11: the item's progress notes, newest first. */
+    actionNotes: async (id: string): Promise<AdvisoryActionNoteList> =>
+      request(AdvisoryActionNoteList, `${actionItem(id)}/notes`),
+    /** A-X11: adds a progress note (and, optionally, the item's new status); the notes after it. */
+    addActionNote: async (
+      id: string,
+      body: AddAdvisoryActionNoteRequest,
+    ): Promise<AdvisoryActionNoteList> =>
+      request(
+        AdvisoryActionNoteList,
+        `${actionItem(id)}/notes`,
+        post(parseInput(AddAdvisoryActionNoteRequest, body)),
+      ),
 
     // ----- Meetings, resources, settings -----
     /** The Reports tab: live counts, by status, services, workload; the financial trend with the permission. */
@@ -402,12 +424,70 @@ export function createAdvisoryClient(request: ApiRequest) {
         `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/preview`,
         post(parseInput(SendAdvisoryResourceRequest, body)),
       ),
+    /**
+     * A-X10 (Q28): adds the firm's own resource (Owner and Admin, or "Manage"). 409 FILE_BLOCKED,
+     * FILE_IN_USE.
+     */
+    createResource: async (body: SaveAdvisoryResourceRequest): Promise<AdvisoryResource> =>
+      request(
+        AdvisoryResource,
+        `${BASE}/resources`,
+        post(parseInput(SaveAdvisoryResourceRequest, body)),
+      ),
+    /**
+     * A-X10: edits the firm's own resource, or its copy of a built-in one (the first edit makes
+     * the copy). 409 RESOURCE_ARCHIVED, FILE_BLOCKED, FILE_IN_USE.
+     */
+    updateResource: async (
+      key: string,
+      body: SaveAdvisoryResourceRequest,
+    ): Promise<AdvisoryResource> =>
+      request(AdvisoryResource, `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}`, {
+        method: 'PUT',
+        body: parseInput(SaveAdvisoryResourceRequest, body),
+      }),
+    /** A-X10: archives the firm's own resource (it leaves the library). 409 RESOURCE_BUILT_IN. */
+    archiveResource: async (key: string): Promise<OkResponse> =>
+      request(
+        OkResponse,
+        `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/archive`,
+        post(),
+      ),
+    /** A-X10: step 1 of a resource file's upload. 400 for a type or size it doesn't take. */
+    startResourceFile: async (body: StartAdvisoryResourceFileRequest): Promise<UploadTicket> =>
+      request(
+        UploadTicket,
+        `${BASE}/resources/files`,
+        post(parseInput(StartAdvisoryResourceFileRequest, body)),
+      ),
+    /**
+     * A-X10: step 3: the stored bytes checked, the file recorded (CHECKING until its virus scan).
+     * 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED, FILE_HAS_MACROS.
+     */
+    confirmResourceFile: async (body: ConfirmUploadRequest): Promise<AdvisoryResourceFile> =>
+      request(
+        AdvisoryResourceFile,
+        `${BASE}/resources/files/confirm`,
+        post(parseInput(ConfirmUploadRequest, body)),
+      ),
+    /** A-X10: a 5-minute link to a resource's file. 409 SCAN_PENDING or FILE_BLOCKED. */
+    resourceFileLink: async (key: string): Promise<DownloadLink> =>
+      request(DownloadLink, `${BASE}/resources/${parseInput(AdvisoryResourceKey, key)}/file`),
     settings: async (): Promise<AdvisorySettingsView> =>
       request(AdvisorySettingsView, `${BASE}/settings`),
     saveSettings: async (body: SaveAdvisorySettingsRequest): Promise<AdvisorySettingsView> =>
       request(AdvisorySettingsView, `${BASE}/settings`, {
         method: 'PUT',
         body: parseInput(SaveAdvisorySettingsRequest, body),
+      }),
+    /** A-X02: the firm's industry choices (the built-in list until it saves its own). */
+    industries: async (): Promise<AdvisoryIndustryList> =>
+      request(AdvisoryIndustryList, `${BASE}/industries`),
+    /** A-X02 (Advisory Admin): saves the whole list in its order. */
+    saveIndustries: async (body: SaveAdvisoryIndustriesRequest): Promise<AdvisoryIndustryList> =>
+      request(AdvisoryIndustryList, `${BASE}/industries`, {
+        method: 'PUT',
+        body: parseInput(SaveAdvisoryIndustriesRequest, body),
       }),
   };
 }

@@ -12,7 +12,12 @@ import { bookingPath, keepBooking, typeIdOf } from '../../../../../../../lib/boo
 import { errorCode } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { refreshSession } from '../../../../../../../lib/session';
-import { LOCATION_LABELS } from '../../../../(client)/appointments/_components/shared';
+import {
+  getZoneName,
+  LOCATION_LABELS,
+  TimezoneSelector,
+  usePortalTimezone,
+} from '../../../../(client)/appointments/_components/shared';
 import { usePortal } from '../../../../layout';
 import { ButtonLink } from '../../../_components/button-link';
 import { FirmContactLinks } from '../../../_components/firm-contact';
@@ -47,8 +52,11 @@ async function sessionAt(slug: string) {
  * which goes along to the booking.
  */
 export function BookLinkScreen({ typeId, packageId }: { typeId: string; packageId?: string }) {
-  const { business } = usePortal();
+  const portalInfo = usePortal();
+  const { business } = portalInfo;
   const slug = business.slug;
+  const firmTimezone = portalInfo.timezone || 'America/New_York';
+  const { clientTimezone, setClientTimezone } = usePortalTimezone(slug, firmTimezone);
   const pkg = typeIdOf(packageId);
   const router = useRouter();
   const type = useApiQuery(['public-booking', slug, typeId], () =>
@@ -81,7 +89,14 @@ export function BookLinkScreen({ typeId, packageId }: { typeId: string; packageI
             <Skeleton className="h-24 w-full" />
           </>
         ) : type.data && live ? (
-          <Bookable type={type.data} waiting={status === 'PENDING_APPROVAL'} packageId={pkg} />
+          <Bookable
+            type={type.data}
+            waiting={status === 'PENDING_APPROVAL'}
+            packageId={pkg}
+            clientTimezone={clientTimezone}
+            firmTimezone={firmTimezone}
+            onTimezoneChange={setClientTimezone}
+          />
         ) : (
           <Refused type={type.data} failed={type.isError && !isGone(type.error)} />
         )}
@@ -96,7 +111,17 @@ const isGone = (error: unknown) => {
   return code === 'NOT_FOUND' || code === 'VALIDATION_FAILED';
 };
 
-function Facts({ type }: { type: PublicBookingType }) {
+function Facts({
+  type,
+  clientTimezone,
+  firmTimezone,
+  onTimezoneChange,
+}: {
+  type: PublicBookingType;
+  clientTimezone?: string;
+  firmTimezone?: string;
+  onTimezoneChange?: (tz: string) => void;
+}) {
   return (
     <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-card border border-border bg-surface p-4 text-base">
       <dt className="font-semibold text-heading">Appointment</dt>
@@ -107,6 +132,18 @@ function Facts({ type }: { type: PublicBookingType }) {
       <dd className="text-text">{type.durationMinutes} minutes</dd>
       <dt className="font-semibold text-heading">Meets by</dt>
       <dd className="text-text">{type.methods.map((m) => LOCATION_LABELS[m]).join(', ')}</dd>
+      {onTimezoneChange && clientTimezone ? (
+        <>
+          <dt className="font-semibold text-heading">Timezone</dt>
+          <dd className="text-text">
+            <TimezoneSelector
+              value={clientTimezone}
+              onChange={onTimezoneChange}
+              firmTimezone={firmTimezone}
+            />
+          </dd>
+        </>
+      ) : null}
     </dl>
   );
 }
@@ -116,20 +153,38 @@ function Bookable({
   type,
   waiting,
   packageId,
+  clientTimezone,
+  firmTimezone,
+  onTimezoneChange,
 }: {
   type: PublicBookingType;
   waiting: boolean;
   packageId: string | null;
+  clientTimezone?: string;
+  firmTimezone?: string;
+  onTimezoneChange?: (tz: string) => void;
 }) {
   const { business, signUpOpen } = usePortal();
   const slug = business.slug;
+  const isDualTz = Boolean(clientTimezone && firmTimezone && clientTimezone !== firmTimezone);
   if (waiting) {
     return (
       <>
         <StepHeading title={`Book ${type.name}`}>
           Your account is waiting for {business.name} to approve it.
         </StepHeading>
-        <Facts type={type} />
+        <Facts
+          type={type}
+          clientTimezone={clientTimezone}
+          firmTimezone={firmTimezone}
+          onTimezoneChange={onTimezoneChange}
+        />
+        {isDualTz ? (
+          <p className="rounded-card border border-border bg-folder-surface p-3 text-xs text-muted">
+            Displaying in {getZoneName(clientTimezone)} ({clientTimezone}) · Firm is in{' '}
+            {getZoneName(firmTimezone)} ({firmTimezone})
+          </p>
+        ) : null}
         <p data-testid="booking-after-approval" className="font-semibold text-heading">
           After the firm approves your account you can book this time.
         </p>
@@ -148,7 +203,18 @@ function Bookable({
       <StepHeading title={`Book ${type.name}`}>
         Sign in to your {business.name} client portal to choose a time.
       </StepHeading>
-      <Facts type={type} />
+      <Facts
+        type={type}
+        clientTimezone={clientTimezone}
+        firmTimezone={firmTimezone}
+        onTimezoneChange={onTimezoneChange}
+      />
+      {isDualTz ? (
+        <p className="rounded-card border border-border bg-folder-surface p-3 text-xs text-muted">
+          Displaying in {getZoneName(clientTimezone)} ({clientTimezone}) · Firm is in{' '}
+          {getZoneName(firmTimezone)} ({firmTimezone})
+        </p>
+      ) : null}
       <ButtonLink
         href={`/${slug}/sign-in?book=${encodeURIComponent(type.id)}${packageId ? `&package=${packageId}` : ''}`}
       >

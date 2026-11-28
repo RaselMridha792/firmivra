@@ -40,6 +40,7 @@ import { BeginOnlineSweep } from '../../src/begin-online/begin-online-sweep.js';
 import { CommunicationDelivery } from '../../src/communications/communications-delivery.service.js';
 import { loadEnv } from '../../src/config/env.js';
 import { configureApp } from '../../src/configure-app.js';
+import { CrmNurtureSender } from '../../src/crm/crm-nurture.job.js';
 import { EsignBulkJob } from '../../src/esign/bulk/bulk.job.js';
 import { EsignCompletionJob } from '../../src/esign/completion/completion.job.js';
 import { EsignLifecycleJob } from '../../src/esign/lifecycle/lifecycle.job.js';
@@ -50,6 +51,7 @@ import {
   IntakeScheduleJobs,
 } from '../../src/intake-workspace/intake-schedule.jobs.js';
 import { LocationActionsJob } from '../../src/locations/location-actions.job.js';
+import { TaskAckReminderJob } from '../../src/tasks/task-ack-reminder.job.js';
 import { OutboundMessagesJob } from '../../src/messages/outbound.job.js';
 import {
   JOB_LOCK_KEYS,
@@ -635,7 +637,11 @@ function timedJobs(businessIds: string[]): [string, () => Promise<unknown>][] {
     ['e-sign lifecycle', () => job(EsignLifecycleJob).run({ now, businessIds })],
     ['location actions', () => job(LocationActionsJob).run({ businessIds })],
     ['platform rollups', () => job(PlatformRollupJob).run({ now, businessIds })],
+    // Q36: it only marks an acknowledgment's reminder sent; nothing is removed.
+    ['task acknowledgment reminders', () => job(TaskAckReminderJob).run({ now, businessIds })],
     ['firm keys', () => job(FirmKeyJob).sweep()],
+    // Q35: platform CRM steps only (no firm data); none of another test file's journeys.
+    ['CRM nurture sender', () => job(CrmNurtureSender).run({ now, journeyIds: [] })],
   ];
 }
 
@@ -645,6 +651,7 @@ const JOB_FILES = [
   'automations/automation.job.ts',
   'begin-online/begin-online-sweep.ts',
   'communications/communications-delivery.service.ts',
+  'crm/crm-nurture.job.ts',
   'esign/bulk/bulk.job.ts',
   'esign/completion/completion.job.ts',
   'esign/lifecycle/lifecycle.job.ts',
@@ -655,6 +662,7 @@ const JOB_FILES = [
   'notifications/reminder-jobs.ts',
   'payments/invoices/invoice-jobs.ts',
   'platform-rollups/rollups.job.ts',
+  'tasks/task-ack-reminder.job.ts',
   'tasks/task-series.job.ts',
 ];
 

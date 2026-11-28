@@ -54,6 +54,7 @@ describe('Accounts v2 requests', () => {
       chargesEnabled: false,
       payoutsEnabled: false,
       detailsSubmitted: false,
+      achPaymentsActive: false,
     });
   });
 });

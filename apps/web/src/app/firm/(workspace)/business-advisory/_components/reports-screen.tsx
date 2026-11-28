@@ -19,6 +19,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { OriginLink } from '../../../../../components/origin-link';
 import { useApiQuery } from '../../../../../lib/query';
+import { useFirmZone, zonedWhen } from '../../../../../lib/firm-zone';
 import { useMembers } from './ba-dialogs';
 import { useAdvisoryClient } from './client-shell';
 import { FilterSelect } from './ba-list-kit';
@@ -165,6 +166,7 @@ function Figure({ label, value, tone }: { label: string; value: string; tone?: '
  * opened from; Save and schedule opens Reports on the Advisory category, with the way back.
  */
 export function AdvisoryReportsView({ advisoryClientId }: { advisoryClientId?: string } = {}) {
+  const timeZone = useFirmZone();
   const members = useMembers();
   const [advisor, setAdvisor] = useState('');
   const q = useApiQuery([...BA_KEY, 'reports', advisor], () =>
@@ -232,9 +234,7 @@ export function AdvisoryReportsView({ advisoryClientId }: { advisoryClientId?: s
           />
         ) : null}
         <span className="text-sm text-muted">
-          {r
-            ? `Live counts as of ${new Date(r.generatedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}.`
-            : null}
+          {r ? `Live counts as of ${zonedWhen(r.generatedAt, timeZone)}.` : null}
         </span>
         <OriginLink
           href="/reports/library?category=ADVISORY"

@@ -22,12 +22,19 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useDeferredValue, useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { BackToWorkflow } from '../../settings/workflow/_components/back-to-workflow';
 import { ConfirmEventDialog } from './confirm-event-dialog';
-import { DuplicateDialog, ImportDialog, RuleMenu, SettingsDialog } from './automation-dialogs';
+import {
+  DuplicateDialog,
+  ImportDialog,
+  ResumeBacklogDialog,
+  RuleMenu,
+  SettingsDialog,
+} from './automation-dialogs';
 import {
   AUTOMATIONS_KEY,
   AUTOMATION_ERRORS,
@@ -76,7 +83,9 @@ export function AutomationsScreen({
   const [status, setStatus] = useState('');
   const [category, setCategory] = useState<string>(initialCategory ?? '');
   const [page, setPage] = useState(1);
-  const [dialog, setDialog] = useState<'settings' | 'import' | 'duplicate' | 'confirm'>();
+  const [dialog, setDialog] = useState<
+    'settings' | 'import' | 'duplicate' | 'confirm' | 'resume'
+  >();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useDeferredValue(search.trim());
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
@@ -101,6 +110,16 @@ export function AutomationsScreen({
     api.automations.templates({ pageSize: 6 }),
   );
   const options = { invalidate: [...AUTOMATIONS_KEY] };
+  const firmSettings = useApiQuery([...AUTOMATIONS_KEY, 'settings'], () =>
+    api.automations.settings(),
+  );
+  const { role } = useFirm();
+  const canPauseFirm = role === 'OWNER' || role === 'ADMIN';
+  const pauseFirm = useApiMutation(() => api.automations.pauseFirm(), options);
+  const resumeFirm = useApiMutation(
+    (backlog: 'RUN_NOW' | 'SKIP_DUE') => api.automations.resumeFirm({ backlog }),
+    options,
+  );
   const toggle = useApiMutation(
     (r: AutomationRuleRow) =>
       r.status === 'ACTIVE' ? api.automations.pause(r.id) : api.automations.activate(r.id),
@@ -266,6 +285,24 @@ export function AutomationsScreen({
           <Link href="/automations/templates" className={outlined}>
             <FileText aria-hidden weight="fill" className="size-4" /> Templates
           </Link>
+          {canPauseFirm && !firmSettings.data?.pausedAt ? (
+            <button
+              className={outlined}
+              onClick={() =>
+                pauseFirm.mutate(undefined, {
+                  onSuccess: () => notice('Automations paused.', 'success'),
+                  onError: (error) => notice(errorMessage(error, AUTOMATION_ERRORS), 'error'),
+                })
+              }
+            >
+              Pause automations
+            </button>
+          ) : null}
+          {canPauseFirm && firmSettings.data?.pausedAt ? (
+            <button className={outlined} onClick={() => setDialog('resume')}>
+              Resume automations
+            </button>
+          ) : null}
           {canManage ? (
             <Link
               href="/automations/new"
@@ -277,6 +314,17 @@ export function AutomationsScreen({
           ) : null}
         </div>
       </header>
+      {firmSettings.data?.pausedAt ? (
+        <div
+          role="status"
+          data-testid="firm-automation-pause-banner"
+          className="rounded-lg border border-warning bg-warning-soft p-4 text-sm text-text"
+        >
+          <strong>Automations are paused.</strong>{' '}
+          {firmSettings.data.pausedBy?.name ? `Paused by ${firmSettings.data.pausedBy.name}.` : ''}{' '}
+          Running actions can finish; no new actions will start until resumed.
+        </div>
+      ) : null}
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
@@ -735,6 +783,20 @@ export function AutomationsScreen({
             setDialog(undefined);
             notice('Settings saved.', 'success');
           }}
+        />
+      ) : null}
+      {dialog === 'resume' ? (
+        <ResumeBacklogDialog
+          onClose={() => setDialog(undefined)}
+          onResume={(backlog) =>
+            resumeFirm.mutate(backlog, {
+              onSuccess: () => {
+                setDialog(undefined);
+                notice('Automations resumed.', 'success');
+              },
+              onError: (error) => notice(errorMessage(error, AUTOMATION_ERRORS), 'error'),
+            })
+          }
         />
       ) : null}
       {dialog === 'confirm' && catalog.data ? (

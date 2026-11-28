@@ -32,7 +32,7 @@ const STATUS: Record<
 > = {
   WAITING: ['Waiting', 'neutral'],
   SENT: ['Sent', 'info'],
-  DELIVERED: ['Sent', 'info'],
+  DELIVERED: ['Delivered', 'info'],
   VIEWED: ['Viewed', 'info'],
   SIGNED: ['Signed', 'success'],
   APPROVED: ['Approved', 'success'],
@@ -47,9 +47,11 @@ function lastStep(r: EsignRecipient): string | null {
       ? [r.status === 'SIGNED' ? 'Signed' : 'Approved', r.signedAt]
       : r.status === 'DECLINED' || r.status === 'REJECTED'
         ? [r.status === 'DECLINED' ? 'Declined' : 'Rejected', r.declinedAt]
-        : r.status === 'SENT' || r.status === 'DELIVERED'
-          ? ['Sent', r.sentAt]
-          : ['Viewed', r.viewedAt];
+        : r.status === 'DELIVERED'
+          ? ['Delivered', r.sentAt]
+          : r.status === 'SENT'
+            ? ['Sent', r.sentAt]
+            : ['Viewed', r.viewedAt];
   return at ? `${label} ${shortDate(at)}` : null;
 }
 

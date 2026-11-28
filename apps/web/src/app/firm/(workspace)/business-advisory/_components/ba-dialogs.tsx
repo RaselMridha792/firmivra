@@ -16,6 +16,7 @@ import {
   errorText,
 } from './ba-shared';
 import { GoalSuggestions } from './goal-templates';
+import { IndustryField } from './industries';
 import { FIELD_HELP } from './field-help';
 
 /** The firm's active members, for the advisor and owner pickers; empty when the role may not list them. */
@@ -195,12 +196,8 @@ export function AddClientDialog({
           />
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
-          <Input
-            label="Industry"
-            value={industry}
-            maxLength={100}
-            onChange={(e) => setIndustry(e.target.value)}
-          />
+          {/* A-X02: the firm's industries, or Other with Specify. */}
+          <IndustryField value={industry} onChange={setIndustry} />
           <Select
             label="Business stage"
             value={stage}

@@ -183,6 +183,18 @@ export const NOTIFICATION_EVENTS = {
   'invoice.reminder': { category: 'BILLING', kind: 'invoice', to: 'client' },
   'invoice.overdue': { category: 'BILLING', kind: 'invoice', to: 'client' },
   'payment.received': { category: 'BILLING', kind: 'invoice', to: 'both' },
+  /**
+   * Q23 (IP-041): a bank payment (ACH) the bank did not complete; the invoice stays open. To the
+   * client (with the portal link to pay again) and the firm.
+   */
+  'payment.failed': { category: 'BILLING', kind: 'invoice', to: 'both' },
+  /**
+   * Q23 (IP-041): a client disputed a Stripe payment of the invoice with their bank, and later the
+   * dispute closed. A bell item for the firm only; the firm answers it in Stripe. Never an amount
+   * or a reason.
+   */
+  'payment.disputed': { category: 'BILLING', kind: 'invoice', to: 'staff' },
+  'payment.dispute-closed': { category: 'BILLING', kind: 'invoice', to: 'staff' },
   // ----- Account and team (locked) -----
   'account.password-changed': { category: 'ACCOUNT', kind: 'user', to: 'both' },
   /**
@@ -216,6 +228,19 @@ export const NOTIFICATION_EVENTS = {
    * the outbox), to its assignees, ACTIVE members only. It opens the task.
    */
   'task.reminder': { category: 'SERVICES', kind: 'task', to: 'staff' },
+  /**
+   * Tasks Review Two T-C01 (Q36): an acknowledgment of an assignment was not given within one
+   * business day. One bell item to the assignee and to the member who assigned it (the caller
+   * names them). It opens the task, where the assignee acknowledges.
+   */
+  'task.acknowledgement-reminder': { category: 'SERVICES', kind: 'task', to: 'staff' },
+  /** T-C01: the assignee acknowledged. A bell item to the member who assigned the task. */
+  'task.acknowledged': { category: 'SERVICES', kind: 'task', to: 'staff' },
+  /**
+   * T-C02 (Q36): a new comment in the task's internal discussion. A bell item to the task's
+   * assignees and the staff the comment mentions (the caller names them), never the author.
+   */
+  'task.comment': { category: 'SERVICES', kind: 'task', to: 'staff' },
   /**
    * P4-8 (Tax Planning Review 2): the client asked a question, requested a revision or a meeting,
    * or approved the plan in the portal. To the plan's assigned staff (the caller names them).

@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { record, routeClientRecord } from './r23-fixtures';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
+const JAMIE = '0199b6a1-0000-7000-8000-000000000001';
 
 test('the dashboard: counters, recent documents and their filters', async ({ page }) => {
   // The mock requests are dated early October 2026 (expiry and the 30-day window follow them).
@@ -61,11 +63,133 @@ test('a counter opens All requests with its status', async ({ page }) => {
   await expect(page.getByLabel('Status')).toHaveValue('COMPLETED');
 });
 
-test('tiles for screens not built yet say Soon and keep their subtitles', async ({ page }) => {
+test('FS-003: Send from Client Record shortcut is keyboard-accessible and routes to client selection', async ({
+  page,
+}) => {
   await page.goto(app('/firm-sign'));
   const start = page.getByRole('group', { name: 'Start a request' });
-  await expect(start.getByText('PDF, Word, and more')).toBeVisible();
-  await expect(start.getByRole('link', { name: /Send from Client Record/ })).toHaveCount(0);
-  await expect(start.getByText('Send from Client Record')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'In-Person Signing' })).toHaveCount(0);
+  const clientRecordLink = start.getByRole('link', { name: /Send from Client Record/ });
+  await expect(clientRecordLink).toBeVisible();
+  await expect(clientRecordLink).toHaveAttribute('href', '/clients');
+  await clientRecordLink.click();
+  await expect(page).toHaveURL(/\/clients$/);
+});
+
+test('FS-001: Delivered status is filterable and visible on full list and client tab', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-08T18:00:00Z'));
+
+  // 1. All requests: status filter offers Delivered
+  await page.goto(app('/firm-sign/requests'));
+  const statusSelect = page.getByLabel('Status');
+  await expect(statusSelect.locator('option[value="DELIVERED"]')).toHaveText('Delivered');
+
+  // Filter explicitly by DELIVERED -> shows Delivered requests with Delivered badge
+  await statusSelect.selectOption('DELIVERED');
+  await expect(statusSelect).toHaveValue('DELIVERED');
+  const table = page.getByRole('table', { name: 'Signature requests' });
+  await expect(table.getByRole('row').first()).toBeVisible();
+  await expect(table.getByText('Delivered').first()).toBeVisible();
+
+  // 2. Sent filter includes SENT and DELIVERED (folding)
+  await statusSelect.selectOption('SENT');
+  await expect(statusSelect).toHaveValue('SENT');
+  await expect(table.getByText('Sent').first()).toBeVisible();
+
+  // 3. Client Signatures tab offers Delivered filter option
+  await routeClientRecord(page, record(1, { id: JAMIE, displayName: 'Jamie Sample' }));
+  await page.goto(app(`/clients/${JAMIE}/signatures`));
+  const clientStatusSelect = page.getByLabel('Status');
+  await expect(clientStatusSelect).toBeVisible();
+  await expect(clientStatusSelect.locator('option[value="DELIVERED"]')).toHaveText('Delivered');
+});
+
+test('FS-005: Dashboard recent documents show sender, next action, and expiry', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-08T18:00:00Z'));
+  await page.goto(app('/firm-sign'));
+
+  const table = page.getByRole('table', { name: 'Recent documents' });
+  await expect(table.locator('th', { hasText: 'Sender' })).toBeVisible();
+  await expect(table.locator('th', { hasText: 'Waiting On' })).toBeVisible();
+  await expect(table.locator('th', { hasText: 'Expires' })).toBeVisible();
+
+  // Verify rows contain sender and waiting on details
+  const firstRow = table.getByRole('row').nth(1);
+  await expect(firstRow).toBeVisible();
+  await expect(firstRow).toContainText('Mock User');
+});
+
+test('FS-002: Created and Edited audit events persist with actor, timestamp, and version across reload', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-08T18:00:00Z'));
+
+  // 1. Create a fresh draft
+  await page.goto(app('/firm-sign/new'));
+  await page.getByLabel('Document name').fill('Draft Audit Test');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.waitForURL(/\/firm-sign\/requests\/[0-9a-f-]+\/prepare$/);
+
+  const requestId = page.url().match(/requests\/([0-9a-f-]+)\/prepare/)?.[1];
+  expect(requestId).toBeTruthy();
+
+  // 2. Perform two edits in the prepare settings step (internal note)
+  await page.goto(app(`/firm-sign/requests/${requestId}/prepare?step=settings`));
+  await page.getByLabel('Only your team sees this note').fill('First edit note');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+
+  // Edit 2: update note again
+  await page.getByLabel('Only your team sees this note').fill('Second edit note');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+
+  // 3. View request detail timeline
+  await page.goto(app(`/firm-sign/requests/${requestId}`));
+  const timeline = page.getByTestId('timeline');
+  await expect(timeline).toBeVisible();
+  await expect(timeline).toContainText('Created (v1)');
+  await expect(timeline).toContainText('Edited (v2)');
+  await expect(timeline).toContainText('Edited (v3)');
+  await expect(timeline).toContainText('Mock User');
+
+  // 4. Reload page and verify all audit records persist
+  await page.reload();
+  await expect(timeline).toBeVisible();
+  await expect(timeline.locator('li')).toHaveCount(3);
+  await expect(timeline).toContainText('Created (v1)');
+  await expect(timeline).toContainText('Edited (v2)');
+  await expect(timeline).toContainText('Edited (v3)');
+  await expect(timeline).toContainText('Mock User');
+});
+
+test('FS-C06, FS-D01, FS-D02, FS-D03: Dashboard in-person shortcut, creation route explanations, and unclipped date filter', async ({
+  page,
+}) => {
+  await page.goto(app('/firm-sign'));
+
+  // FS-D02: creation routes have distinct labels and explanations
+  const startGroup = page.getByRole('group', { name: 'Start a request' });
+  await expect(startGroup.getByText('Start fresh with custom files and recipients')).toBeVisible();
+  await expect(
+    startGroup.getByText('Upload PDF or Word files to send for signature'),
+  ).toBeVisible();
+  await expect(
+    startGroup.getByText('Send a document from your saved firm templates'),
+  ).toBeVisible();
+
+  // FS-C06 / FS-D01: In-Person Signing shortcut is active and interactive
+  const quickActions = page.getByTestId('firm-sign-quick-actions');
+  const inPersonLink = quickActions.getByRole('link', { name: 'In-Person Signing' });
+  await expect(inPersonLink).toBeVisible();
+  await expect(inPersonLink).toHaveAttribute('href', '/firm-sign/requests');
+
+  // FS-D03: Last 30 Days label in date filter is fully legible
+  const dateFilter = page.getByLabel('Last activity');
+  await expect(dateFilter).toBeVisible();
+  await expect(dateFilter).toHaveValue('30');
+  await expect(dateFilter.locator('option[value="30"]')).toHaveText('Last 30 Days');
 });

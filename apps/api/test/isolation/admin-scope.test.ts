@@ -34,6 +34,7 @@ import { prepareReports, reportsWrites } from './admin-reports-writes.js';
 import { billingWrites, prepareBilling } from './admin-billing-writes.js';
 import { prepareSubscriptions, subscriptionsWrites } from './admin-subscriptions-writes.js';
 import { prepareSales, salesWrites } from './admin-sales-writes.js';
+import { crmWrites, prepareCrm } from './admin-crm-writes.js';
 import { prepareTeam, teamWrites } from './admin-team-writes.js';
 import { firmProfileWrites, prepareFirmProfile } from './admin-firm-profile-writes.js';
 import { firmAccountWrites, prepareFirmAccount } from './admin-firm-account-writes.js';
@@ -260,6 +261,8 @@ const WRITES: Record<
       sha256: 'a'.repeat(64),
     },
   },
+  // SA-COM-R1/R3: a file already checked (CLEAN) answers as it is, without reading storage.
+  'POST /api/v1/admin/communications/media/:id/confirm': { body: {}, comm: 'media' },
   'PATCH /api/v1/admin/communications/template-categories/:id': {
     body: { isActive: true },
     comm: 'cat',
@@ -270,6 +273,7 @@ const WRITES: Record<
   ...billingWrites(fx),
   ...subscriptionsWrites(),
   ...salesWrites(fx),
+  ...crmWrites(),
   ...teamWrites(),
   ...integrationsWrites(fx),
   ...firmProfileWrites(fx),
@@ -346,6 +350,21 @@ async function seedComms(tx: Parameters<Parameters<typeof runInScope>[2]>[0]) {
       },
     })
   ).id;
+  const mediaId = randomUUID();
+  const media = await tx.commMedia.create({
+    data: {
+      id: mediaId,
+      kind: 'ATTACHMENT',
+      fileName: 'fake-scope-confirmed.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: 'd'.repeat(64),
+      // The database keeps a file under its own id: platform/communications/<id>/.
+      s3Key: `platform/communications/${mediaId}/fake-scope-confirmed.pdf`,
+    },
+  });
+  await tx.commMedia.update({ where: { id: media.id }, data: { scanStatus: 'CLEAN' } });
+  comms['media'] = media.id;
   await seedBroadcasts(tx);
 }
 
@@ -544,6 +563,7 @@ beforeAll(async () => {
   await prepareBilling(fx);
   await prepareSubscriptions(fx);
   await prepareSales(fx);
+  await prepareCrm(fx);
   await prepareTeam(fx);
   await prepareIntegrations(fx);
   await prepareFirmProfile(fx);

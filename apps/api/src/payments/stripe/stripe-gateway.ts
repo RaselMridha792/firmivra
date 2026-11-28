@@ -33,6 +33,11 @@ export interface ConnectedAccount {
     past_due?: string[] | null;
     disabled_reason?: string | null;
   } | null;
+  /**
+   * Q23 (IP-041): Stripe's capabilities of the account. ACH is offered only while
+   * `us_bank_account_ach_payments` is "active".
+   */
+  capabilities?: { us_bank_account_ach_payments?: string | null } | null;
 }
 
 export interface CreateAccountParams {
@@ -62,6 +67,16 @@ export interface CheckoutParams {
   /** The line's name: the invoice number. */
   description: string;
   amountCents: number;
+  /**
+   * Q23 (IP-041): bank payments (ACH) are offered too: `us_bank_account` with instant bank
+   * verification only (no microdeposits); a bank that can't verify instantly leaves card.
+   */
+  bankDebit: boolean;
+  /**
+   * Q22 (R1-4): the client's tip, a second line "Tip" (0: no tip line). The session's total is
+   * `amountCents + tipCents`, all on the firm's own account with no application fee.
+   */
+  tipCents: number;
   currency: string;
   successUrl: string;
   cancelUrl: string;
@@ -96,6 +111,10 @@ export interface PaymentIntentInfo {
   paymentId: string | null;
   /** Stripe's short code for why the last attempt failed. */
   failureCode: string | null;
+  /** Q23: how the client paid: Stripe's payment method type (card, us_bank_account), or null. */
+  methodType: string | null;
+  /** Q23: the card's or bank account's last 4 digits, or null. */
+  last4: string | null;
 }
 
 export interface StripeGateway {
@@ -160,6 +179,9 @@ const pick = (account: Stripe.Account): ConnectedAccount => ({
         disabled_reason: account.requirements.disabled_reason,
       }
     : null,
+  capabilities: {
+    us_bank_account_ach_payments: account.capabilities?.us_bank_account_ach_payments ?? null,
+  },
 });
 
 const session = (s: Stripe.Checkout.Session): CheckoutSession => ({
@@ -249,22 +271,29 @@ export function createStripeGateway(secretKey: string): StripeGateway {
       return { url: link.url, expiresAt: new Date(link.expires_at) };
     },
     createCheckoutSession: async (p, idempotencyKey) => {
-      const metadata = { invoice_id: p.invoiceId, payment_id: p.paymentId };
+      const metadata = {
+        invoice_id: p.invoiceId,
+        payment_id: p.paymentId,
+        tip_cents: String(p.tipCents),
+      };
+      const line = (name: string, cents: number) => ({
+        quantity: 1,
+        price_data: { currency: p.currency, unit_amount: cents, product_data: { name } },
+      });
       return session(
         await stripe.checkout.sessions.create(
           {
             mode: 'payment',
             // Cards only until a bank debit's refund can wait for its settlement (R7 Open).
-            allowed_payment_method_types: ['card'],
+            // Q23 (IP-041): bank payments too where the firm takes them (instant verification).
+            allowed_payment_method_types: p.bankDebit ? ['card', 'us_bank_account'] : ['card'],
+            ...(p.bankDebit
+              ? { payment_method_options: { us_bank_account: { verification_method: 'instant' } } }
+              : {}),
+            // Q22: the invoice part, then the tip on its own line (none without a tip).
             line_items: [
-              {
-                quantity: 1,
-                price_data: {
-                  currency: p.currency,
-                  unit_amount: p.amountCents,
-                  product_data: { name: p.description },
-                },
-              },
+              line(p.description, p.amountCents),
+              ...(p.tipCents > 0 ? [line('Tip', p.tipCents)] : []),
             ],
             client_reference_id: p.invoiceId,
             metadata,
@@ -282,13 +311,16 @@ export function createStripeGateway(secretKey: string): StripeGateway {
     retrievePaymentIntent: async (accountId, paymentIntentId) => {
       const intent = await stripe.paymentIntents.retrieve(
         paymentIntentId,
-        {},
+        { expand: ['payment_method'] },
         { stripeAccount: accountId },
       );
       const error = intent.last_payment_error;
+      const method = typeof intent.payment_method === 'object' ? intent.payment_method : null;
       return {
         paymentId: intent.metadata?.payment_id ?? null,
         failureCode: error?.code ?? error?.decline_code ?? null,
+        methodType: method?.type ?? null,
+        last4: method?.us_bank_account?.last4 ?? method?.card?.last4 ?? null,
       };
     },
     createRefund: async (accountId, p, idempotencyKey) =>

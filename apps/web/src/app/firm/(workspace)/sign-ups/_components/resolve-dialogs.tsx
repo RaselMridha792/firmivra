@@ -84,6 +84,8 @@ export function ChecksDialog({
               callOutcome: checks.callOutcome!,
               identityResult: checks.identityResult!,
               permissionScope: checks.permissionScope ?? null,
+              version: request.version,
+              idempotencyKey: crypto.randomUUID(),
             },
             { onSuccess: close },
           );

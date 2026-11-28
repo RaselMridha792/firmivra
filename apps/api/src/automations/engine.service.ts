@@ -133,10 +133,11 @@ export class AutomationEngine {
     return this.within(businessId, null, () => this.doScanFirm(businessId, now));
   }
 
-  private async doScanFirm(businessId: string, now: Date) {
+  private async doScanFirm(businessId: string, now: Date, runDueActions = true) {
     const totals = { started: 0, duplicates: 0, stopped: 0, expired: 0, executed: 0 };
     const rules = await this.inFirm(businessId, async (tx) => {
       const ctx = await this.system(tx, businessId);
+      if (ctx.settings.pausedAt) return [];
       const list = await tx.automationRule.findMany({
         where: { businessId, status: 'ACTIVE', archivedAt: null },
         select: { id: true, expiresOn: true },
@@ -166,8 +167,17 @@ export class AutomationEngine {
       totals.duplicates += r.duplicates;
       totals.stopped += r.stopped ? 1 : 0;
     }
-    totals.executed += await this.runDue(businessId, now);
+    totals.executed += runDueActions
+      ? await this.runDue(businessId, now)
+      : await this.skipDue(businessId, now);
     return totals;
+  }
+
+  /** Resume after the Owner/Admin chooses how to handle actions due during the firm-wide pause. */
+  resumeFirm(businessId: string, backlog: 'RUN_NOW' | 'SKIP_DUE', now = new Date()) {
+    return backlog === 'RUN_NOW'
+      ? this.scanFirm(businessId, now)
+      : this.within(businessId, null, () => this.doScanFirm(businessId, now, false));
   }
 
   scanRule(businessId: string, ruleId: string, now = new Date()) {
@@ -178,6 +188,7 @@ export class AutomationEngine {
     const result = { started: 0, duplicates: 0, stopped: false };
     const created = await this.inFirm(businessId, async (tx) => {
       const ctx = await this.system(tx, businessId);
+      if (ctx.settings.pausedAt) return [];
       const rule = await tx.automationRule.findFirst({
         where: { businessId, id: ruleId, status: 'ACTIVE', archivedAt: null },
         include: { currentVersion: true },
@@ -1547,6 +1558,11 @@ export class AutomationEngine {
 
   private async doRunDue(businessId: string, now: Date): Promise<number> {
     const ids = await this.inFirm(businessId, async (tx) => {
+      const settings = await tx.automationSettings.findUnique({
+        where: { businessId },
+        select: { pausedAt: true },
+      });
+      if (settings?.pausedAt) return [];
       const rows = await tx.automationActionExecution.findMany({
         where: {
           businessId,
@@ -1568,6 +1584,35 @@ export class AutomationEngine {
     });
     for (const id of ids) await this.advance(businessId, id, now);
     return ids.length;
+  }
+
+  /** Skip pending actions that are due when resuming with Skip Due. */
+  private async skipDue(businessId: string, now: Date): Promise<number> {
+    const runIds = await this.inFirm(businessId, async (tx) => {
+      const due = await tx.automationActionExecution.findMany({
+        where: {
+          businessId,
+          status: 'PENDING',
+          OR: [{ scheduledFor: null }, { scheduledFor: { lte: now } }],
+          run: { dryRun: false, status: { in: ['PENDING', 'RUNNING'] } },
+        },
+        select: { id: true, runId: true },
+      });
+      for (const action of due) {
+        await tx.automationActionExecution.update({
+          where: { id: action.id },
+          data: {
+            status: 'SKIPPED',
+            finishedAt: now,
+            detail: 'Skipped because it was due during the firm-wide pause',
+            errorCode: null,
+          },
+        });
+      }
+      return [...new Set(due.map((action) => action.runId))];
+    });
+    for (const id of runIds) await this.rollup(businessId, id, now);
+    return runIds.length;
   }
 
   /** A paused rule's waiting actions are cancelled (skipped). */

@@ -4,7 +4,10 @@ import { NotificationsModule } from '../notifications/notifications.controller.j
 import { WorkspacesModule } from '../workspaces/workspaces.module.js';
 import { PortalTasksController } from './portal-tasks.controller.js';
 import { PortalTasksService } from './portal-tasks.service.js';
+import { TaskAckReminderJob } from './task-ack-reminder.job.js';
 import { TaskBulkService } from './task-bulk.service.js';
+import { TaskCollabController } from './task-collab.controller.js';
+import { TaskCollabService } from './task-collab.service.js';
 import { TaskDraftsController } from './task-drafts.controller.js';
 import { TaskDraftsService } from './task-drafts.service.js';
 import { TaskReadService } from './task-read.service.js';
@@ -28,6 +31,8 @@ import { TasksController } from './tasks.controller.js';
   controllers: [
     // First: its routes under business/tasks/drafts must match before TasksController's ':id'.
     TaskDraftsController,
+    // Q36: its acknowledgements/pending route is static, so it goes before TasksController.
+    TaskCollabController,
     TasksController,
     TaskTypesController,
     TaskTemplatesController,
@@ -45,6 +50,8 @@ import { TasksController } from './tasks.controller.js';
     TaskTemplatesService,
     TaskSeriesService,
     TaskSeriesJob,
+    TaskCollabService,
+    TaskAckReminderJob,
   ],
   exports: [TaskReadService, TaskWriteService, TaskSeriesJob],
 })

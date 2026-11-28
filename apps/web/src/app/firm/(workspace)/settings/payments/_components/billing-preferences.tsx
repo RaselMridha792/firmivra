@@ -628,10 +628,8 @@ function PreferencesForm({
         ) : null}
         <Switch
           label="Tipping"
-          hint="Lets an invoice offer the client a tip."
-          // I-N05: saved, but Pay Now does not charge a tip yet (after Nov 17).
-          notActive="clients can't add a tip at Pay Now yet"
-          notActiveTestId="tip-not-active"
+          // Q22 (I-N05): on, an invoice that allows a tip offers one at the portal's Pay Now.
+          hint="Lets an invoice offer the client a tip at Pay Now. Tips go to your firm and do not count toward the invoice."
           checked={f.tippingEnabled}
           onChange={(on) => set('taxesAndFees', { tippingEnabled: on })}
         />

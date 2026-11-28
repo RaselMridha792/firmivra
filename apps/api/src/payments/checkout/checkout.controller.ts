@@ -20,10 +20,10 @@ export class CheckoutController {
   pay(
     @CurrentTenant() tenant: TenantContext,
     @Param('id', new ZodValidationPipe(InvoiceId)) id: string,
-    @Body(new ZodValidationPipe(PayInvoiceRequest)) _body: PayInvoiceRequest,
+    @Body(new ZodValidationPipe(PayInvoiceRequest)) body: PayInvoiceRequest,
   ): Promise<CheckoutLink> {
     const me = portalLogin(tenant);
-    return this.checkout.start(me.businessId, me.clientAccountId, id);
+    return this.checkout.start(me.businessId, me.clientAccountId, id, body.tipCents ?? 0);
   }
 }
 

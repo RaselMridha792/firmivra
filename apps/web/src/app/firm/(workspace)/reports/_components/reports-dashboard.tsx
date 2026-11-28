@@ -193,10 +193,15 @@ export function ReportsDashboard() {
                     />
                   );
                   // RP-F08 (Octavia, Oct 28): each card opens its report, on the overview's
-                  // range and comparison, and says what it counts.
+                  // range and comparison, and says what it counts; Total Clients reproduces its all-time roster (R02).
+                  const isTotalClients = k?.key === 'total-clients' || k?.key === 'total_clients';
                   return k ? (
                     <Link
-                      href={open(`/reports/${k.reportKey}`)}
+                      href={
+                        isTotalClients
+                          ? withOrigin(`/reports/${k.reportKey}?range=this_year`, here)
+                          : open(`/reports/${k.reportKey}`)
+                      }
                       aria-label={`${k.label}: open the report`}
                       className="block rounded-xl hover:opacity-90 focus-visible:outline-2 focus-visible:outline-focus"
                       data-testid="kpi-link"
@@ -217,56 +222,96 @@ export function ReportsDashboard() {
             className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-3"
             data-testid="category-cards"
           >
-            {(d?.categories ?? []).map((c) => (
-              <li key={c.category}>
-                <section className={`${card} flex h-full flex-col gap-2`} aria-label={c.label}>
-                  <div className="flex items-start gap-3">
-                    <CategoryTile category={c.category} />
-                    <div className="min-w-0">
-                      <h2 className="font-display text-lg font-bold text-heading">{c.label}</h2>
-                      {c.headline ? (
-                        <p className="text-sm text-muted">
-                          {c.headline.label}:{' '}
-                          <span className="font-semibold text-heading">{kpiMoney(c.headline)}</span>
-                        </p>
-                      ) : null}
+            {(d?.categories ?? []).map((c) => {
+              const isDisconnected = ['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(
+                c.category,
+              );
+              return (
+                <li key={c.category}>
+                  <section className={`${card} flex h-full flex-col gap-2`} aria-label={c.label}>
+                    <div className="flex items-start gap-3">
+                      <CategoryTile category={c.category} />
+                      <div className="min-w-0">
+                        <h2 className="font-display text-lg font-bold text-heading">{c.label}</h2>
+                        {c.headline && !isDisconnected ? (
+                          <p className="text-sm text-muted">
+                            {c.headline.label}:{' '}
+                            <span className="font-semibold text-heading">
+                              {kpiMoney(c.headline)}
+                            </span>
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                  {c.chart && c.allowed ? (
-                    <DonutChart
-                      size="sm"
-                      legend
-                      segments={ringOf(c.chart).segments}
-                      centerValue={ringOf(c.chart).center}
-                    />
-                  ) : (
-                    <p className={quiet}>
-                      {c.allowed
-                        ? 'No data in this range.'
-                        : 'You do not have access to this report.'}
-                    </p>
-                  )}
-                  {c.allowed ? (
-                    <Link
-                      href={open(`/reports/${c.reportKey}`)}
-                      className="mt-auto inline-flex min-h-10 items-center justify-center gap-2 rounded-control bg-info-soft px-4 text-sm font-medium text-action hover:bg-accent-soft"
-                    >
-                      View Report <ArrowRight aria-hidden weight="bold" className="size-4" />
-                    </Link>
-                  ) : null}
-                  {/* Leads R2 18: the funnel and aging report (Reports > Leads). */}
-                  {c.category === 'LEADS' ? (
-                    <Link
-                      href="/reports/leads"
-                      data-testid="leads-funnel-link"
-                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-border px-4 text-sm font-medium text-action hover:bg-canvas"
-                    >
-                      Funnel &amp; Aging <ArrowRight aria-hidden weight="bold" className="size-4" />
-                    </Link>
-                  ) : null}
-                </section>
-              </li>
-            ))}
+                    {isDisconnected ? (
+                      <div
+                        className="flex flex-col gap-1 py-1"
+                        data-testid={`not-connected-${c.category.toLowerCase()}`}
+                      >
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted">
+                          <span className="size-2 rounded-full bg-border" /> Not Connected
+                        </span>
+                        <p className="text-xs text-muted">
+                          {c.category === 'BOOKKEEPING'
+                            ? 'Accounting software is not connected yet. Connect QuickBooks Online or Xero in Integrations.'
+                            : c.category === 'PAYROLL'
+                              ? 'Payroll provider is not connected yet. Connect Gusto or ADP in Integrations.'
+                              : 'Messaging provider is not connected yet. Connect Twilio or SendGrid in Integrations.'}
+                        </p>
+                      </div>
+                    ) : c.chart && c.allowed ? (
+                      <DonutChart
+                        size="sm"
+                        legend
+                        segments={ringOf(c.chart).segments}
+                        centerValue={ringOf(c.chart).center}
+                      />
+                    ) : (
+                      <p className={quiet}>
+                        {c.allowed
+                          ? 'No data in this range.'
+                          : 'You do not have access to this report.'}
+                      </p>
+                    )}
+                    {isDisconnected ? (
+                      <div className="mt-auto flex flex-col gap-2">
+                        <Link
+                          href="/integrations"
+                          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-border px-4 text-sm font-medium text-action hover:bg-canvas"
+                        >
+                          Connect in Integrations{' '}
+                          <ArrowRight aria-hidden weight="bold" className="size-4" />
+                        </Link>
+                        <Link
+                          href={open(`/reports/${c.reportKey}`)}
+                          className="text-center text-xs font-medium text-muted hover:text-heading"
+                        >
+                          View Report Layout
+                        </Link>
+                      </div>
+                    ) : c.allowed ? (
+                      <Link
+                        href={open(`/reports/${c.reportKey}`)}
+                        className="mt-auto inline-flex min-h-10 items-center justify-center gap-2 rounded-control bg-info-soft px-4 text-sm font-medium text-action hover:bg-accent-soft"
+                      >
+                        View Report <ArrowRight aria-hidden weight="bold" className="size-4" />
+                      </Link>
+                    ) : null}
+                    {/* Leads R2 18: the funnel and aging report (Reports > Leads). */}
+                    {c.category === 'LEADS' ? (
+                      <Link
+                        href="/reports/leads"
+                        data-testid="leads-funnel-link"
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-border px-4 text-sm font-medium text-action hover:bg-canvas"
+                      >
+                        Funnel &amp; Aging{' '}
+                        <ArrowRight aria-hidden weight="bold" className="size-4" />
+                      </Link>
+                    ) : null}
+                  </section>
+                </li>
+              );
+            })}
           </ul>
         </div>
         <aside className="flex min-w-0 flex-col gap-4" aria-label="Report tools">

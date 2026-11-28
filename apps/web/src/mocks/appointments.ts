@@ -1149,7 +1149,8 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       await mockDelay();
       const { reason } = parseInput(CancelMyAppointmentRequest, body);
       const a = mine(appointmentId);
-      changeable(a);
+      if (a.status !== 'SCHEDULED') throw errors.closed();
+      if (Date.parse(a.startsAt) <= Date.now()) throw errors.windowClosed();
       const before = copy(a);
       Object.assign(a, {
         status: 'CANCELLED',

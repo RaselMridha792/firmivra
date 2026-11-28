@@ -10,6 +10,8 @@ import {
   type BillingPayment as ApiPayment,
   type BillingRecurring as ApiRecurring,
   type BillingSettings as ApiSettings,
+  type BillingRevenue,
+  type BillingRevenueQuery,
 } from '@firmivra/types';
 import { api } from '../../../../../lib/api';
 import { mocked } from '../../../../../lib/mock';
@@ -944,6 +946,9 @@ const real = {
     mapPage(await api.adminBilling.payments(paymentQuery(query)), paymentOut),
   paymentSummary: async (query: PaymentQuery = {}): Promise<PaymentSummary> =>
     api.adminBilling.paymentSummary(paymentQuery(query)),
+  /** SA-BIL-A1: the Revenue tab (the Dashboard's Monthly Revenue uses the same query). */
+  revenue: async (query: BillingRevenueQuery): Promise<BillingRevenue> =>
+    api.adminBilling.revenue(query),
   payment: async (id: string): Promise<BillingPayment> =>
     paymentOut(await api.adminBilling.payment(id)),
   recordPayment: async (input: RecordPaymentInput): Promise<BillingPayment> =>
@@ -1156,6 +1161,13 @@ export function issuerOf(firm: BillingFirm | null): BillingFirm | null {
 }
 
 /** What the Billing screens call: the API, or the mock in mock mode. */
+/**
+ * SA-BIL-R1 / C2: Super Admin bills firms. On the API the customer is the firm itself (bill-to =
+ * its billing contact), so the forms show no second "Client" picker and no "Client #" number.
+ * The mock still models clients inside a firm until its data is reworked.
+ */
+export const FIRM_IS_CUSTOMER = !mocked('adminBilling');
+
 export const adminBilling: typeof real = mocked('adminBilling')
   ? (mockBilling as unknown as typeof real)
   : real;

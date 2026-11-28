@@ -47,6 +47,7 @@ export * from './support-access/index.js';
 export * from './admin-support/index.js';
 export * from './admin-billing/index.js';
 export * from './admin-sales/index.js';
+export * from './admin-crm/index.js';
 export * from './admin-subscriptions/index.js';
 export * from './admin-team/index.js';
 export * from './admin-audit/index.js';

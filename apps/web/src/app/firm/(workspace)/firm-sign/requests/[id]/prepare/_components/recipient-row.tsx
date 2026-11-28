@@ -2,7 +2,10 @@
 
 import type { EsignRecipient, EsignRecipientRole } from '@firmivra/types';
 import { Button, Input, Select } from '@firmivra/ui';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { api } from '../../../../../../../../lib/api';
 import type { DraftErrors, RecipientDraft } from './recipient-draft';
 
 const KIND: Record<EsignRecipient['kind'], string> = {
@@ -35,6 +38,8 @@ export function RecipientRow({
   errors,
   logins,
   members,
+  contacts,
+  clientsMap,
   onChange,
   onMove,
   onRemove,
@@ -48,6 +53,19 @@ export function RecipientRow({
   logins: Choice[];
   /** The firm's members, as `staff:<id>` (approvers, and staff who sign). */
   members: Choice[];
+  /** Broader firm contacts/clients for search and autofill. */
+  contacts?: Choice[];
+  clientsMap?: Map<
+    string,
+    {
+      displayName: string;
+      email?: string | null;
+      phone?: string | null;
+      accountType?: string;
+      type?: string;
+      portalLogins?: { email: string }[];
+    }
+  >;
   onChange: (patch: Partial<RecipientDraft>) => void;
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
@@ -55,11 +73,40 @@ export function RecipientRow({
   const index = order ?? 0;
   const title = `${order ? `${order}. ` : ''}${KIND[d.kind]}`;
   const isLogin = d.who.startsWith('login:');
+  const isExternalOrClient = d.who === 'external' || d.who.startsWith('client:');
   const signer = d.kind === 'SIGNER';
+
+  const [clientQuery, setClientQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(clientQuery.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [clientQuery]);
+
+  const clientSearch = useQuery({
+    queryKey: ['clients', 'list', 'recipient-search', debouncedQuery],
+    queryFn: () =>
+      api.clients.list({ limit: 25, ...(debouncedQuery && { search: debouncedQuery }) }),
+    placeholderData: keepPreviousData,
+    enabled: signer && debouncedQuery.length > 0,
+  });
+
+  const searchItems = clientSearch.data?.items ?? [];
+  const searchChoices: Choice[] = searchItems.map((c) => ({
+    value: `client:${c.id}`,
+    label: `${c.displayName} (${c.accountType === 'INDIVIDUAL' ? 'Individual' : 'Business'}${c.email ? ` · ${c.email}` : ''})`,
+  }));
+
   const offered: Choice[] =
     d.kind === 'APPROVER'
       ? [{ value: '', label: 'Choose a member of the firm' }, ...members]
-      : [...logins, ...(signer ? members : []), { value: 'external', label: 'Someone else' }];
+      : [
+          ...logins,
+          ...(signer ? members : []),
+          ...searchChoices,
+          ...(contacts ?? []),
+          { value: 'external', label: 'Someone else' },
+        ];
   // A saved login or member these lists no longer offer (or cannot load) still shows as itself.
   const whoOptions = offered.some((o) => o.value === d.who)
     ? offered
@@ -95,6 +142,17 @@ export function RecipientRow({
         </div>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
+        {signer && (
+          <div className="md:col-span-2">
+            <Input
+              label="Search client or contact"
+              type="search"
+              placeholder="Search by name, email, or phone…"
+              value={clientQuery}
+              onChange={(e) => setClientQuery(e.target.value)}
+            />
+          </div>
+        )}
         <Select
           label={d.kind === 'APPROVER' ? 'Who approves' : 'Who'}
           value={d.who}
@@ -104,6 +162,28 @@ export function RecipientRow({
             // The portal is only for the client's own login.
             const delivery =
               d.delivery === 'PORTAL' && !who.startsWith('login:') ? 'EMAIL' : d.delivery;
+            if (who.startsWith('client:')) {
+              const clientId = who.slice('client:'.length);
+              const found = clientsMap?.get(clientId) ?? searchItems.find((c) => c.id === clientId);
+              if (found) {
+                const foundEmail =
+                  found.email ??
+                  ('portalLogins' in found ? found.portalLogins?.[0]?.email : null) ??
+                  d.email;
+                const isBusiness =
+                  found.accountType === 'BUSINESS' ||
+                  ('type' in found && found.type === 'BUSINESS');
+                onChange({
+                  who,
+                  delivery,
+                  name: found.displayName ?? d.name,
+                  email: foundEmail,
+                  phone: found.phone ?? d.phone,
+                  role: isBusiness ? 'BUSINESS_OWNER' : 'CLIENT',
+                });
+                return;
+              }
+            }
             onChange({ who, delivery });
           }}
           options={whoOptions}
@@ -125,7 +205,7 @@ export function RecipientRow({
             onChange={(e) => onChange({ roleLabel: e.target.value })}
           />
         )}
-        {d.who === 'external' && (
+        {isExternalOrClient && (
           <>
             <Input
               label="Name"
@@ -162,6 +242,19 @@ export function RecipientRow({
               { value: 'IN_PERSON', label: 'In person, on this device' },
             ]}
           />
+        )}
+        {signer && d.delivery === 'IN_PERSON' && (
+          <div
+            data-testid="in-person-policy"
+            className="rounded-control border border-border bg-subtle p-3 text-xs text-muted md:col-span-2"
+          >
+            <p className="font-medium text-heading">In-person signing policy</p>
+            <p className="mt-1">
+              Identity verified in person by staff. Staff presents this device to the signer for
+              affirmative electronic consent and signing. Device control returns to staff upon
+              completion.
+            </p>
+          </div>
         )}
         {signer && d.delivery !== 'IN_PERSON' && (
           <Select

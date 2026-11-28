@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { Address, CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
+import { HttpsUrl } from '../content/schemas.js';
+import { UploadContentType } from '../documents/schemas.js';
 import {
   EinStatus,
   AdvisoryActionStatus,
@@ -278,8 +280,77 @@ export const AdvisoryResource = z.object({
   url: z.string().nullable(),
   /** B28: the formats it can be sent in (a video or a link: Secure Link only). */
   formats: z.array(AdvisoryResourceFormat),
+  /**
+   * A-X10 (Q28): BUILT_IN, the approved library (key: its catalog key; the firm may edit its copy,
+   * `edited`); FIRM, the firm's own (key: "r-" and its id).
+   */
+  source: z.enum(['BUILT_IN', 'FIRM']).default('BUILT_IN'),
+  /** A-X10: the words sent with it (edited with it). */
+  summary: z.string().default(''),
+  /** A-X10: a built-in resource the firm has edited. */
+  edited: z.boolean().default(false),
+  /** A-X10: its uploaded file, if any; offered only once its virus check is READY. */
+  file: z.lazy(() => AdvisoryResourceFile.nullable()).default(null),
 });
 export type AdvisoryResource = z.infer<typeof AdvisoryResource>;
+
+/**
+ * A-X10 (Q28): a file uploaded for a resource. CHECKING while the virus scan runs; READY once
+ * clean (only then can it be downloaded or sent); BLOCKED when the scan refused it.
+ */
+export const AdvisoryResourceFile = z.object({
+  id: z.uuid(),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int(),
+  status: z.enum(['CHECKING', 'READY', 'BLOCKED']),
+});
+export type AdvisoryResourceFile = z.infer<typeof AdvisoryResourceFile>;
+
+/** A-X10: a resource file is at most 25 MB (the database's limit). */
+export const ADVISORY_RESOURCE_FILE_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * A-X10 (Q28): POST /business/advisory/resources (the firm's own) and PUT .../resources/{key} (its
+ * own, or its copy of a built-in one). Owner and Admin (or Business Advisory "Manage"). At most one
+ * https link or one uploaded file (from POST .../resources/files/confirm); a link or a video needs a
+ * link. A file still being checked may be attached; one the scan refused is 409 FILE_BLOCKED.
+ */
+export const SaveAdvisoryResourceRequest = z
+  .strictObject({
+    title: text(200, 'one', 'Enter a title'),
+    category: text(100, 'one', 'Enter a category'),
+    kind: z.enum(['PDF', 'CHECKLIST', 'GUIDE', 'TEMPLATE', 'VIDEO', 'LINK']),
+    summary: text(1000, 'many', 'Say what the client gets'),
+    clientFacing: z.boolean(),
+    url: HttpsUrl.nullable().default(null),
+    fileId: z.uuid().nullable().default(null),
+  })
+  .superRefine((r, ctx) => {
+    if (r.url && r.fileId)
+      ctx.addIssue({ code: 'custom', path: ['fileId'], message: 'Use a link or a file, not both' });
+    if ((r.kind === 'LINK' || r.kind === 'VIDEO') && !r.url)
+      ctx.addIssue({ code: 'custom', path: ['url'], message: 'A link or a video needs its link' });
+  });
+export type SaveAdvisoryResourceRequest = z.input<typeof SaveAdvisoryResourceRequest>;
+
+/**
+ * A-X10 (Q28): POST /business/advisory/resources/files: step 1 of an upload (the ticket), then the
+ * browser sends the bytes and POST .../resources/files/confirm checks them (size, SHA-256, type)
+ * and records the file, CHECKING until its virus scan. At most 25 MB.
+ */
+export const StartAdvisoryResourceFileRequest = z.strictObject({
+  fileName: text(200, 'one', 'Enter a file name'),
+  contentType: UploadContentType,
+  sizeBytes: z
+    .number()
+    .int()
+    .min(1)
+    .max(ADVISORY_RESOURCE_FILE_MAX_BYTES, 'A file is at most 25 MB'),
+  /** SHA-256 of the file, hex. */
+  sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Use the lower-case hex SHA-256'),
+});
+export type StartAdvisoryResourceFileRequest = z.input<typeof StartAdvisoryResourceFileRequest>;
 
 /** GET /business/advisory/overview: Frame 1. Counts open the matching filtered lists. */
 export const AdvisoryOverview = z.object({
@@ -1240,6 +1311,32 @@ export const UpdateAdvisoryActionItemRequest = z
   .refine((o) => Object.keys(o).length > 0, 'Change at least one field');
 export type UpdateAdvisoryActionItemRequest = z.input<typeof UpdateAdvisoryActionItemRequest>;
 
+/**
+ * GET .../action-items/{id}/notes (A-X11, Business Advisory Review Two B30): the item's progress
+ * notes, newest first: what was done, the item's status then, who wrote it and when. The firm's
+ * only (never in the portal); kept, never edited or deleted.
+ */
+export const AdvisoryActionNote = z.object({
+  id: z.uuid(),
+  body: z.string(),
+  status: AdvisoryActionStatus,
+  author: MemberRef.nullable(),
+  at: DateTime,
+});
+export type AdvisoryActionNote = z.infer<typeof AdvisoryActionNote>;
+export const AdvisoryActionNoteList = z.object({ items: z.array(AdvisoryActionNote).max(200) });
+export type AdvisoryActionNoteList = z.infer<typeof AdvisoryActionNoteList>;
+/**
+ * POST .../action-items/{id}/notes: a progress note and, optionally, the item's new status with
+ * it (the note then records the new one). Needs "Manage goals and tasks". 409 ITEM_CHANGED when
+ * the item's status changed while the note was written.
+ */
+export const AddAdvisoryActionNoteRequest = z.strictObject({
+  body: text(2_000, 'many'),
+  status: AdvisoryActionStatus.optional(),
+});
+export type AddAdvisoryActionNoteRequest = z.input<typeof AddAdvisoryActionNoteRequest>;
+
 // ---------- Meetings, resources, settings ----------
 
 /** GET .../meetings: advisory appointments (Appointments tagged Business Advisory), read-only here; scheduling is in Appointments. */
@@ -1299,6 +1396,8 @@ export const AdvisoryResourcePreview = z.object({
         'RESOURCE_NOT_CLIENT_FACING',
         'FORMAT_NOT_AVAILABLE',
         'NO_PORTAL_LOGIN',
+        // A-X10: the resource's file is still being checked for viruses, or failed the check.
+        'FILE_NOT_READY',
       ]),
       message: z.string(),
     }),
@@ -1349,6 +1448,85 @@ export const SaveAdvisorySettingsRequest = z
   })
   .refine((o) => Object.keys(o).length > 0, 'Change at least one field');
 export type SaveAdvisorySettingsRequest = z.input<typeof SaveAdvisorySettingsRequest>;
+
+/**
+ * A-X02 (Business Advisory Review Two, B16): the industries a firm starts with, until it saves its
+ * own list. "Other" is not one of them: the forms always add it, with Specify.
+ */
+export const ADVISORY_INDUSTRY_DEFAULTS: readonly string[] = [
+  'Construction',
+  'Retail',
+  'Professional Services',
+  'Healthcare',
+  'Food & Beverage',
+  'Transportation',
+  'Beauty & Wellness',
+  'Automotive',
+  'Real Estate',
+  'Technology',
+  'Manufacturing',
+  'Hospitality',
+];
+
+/**
+ * GET .../industries (A-X02): the firm's industry choices for an advisory client and a plan, in
+ * its order, archived ones included (marked). The built-in list (ids null) until the firm saves
+ * its own. A client or plan keeps the text it was saved with: renaming or archiving one here never
+ * rewrites it.
+ */
+export const AdvisoryIndustry = z.object({
+  /** Null for a built-in one the firm has not saved yet. */
+  id: z.uuid().nullable(),
+  name: z.string(),
+  archived: z.boolean(),
+});
+export type AdvisoryIndustry = z.infer<typeof AdvisoryIndustry>;
+export const AdvisoryIndustryList = z.object({
+  items: z.array(AdvisoryIndustry).max(200),
+  /** False while the firm uses the built-in list. */
+  custom: z.boolean(),
+  /** Advisory Admin: may change the list. */
+  canManage: z.boolean(),
+});
+export type AdvisoryIndustryList = z.infer<typeof AdvisoryIndustryList>;
+/**
+ * PUT .../industries (Advisory Admin): the whole list in its order. An item with `id` is one of
+ * the firm's (404 otherwise), renamed, archived or restored; one without is added. A saved one
+ * left out is archived, never deleted. Live names once each, ignoring case (409
+ * DUPLICATE_INDUSTRY on a race); "Other" is always offered and is not saved.
+ */
+export const SaveAdvisoryIndustriesRequest = z.strictObject({
+  items: z
+    .array(
+      z.strictObject({
+        id: z.uuid().optional(),
+        name: text(80),
+        archived: z.boolean().optional().default(false),
+      }),
+    )
+    .min(1, 'Keep at least one industry')
+    .max(100)
+    .superRefine((items, ctx) => {
+      const seen = new Set<string>();
+      items.forEach((item, i) => {
+        const key = item.name.trim().toLowerCase();
+        if (key === 'other')
+          ctx.addIssue({
+            code: 'custom',
+            path: [i, 'name'],
+            message: 'Other is always offered, with Specify',
+          });
+        else if (!item.archived && seen.has(key))
+          ctx.addIssue({
+            code: 'custom',
+            path: [i, 'name'],
+            message: 'This industry is already in the list',
+          });
+        if (!item.archived) seen.add(key);
+      });
+    }),
+});
+export type SaveAdvisoryIndustriesRequest = z.input<typeof SaveAdvisoryIndustriesRequest>;
 
 // ---------- Reports ----------
 
@@ -1464,6 +1642,14 @@ export const AdvisoryErrorCode = z.enum([
   'NOT_A_MEMBER',
   /** 409: the resource is not client-facing and cannot be sent. */
   'RESOURCE_NOT_CLIENT_FACING',
+  /** 409 (A-X10): a built-in resource is edited, never archived. */
+  'RESOURCE_BUILT_IN',
+  /** 409 (A-X10): the resource is archived. */
+  'RESOURCE_ARCHIVED',
+  /** 409 (A-X10): the resource's file is not ready (still checked, or blocked). */
+  'FILE_NOT_READY',
+  /** 409 (A-X10): the file is already on another resource. */
+  'FILE_IN_USE',
   /** 409: the plan, goal or workstream is not this client's. */
   'NOT_THIS_CLIENT',
   /** 409 (B10, B28): the client has no active portal login, so the portal cannot reach them. */

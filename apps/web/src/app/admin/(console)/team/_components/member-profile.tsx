@@ -24,6 +24,7 @@ import {
   type AdminTeamMember,
   errorMessage,
   PERMISSION_ACTIONS,
+  roleTemplate,
   TEAM_ERROR_MESSAGES,
   type TeamActivity,
   type TeamActivityKind,
@@ -114,6 +115,18 @@ export function MemberProfile({
     member ? adminTeam.activity(member.id) : Promise.resolve([]),
   );
   const modules = teamModules();
+  // SA-TEAM-P03: the role's template, to say where each permission comes from (Edit's choices
+  // load it; someone the viewer can't reach gets the list without its sources).
+  const options = useApiQuery([...TEAM_KEY, 'form-options', member?.id ?? 'none'], () =>
+    member ? adminTeam.formOptions(member.id) : Promise.resolve(null),
+  );
+  const template = member && options.data ? roleTemplate(member.roleId) : null;
+  const sourceOf = (area: string, action: string) => {
+    if (member?.accessLevel === 'SUPER_ADMIN') return 'Full access (CEO / Super Admin)';
+    if (!template) return null;
+    const held: readonly string[] = template[area as keyof typeof template] ?? [];
+    return held.includes(action) ? 'Role template' : 'Added for this person';
+  };
   return (
     <Drawer
       open={member !== null}
@@ -193,23 +206,55 @@ export function MemberProfile({
               </Row>
             </dl>
           </Section>
-          <Section title="Permissions">
-            <ul className="flex flex-col gap-1.5 text-sm">
+          <Section title="Effective Access">
+            <p className="mb-2 text-xs text-muted">
+              What {member.name} can do, and where each permission comes from.
+            </p>
+            <ul data-testid="effective-access" className="flex flex-col gap-2 text-sm">
               {modules
-                .filter((area) => member.permissions[area.id]?.length)
-                .map((area) => (
-                  <li key={area.id} className="flex flex-wrap gap-x-2">
-                    <span className="font-semibold text-heading">{area.label}:</span>
-                    <span className="text-text">
-                      {(member.permissions[area.id] ?? [])
-                        .map((action) => ACTION_LABELS[action] ?? action)
-                        .join(', ')}
-                    </span>
-                  </li>
-                ))}
+                .filter(
+                  (area) =>
+                    member.permissions[area.id]?.length ||
+                    (template?.[area.id]?.length && member.accessLevel !== 'SUPER_ADMIN'),
+                )
+                .map((area) => {
+                  const granted = member.permissions[area.id] ?? [];
+                  const removed =
+                    member.accessLevel === 'SUPER_ADMIN'
+                      ? []
+                      : (template?.[area.id] ?? []).filter((action) => !granted.includes(action));
+                  return (
+                    <li key={area.id} className="flex flex-col gap-0.5">
+                      <span className="font-semibold text-heading">{area.label}</span>
+                      {granted.map((action) => {
+                        const source = sourceOf(area.id, action);
+                        return (
+                          <span key={action} className="flex flex-wrap gap-x-2 text-text">
+                            {ACTION_LABELS[action] ?? action}
+                            {source ? <span className="text-muted">· {source}</span> : null}
+                          </span>
+                        );
+                      })}
+                      {removed.map((action) => (
+                        <span
+                          key={action}
+                          className="flex flex-wrap gap-x-2 text-muted line-through"
+                        >
+                          {ACTION_LABELS[action] ?? action}
+                          <span className="no-underline">· Removed for this person</span>
+                        </span>
+                      ))}
+                    </li>
+                  );
+                })}
             </ul>
             {modules.every((area) => !member.permissions[area.id]?.length) ? (
               <p className="text-sm text-muted">No module access yet.</p>
+            ) : null}
+            {options.isError ? (
+              <p className="mt-2 text-xs text-muted">
+                Where each permission comes from is shown to those who can edit this person.
+              </p>
             ) : null}
           </Section>
           <Section title="Recent Activity">

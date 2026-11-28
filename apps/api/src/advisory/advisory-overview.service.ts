@@ -1,7 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import {
+  ADVISORY_INDUSTRY_DEFAULTS,
   ADVISORY_RESOURCE_FORMAT_LABELS,
+  type AdvisoryIndustryList,
   type AdvisoryKpi,
   type AdvisoryMeetingPage,
   type AdvisoryMeetingRow,
@@ -19,7 +21,14 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
-import { memberNames, memberRef, notAMember, notFound } from '../workspaces/common.js';
+import {
+  conflict,
+  isUniqueViolation,
+  memberNames,
+  memberRef,
+  notAMember,
+  notFound,
+} from '../workspaces/common.js';
 import {
   type AdvisoryCtx,
   AdvisoryReadService,
@@ -27,12 +36,14 @@ import {
   clientInclude,
 } from './advisory-read.service.js';
 import type {
+  IndustriesBody,
   MeetingsQuery,
   ResourcesQuery,
   SendResourceBody,
   SettingsBody,
 } from './advisory-input.js';
-import { RESOURCES, resourceOf, toResource } from './catalog.js';
+import { AdvisoryResourcesService } from './advisory-resources.service.js';
+import { RESOURCES, toResource } from './catalog.js';
 import { advErrors, clientRef, clientRefSelect, DISCLAIMER, iso } from './advisory.common.js';
 import { FACTORS, FACTOR_KEYS } from './health.js';
 import { withClient } from '../appointments/appointment-party.js';
@@ -61,6 +72,7 @@ export class AdvisoryOverviewService {
     private readonly audit: AuditService,
     private readonly messages: MessagesService,
     @Inject(ENV) private readonly env: Env,
+    private readonly library: AdvisoryResourcesService,
   ) {}
 
   private run<T>(
@@ -325,14 +337,14 @@ export class AdvisoryOverviewService {
 
   // ---------- Resources ----------
 
-  resources(q: Out<typeof ResourcesQuery>): AdvisoryResource[] {
-    const search = q.search?.toLowerCase();
-    return RESOURCES.filter(
-      (r) =>
-        (!search || r.title.toLowerCase().includes(search)) &&
-        (!q.category || r.category.toLowerCase() === q.category.toLowerCase()) &&
-        (q.clientFacing === undefined || r.clientFacing === q.clientFacing),
-    ).map(toResource);
+  /** A-X10: the built-in library with the firm's edits, then the firm's own (AdvisoryResourcesService). */
+  resources(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    q: Out<typeof ResourcesQuery>,
+  ): Promise<AdvisoryResource[]> {
+    return this.library.list(businessId, tenant, userId, q);
   }
 
   /**
@@ -343,7 +355,8 @@ export class AdvisoryOverviewService {
    */
   private async compose(ctx: AdvisoryCtx, key: string, body: Out<typeof SendResourceBody>) {
     if (!ctx.perms.send) throw advErrors.forbidden();
-    const resource = resourceOf(key);
+    // A-X10: a built-in resource (with the firm's edits) or the firm's own.
+    const resource = await this.library.resolve(ctx.tx, ctx.businessId, key);
     if (!resource) throw notFound();
     const c = await this.read.loadClient(ctx, body.advisoryClientId);
     const format = body.format ?? 'SECURE_LINK';
@@ -372,6 +385,15 @@ export class AdvisoryOverviewService {
       problems.push({
         code: 'FORMAT_NOT_AVAILABLE',
         message: `This resource can't be sent as ${ADVISORY_RESOURCE_FORMAT_LABELS[format]}: choose ${resource.formats.map((f) => ADVISORY_RESOURCE_FORMAT_LABELS[f]).join(' or ')}.`,
+      });
+    // A-X10: a resource's file goes out only once its virus check passed.
+    if (resource.file && resource.file.status !== 'READY')
+      problems.push({
+        code: 'FILE_NOT_READY',
+        message:
+          resource.file.status === 'CHECKING'
+            ? "This resource's file is still being checked for viruses. Try again in a moment."
+            : "This resource's file failed its security check. Upload another file first.",
       });
     if (!login)
       problems.push({
@@ -425,6 +447,7 @@ export class AdvisoryOverviewService {
       if (first?.code === 'CLIENT_ARCHIVED') throw advErrors.clientArchived();
       if (first?.code === 'RESOURCE_NOT_CLIENT_FACING') throw advErrors.notClientFacing();
       if (first?.code === 'FORMAT_NOT_AVAILABLE') throw advErrors.formatNotAvailable(first.message);
+      if (first?.code === 'FILE_NOT_READY') throw advErrors.fileNotReady(first.message);
       if (first) throw advErrors.noPortalLogin(first.message);
       await this.messages.create(businessId, ctx.actor, m.client.clientId, {
         subject: m.subject,
@@ -535,6 +558,113 @@ export class AdvisoryOverviewService {
         auditChanges(before ?? {}, after, { fields: Object.keys(data), skip: ['updatedByUserId'] }),
       );
       return this.settingsView(await this.read.ctx(tx, businessId, tenant, userId));
+    });
+  }
+
+  // ---------- Industries (A-X02) ----------
+
+  private async industryList(ctx: AdvisoryCtx): Promise<AdvisoryIndustryList> {
+    const rows = await ctx.tx.advisoryIndustry.findMany({
+      where: { businessId: ctx.businessId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, name: true, archivedAt: true },
+    });
+    return {
+      items: rows.length
+        ? rows.map((r) => ({ id: r.id, name: r.name, archived: r.archivedAt !== null }))
+        : ADVISORY_INDUSTRY_DEFAULTS.map((name) => ({ id: null, name, archived: false })),
+      custom: rows.length > 0,
+      canManage: ctx.perms.advisoryAdmin,
+    };
+  }
+
+  /**
+   * A-X02 (Business Advisory Review Two, B16): the firm's industry choices, in its order with the
+   * archived ones marked; the built-in list until it saves its own.
+   */
+  industries(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+  ): Promise<AdvisoryIndustryList> {
+    return this.run(businessId, tenant, userId, (ctx) => this.industryList(ctx));
+  }
+
+  /**
+   * A-X02: saves the whole list in its order (Advisory Admin). An item with an id is one of the
+   * firm's (404 otherwise): renamed, archived or restored; one without is added; a saved one left
+   * out is archived, never deleted. Archiving goes first, so a live name can move to another row.
+   * Audited (`advisory_industries.updated`) with counts only.
+   */
+  saveIndustries(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    body: Out<typeof IndustriesBody>,
+  ): Promise<AdvisoryIndustryList> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.advisoryAdmin) throw advErrors.forbidden();
+      const { tx } = ctx;
+      const existing = await tx.advisoryIndustry.findMany({
+        where: { businessId },
+        select: { id: true, name: true, archivedAt: true },
+      });
+      const byId = new Map(existing.map((r) => [r.id, r]));
+      for (const item of body.items) if (item.id && !byId.has(item.id)) throw notFound();
+      const wanted = new Map(body.items.flatMap((i) => (i.id ? [[i.id, i] as const] : [])));
+      const now = new Date();
+      const counts = { added: 0, renamed: 0, archived: 0, restored: 0 };
+      try {
+        for (const r of existing) {
+          const item = wanted.get(r.id);
+          if ((!item || item.archived) && r.archivedAt === null) {
+            await tx.advisoryIndustry.update({
+              where: { id: r.id },
+              data: { archivedAt: now, updatedByUserId: userId },
+            });
+            counts.archived += 1;
+          }
+        }
+        for (const [index, item] of body.items.entries()) {
+          const name = item.name.trim();
+          const r = item.id ? byId.get(item.id) : undefined;
+          if (r) {
+            if (r.name !== name) counts.renamed += 1;
+            if (!item.archived && r.archivedAt !== null) counts.restored += 1;
+            await tx.advisoryIndustry.update({
+              where: { id: r.id },
+              data: {
+                name,
+                sortOrder: index,
+                archivedAt: item.archived ? (r.archivedAt ?? now) : null,
+                updatedByUserId: userId,
+              },
+            });
+          } else {
+            await tx.advisoryIndustry.create({
+              data: {
+                businessId,
+                name,
+                sortOrder: index,
+                archivedAt: item.archived ? now : null,
+                updatedByUserId: userId,
+              },
+            });
+            counts.added += 1;
+          }
+        }
+      } catch (error) {
+        if (isUniqueViolation(error))
+          throw conflict('DUPLICATE_INDUSTRY', 'Each industry is in the list once.');
+        throw error;
+      }
+      await this.audit.logIn(
+        tx,
+        'advisory_industries.updated',
+        { type: 'advisory_settings' },
+        counts,
+      );
+      return this.industryList(ctx);
     });
   }
 }

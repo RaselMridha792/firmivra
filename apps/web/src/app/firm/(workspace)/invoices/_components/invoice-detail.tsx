@@ -10,8 +10,10 @@ import {
 import { Button, Input, Modal } from '@firmivra/ui';
 import {
   ArrowLeft,
+  BellRinging,
   FileMagnifyingGlass,
   Invoice as InvoiceIcon,
+  LinkSimple,
   PaperPlaneTilt,
   PencilSimple,
   Prohibit,
@@ -22,6 +24,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
 import { RequireRole } from '../../../../../components/require-role';
+import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -43,17 +46,38 @@ import {
 } from './inv-shared';
 import { InvoiceHistoryCard } from './invoice-history';
 import { InvoicePreviewDialog } from './invoice-preview';
+import { NewMessageDialog } from '../../messages/_components/messages-screen';
+
+/** Q23 (IP-041): how the client paid, once Stripe says: "card ••4242" or "bank ••6789". */
+const methodText = (p: { methodType: string | null; last4: string | null }) => {
+  const kind =
+    p.methodType === 'us_bank_account' ? 'bank (ACH)' : p.methodType === 'card' ? 'card' : null;
+  if (!kind) return '';
+  return p.last4 ? `, ${kind} ••${p.last4}` : `, ${kind}`;
+};
+
+/** Q23 (IP-041): a bank payment (ACH), refunded in full only. */
+const bankPayment = (p: { methodType: string | null }) => p.methodType === 'us_bank_account';
 
 const PAYMENT_STATUS: Record<string, string> = {
-  PENDING: 'Pending',
+  // Q23 (IP-041): the firm's word for a payment Stripe is still settling (a bank debit).
+  PENDING: 'Payment pending',
   SUCCEEDED: 'Paid',
   FAILED: 'Failed',
   REFUNDED: 'Refunded',
 };
 
 /** /invoices/[invoiceId]: one invoice with its lines, totals and every payment. */
-export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
+export function InvoiceDetail({
+  invoiceId,
+  portalBase = '',
+}: {
+  invoiceId: string;
+  /** Q24 (I-N03): the client portal's address, for Copy Payment Link. */
+  portalBase?: string;
+}) {
   const qc = useQueryClient();
+  const { firm } = useFirm();
   const q = useApiQuery([...INV_KEY, 'one', invoiceId], () => api.invoices.get(invoiceId));
   const [canceling, setCanceling] = useState(false);
   // I-N08: Preview on screen.
@@ -64,16 +88,40 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
   const [busy, setBusy] = useState(false);
   const i = q.data;
   const refresh = () => qc.invalidateQueries({ queryKey: [...INV_KEY] });
-  const send = async () => {
+  const [notice, setNotice] = useState('');
+  const [reminding, setReminding] = useState(false);
+  const act = async (call: () => Promise<unknown>, done: string) => {
     setBusy(true);
     setFailure('');
+    setNotice('');
     try {
-      await api.invoices.send(invoiceId);
+      await call();
       await refresh();
+      setNotice(done);
     } catch (e) {
       setFailure(errorMessage(e, INVOICE_ERRORS));
     }
     setBusy(false);
+  };
+  const send = () =>
+    act(() => api.invoices.send(invoiceId), `${i?.number ?? 'The invoice'} sent to the client.`);
+  // Q24 (I-N03): the list's Resend, Send Reminder and Copy Payment Link on the invoice page too.
+  const resend = () =>
+    act(
+      () => api.invoices.resend(invoiceId),
+      `${i?.number ?? 'The invoice'} sent to the client again.`,
+    );
+  const payLink =
+    portalBase && firm ? `${portalBase.replace(/\/$/, '')}/${firm.slug}/invoices/${invoiceId}` : '';
+  const copyLink = async () => {
+    setFailure('');
+    try {
+      await navigator.clipboard.writeText(payLink);
+      setNotice(`Payment link copied. It opens the invoice in the client's portal, after sign-in.`);
+    } catch {
+      setNotice('');
+      setFailure('The link could not be copied. Use the Payment Link Generator.');
+    }
   };
 
   return (
@@ -113,25 +161,52 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
           </div>
         </div>
         {i ? (
-          <RequireRole roles={['OWNER', 'ADMIN']}>
-            <div className="flex flex-wrap gap-2">
-              {i.status === 'DRAFT' ? (
+          <div className="flex flex-wrap gap-2">
+            <RequireRole roles={['OWNER', 'ADMIN']}>
+              {i.status === 'DRAFT' || i.status === 'SCHEDULED' ? (
+                <button
+                  type="button"
+                  className={primary}
+                  disabled={busy}
+                  onClick={() => void send()}
+                >
+                  <PaperPlaneTilt aria-hidden weight="fill" className="size-5" />{' '}
+                  {/* Q24 (I-N03): a scheduled invoice can go now instead of on its day. */}
+                  {i.status === 'DRAFT' ? 'Send Invoice' : 'Send Now'}
+                </button>
+              ) : null}
+              {/* Q24 (I-N03): as in the list, for a sent invoice with something still to pay. */}
+              {i.status === 'OPEN' && i.balanceDueCents > 0 ? (
                 <>
                   <button
                     type="button"
-                    className={primary}
+                    className={outlined}
                     disabled={busy}
-                    onClick={() => void send()}
+                    onClick={() => void resend()}
                   >
-                    <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Send Invoice
+                    <PaperPlaneTilt aria-hidden weight="fill" className="size-5 text-action" />{' '}
+                    Resend
                   </button>
+                  <button type="button" className={outlined} onClick={() => setReminding(true)}>
+                    <BellRinging aria-hidden weight="fill" className="size-5 text-action" /> Send
+                    Reminder
+                  </button>
+                  {payLink ? (
+                    <button type="button" className={outlined} onClick={() => void copyLink()}>
+                      <LinkSimple aria-hidden weight="bold" className="size-5 text-action" /> Copy
+                      Payment Link
+                    </button>
+                  ) : null}
                 </>
               ) : null}
+            </RequireRole>
+            {/* Q24: everyone who can open the invoice can preview it (Staff too). */}
+            <button type="button" className={outlined} onClick={() => setPreviewing(true)}>
+              <FileMagnifyingGlass aria-hidden weight="fill" className="size-5 text-action" />{' '}
+              Preview
+            </button>
+            <RequireRole roles={['OWNER', 'ADMIN']}>
               {/* I-N06: a draft, a scheduled invoice, or a sent one with nothing paid. */}
-              <button type="button" className={outlined} onClick={() => setPreviewing(true)}>
-                <FileMagnifyingGlass aria-hidden weight="fill" className="size-5 text-action" />{' '}
-                Preview
-              </button>
               {canEditInvoice(i) ? (
                 <Link href={`/invoices/${i.id}/edit`} className={outlined}>
                   <PencilSimple aria-hidden weight="fill" className="size-5 text-action" /> Edit
@@ -152,13 +227,18 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                   Invoice
                 </button>
               ) : null}
-            </div>
-          </RequireRole>
+            </RequireRole>
+          </div>
         ) : null}
       </header>
       {failure ? (
         <p role="alert" className="text-sm text-danger">
           {failure}
+        </p>
+      ) : null}
+      {notice ? (
+        <p role="status" className="text-sm text-success" data-testid="invoice-notice">
+          {notice}
         </p>
       ) : null}
 
@@ -294,14 +374,23 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                     <span>
                       <span className="font-semibold text-heading">
                         {money(p.amountCents, p.currency)}
-                      </span>{' '}
-                      · Online (Stripe) · {PAYMENT_STATUS[p.status] ?? p.status} ·{' '}
+                      </span>
+                      {/* Q22: the client's tip, charged with it; it never pays the invoice. */}
+                      {p.tipCents > 0 ? ` + ${money(p.tipCents, p.currency)} tip` : ''} · Online
+                      (Stripe{methodText(p)}) · {PAYMENT_STATUS[p.status] ?? p.status} ·{' '}
                       {dayText(p.paidAt ?? p.createdAt)}
                       {p.refundedCents > 0
                         ? ` · Refunded ${money(p.refundedCents, p.currency)}`
                         : ''}
                       {p.refunds.some((r) => r.status === 'PENDING') ? ' · Refund pending' : ''}
                       {p.failureCode ? ` · ${p.failureCode}` : ''}
+                      {/* Q23 (IP-041): the client disputed it with their bank; the invoice stays paid. */}
+                      {p.disputed ? (
+                        <span className="font-semibold text-danger" data-testid="payment-disputed">
+                          {' '}
+                          · Disputed
+                        </span>
+                      ) : null}
                     </span>
                     {p.status === 'SUCCEEDED' || p.status === 'REFUNDED' ? (
                       <ReceiptButton
@@ -413,6 +502,22 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
           </dl>
         </aside>
       </div>
+      {reminding && i ? (
+        // Q24 (I-N03): the list's reminder composer, the same subject.
+        <NewMessageDialog
+          clientId={i.client.id}
+          clientName={i.client.displayName}
+          subject={`Reminder: invoice ${i.number}, ${money(i.balanceDueCents, i.currency)} due${
+            i.dueOn ? ` ${dayText(i.dueOn)}` : ''
+          }`}
+          onClose={() => setReminding(false)}
+          onSent={() => {
+            setReminding(false);
+            setFailure('');
+            setNotice('Reminder sent.');
+          }}
+        />
+      ) : null}
       {previewing && i ? (
         <InvoicePreviewDialog invoiceId={i.id} onClose={() => setPreviewing(false)} />
       ) : null}
@@ -422,8 +527,19 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
       {refunding && i ? (
         <ReasonDialog
           title={`Refund ${money(refunding.amountCents, refunding.currency)} payment`}
-          label={`Amount to refund (at most ${money(refunding.refundableCents, refunding.currency)})`}
+          label={
+            bankPayment(refunding)
+              ? 'Amount to refund'
+              : `Amount to refund (at most ${money(refunding.refundableCents, refunding.currency)})`
+          }
           initial={(refunding.refundableCents / 100).toFixed(2)}
+          // Q23 (IP-041): a bank payment is refunded in full only, and takes a few business days.
+          {...(bankPayment(refunding)
+            ? {
+                readOnly: true,
+                hint: 'A bank payment can only be refunded in full. The money reaches the client’s bank in a few business days.',
+              }
+            : {})}
           action="Issue Refund"
           onClose={() => setRefunding(undefined)}
           onSubmit={async (value, key) => {
@@ -459,6 +575,8 @@ function ReasonDialog({
   title,
   label,
   initial,
+  readOnly = false,
+  hint,
   action,
   onClose,
   onSubmit,
@@ -466,6 +584,9 @@ function ReasonDialog({
   title: string;
   label: string;
   initial: string;
+  /** The value cannot be changed (a bank payment's full refund). */
+  readOnly?: boolean;
+  hint?: string;
   action: string;
   onClose: () => void;
   onSubmit: (value: string, idempotencyKey: string) => Promise<void>;
@@ -501,6 +622,8 @@ function ReasonDialog({
           label={label}
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          readOnly={readOnly}
+          {...(hint ? { hint } : {})}
           error={error}
         />
         <Button type="submit" disabled={busy}>

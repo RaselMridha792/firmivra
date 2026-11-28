@@ -8,6 +8,8 @@ import {
   Invoice,
   type InvoiceHistoryItem,
   InvoiceId,
+  INVOICE_LIMITS,
+  PayInvoiceRequest,
   type InvoiceListItem,
   type InvoiceRefund,
   type InvoicesClient,
@@ -88,7 +90,24 @@ const offlineId = (n: number) => `0199b6e5-0000-7000-8000-${String(n).padStart(1
 const recurringId = (n: number) => `0199b6e6-0000-7000-8000-${String(n).padStart(12, '0')}`;
 
 /** A payment as the database keeps it; what is refunded and refundable is computed from it. */
-type Payment = Omit<FirmInvoicePayment, 'refundedCents' | 'refundableCents' | 'receiptSentAt'>;
+type Payment = Omit<
+  FirmInvoicePayment,
+  | 'refundedCents'
+  | 'refundableCents'
+  | 'receiptSentAt'
+  | 'tipCents'
+  | 'methodType'
+  | 'last4'
+  | 'disputed'
+> & {
+  /** Q23: the client disputed it with their bank (left out: no). */
+  disputed?: boolean;
+  /** Q22: the tip charged with it (none: 0). */
+  tipCents?: number;
+  /** Q23: how it was paid (left out: a card ending 4242 once it went through). */
+  methodType?: string | null;
+  last4?: string | null;
+};
 /** An invoice as the database keeps it: amounts and the client's view are computed from it. */
 interface Row {
   id: string;
@@ -205,6 +224,8 @@ function built() {
     }),
     row(2, {
       number: 'INV-2026-0102',
+      // Q22: offers a tip at Pay Now while Tipping is on.
+      allowTip: true,
       engagementId: service(1),
       lines: lines(
         ['Individual tax preparation (Form 1040)', 1, 40_000],
@@ -231,6 +252,9 @@ function built() {
           amountCents: 30_000,
           currency: 'usd',
           status: 'PENDING',
+          // Q23: a bank debit (ACH) the bank is still settling.
+          methodType: 'us_bank_account',
+          last4: '6789',
           paidAt: null,
           createdAt: noonOn(day(-1)),
           failureCode: null,
@@ -256,7 +280,8 @@ function built() {
       issuedAt: noonOn('2026-03-01'),
       dueOn: '2026-03-15',
       paidAt: noonOn('2026-03-10'),
-      payments: [paid(6, 25_000, '2026-03-10')],
+      // Q22: paid with a 15% tip at Pay Now.
+      payments: [{ ...paid(6, 25_000, '2026-03-10'), tipCents: 3_750 }],
     }),
     row(7, {
       number: 'INV-2026-0012',
@@ -288,7 +313,13 @@ function built() {
       dueOn: '2025-12-20',
       paidAt: noonOn('2025-12-15'),
       payments: [
-        paid(9, 27_500, '2025-12-15'),
+        // Q23 (IP-041): paid by bank (ACH), then disputed by the client with their bank.
+        {
+          ...paid(9, 27_500, '2025-12-15'),
+          methodType: 'us_bank_account',
+          last4: '6789',
+          disputed: true,
+        },
         {
           id: paymentId(8),
           amountCents: 27_500,
@@ -503,15 +534,26 @@ const refunded = (p: Payment) =>
 /** What a new refund may take: the amount less refunds that are not FAILED, while SUCCEEDED. */
 const refundable = (p: Payment) =>
   p.status === 'SUCCEEDED'
-    ? p.amountCents - sum(p.refunds.filter((x) => x.status !== 'FAILED').map((x) => x.amountCents))
+    ? // Q22: the tip is refundable with the payment.
+      p.amountCents +
+      (p.tipCents ?? 0) -
+      sum(p.refunds.filter((x) => x.status !== 'FAILED').map((x) => x.amountCents))
     : 0;
 /** The firm's view of a payment. */
-const firmPayment = (p: Payment): FirmInvoicePayment => ({
-  ...p,
-  refundedCents: refunded(p),
-  refundableCents: refundable(p),
-  receiptSentAt: receiptsSent().get(p.id) ?? null,
-});
+const firmPayment = (p: Payment): FirmInvoicePayment => {
+  // Q23: a payment that went through shows how it was paid (the mock's default: card 4242).
+  const done = p.status === 'SUCCEEDED' || p.status === 'REFUNDED';
+  return {
+    ...p,
+    tipCents: p.tipCents ?? 0,
+    methodType: p.methodType ?? (done ? 'card' : null),
+    last4: p.last4 ?? (done ? '4242' : null),
+    disputed: p.disputed ?? false,
+    refundedCents: refunded(p),
+    refundableCents: refundable(p),
+    receiptSentAt: receiptsSent().get(p.id) ?? null,
+  };
+};
 /** IP-F12: the last receipt sent for each payment (Stripe or offline), by payment id. */
 let receiptTimes: Map<string, string> | undefined;
 const receiptsSent = () => (receiptTimes ??= new Map());
@@ -626,6 +668,20 @@ function toInvoice(r: Row, day: string): Invoice {
   });
 }
 
+/**
+ * Q22: Settings > Payments' Tipping. A portal spec turns it on for its tab with sessionStorage
+ * 'firmivra-mock:tipping' = 'on' (the portal runs without the firm's settings page).
+ */
+function mockTipping(): boolean {
+  try {
+    if (typeof window !== 'undefined' && sessionStorage.getItem('firmivra-mock:tipping') === 'on')
+      return true;
+  } catch {
+    // No storage: the settings' switch.
+  }
+  return mockLivePreferences().taxesAndFees.tippingEnabled;
+}
+
 /** The client's view; only for invoices the portal shows. */
 function toMine(r: Row, day: string, paymentsEnabled: boolean): MyInvoice {
   const status = myInvoiceStatus(r, day);
@@ -649,6 +705,8 @@ function toMine(r: Row, day: string, paymentsEnabled: boolean): MyInvoice {
     canceledAt: r.canceledAt,
     paymentProcessing,
     canPay: r.status === 'OPEN' && f.balanceDueCents > 0 && !paymentProcessing && paymentsEnabled,
+    // Q22: as the API, the invoice allows a tip and Settings > Payments' Tipping is on now.
+    tipOffered: !!r.allowTip && mockTipping(),
   };
 }
 
@@ -663,8 +721,8 @@ function toMyDetail(r: Row, day: string, paymentsEnabled: boolean): MyInvoiceDet
     // No failure codes or refund rows for the client: the page says a payment failed and offers
     // Pay again, and shows what was refunded.
     payments: r.payments.map((p) => {
-      const { failureCode: _f, refunds: _r, ...rest } = p;
-      return { ...rest, refundedCents: refunded(p) };
+      const { failureCode: _f, refunds: _r, methodType: _m, last4: _l, disputed: _d, ...rest } = p;
+      return { ...rest, tipCents: p.tipCents ?? 0, refundedCents: refunded(p) };
     }),
     // Live ones only: method, amount and day (no reference, note or who recorded it).
     offlinePayments: live(r).map(({ id, method, amountCents, currency, receivedOn }) => ({
@@ -1082,6 +1140,17 @@ export function createInvoicesMock(
       await mockDelay();
       manager();
       const r = find(parseInput(InvoiceId, id));
+      // Q24 (I-N03, Send Now): a scheduled invoice opens now; its schedule keeps its days.
+      if (r.status === 'SCHEDULED') {
+        if (isArchived(r)) throw archived();
+        const day = today();
+        if (r.dueOn !== null && r.dueOn < day) {
+          throw fail(409, 'DUE_DATE_PASSED', 'The due date has passed; change it first');
+        }
+        const at = now();
+        Object.assign(r, { status: 'OPEN', issuedAt: at, scheduledFor: null, updatedAt: at });
+        return toInvoice(r, day);
+      }
       if (r.status !== 'DRAFT') throw notDraft();
       if (r.archivedAt) throw fail(409, 'INVOICE_ARCHIVED', 'Restore this invoice first');
       if (isArchived(r)) throw archived();
@@ -1415,6 +1484,13 @@ export function createInvoicesMock(
       if (b.amountCents > refundable(p)) {
         throw fail(409, 'REFUND_TOO_LARGE', 'The refund is more than what is left of the payment');
       }
+      // Q23 (IP-041): a bank payment is refunded in full only, once.
+      if (
+        p.methodType === 'us_bank_account' &&
+        (p.refunds.some((x) => x.status !== 'FAILED') || b.amountCents !== refundable(p))
+      ) {
+        throw fail(409, 'BANK_REFUND_FULL_ONLY', 'A bank payment can only be refunded in full');
+      }
       s.refunds.add(retryKey);
       // PENDING until Stripe's webhook confirms it; the mock has no webhook, so it stays so.
       p.refunds.unshift({
@@ -1591,16 +1667,24 @@ export function createMyInvoicesMock(
             m.title.toLowerCase().includes(search),
         )
         .sort(portalOrder);
-      return copy({ ...page(found, q), paymentsEnabled });
+      // Q23: a spec turns the firm's bank payments on with sessionStorage 'firmivra-mock:ach'.
+      let bankPayments = false;
+      try {
+        bankPayments = paymentsEnabled && sessionStorage.getItem('firmivra-mock:ach') === 'active';
+      } catch {
+        // No storage: cards only.
+      }
+      return copy({ ...page(found, q), paymentsEnabled, bankPayments });
     },
     get: async (id) => {
       await mockDelay();
       const day = today();
       return toMyDetail(findMine(parseInput(InvoiceId, id), day), day, paymentsEnabled);
     },
-    pay: async (id) => {
+    pay: async (id, body = {}) => {
       await mockDelay();
       const day = today();
+      const { tipCents = 0 } = parseInput(PayInvoiceRequest, body);
       const r = findMine(parseInput(InvoiceId, id), day);
       const m = toMine(r, day, paymentsEnabled);
       if (r.status !== 'OPEN' || m.balanceDueCents === 0) {
@@ -1611,6 +1695,22 @@ export function createMyInvoicesMock(
       }
       if (!paymentsEnabled) {
         throw fail(409, 'PAYMENTS_NOT_SET_UP', 'Online payment is not available yet');
+      }
+      // Q22, as the API: a tip only where one is offered, at most the balance.
+      if (tipCents > 0 && !m.tipOffered) {
+        throw fail(409, 'TIP_NOT_OFFERED', 'A tip cannot be added to this invoice');
+      }
+      if (tipCents > m.balanceDueCents || m.balanceDueCents + tipCents > INVOICE_LIMITS.maxCents) {
+        throw fail(400, 'VALIDATION_FAILED', 'The tip can be at most the balance due');
+      }
+      // A spec reads what Pay Now sent (there is no Stripe to look at).
+      try {
+        sessionStorage.setItem(
+          'firmivra-mock:last-checkout',
+          JSON.stringify({ invoice: r.number, tipCents }),
+        );
+      } catch {
+        // No storage: nothing to read back.
       }
       // No Stripe behind it: the link opens nothing, and nothing is charged or marked paid. The
       // API's Checkout Sessions last 60 minutes.

@@ -498,8 +498,24 @@ export type SignUpCandidate = z.infer<typeof SignUpCandidate>;
  * waits, the firm's client records it may belong to: the least needed to compare (name, Client
  * ID, which fields matched; never their values). Audited.
  */
+/**
+ * Q44 D2.13: the newest delivery of the email a decision sends, when one was recorded
+ * (`INVITE_DELIVERY`): the approval notice, or Restore Access's recovery email. Null when none
+ * failed (a first send that went out is not recorded).
+ */
+export const SignUpEmailDelivery = z.object({
+  email: z.enum(['APPROVAL', 'RECOVERY']),
+  status: z.enum(['SENT', 'FAILED']),
+  /** When the newest attempt ran. */
+  at: z.iso.datetime({ offset: true }),
+  /** Every recorded attempt: the first failure and each retry. */
+  attempts: z.number().int().min(1),
+});
+export type SignUpEmailDelivery = z.infer<typeof SignUpEmailDelivery>;
+
 export const ClientSignUpDetail = ClientSignUp.extend({
   history: z.array(SignUpEvent),
+  emailDelivery: SignUpEmailDelivery.nullable(),
   candidates: z.array(SignUpCandidate),
   /** Approved by the firm's Automatic Approval rule (no member decided). */
   automatic: z.boolean(),
@@ -508,7 +524,9 @@ export const ClientSignUpDetail = ClientSignUp.extend({
    * pending; approved as a new client only once no candidate holds it back; Not a Match only for
    * phone matches (an email match never). Empty once decided.
    */
-  allowedActions: z.array(z.enum(['APPROVE', 'DECLINE', 'KEEP_PENDING', 'NOT_A_MATCH'])),
+  allowedActions: z.array(
+    z.enum(['APPROVE', 'DECLINE', 'KEEP_PENDING', 'NOT_A_MATCH', 'RETRY_EMAIL']),
+  ),
 });
 export type ClientSignUpDetail = z.infer<typeof ClientSignUpDetail>;
 
@@ -533,6 +551,14 @@ const SignUpWrite = {
   version: z.number().int().min(1),
   idempotencyKey: z.uuid(),
 };
+
+/**
+ * POST /client-sign-ups/:clientAccountId/retry-email (Q44 D2.13): sends the approval notice again
+ * after it failed (`allowedActions` has RETRY_EMAIL), and records the attempt. 409 NOTHING_TO_RETRY
+ * when the newest delivery did not fail. A retry with the same key answers as the first did.
+ */
+export const RetrySignUpEmailRequest = z.strictObject({ idempotencyKey: z.uuid() });
+export type RetrySignUpEmailRequest = z.input<typeof RetrySignUpEmailRequest>;
 
 /**
  * PATCH /client-sign-ups/settings (Owner and Admin): the approval mode. It applies to sign-ups
@@ -610,6 +636,10 @@ export const RecordSignUpChecksRequest = z.strictObject({
   identityResult: SignupIdentityResult,
   /** The client's permission and what it covers; null when not given. */
   permissionScope: SignupPermissionScope.nullable(),
+  /** The version it read (409 STALE_VERSION on mismatch). Optional: older callers omit it. */
+  version: z.number().int().min(1).optional(),
+  /** One key per attempt (retry-safe). Optional: older callers omit it. */
+  idempotencyKey: z.uuid().optional(),
 });
 export type RecordSignUpChecksRequest = z.input<typeof RecordSignUpChecksRequest>;
 
@@ -734,5 +764,7 @@ export const ClientAuthErrorCode = z.enum([
   'CHECKS_REQUIRED',
   /** 409: Restore Access to a record with no portal login. Link the record instead. */
   'NO_PORTAL_LOGIN',
+  /** 409: Retry Email when the newest approval email did not fail (Q44 D2.13). */
+  'NOTHING_TO_RETRY',
 ]);
 export type ClientAuthErrorCode = z.infer<typeof ClientAuthErrorCode>;

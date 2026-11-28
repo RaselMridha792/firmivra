@@ -21,6 +21,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { AddClientDialog, AddGoalDialog, useMembers } from './ba-dialogs';
 import { FilterSelect, SearchBox, serverPaging, useAct } from './ba-list-kit';
 import { BaShell } from './ba-shell';
+import { ManageIndustriesDialog, useIndustries } from './industries';
 import {
   BASE,
   BA_KEY,
@@ -29,6 +30,7 @@ import {
   ClientStatusPill,
   DateTimeCell,
   card,
+  outlined,
   primary,
   scheduleMeetingHref,
 } from './ba-shared';
@@ -50,6 +52,9 @@ export function AdvisoryClients() {
   const { ask, toast, say } = useAct();
   const members = useMembers();
   const services = useApiQuery([...BA_KEY, 'services'], () => api.advisory.serviceOptions());
+  // A-X02: Advisory Admin manages the firm's industry list.
+  const industries = useIndustries();
+  const [managing, setManaging] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [serviceId, setServiceId] = useState('');
@@ -150,6 +155,15 @@ export function AdvisoryClients() {
   return (
     <BaShell>
       {toast}
+      {managing ? (
+        <ManageIndustriesDialog
+          onClose={() => setManaging(false)}
+          onSaved={(text) => {
+            setManaging(false);
+            say(text);
+          }}
+        />
+      ) : null}
       <section
         className={`${card} flex flex-col gap-3`}
         aria-label="Advisory clients"
@@ -208,9 +222,18 @@ export function AdvisoryClients() {
               setPage(1);
             }}
           />
+          {industries.data?.canManage ? (
+            <button
+              type="button"
+              className={`${outlined} ml-auto`}
+              onClick={() => setManaging(true)}
+            >
+              Manage Industries
+            </button>
+          ) : null}
           <button
             type="button"
-            className={`${primary} ml-auto`}
+            className={`${primary} ${industries.data?.canManage ? '' : 'ml-auto'}`}
             disabled={q.isError}
             onClick={() => setDialog({ kind: 'client' })}
           >

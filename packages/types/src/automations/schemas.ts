@@ -303,6 +303,9 @@ export const AutomationRuleSettings = z.strictObject({
     .optional(),
   /** Stop and alert when a run would act on more than this many records. */
   safetyThreshold: z.number().int().min(1).max(100_000).nullable().optional(),
+  /** R11: null inherits the firm's missed-run policy. */
+  missedRunPolicy: z.enum(['RUN_ONCE', 'SKIP', 'REPLAY_WINDOW']).nullable().optional(),
+  missedRunWindowDays: z.number().int().min(1).max(90).nullable().optional(),
 });
 export type AutomationRuleSettings = z.input<typeof AutomationRuleSettings>;
 
@@ -381,6 +384,8 @@ export const AutomationDefinitionView = z.object({
     addToCalendar: z.boolean(),
     quietHours: z.object({ start: z.string(), end: z.string() }).nullable(),
     safetyThreshold: z.number().int().nullable(),
+    missedRunPolicy: z.enum(['RUN_ONCE', 'SKIP', 'REPLAY_WINDOW']).nullable(),
+    missedRunWindowDays: z.number().int().min(1).max(90).nullable(),
   }),
 });
 export type AutomationDefinitionView = z.infer<typeof AutomationDefinitionView>;
@@ -914,6 +919,14 @@ export const AutomationSettingsView = z.object({
   timezone: z.string(),
   /** AU-F29: members may confirm external outcomes by hand. Off until an Owner or Admin turns it on. */
   manualConfirmationEnabled: z.boolean(),
+  /** R11: what to do with runs that became due while the firm could not scan. */
+  missedRunPolicy: z.enum(['RUN_ONCE', 'SKIP', 'REPLAY_WINDOW']),
+  missedRunWindowDays: z.number().int().min(1).max(90),
+  /** R12: how two rules that target the same record are resolved. */
+  conflictPolicy: z.enum(['PRIORITY_THEN_OLDEST', 'SKIP_BOTH']),
+  /** R13: a firm-wide automation pause. */
+  pausedAt: DateTime.nullable(),
+  pausedBy: MemberRef.nullable(),
   updatedAt: DateTime.nullable(),
 });
 export type AutomationSettingsView = z.infer<typeof AutomationSettingsView>;
@@ -934,9 +947,19 @@ export const SaveAutomationSettingsRequest = z
     logRetentionDays: z.number().int().min(30).max(2_555).optional(),
     /** AU-F29: Owner or Admin only (403 otherwise). */
     manualConfirmationEnabled: z.boolean().optional(),
+    /** R11/R12: Owner or Admin only. */
+    missedRunPolicy: z.enum(['RUN_ONCE', 'SKIP', 'REPLAY_WINDOW']).optional(),
+    missedRunWindowDays: z.number().int().min(1).max(90).optional(),
+    conflictPolicy: z.enum(['PRIORITY_THEN_OLDEST', 'SKIP_BOTH']).optional(),
   })
   .refine((o) => Object.keys(o).length > 0, 'Change at least one field');
 export type SaveAutomationSettingsRequest = z.input<typeof SaveAutomationSettingsRequest>;
+
+/** R13: the Owner/Admin chooses what happens to actions due during the firm-wide pause. */
+export const ResumeAutomationsRequest = z.strictObject({
+  backlog: z.enum(['RUN_NOW', 'SKIP_DUE']),
+});
+export type ResumeAutomationsRequest = z.input<typeof ResumeAutomationsRequest>;
 
 // ---------- Manual Event Confirmation (AU-F31 to F33) ----------
 

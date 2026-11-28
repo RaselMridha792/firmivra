@@ -46,6 +46,11 @@ export interface AutoCtx {
     logRetentionDays: number;
     /** AU-F29: off unless an Owner or Admin turned it on. */
     manualConfirmationEnabled: boolean;
+    missedRunPolicy: 'RUN_ONCE' | 'SKIP' | 'REPLAY_WINDOW';
+    missedRunWindowDays: number;
+    conflictPolicy: 'PRIORITY_THEN_OLDEST' | 'SKIP_BOTH';
+    pausedAt: Date | null;
+    pausedByUserId: string | null;
     updatedAt: Date | null;
   };
 }
@@ -122,6 +127,11 @@ export class AutomationsReadService {
         minutesSavedPerAction: s?.minutesSavedPerAction ?? 5,
         logRetentionDays: s?.logRetentionDays ?? 365,
         manualConfirmationEnabled: s?.manualConfirmationEnabled ?? false,
+        missedRunPolicy: s?.missedRunPolicy ?? 'RUN_ONCE',
+        missedRunWindowDays: s?.missedRunWindowDays ?? 7,
+        conflictPolicy: s?.conflictPolicy ?? 'PRIORITY_THEN_OLDEST',
+        pausedAt: s?.pausedAt ?? null,
+        pausedByUserId: s?.pausedByUserId ?? null,
         updatedAt: s?.updatedAt ?? null,
       },
     };

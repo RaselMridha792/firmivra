@@ -13,8 +13,9 @@ test('Dashboard: range, four KPIs, category cards, quick reports and the three l
   await expect(page.getByRole('heading', { name: 'Reports', level: 1 })).toBeVisible();
   await expect(page.getByTestId('reports-kpis').getByRole('listitem')).toHaveCount(4);
   await expect(page.getByTestId('category-cards').locator(':scope > li')).toHaveCount(9);
-  // 12, and Tax Planning's two (C18: Projected Savings by Plan, Planning Plans by Status).
-  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(14);
+  // 12, Tax Planning's two (C18: Projected Savings by Plan, Planning Plans by Status), and R04's
+  // four (Revenue by Service, AR Aging, Clients by Service, Client Lifecycle).
+  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(18);
   await expect(page.getByTestId('recent')).toContainText('Revenue Summary');
   await expect(page.getByTestId('scheduled')).toContainText('Weekly Revenue Report');
   await expect(page.getByTestId('insights')).toContainText('Insights');
@@ -525,4 +526,419 @@ test("SM3: Staff Management's Reports tile opens Staff & Team inside Reports, th
   for (const name of ['Alex Rivera', 'Sam Staff', 'Mock User', 'Dana Cole'])
     await expect(page.getByTestId('report-table')).toContainText(name);
   await page.screenshot({ path: test.info().outputPath('staff-team.png') });
+});
+
+test('R01: Group By control binds to persisted grouping after reload (Status, Client, no grouping)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. Save with Status grouping
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Report Name').fill('Status Grouped Report');
+  const groupSelect = page.getByTestId('step-4').getByLabel('Group By');
+  await groupSelect.selectOption({ label: 'Status' });
+  await page.getByRole('button', { name: 'Save Report' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Report' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+
+  const detailGroup = page.getByTestId('report-breakdown').getByLabel('Group by');
+  await expect(detailGroup).toHaveValue('status');
+  await expect(page.getByTestId('report-table').locator('th').first()).toContainText('Status');
+
+  // Reload and verify control and table still identify Status
+  await page.reload();
+  await expect(page.getByTestId('report-breakdown').getByLabel('Group by')).toHaveValue('status');
+  await expect(page.getByTestId('report-table').locator('th').first()).toContainText('Status');
+
+  // 2. Repeat with Client grouping
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Report Name').fill('Client Grouped Report');
+  await page.getByTestId('step-4').getByLabel('Group By').selectOption({ label: 'Client' });
+  await page.getByRole('button', { name: 'Save Report' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Report' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+
+  await expect(page.getByTestId('report-breakdown').getByLabel('Group by')).toHaveValue('client');
+  await expect(page.getByTestId('report-table').locator('th').first()).toContainText('Client');
+
+  await page.reload();
+  await expect(page.getByTestId('report-breakdown').getByLabel('Group by')).toHaveValue('client');
+  await expect(page.getByTestId('report-table').locator('th').first()).toContainText('Client');
+
+  // 3. Repeat with No grouping
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Report Name').fill('Ungrouped Report');
+  await page.getByTestId('step-4').getByLabel('Group By').selectOption({ label: 'No grouping' });
+  await page.getByRole('button', { name: 'Save Report' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Report' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+
+  await expect(page.getByTestId('report-breakdown').getByLabel('Group by')).toHaveValue('');
+  await expect(page.getByTestId('report-table').locator('th').first()).not.toContainText('Status');
+  await expect(page.getByTestId('report-table').locator('th').first()).not.toContainText('Client');
+
+  await page.reload();
+  await expect(page.getByTestId('report-breakdown').getByLabel('Group by')).toHaveValue('');
+});
+
+test('R07: Custom Report Builder display-mode preview hides irrelevant elements (Table Only, KPI Only)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/builder`);
+
+  const display = page.getByTestId('builder-display');
+  // Default preview shows KPIs, chart, table
+  await expect(page.getByTestId('preview-kpis')).toBeVisible();
+  await expect(page.getByTestId('preview-chart')).toBeVisible();
+  await expect(page.getByTestId('preview-table')).toBeVisible();
+
+  // Switch to KPI Only
+  await display.selectOption('KPI');
+  await expect(page.getByTestId('preview-kpis')).toBeVisible();
+  await expect(page.getByTestId('preview-chart')).toBeHidden();
+  await expect(page.getByTestId('preview-table')).toBeHidden();
+
+  // Switch to Table Only
+  await display.selectOption('TABLE');
+  await expect(page.getByTestId('preview-kpis')).toBeHidden();
+  await expect(page.getByTestId('preview-chart')).toBeHidden();
+  await expect(page.getByTestId('preview-table')).toBeVisible();
+
+  // Switch back to Automatic / Column
+  await display.selectOption('AUTO');
+  await expect(page.getByTestId('preview-kpis')).toBeVisible();
+  await expect(page.getByTestId('preview-chart')).toBeVisible();
+  await expect(page.getByTestId('preview-table')).toBeVisible();
+
+  // Test final run with Table Only
+  await display.selectOption('TABLE');
+  await page.getByRole('button', { name: 'Run Report' }).click();
+  await expect(page).toHaveURL(/\/reports\/custom\?d=/);
+  await expect(page.getByTestId('report-table')).toBeVisible();
+  await expect(page.getByTestId('report-kpis')).toBeHidden();
+  await expect(page.getByTestId('report-chart')).toBeHidden();
+
+  // Test final run with KPI Only
+  await page.goto(`${base}/builder`);
+  await page.getByTestId('builder-display').selectOption('KPI');
+  await page.getByRole('button', { name: 'Run Report' }).click();
+  await expect(page).toHaveURL(/\/reports\/custom\?d=/);
+  await expect(page.getByTestId('report-kpis')).toBeVisible();
+  await expect(page.getByTestId('report-chart')).toBeHidden();
+  await expect(page.getByTestId('report-table')).toBeHidden();
+});
+
+test('R06: Returning from a record preserves date/filter/sort/page context and normalizes shrunk page', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // Start from builder, select Invoices & Payments (which has 11 invoices with INV links)
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Data Source').selectOption('invoices_payments');
+  await page.getByRole('button', { name: 'Run Report' }).click();
+  await expect(page).toHaveURL(/\/reports\/custom\?d=/);
+
+  // Set range to This Year (has 72 invoices across pages)
+  await page.getByTestId('report-filters').getByLabel('Date Range').selectOption('this_year');
+  await expect(page.getByTestId('report-table')).toContainText('Showing 1 – 10 of');
+
+  // Go to page 2
+  await page.getByRole('button', { name: 'Page 2' }).click();
+  await expect(page.getByTestId('report-table')).toContainText('Showing 11 – 20 of');
+  const invoiceLink = page.getByTestId('row-link').first();
+  await expect(invoiceLink).toBeVisible();
+
+  // Click invoice link
+  await invoiceLink.click();
+  await expect(page).toHaveURL(/\/invoices\/0199c3a0-/);
+
+  // Click browser Back
+  await page.goBack();
+  await expect(page).toHaveURL(/\/reports\/custom\?d=/);
+
+  // Range must still be this_year, NOT reset to default
+  await expect(page.getByTestId('report-filters').getByLabel('Date Range')).toHaveValue(
+    'this_year',
+  );
+  // Page 2 must be preserved
+  await expect(page.getByTestId('report-table')).toContainText('Showing 11 – 20 of');
+  await expect(page.getByTestId('row-link').first()).toBeVisible();
+
+  // Test page normalization when dataset shrinks:
+  // If we change range to last_month (only 1 page), page 2 normalizes to page 1 rather than showing No Results
+  await page.getByTestId('report-filters').getByLabel('Date Range').selectOption('last_month');
+  await expect(page.getByTestId('report-table')).toContainText('Showing 1 –');
+  await expect(page.getByTestId('row-link').first()).toBeVisible();
+});
+
+test('R-N03: Accessible names for move and remove column controls match friendly visible labels', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/builder`);
+
+  // Default source is Payments (FINANCIAL category)
+  const selectedList = page.getByTestId('selected-columns');
+  await expect(selectedList).toBeVisible();
+
+  // Audit selected column buttons: accessible names must match friendly labels, not raw field keys
+  await expect(selectedList.getByRole('button', { name: 'Move Invoice up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Move Invoice down' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Invoice' })).toBeVisible();
+
+  await expect(selectedList.getByRole('button', { name: 'Move Client up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Move Client down' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Client' })).toBeVisible();
+
+  await expect(
+    selectedList.getByRole('button', { name: 'Move Amount Collected up' }),
+  ).toBeVisible();
+  await expect(
+    selectedList.getByRole('button', { name: 'Move Amount Collected down' }),
+  ).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Amount Collected' })).toBeVisible();
+
+  // Switch to Invoices & Payments to audit invoice-specific fields (Invoice Date, Payment Status)
+  await page.getByLabel('Data Source').selectOption('invoices_payments');
+  await expect(selectedList.getByRole('button', { name: 'Move Invoice Date up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Move Invoice Date down' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Invoice Date' })).toBeVisible();
+
+  await expect(selectedList.getByRole('button', { name: 'Move Payment Status up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Payment Status' })).toBeVisible();
+
+  // Switch to Client Reports category to audit across categories
+  await page.getByLabel('Report Category').selectOption('CLIENT');
+  await expect(selectedList.getByRole('button', { name: 'Move Client Name up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Move Client Since up' })).toBeVisible();
+  await expect(selectedList.getByRole('button', { name: 'Remove Client Since' })).toBeVisible();
+});
+
+test('R03: Bookkeeping, Payroll, and Communications report categories show Not Connected empty states', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. Dashboard: all categories present, disconnected categories show Not Connected state
+  await page.goto(base);
+  const cards = page.getByTestId('category-cards');
+  await expect(cards.getByRole('heading', { name: 'Bookkeeping Reports' })).toBeVisible();
+  await expect(cards.getByRole('heading', { name: 'Payroll Reports' })).toBeVisible();
+  await expect(cards.getByRole('heading', { name: 'Communications Reports' })).toBeVisible();
+
+  await expect(page.getByTestId('not-connected-bookkeeping')).toBeVisible();
+  await expect(page.getByTestId('not-connected-payroll')).toBeVisible();
+  await expect(page.getByTestId('not-connected-communications')).toBeVisible();
+
+  // 2. Report Detail for disconnected category shows clear banner and empty state, zero fake data
+  await page.goto(`${base}/bookkeeping-status`);
+  await expect(page.getByTestId('category-not-connected-banner')).toBeVisible();
+  await expect(
+    page.getByText('Bookkeeping reports require QuickBooks Online or Xero'),
+  ).toBeVisible();
+  await expect(page.getByTestId('report-table')).toContainText('Provider Not Connected');
+
+  await page.goto(`${base}/payroll-summary`);
+  await expect(page.getByTestId('category-not-connected-banner')).toBeVisible();
+  await expect(page.getByText('Payroll reports require Gusto or ADP')).toBeVisible();
+  await expect(page.getByTestId('report-table')).toContainText('Provider Not Connected');
+
+  // 3. Report Builder: categories and layouts selectable, preview shows Not Connected guidance
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Report Category').selectOption('BOOKKEEPING');
+  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
+  await expect(page.getByTestId('selected-columns')).toContainText('Accounting Software');
+
+  await page.getByLabel('Report Category').selectOption('PAYROLL');
+  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
+  await expect(page.getByTestId('selected-columns')).toContainText('Employees');
+
+  await page.getByLabel('Report Category').selectOption('COMMUNICATIONS');
+  await expect(page.getByTestId('builder-not-connected')).toBeVisible();
+  await expect(page.getByTestId('selected-columns')).toContainText('Channel');
+});
+
+test('R08: Financial metric definitions in field picker and accurate labeling of unsupported accrual revenue', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. In report builder, field picker shows metric definitions
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Data Source').selectOption('invoices_payments');
+
+  // Check Amount / Gross Invoiced definition
+  const amountHelp = page.getByRole('button', { name: 'About Amount', exact: true });
+  await expect(amountHelp).toBeVisible();
+  await amountHelp.click();
+  await expect(
+    page
+      .getByTestId('help-tip')
+      .getByText('Gross Invoiced: total billed before discounts, refunds, or processing fees'),
+  ).toBeVisible();
+
+  // Check Recognized Revenue: must be marked Not Supported and disabled
+  await expect(page.getByTestId('not-supported-badge')).toBeVisible();
+  const recRevHelp = page.getByRole('button', { name: 'About Recognized Revenue' });
+  await expect(recRevHelp).toBeVisible();
+  await recRevHelp.click();
+  await expect(
+    page
+      .getByTestId('help-tip')
+      .getByText('Not supported — Firmivra reports on cash collected or invoices issued'),
+  ).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Recognized Revenue' })).toBeDisabled();
+});
+
+test('R04: Missing named reports for Financial (Revenue by Service, AR Aging) and Client (Retention, By Service, Lifecycle)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. Financial category: Revenue by Service
+  await page.goto(`${base}/revenue-by-service`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Revenue by Service');
+  const rbsTable = page.getByTestId('report-table');
+  await expect(rbsTable.locator('th').first()).toContainText('Service Category');
+  await expect(rbsTable).toContainText('Tax Preparation');
+  await expect(rbsTable).toContainText('Bookkeeping');
+
+  // 2. Financial category: AR Aging
+  await page.goto(`${base}/ar-aging`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('AR Aging');
+  const arTable = page.getByTestId('report-table');
+  await expect(arTable.locator('th').first()).toContainText('Aging Bucket');
+  await expect(arTable).toContainText('Current');
+  await expect(arTable).toContainText('1–30 Days');
+
+  // 3. Client category: Client Retention
+  await page.goto(`${base}/client-retention`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Client Retention');
+  const retTable = page.getByTestId('report-table');
+  await expect(retTable.locator('th').first()).toContainText('Status');
+
+  // 4. Client category: Clients by Service
+  await page.goto(`${base}/clients-by-service`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Clients by Service');
+  const cbsTable = page.getByTestId('report-table');
+  await expect(cbsTable.locator('th').first()).toContainText('Primary Service');
+  await expect(cbsTable).toContainText('Tax Preparation');
+
+  // 5. Client category: Client Lifecycle
+  await page.goto(`${base}/client-lifecycle`);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Client Lifecycle');
+  const clTable = page.getByTestId('report-table');
+  await expect(clTable.locator('th').first()).toContainText('Lifecycle Stage');
+  await expect(clTable).toContainText('Active');
+  await expect(clTable).toContainText('Lead');
+});
+
+test('R05: Rename and Edit Definition controls on saved report detail and library rows', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  // 1. Create a custom report to edit
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Report Name').fill('Alpha Report');
+  await page.getByRole('button', { name: 'Save Report' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Report' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+  const reportUrl = page.url();
+
+  // 2. Discover Rename and Edit Definition on detail view
+  await expect(page.getByRole('button', { name: 'Rename' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Edit Definition' })).toBeVisible();
+
+  // Test Cancel without mutation on Rename
+  await page.getByRole('button', { name: 'Rename' }).click();
+  await page.getByLabel('Report name').fill('Unsaved Name');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Alpha Report');
+
+  // Test Rename save
+  await page.getByRole('button', { name: 'Rename' }).click();
+  await page.getByLabel('Report name').fill('Beta Report');
+  await page.getByRole('dialog').getByRole('button', { name: 'Rename' }).click();
+  await expect(page.getByText('Report renamed.')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Beta Report');
+
+  // 3. Test Edit Definition route
+  await page.getByRole('link', { name: 'Edit Definition' }).click();
+  await expect(page).toHaveURL(/\/reports\/builder\?edit=[0-9a-f-]{36}$/);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(
+    'Edit Definition: Beta Report',
+  );
+
+  // Test Cancel without mutation on Edit Definition
+  await page.getByRole('link', { name: 'Cancel' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+  expect(page.url()).toBe(reportUrl);
+
+  // Edit Definition: change grouping and save
+  await page.getByRole('link', { name: 'Edit Definition' }).click();
+  await page.getByTestId('step-4').getByLabel('Group By').selectOption({ label: 'Status' });
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page).toHaveURL(reportUrl);
+  await expect(page.getByTestId('report-breakdown').getByLabel('Group by')).toHaveValue('status');
+
+  // 4. Test Library row actions (Rename and Edit Definition)
+  await page.goto(`${base}/library?tab=saved`);
+  const row = page
+    .getByRole('table', { name: 'Saved reports' })
+    .getByRole('row', { name: /Beta Report/ });
+  await row.getByRole('button', { name: 'Actions for Beta Report' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Edit Definition' })).toBeVisible();
+
+  // Rename via library
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+  await page.getByLabel('Report name').fill('Gamma Report');
+  await page.getByRole('dialog').getByRole('button', { name: 'Rename' }).click();
+  await expect(page.getByText('Report renamed.')).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Saved reports' })).toContainText('Gamma Report');
+});
+
+test('R02: Total Clients KPI counts all 25 active clients and drilldown scope is explicitly labeled', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(base);
+
+  // 1. Total Clients KPI card counts 25 clients
+  const kpis = page.getByTestId('reports-kpis');
+  const totalClientsCard = kpis.getByRole('listitem').first();
+  await expect(totalClientsCard).toContainText('Total Clients');
+  await expect(totalClientsCard).toContainText('25');
+  await expect(totalClientsCard).toContainText('All non-archived clients (all-time roster).');
+
+  // Narrow dates to last month on dashboard: Total Clients still counts all 25 (it is an
+  // all-time roster metric, not scoped to the selected range).
+  await page.getByLabel('Date range', { exact: true }).selectOption('last_month');
+  await expect(totalClientsCard).toContainText('25');
+
+  // 2. Click Total Clients drilldown -> reproduces 25 clients and explains scope
+  await totalClientsCard.getByTestId('kpi-link').click();
+  await expect(page).toHaveURL(/\/reports\/client-retention\?range=this_year/);
+  await expect(
+    page.getByText('All Active Clients: Showing all 25 active clients across all statuses'),
+  ).toBeVisible();
+
+  // 3. Narrow dates in drilldown -> explicitly labels the alternative scope, and the number in
+  // that label matches the table's own total (not a fixed number: the fixture's createdAt dates
+  // are relative to today, so how many fall in "last month" drifts with the calendar).
+  const totalsBefore = await page.getByTestId('totals').innerText();
+  await page.getByTestId('report-filters').getByLabel('Date Range').selectOption('last_month');
+  await expect.poll(async () => page.getByTestId('totals').innerText()).not.toBe(totalsBefore);
+  const totalsText = await page.getByTestId('totals').innerText();
+  const narrowedCount = totalsText.match(/# of Clients:\s*(\d+)/)?.[1];
+  expect(narrowedCount, `totals row text: "${totalsText}"`).toBeTruthy();
+  await expect(
+    page.getByText(
+      `Date Filtered: Showing ${narrowedCount} clients created in this date range (of 25 total active clients).`,
+    ),
+  ).toBeVisible();
 });

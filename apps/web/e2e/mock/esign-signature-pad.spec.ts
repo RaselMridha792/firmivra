@@ -106,3 +106,45 @@ test('a photo of a signature becomes a small ink-only image', async ({ page }) =
   ).toBeVisible();
   await expect(page.getByTestId('signature-state')).toHaveText('Add your signature to continue.');
 });
+
+test('FS-N08: typed signature font style choices change the preview', async ({ page }) => {
+  await page.goto(signPage);
+  await page.getByLabel('Your full name').fill('Alex Morgan');
+  const preview = page.getByTestId('signature-preview');
+  await expect(preview).toHaveText('Alex Morgan');
+  await expect(preview).toHaveClass(/italic/);
+
+  const choices = page.getByTestId('font-style-choices');
+  await expect(choices).toBeVisible();
+  await choices.getByRole('button', { name: 'Casual' }).click();
+  await expect(preview).toHaveClass(/font-sans/);
+
+  await choices.getByRole('button', { name: 'Formal' }).click();
+  await expect(preview).toHaveClass(/font-serif/);
+});
+
+test('FS-N01: realistic drawn signature with multiple strokes is accepted without being rejected as too detailed', async ({
+  page,
+}) => {
+  await page.goto(signPage);
+  await page.getByRole('tab', { name: 'Draw' }).click();
+
+  const box = await page.getByTestId('signature-canvas').boundingBox();
+  if (!box) throw new Error('No signature canvas');
+
+  // Draw multiple smooth strokes resembling a realistic handwritten signature
+  for (let i = 0; i < 4; i++) {
+    const startX = box.x + box.width * (0.15 + i * 0.18);
+    const startY = box.y + box.height * 0.5;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 30, startY - 25, { steps: 5 });
+    await page.mouse.move(startX + 60, startY + 20, { steps: 5 });
+    await page.mouse.up();
+  }
+
+  await expect(page.getByTestId('signature-state')).toHaveText('Signature ready.');
+  await expect(
+    page.getByText('This drawing is too detailed. Clear it and sign more simply.'),
+  ).not.toBeVisible();
+});

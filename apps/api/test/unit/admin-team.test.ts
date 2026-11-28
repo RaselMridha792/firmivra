@@ -222,7 +222,11 @@ function member(id: string, r: RoleRow, over: Partial<MemberRow> = {}): MemberRo
   };
 }
 
-function rows(extra: Partial<Record<string, Partial<MemberRow>>> = {}): TeamRows {
+/** The CEO is the platform owner (SA-TEAM-F01) unless a test names someone else, or nobody. */
+function rows(
+  extra: Partial<Record<string, Partial<MemberRow>>> = {},
+  ownerId: string | null = P.ceo,
+): TeamRows {
   const members = [
     member(P.ceo, R.ceo),
     member(P.coo, R.coo, { reportsToId: P.ceo }),
@@ -251,6 +255,7 @@ function rows(extra: Partial<Record<string, Partial<MemberRow>>> = {}): TeamRows
       userId: id,
       role:
         id === P.ceo || id === P.superNoRow ? ('SUPER_ADMIN' as const) : ('TEAM_MEMBER' as const),
+      isPlatformOwner: id === ownerId,
     })),
     users: ids.map((id) => ({
       id,
@@ -262,8 +267,11 @@ function rows(extra: Partial<Record<string, Partial<MemberRow>>> = {}): TeamRows
   };
 }
 
-const as = (actorId: string, extra?: Parameters<typeof rows>[0]): TeamContext =>
-  buildContext(rows(extra), actorId, NOW);
+const as = (
+  actorId: string,
+  extra?: Parameters<typeof rows>[0],
+  ownerId?: string | null,
+): TeamContext => buildContext(rows(extra, ownerId), actorId, NOW);
 const personOf = (ctx: TeamContext, id: string) => ctx.chart.people.get(id)!;
 const codeOf = (work: () => unknown): string | null => {
   try {
@@ -438,6 +446,68 @@ describe('which role a member may give', () => {
     expect(gate(P.hrAdmin, R.cro)).toBe('no');
     expect(gate(P.chro, R.hrVp)).toBe('direct');
     expect(gate(P.chro, R.salesVp)).toBe('approval');
+  });
+});
+
+describe('executive roles: the platform owner only (SA-TEAM-F01)', () => {
+  const create = (actorId: string, ownerId?: string | null) =>
+    codeOf(() =>
+      planCreate(as(actorId, undefined, ownerId), {
+        firstName: 'Fake',
+        lastName: 'Executive Person',
+        email: 'fake-exec@example.test',
+        departmentId: D.ops,
+        roleId: R.coo.id,
+        reportsToId: null,
+        invite: { email: true, sms: false },
+      }),
+    );
+
+  it('the owner gives a Chief Officer role; a CEO, Super Admin or HR label alone does not', () => {
+    expect(as(P.ceo).actor.owner).toBe(true);
+    expect(as(P.superNoRow).actor.owner).toBe(false);
+    expect(roleGate(as(P.ceo).actor, R.coo)).toBe('direct');
+    expect(roleGate(as(P.ceo, undefined, null).actor, R.coo)).toBe('no');
+    expect(roleGate(as(P.superNoRow).actor, R.coo)).toBe('no');
+    expect(roleGate(as(P.chro).actor, R.cro)).toBe('no');
+    // The owner still never gives the CEO role.
+    expect(roleGate(as(P.ceo).actor, R.ceo)).toBe('no');
+  });
+
+  it('Add Team Member with a Chief Officer role: 403 ROLE_CEILING unless the owner', () => {
+    expect(create(P.superNoRow)).toBe('ROLE_CEILING');
+    expect(create(P.ceo, null)).toBe('ROLE_CEILING');
+    expect(create(P.ceo)).toBeNull();
+  });
+
+  it('an edit into or out of a Chief Officer role: the owner only', () => {
+    const intoChief = { roleId: R.coo.id };
+    const outOfChief = { roleId: R.opsVp2.id };
+    expect(refused(planChange(as(P.superNoRow), P.opsVp, intoChief, true))).toBe('ROLE_CEILING');
+    expect(refused(planChange(as(P.superNoRow), P.coo, outOfChief, true))).toBe('ROLE_CEILING');
+    expect(refused(planChange(as(P.ceo, undefined, null), P.coo, outOfChief, true))).toBe(
+      'ROLE_CEILING',
+    );
+    expect(refused(planChange(as(P.ceo), P.coo, outOfChief, true))).toBeNull();
+    // Anything else on an executive's row stays with the usual rules.
+    expect(refused(planChange(as(P.superNoRow), P.coo, { reportsToId: P.chro }, true))).toBe(
+      'SUPERVISOR_INVALID',
+    );
+  });
+
+  it('the screens: no Change Role on an executive and no Chief Officer roles offered', () => {
+    const superAdmin = as(P.superNoRow);
+    expect(memberActions(superAdmin, personOf(superAdmin, P.coo))).toMatchObject({
+      changeRole: false,
+      changeDepartment: false,
+    });
+    expect(memberActions(as(P.ceo), personOf(as(P.ceo), P.coo)).changeRole).toBe(true);
+    const offered = (ctx: TeamContext, memberId?: string) =>
+      formOptionsOf(ctx, memberId).roles.map((r) => r.id);
+    expect(offered(superAdmin)).not.toContain(R.coo.id);
+    expect(offered(as(P.ceo))).toContain(R.coo.id);
+    // On edit, the executive's own role stays as the only role.
+    expect(offered(superAdmin, P.coo)).toEqual([R.coo.id]);
   });
 });
 

@@ -10,6 +10,7 @@ import {
   UpdateTaxOpportunityRequest,
   PlanReasonRequest,
   PlanReviewRequest,
+  StaffApprovePlanRequest,
   RecordPlanApprovalRequest,
   CreatePlanRequestRequest,
   UpdatePlanRequestRequest,
@@ -100,6 +101,7 @@ export const ActionBody = clean(OpportunityActionRequest);
 export const UpdateOpportunityBody = clean(UpdateTaxOpportunityRequest);
 export const PlanReasonBody = clean(PlanReasonRequest);
 export const PlanReviewBody = clean(PlanReviewRequest);
+export const StaffApproveBody = clean(StaffApprovePlanRequest);
 export const RecordApprovalBody = clean(RecordPlanApprovalRequest);
 export const CreatePlanRequestBody = clean(CreatePlanRequestRequest);
 export const UpdatePlanRequestBody = clean(UpdatePlanRequestRequest);

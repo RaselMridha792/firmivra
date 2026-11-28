@@ -1104,11 +1104,82 @@ describe('documents, status, versions and delivery', () => {
       409,
       'PLAN_NOT_READY',
     );
-    ok(await call('post', `/plans/${id}/finalize`, ownerA, await withEtag(id)));
+    const finalizedAgain = TaxPlanDetail.parse(
+      ok(await call('post', `/plans/${id}/finalize`, ownerA, await withEtag(id))),
+    );
     expectError(
       await call('post', `/plans/${id}/send`, preparerA, { channel: 'EMAIL' }),
       403,
       'FORBIDDEN',
+    );
+    const unsigned = await call('post', `/plans/${id}/send`, ownerA, {
+      channel: 'PORTAL_MESSAGE',
+    });
+    expectError(unsigned, 409, 'PLAN_NOT_READY');
+    expect(JSON.stringify(unsigned.body)).toMatch(/Staff sign-off/);
+    expectError(
+      await call(
+        'post',
+        `/plans/${id}/staff-approvals`,
+        preparerA,
+        await withEtag(id, { version: finalizedAgain.workflow.finalizedVersion }),
+      ),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call(
+        'post',
+        `/plans/${id}/staff-approvals`,
+        ownerA,
+        await withEtag(id, { version: (finalizedAgain.workflow.finalizedVersion ?? 1) - 1 }),
+      ),
+      409,
+      'INVALID_STATUS',
+    );
+    const signed = TaxPlanDetail.parse(
+      ok(
+        await call(
+          'post',
+          `/plans/${id}/staff-approvals`,
+          staffA,
+          await withEtag(id, { version: finalizedAgain.workflow.finalizedVersion }),
+        ),
+      ),
+    );
+    expect(signed.workflow).toMatchObject({
+      finalizedVersion: finalizedAgain.workflow.finalizedVersion,
+      staffApproved: true,
+      staffApprovals: [
+        {
+          version: finalizedAgain.workflow.finalizedVersion,
+          approvedBy: { userId: staffA.id },
+          approvedAt: expect.any(String),
+        },
+      ],
+    });
+    expect(signed.workflow.actions).toContain('SEND_TO_CLIENT');
+    const staffEvent = TaxPlanEventList.parse(
+      ok(await call('get', `/plans/${id}/events`, ownerA)),
+    ).items.find((event) => event.kind === 'STAFF_APPROVED');
+    expect(staffEvent).toMatchObject({
+      fromStatus: 'FINALIZED',
+      toStatus: 'FINALIZED',
+      version: finalizedAgain.workflow.finalizedVersion,
+      actor: { userId: staffA.id },
+    });
+    expect((await auditRows(id)).some((row) => row.action === 'tax_plan.staff_approved')).toBe(
+      true,
+    );
+    expectError(
+      await call(
+        'post',
+        `/plans/${id}/staff-approvals`,
+        staffA,
+        await withEtag(id, { version: finalizedAgain.workflow.finalizedVersion }),
+      ),
+      409,
+      'INVALID_STATUS',
     );
 
     const v1Before = PlanVersionDetail.parse(
@@ -2647,8 +2718,9 @@ describe('the approved workflow (Review 2)', () => {
     const working = await plan(p.id);
     expect(working.status).toBe('IN_PROGRESS');
     expect(working.workflow.actions).toEqual(
-      expect.arrayContaining(['SEND_FOR_REVIEW', 'FINALIZE', 'SEND_TO_CLIENT']),
+      expect.arrayContaining(['SEND_FOR_REVIEW', 'FINALIZE']),
     );
+    expect(working.workflow.actions).not.toContain('SEND_TO_CLIENT');
 
     // Internal review by a chosen reviewer of the firm: Under Review, the reviewer's to act on.
     const outsider = await call(
@@ -2668,13 +2740,20 @@ describe('the approved workflow (Review 2)', () => {
       reviewer: { userId: adminA.id },
       owner: { userId: adminA.id },
     });
-    expect(reviewing.workflow.actions).toEqual(
-      expect.arrayContaining(['RETURN_TO_WORK', 'SEND_TO_CLIENT']),
-    );
+    expect(reviewing.workflow.actions).toContain('RETURN_TO_WORK');
+    expect(reviewing.workflow.actions).not.toContain('SEND_TO_CLIENT');
 
     // Sent for the client's review: Awaiting Client Review, their move; not yet implementable
     // or deliverable.
-    await step(p.id, 'finalize', await withEtag(p.id));
+    const finalized = await step(p.id, 'finalize', await withEtag(p.id));
+    const signed = await step(
+      p.id,
+      'staff-approvals',
+      await withEtag(p.id, { version: finalized.workflow.finalizedVersion }),
+      adminA,
+    );
+    expect(signed.workflow.staffApproved).toBe(true);
+    expect(signed.workflow.actions).toContain('SEND_TO_CLIENT');
     const sent = await step(p.id, 'send', { channel: 'PORTAL_MESSAGE' });
     expect(sent.status).toBe('AWAITING_CLIENT');
     expect(sent.workflow).toMatchObject({ waitingOnClient: true, owner: null });
@@ -2710,7 +2789,13 @@ describe('the approved workflow (Review 2)', () => {
     expect(TaxPlanDetail.parse(ok(await setStatus(p.id, 'IN_PROGRESS'))).status).toBe(
       'IN_PROGRESS',
     );
-    await step(p.id, 'finalize', await withEtag(p.id));
+    const finalizedAgain = await step(p.id, 'finalize', await withEtag(p.id));
+    await step(
+      p.id,
+      'staff-approvals',
+      await withEtag(p.id, { version: finalizedAgain.workflow.finalizedVersion }),
+      adminA,
+    );
     const resent = await step(p.id, 'send', { channel: 'PORTAL_MESSAGE' });
     const sentAgain = resent.workflow.sentVersion ?? 0;
     expect(sentAgain).toBeGreaterThan(firstSent);
@@ -2957,7 +3042,12 @@ describe("the client's plans in the portal (P4-8)", () => {
       }),
       201,
     );
-    await step(p.id, 'finalize', await withEtag(p.id));
+    const finalized = await step(p.id, 'finalize', await withEtag(p.id));
+    await step(
+      p.id,
+      'staff-approvals',
+      await withEtag(p.id, { version: finalized.workflow.finalizedVersion }),
+    );
     const sent = await step(p.id, 'send', { channel: 'PORTAL_MESSAGE' });
     expect(sent.status).toBe('AWAITING_CLIENT');
     return { id: p.id, version: sent.workflow.sentVersion ?? 0, name: sent.name };

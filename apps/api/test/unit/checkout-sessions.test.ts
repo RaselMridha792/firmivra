@@ -79,6 +79,8 @@ describe('openCheckouts', () => {
         paymentId: w.pending.id,
         description: 'Invoice 1',
         amountCents: 5_000,
+        tipCents: 0,
+        bankDebit: false,
         currency: 'usd',
         successUrl: 'https://portal.example.test/x',
         cancelUrl: 'https://portal.example.test/x',

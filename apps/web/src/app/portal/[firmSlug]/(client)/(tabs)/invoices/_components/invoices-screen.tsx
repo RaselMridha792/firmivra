@@ -131,6 +131,14 @@ export function InvoicesScreen() {
                 Online payment is not available yet. Please contact {business.name} to pay.
               </p>
             )}
+            {/* Q23 (IP-041): the firm takes a U.S. bank account too, with instant verification. */}
+            {data.paymentsEnabled && data.bankPayments ? (
+              <p className="text-sm text-muted" data-testid="bank-payments-note">
+                Pay Now takes a card or a U.S. bank account. A bank account is verified instantly by
+                signing in to your bank; if your bank is not listed, pay by card. A bank payment
+                shows as Processing for a few days until your bank completes it.
+              </p>
+            ) : null}
             <InvoiceTable slug={slug} section="CURRENT" rows={data.items} pay={pay} />
             <h2 className="font-display text-2xl font-bold text-heading">Past Invoices</h2>
             <InvoiceTable slug={slug} section="PAST" rows={data.items} pay={pay} />

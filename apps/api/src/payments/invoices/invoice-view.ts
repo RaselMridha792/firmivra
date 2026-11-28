@@ -63,6 +63,44 @@ export async function cardsAccepted(tx: TxClient, businessId: string): Promise<b
   return settings?.acceptCard ?? true;
 }
 
+/** Q23 (IP-041): Stripe's smallest bank (ACH) payment, in cents. */
+export const ACH_MIN_CENTS = 50;
+
+/**
+ * Q23 (IP-041): the firm takes bank payments (ACH) now: Settings > Payments has them on and
+ * Stripe's ACH Direct Debit capability is active on its account. Never offered otherwise.
+ */
+export async function achAccepted(
+  tx: TxClient,
+  businessId: string,
+  achPaymentsActive: boolean,
+): Promise<boolean> {
+  if (!achPaymentsActive) return false;
+  const settings = await tx.paymentSettings.findUnique({
+    where: { businessId },
+    select: { acceptAch: true },
+  });
+  return settings?.acceptAch ?? false;
+}
+
+/** Q22 (I-N05): Settings > Payments' Tipping switch, now (off for a firm that never chose). */
+export async function tippingOn(tx: TxClient, businessId: string): Promise<boolean> {
+  const settings = await tx.paymentSettings.findUnique({
+    where: { businessId },
+    select: { tippingEnabled: true },
+  });
+  return settings?.tippingEnabled ?? false;
+}
+
+/** Q22: Pay Now offers a tip only while the invoice allows one and Tipping is on now. */
+export async function tipOffered(
+  tx: TxClient,
+  businessId: string,
+  allowTip: boolean,
+): Promise<boolean> {
+  return allowTip && tippingOn(tx, businessId);
+}
+
 /** IP-F12: a payment's latest receipt to the client (RECEIPT_SENT invoice events). */
 const lastReceipt = {
   where: { type: 'RECEIPT_SENT' },
@@ -74,10 +112,14 @@ const lastReceipt = {
 const paymentSelect = {
   id: true,
   amountCents: true,
+  // Q22: the tip charged with it, apart from what pays the invoice.
+  tipCents: true,
   currency: true,
   status: true,
   // I-N10: card or bank (ACH), for the list's Payment Method filter.
   methodType: true,
+  // Q23: its last 4 digits, for the firm.
+  last4: true,
   failureCode: true,
   paidAt: true,
   refundReservedCents: true,
@@ -85,6 +127,8 @@ const paymentSelect = {
   // Only a completed checkout means Stripe is still settling it (a bank debit); a declined card's
   // payment_intent.payment_failed never blocks Pay Now.
   _count: { select: { events: { where: { type: 'checkout.session.completed' } } } },
+  // Q23 (IP-041): the client disputed it with their bank (the firm's "Disputed").
+  events: { where: { type: 'charge.dispute.created' }, select: { id: true }, take: 1 },
   refunds: {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
@@ -316,6 +360,7 @@ export function toPayment(p: PaymentRow): InvoicePayment {
   return {
     id: p.id,
     amountCents: p.amountCents,
+    tipCents: p.tipCents,
     currency: p.currency,
     status: p.status,
     refundedCents: confirmedRefunds(p),
@@ -328,6 +373,9 @@ function toFirmPayment(p: PaymentRow): FirmInvoicePayment {
   return {
     ...toPayment(p),
     failureCode: p.status === 'FAILED' ? p.failureCode : null,
+    methodType: p.methodType,
+    last4: p.last4,
+    disputed: p.events.length > 0,
     refunds: p.refunds.map((r) => ({
       id: r.id,
       amountCents: r.amountCents,
@@ -336,7 +384,9 @@ function toFirmPayment(p: PaymentRow): FirmInvoicePayment {
       refundedAt: iso(r.refundedAt),
       createdAt: r.createdAt.toISOString(),
     })),
-    refundableCents: p.status === 'SUCCEEDED' ? p.amountCents - p.refundReservedCents : 0,
+    // Q22: the tip is refundable with the payment (the database caps refunds at amount + tip).
+    refundableCents:
+      p.status === 'SUCCEEDED' ? p.amountCents + p.tipCents - p.refundReservedCents : 0,
     receiptSentAt: iso(p.invoiceEvents[0]?.createdAt ?? null),
   };
 }
@@ -458,6 +508,8 @@ export function toMyInvoice(
   today: string,
   timeZone: string,
   paymentsOn: boolean,
+  /** Q22: Settings > Payments' Tipping is on now. */
+  tipsOn: boolean,
 ): MyInvoice | null {
   const state = stateOf(row);
   const status = myInvoiceStatus(state, today);
@@ -482,6 +534,7 @@ export function toMyInvoice(
     canceledAt: iso(row.canceledAt),
     paymentProcessing: isProcessing,
     canPay: row.status === 'OPEN' && balanceDueCents > 0 && !isProcessing && paymentsOn,
+    tipOffered: row.allowTip && tipsOn,
   };
 }
 

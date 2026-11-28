@@ -1,4 +1,7 @@
 import {
+  ConfirmUploadRequest,
+  SaveAdvisoryResourceRequest,
+  StartAdvisoryResourceFileRequest,
   AddAdvisoryWorkstreamRequest,
   AdvisoryActionItemsQuery,
   AdvisoryActivityQuery,
@@ -22,10 +25,12 @@ import {
   ReorderAdvisoryMilestonesRequest,
   RequestAdvisoryPlanApprovalRequest,
   SaveAdvisorySettingsRequest,
+  SaveAdvisoryIndustriesRequest,
   SendAdvisoryPlanRequest,
   SendAdvisoryResourceRequest,
   SetAdvisoryPlanStatusRequest,
   UpdateAdvisoryActionItemRequest,
+  AddAdvisoryActionNoteRequest,
   UpdateAdvisoryClientRequest,
   UpdateAdvisoryGoalRequest,
   UpdateAdvisoryMilestoneRequest,
@@ -87,11 +92,17 @@ export const UpdateRecommendationBody = clean(UpdateAdvisoryRecommendationReques
 export const ActionItemsQuery = clean(AdvisoryActionItemsQuery);
 export const CreateActionItemBody = clean(CreateAdvisoryActionItemRequest);
 export const UpdateActionItemBody = clean(UpdateAdvisoryActionItemRequest);
+export const AddActionNoteBody = clean(AddAdvisoryActionNoteRequest);
 
 export const MeetingsQuery = clean(AdvisoryMeetingsQuery);
 export const ResourcesQuery = clean(AdvisoryResourcesQuery);
 export const ReportsQuery = clean(AdvisoryReportsQuery);
 export const SendResourceBody = clean(SendAdvisoryResourceRequest);
+/** A-X10 (Q28): the firm's own resource, or its copy of a built-in one. */
+export const SaveResourceBody = clean(SaveAdvisoryResourceRequest);
+export const StartResourceFileBody = clean(StartAdvisoryResourceFileRequest);
+export const ConfirmResourceFileBody = clean(ConfirmUploadRequest);
 /** B28: the preview takes what Send takes. */
 export const PreviewResourceBody = SendResourceBody;
 export const SettingsBody = clean(SaveAdvisorySettingsRequest);
+export const IndustriesBody = clean(SaveAdvisoryIndustriesRequest);

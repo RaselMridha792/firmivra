@@ -1268,11 +1268,14 @@ export class InvoicesService {
 
   /**
    * A draft goes to the client: SCHEDULED when its scheduled day is after the firm's today (the
-   * daily job opens it then), otherwise OPEN now with `scheduled_for` cleared. Opening sends
-   * `invoice.sent` to the client after the change commits.
+   * daily job opens it then), otherwise OPEN now with `scheduled_for` cleared. Q24 (I-N03, Send
+   * Now): a SCHEDULED invoice opens now the same way (audited `invoice.sent` with `sentNow`). Opening
+   * sends `invoice.sent` to the client after the change commits.
    */
   async send(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
     const { invoice, opened } = await this.inFirm(businessId, async (tx) => {
+      const first = await this.load(tx, businessId, actor, id);
+      if (first.status === 'SCHEDULED') return this.sendNow(tx, businessId, actor, id);
       const current = await this.loadDraft(tx, businessId, actor, id);
       if (await this.checkClient(tx, businessId, current.clientId, null)) throw archived();
       if (current.totalCents === 0) {
@@ -1309,6 +1312,44 @@ export class InvoicesService {
     });
     if (opened) await this.notices.send('invoice.sent', businessId, id, actor.userId);
     return invoice;
+  }
+
+  /**
+   * Q24 (I-N03, the lead's (b)): Send Now on a SCHEDULED invoice. Under the invoice's lock it opens
+   * now as the daily job would (OPEN, `issued_at` now, `scheduled_for` cleared), audited
+   * `invoice.sent` with `sentNow` and the day it was scheduled for. A recurring schedule keeps the
+   * days it started with. One the job (or a cancel) changed meanwhile is answered as it is now.
+   */
+  private async sendNow(tx: TxClient, businessId: string, actor: ClientsActor, id: string) {
+    await lockInvoice(tx, businessId, id);
+    const current = await this.load(tx, businessId, actor, id);
+    const { today } = await firmToday(tx, businessId);
+    if (current.status !== 'SCHEDULED') {
+      return { invoice: await invoiceOf(tx, businessId, current, today), opened: false };
+    }
+    if (await this.checkClient(tx, businessId, current.clientId, null)) throw archived();
+    const dueOn = day(current.dueOn);
+    if (dueOn !== null && dueOn < today) {
+      throw conflict('DUE_DATE_PASSED', 'The due date has passed; change it first');
+    }
+    await tx.invoice.update({
+      where: { businessId_id: { businessId, id } },
+      data: { status: 'OPEN', issuedAt: new Date(), scheduledFor: null },
+    });
+    await this.audit.logIn(
+      tx,
+      'invoice.sent',
+      { type: 'invoice', id },
+      {
+        clientId: current.clientId,
+        number: current.number,
+        totalCents: current.totalCents,
+        sentNow: true,
+        scheduledFor: day(current.scheduledFor),
+      },
+    );
+    const row = await this.load(tx, businessId, actor, id);
+    return { invoice: await invoiceOf(tx, businessId, row, today), opened: true };
   }
 
   /**

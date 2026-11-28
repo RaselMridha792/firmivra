@@ -21,6 +21,10 @@ const LINKED: Partial<
     href: (id) => `/documents/requests/new?template=${id}`,
   },
   INTAKE_ORGANIZER: { noun: 'intake template', href: (id) => `/intake-forms/send?formId=${id}` },
+  ENGAGEMENT_AGREEMENT: {
+    noun: 'firm sign request',
+    href: (id) => `/firm-sign/new?templateId=${id}`,
+  },
 };
 
 /**

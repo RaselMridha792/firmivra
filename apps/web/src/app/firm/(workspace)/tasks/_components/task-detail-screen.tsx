@@ -35,6 +35,8 @@ import { ReminderHistory } from './task-reminder-history';
 import { relatedLinks } from './new-task-href';
 import { useFirm } from '../../../../../components/firm-context';
 import { OriginLink } from '../../../../../components/origin-link';
+import { useMe } from '../../../../../components/signed-in';
+import { AcknowledgmentCard, DiscussionCard } from './task-collab';
 
 const linkText = 'font-medium text-link hover:underline';
 
@@ -152,6 +154,8 @@ export function TaskDetailScreen({
   const t: TaskDetail | undefined = query.data;
   // T-D16: Owner and Admin may change the series a task came from.
   const { role } = useFirm();
+  // Q36: who is signed in, so the discussion knows which comments are theirs to change.
+  const { me } = useMe();
   const manages = role === 'OWNER' || role === 'ADMIN';
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [dialog, setDialog] = useState<'template' | 'recurring' | 'archive' | 'scope' | null>(
@@ -299,6 +303,7 @@ export function TaskDetailScreen({
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
       <div className="grid items-start gap-4 lg:grid-cols-2">
+        {t ? <AcknowledgmentCard taskId={t.id} /> : null}
         <Card title="Details" testId="detail-info">
           {t ? (
             <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-2 text-sm">
@@ -488,6 +493,7 @@ export function TaskDetailScreen({
             {t?.internalNotes || <span className="text-muted">No internal notes.</span>}
           </p>
         </Card>
+        {t ? <DiscussionCard taskId={t.id} meId={me.user.id} /> : null}
       </div>
       {dialog === 'scope' && t?.series ? (
         <Modal

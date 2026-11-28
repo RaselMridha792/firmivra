@@ -41,6 +41,15 @@ export const advErrors = {
     refusal('NOT_THIS_CLIENT', `This ${what} belongs to another advisory client`),
   notClientFacing: () =>
     refusal('RESOURCE_NOT_CLIENT_FACING', 'This resource is for staff and cannot be sent'),
+  /** A-X10: a built-in resource is edited, never archived. */
+  resourceBuiltIn: () =>
+    refusal('RESOURCE_BUILT_IN', 'A built-in resource can be edited but not archived'),
+  /** A-X10. */
+  resourceArchived: () => refusal('RESOURCE_ARCHIVED', 'This resource is archived'),
+  /** A-X10: a file belongs to one resource. */
+  fileInUse: () => refusal('FILE_IN_USE', 'This file is on another resource. Upload it again.'),
+  /** A-X10: the resource's file is still being checked, or failed the check. */
+  fileNotReady: (message: string) => refusal('FILE_NOT_READY', message),
   clientArchived: () => refusal('CLIENT_ARCHIVED', 'Restore the advisory client first'),
   /** B10, B28: the client has no active portal login (the words say what it stops). */
   noPortalLogin: (message: string) => refusal('NO_PORTAL_LOGIN', message),

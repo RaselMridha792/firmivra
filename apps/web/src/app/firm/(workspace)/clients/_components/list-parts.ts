@@ -5,7 +5,8 @@ import type {
   ListClientsQuery,
 } from '@firmivra/types';
 import type { KpiTrend } from '@firmivra/ui';
-import { CLIENTS, dateText } from './client-parts';
+import { zonedDay, zonedDayKey, zonedTime } from '../../../../../lib/firm-zone';
+import { CLIENTS } from './client-parts';
 
 /** The list's queries; a change to any client refetches them (they start with CLIENTS). */
 export const clientsListKey = (query: ListClientsQuery) => [...CLIENTS, 'list', query] as const;
@@ -168,19 +169,20 @@ const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' 
 /** Cents as $1,290.00. */
 export const money = (cents: number) => usd.format(cents / 100);
 
-export const timeText = (iso: string) =>
-  new Date(iso).toLocaleTimeString('en-US', { timeStyle: 'short' });
-
-const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+export const timeText = (iso: string, timeZone?: string) => zonedTime(iso, timeZone);
 
 /** "Today" and the time, "Yesterday", or the date, as the Last Activity column shows them. */
-export function activityText(iso: string, now = new Date()): { day: string; time?: string } {
-  const at = new Date(iso);
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (sameDay(at, now)) return { day: 'Today', time: timeText(iso) };
-  if (sameDay(at, yesterday)) return { day: 'Yesterday' };
-  return { day: dateText(iso) };
+export function activityText(
+  iso: string,
+  now = new Date(),
+  timeZone?: string,
+): { day: string; time?: string } {
+  const today = zonedDayKey(now.toISOString(), timeZone);
+  const yesterday = zonedDayKey(new Date(now.getTime() - 86_400_000).toISOString(), timeZone);
+  const key = zonedDayKey(iso, timeZone);
+  if (key === today) return { day: 'Today', time: timeText(iso, timeZone) };
+  if (key === yesterday) return { day: 'Yesterday' };
+  return { day: zonedDay(iso, timeZone) };
 }
 
 /** "Kim Allen" as "K. Allen", as the Assigned To column shows people. */

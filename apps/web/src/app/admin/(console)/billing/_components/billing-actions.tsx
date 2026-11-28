@@ -22,7 +22,7 @@ import {
   REFUND_METHOD_LABELS,
 } from './billing-labels';
 import { quietErrorText } from './billing-parts';
-import { adminBilling } from './billing-api';
+import { adminBilling, FIRM_IS_CUSTOMER } from './billing-api';
 
 /**
  * The supporting Billing dialogs (docx §16–17), reused wherever their action appears:
@@ -205,7 +205,9 @@ function RecordPaymentForm({
         <Summary
           rows={[
             ['Firm', invoice?.firmName ?? '…'],
-            ['Client', invoice?.clientName ?? '…'],
+            ...(FIRM_IS_CUSTOMER
+              ? []
+              : ([['Client', invoice?.clientName ?? '…']] as [string, string][])),
             ['Invoice', invoice ? `${invoice.number} · due ${formatDate(invoice.dueDate)}` : '…'],
           ]}
         />
@@ -219,27 +221,30 @@ function RecordPaymentForm({
               options={(firms.data ?? []).map((firm) => ({ value: firm.id, label: firm.name }))}
               onChange={(event) => {
                 setFirmId(event.target.value);
-                setClientId('');
+                // SA-BIL-R1: the firm is the customer; no client of the firm is picked.
+                setClientId(FIRM_IS_CUSTOMER ? event.target.value : '');
                 setPickedInvoice('');
               }}
             />
           </FormField>
-          <FormField label="Client" htmlFor={`${formId}-client`} required>
-            <SelectControl
-              id={`${formId}-client`}
-              value={clientId}
-              disabled={!firmId}
-              placeholder="Select a client..."
-              options={(clients.data ?? []).map((client) => ({
-                value: client.id,
-                label: client.name,
-              }))}
-              onChange={(event) => {
-                setClientId(event.target.value);
-                setPickedInvoice('');
-              }}
-            />
-          </FormField>
+          {FIRM_IS_CUSTOMER ? null : (
+            <FormField label="Client" htmlFor={`${formId}-client`} required>
+              <SelectControl
+                id={`${formId}-client`}
+                value={clientId}
+                disabled={!firmId}
+                placeholder="Select a client..."
+                options={(clients.data ?? []).map((client) => ({
+                  value: client.id,
+                  label: client.name,
+                }))}
+                onChange={(event) => {
+                  setClientId(event.target.value);
+                  setPickedInvoice('');
+                }}
+              />
+            </FormField>
+          )}
           <div className="sm:col-span-2">
             <FormField
               label="Invoice"

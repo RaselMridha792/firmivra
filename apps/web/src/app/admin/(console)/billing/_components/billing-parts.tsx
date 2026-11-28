@@ -305,6 +305,31 @@ export function BillingCard({
   );
 }
 
+/**
+ * SA-BIL-R1: who a document is billed to when the firm is the customer: the firm's billing
+ * contact (Billing Settings, or the owner), in place of a "Client" picker.
+ */
+export function BillToSummary({
+  contactName,
+  email,
+  firmChosen,
+}: {
+  contactName: string | undefined;
+  email: string | undefined;
+  firmChosen: boolean;
+}) {
+  let text = 'Select a firm. The invoice goes to its billing contact.';
+  if (firmChosen) text = contactName ? [contactName, email].filter(Boolean).join(' · ') : '…';
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="text-sm font-medium text-heading">Bill To</span>
+      <p data-testid="bill-to" className="min-h-10 py-2 text-sm wrap-anywhere text-muted">
+        {text}
+      </p>
+    </div>
+  );
+}
+
 /** A label and value pair in a details list. */
 export function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (

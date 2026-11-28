@@ -209,4 +209,11 @@ export const cases: CaseModule['cases'] = {
     params: { clientAccountId: 'pendingClientAccount' },
     body: () => ({ idempotencyKey: randomUUID() }),
   },
+  // Q44 D2.13: another firm's request is never reached; the firm's own pending request has no
+  // approval email to send again (409 NOTHING_TO_RETRY): reached, and refused for that reason.
+  'POST /api/v1/client-sign-ups/:clientAccountId/retry-email': {
+    params: { clientAccountId: 'pendingClientAccount' },
+    body: () => ({ idempotencyKey: randomUUID() }),
+    expect: 409,
+  },
 };

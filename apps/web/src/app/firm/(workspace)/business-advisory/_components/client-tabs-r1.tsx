@@ -30,6 +30,7 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import { useFirmZone, zonedDateParts, zonedDay, zonedTime } from '../../../../../lib/firm-zone';
 import { RecommendationsSection } from './action-plans-screen';
 import { useAct } from './ba-list-kit';
 import {
@@ -325,16 +326,12 @@ export function ClientRecommendationsTab({ advisoryClientId }: { advisoryClientI
 
 const PAGE = 10;
 
-const monthOf = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short' });
-const timeOf = (iso: string) =>
-  new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-const longDay = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+const monthOf = (iso: string, zone?: string) =>
+  new Intl.DateTimeFormat('en-US', { ...(zone ? { timeZone: zone } : {}), month: 'short' }).format(
+    new Date(iso),
+  );
+const timeOf = (iso: string, zone?: string) => zonedTime(iso, zone);
+const longDay = (iso: string, zone?: string) => zonedDay(iso, zone);
 
 /** Where it happens: the virtual link or the place, as the overview's Upcoming Meeting card shows it. */
 function Place({ m }: { m: AdvisoryMeetingRow }) {
@@ -354,19 +351,21 @@ function Place({ m }: { m: AdvisoryMeetingRow }) {
  * Reschedule and (A-X11) Cancel Meeting.
  */
 function UpcomingMeeting({ m, onCancel }: { m: AdvisoryMeetingRow; onCancel: () => void }) {
+  const timeZone = useFirmZone();
+  const date = zonedDateParts(m.startsAt, timeZone);
   const title = m.meetingType ?? 'Advisory meeting';
   return (
     <li className="flex flex-col gap-3 rounded-lg border border-divider p-3 md:flex-row md:items-center">
       <span className="flex w-20 shrink-0 flex-col items-center rounded-lg border border-divider py-2 text-heading">
-        <span className="text-xs font-semibold uppercase">{monthOf(m.startsAt)}</span>
-        <span className="text-3xl leading-none font-bold">{new Date(m.startsAt).getDate()}</span>
-        <span className="text-xs">{new Date(m.startsAt).getFullYear()}</span>
+        <span className="text-xs font-semibold uppercase">{monthOf(m.startsAt, timeZone)}</span>
+        <span className="text-3xl leading-none font-bold">{date.day}</span>
+        <span className="text-xs">{date.year}</span>
       </span>
       <span className="flex min-w-0 flex-1 flex-col text-sm">
         <span className="font-semibold text-heading">{title}</span>
-        <span>{longDay(m.startsAt)}</span>
+        <span>{longDay(m.startsAt, timeZone)}</span>
         <span>
-          {timeOf(m.startsAt)} – {timeOf(m.endsAt)}
+          {timeOf(m.startsAt, timeZone)} – {timeOf(m.endsAt, timeZone)}
         </span>
         <Place m={m} />
         {m.advisor ? <span className="text-muted">With {m.advisor.name}</span> : null}
@@ -497,6 +496,7 @@ function CancelMeetingDialog({
  */
 export function ClientMeetingsTab({ advisoryClientId }: { advisoryClientId: string }) {
   const { toast, say } = useAct();
+  const timeZone = useFirmZone();
   const [page, setPage] = useState(1);
   // A-X11 (B31): the meeting being canceled.
   const [canceling, setCanceling] = useState<AdvisoryMeetingRow>();
@@ -514,13 +514,13 @@ export function ClientMeetingsTab({ advisoryClientId }: { advisoryClientId: stri
       id: 'date',
       label: 'Date',
       className: 'whitespace-nowrap',
-      cell: (m) => dayText(m.startsAt.slice(0, 10)),
+      cell: (m) => zonedDay(m.startsAt, timeZone),
     },
     {
       id: 'time',
       label: 'Time',
       className: 'whitespace-nowrap',
-      cell: (m) => `${timeOf(m.startsAt)} – ${timeOf(m.endsAt)}`,
+      cell: (m) => `${timeOf(m.startsAt, timeZone)} – ${timeOf(m.endsAt, timeZone)}`,
     },
     {
       id: 'type',

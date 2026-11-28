@@ -4,6 +4,7 @@ import { ApiRequestError, type ReportDefinitionView } from '@firmivra/types';
 import {
   Button,
   Checkbox,
+  HelpTip,
   KpiCard,
   Modal,
   Select,
@@ -20,6 +21,7 @@ import {
   MagnifyingGlass,
   X,
 } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
@@ -52,6 +54,7 @@ import {
 } from './reports-shared';
 import { ReportHelp } from './report-help';
 import { ChartSelect } from './chart-select';
+import { drawingOf, partsOf } from './chart-display';
 
 const section = (n: number, title: string) => (
   <h2 className="mb-3 flex items-center gap-3 font-display text-lg font-bold text-heading">
@@ -65,11 +68,58 @@ const section = (n: number, title: string) => (
   </h2>
 );
 
+export const FINANCIAL_FIELD_DEFINITIONS: Record<
+  string,
+  { definition: string; available?: boolean; unavailableReason?: string }
+> = {
+  amount: {
+    definition:
+      'Gross Invoiced: total billed before discounts, refunds, or processing fees, by invoice issue date.',
+    available: true,
+  },
+  amountPaid: {
+    definition: 'Collected Revenue: actual funds received against invoices, by payment date.',
+    available: true,
+  },
+  balanceDue: {
+    definition: 'Open Accounts Receivable: balance remaining unpaid on issued invoices.',
+    available: true,
+  },
+  refunds: {
+    definition: 'Total refunds returned to clients in the period, by refund transaction date.',
+    available: true,
+  },
+  fees: {
+    definition: 'Merchant processing fees (Stripe card/ACH) deducted from collected payouts.',
+    available: true,
+  },
+  discounts: {
+    definition: 'Promotional and contractual discounts applied to invoice subtotals.',
+    available: true,
+  },
+  taxAllocation: {
+    definition:
+      'Sales and service tax collected and allocated separately from net service revenue.',
+    available: true,
+  },
+  recognizedRevenue: {
+    definition: 'Accrual-basis revenue recognized on service delivery.',
+    available: false,
+    unavailableReason:
+      'Not supported — Firmivra reports on cash collected or invoices issued; accrual-basis recognized revenue schedules are not supported.',
+  },
+};
+
 /** /reports/builder: Create Custom Report: type and data, columns, filters, grouping and a live preview. */
 export function ReportBuilder() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const editId = params.get('edit');
+  const qc = useQueryClient();
+  const savedOne = useApiQuery([...RP_KEY, 'saved-one', editId ?? ''], () =>
+    editId ? api.reports.savedReport(editId) : Promise.resolve(null),
+  );
   // RP-F14 (Octavia, Oct 28): Back from the report Run Report opened brings the builder back as it
   // was: its work is in the address (`?d=`), read once when the builder opens.
   const [opened] = useState(() => draftFrom(params.get('d')));
@@ -96,6 +146,7 @@ export function ReportBuilder() {
   const [chart, setChart] = useState(opened.chart);
   // RP-F15: a change of data source that would reset fields and filters asks first.
   const [switching, setSwitching] = useState<{ category: string; sourceKey: string }>();
+
   const draft: BuilderDraft = {
     name,
     category,
@@ -114,6 +165,47 @@ export function ReportBuilder() {
   };
   // RP-F05: unsaved work asks Save, Discard or Keep Editing before a link or a close loses it.
   const guard = useUnsavedGuard(draft);
+
+  const [syncedId, setSyncedId] = useState<string | null>(null);
+  if (editId && savedOne.data && syncedId !== editId) {
+    const s = savedOne.data;
+    const d = s.definition;
+    setName(s.name);
+    setCategory(s.category);
+    setSourceKey(d.dataSource);
+    setColumns(d.columns);
+    setPreset(d.date.rule === 'ROLLING' ? d.date.preset : 'this_year');
+    setFixed(d.date.rule === 'FIXED' ? { from: d.date.from, to: d.date.to } : undefined);
+    setConds((d.filters.conditions as FilterDraft[]) ?? []);
+    setGroupBy(d.groupBy ?? '');
+    setSortBy(d.sortBy ?? '');
+    setDesc(d.sortDescending);
+    setTotals(d.showTotals);
+    setPct(d.showPercentage);
+    setCompare(d.compareTo !== 'NONE');
+    setChart(d.chartType);
+    setSyncedId(editId);
+    guard.rebase();
+  }
+
+  const canEdit = !editId || (!!savedOne.data?.canEdit && !savedOne.data?.archived);
+
+  const saveDefinition = async () => {
+    if (!definition || !savedOne.data || !editId) return;
+    try {
+      await api.reports.updateSaved(editId, {
+        name: name.trim(),
+        definition: definition as never,
+        etag: savedOne.data.etag,
+      });
+      await qc.invalidateQueries({ queryKey: [...RP_KEY] });
+      guard.allow();
+      router.push(`/reports/${editId}`);
+    } catch (e) {
+      const detail = e instanceof ApiRequestError ? e.details?.[0]?.message : undefined;
+      notice(detail ?? errorMessage(e, RP_ERRORS), 'error');
+    }
+  };
   const resetsSomething = columns.length > 0 || conds.length > 0 || !!groupBy || !!sortBy;
   const switchTo = (next: { category: string; sourceKey: string }) => {
     setCategory(next.category);
@@ -168,6 +260,11 @@ export function ReportBuilder() {
       : Promise.resolve(null),
   );
   const r = preview.data;
+  const facts = {
+    periods: r?.chart?.labels.length ?? 0,
+    kpis: r?.kpis.length ?? 0,
+  };
+  const parts = partsOf(chart);
   // RP-F10: a preview that could not run says why; it is never shown as "no data".
   const previewError = preview.isError
     ? ((preview.error instanceof ApiRequestError
@@ -214,16 +311,35 @@ export function ReportBuilder() {
         <div className="flex min-w-0 items-center gap-4">
           <CategoryTile category={category} />
           <div className="min-w-0">
-            <h1 className="font-display text-3xl font-bold text-heading">Create Custom Report</h1>
+            <h1 className="font-display text-3xl font-bold text-heading">
+              {editId ? `Edit Definition: ${savedOne.data?.name ?? name}` : 'Create Custom Report'}
+            </h1>
             <p className="text-base text-muted">
-              Choose your data, set filters, select what to display, and generate a custom report.
+              {editId
+                ? 'Editing definition for saved report. Existing report ID and schedules will be preserved.'
+                : 'Choose your data, set filters, select what to display, and generate a custom report.'}
             </p>
           </div>
         </div>
-        <Link href="/reports" className={outlined}>
-          ← Back to Reports
+        <Link
+          href={editId ? `/reports/${editId}` : '/reports'}
+          className={outlined}
+          onClick={() => guard.allow()}
+        >
+          {editId ? 'Cancel' : '← Back to Reports'}
         </Link>
       </header>
+      {editId && savedOne.data && !canEdit ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-danger/30 bg-danger-soft p-4 text-sm text-danger"
+          data-testid="edit-denied"
+        >
+          {savedOne.data.archived
+            ? 'Archived reports cannot be edited. Restore the report first.'
+            : 'You do not have permission to edit this report definition.'}
+        </div>
+      ) : null}
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
@@ -299,20 +415,42 @@ export function ReportBuilder() {
                 <ul className="max-h-60 overflow-auto">
                   {fields
                     .filter((f) => f.label.toLowerCase().includes(fieldSearch.toLowerCase()))
-                    .map((f) => (
-                      <li key={f.key} className="flex items-center justify-between gap-2 py-1">
-                        <Checkbox
-                          label={f.label}
-                          checked={cols.includes(f.key)}
-                          disabled={f.locked && cols.includes(f.key)}
-                          onChange={(e) =>
-                            setColumns(
-                              e.target.checked ? [...cols, f.key] : cols.filter((c) => c !== f.key),
-                            )
-                          }
-                        />
-                      </li>
-                    ))}
+                    .map((f) => {
+                      const def = FINANCIAL_FIELD_DEFINITIONS[f.key];
+                      return (
+                        <li key={f.key} className="flex items-center justify-between gap-2 py-1">
+                          <Checkbox
+                            label={f.label}
+                            checked={cols.includes(f.key)}
+                            disabled={
+                              (f.locked && cols.includes(f.key)) || def?.available === false
+                            }
+                            onChange={(e) =>
+                              setColumns(
+                                e.target.checked
+                                  ? [...cols, f.key]
+                                  : cols.filter((c) => c !== f.key),
+                              )
+                            }
+                          />
+                          {def ? (
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {def.available === false ? (
+                                <span
+                                  className="rounded bg-muted/15 px-1.5 py-0.5 text-[11px] font-semibold text-muted"
+                                  data-testid="not-supported-badge"
+                                >
+                                  Not Supported
+                                </span>
+                              ) : null}
+                              <HelpTip topic={f.label}>
+                                {def.available === false ? def.unavailableReason! : def.definition}
+                              </HelpTip>
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                 </ul>
               </div>
               <div>
@@ -322,59 +460,60 @@ export function ReportBuilder() {
                   className="flex max-h-72 flex-col gap-1 overflow-auto"
                   data-testid="selected-columns"
                 >
-                  {cols.map((k) => (
-                    <li
-                      key={k}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.effectAllowed = 'move';
-                        e.dataTransfer.setData('text/plain', k);
-                        setDragged(k);
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        dropOn(k);
-                        setDragged(undefined);
-                      }}
-                      onDragEnd={() => setDragged(undefined)}
-                      className={`flex cursor-grab items-center gap-1 rounded-lg border px-2 py-1 text-sm ${dragged === k ? 'border-action bg-accent-soft' : 'border-divider'}`}
-                    >
-                      <DotsSixVertical
-                        aria-hidden
-                        weight="bold"
-                        className="size-4 shrink-0 text-muted"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-heading">
-                        {fields.find((f) => f.key === k)?.label ?? k}
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Move ${k} up`}
-                        onClick={() => move(k, -1)}
-                        className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas"
+                  {cols.map((k) => {
+                    const label = fields.find((f) => f.key === k)?.label ?? k;
+                    return (
+                      <li
+                        key={k}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', k);
+                          setDragged(k);
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          dropOn(k);
+                          setDragged(undefined);
+                        }}
+                        onDragEnd={() => setDragged(undefined)}
+                        className={`flex cursor-grab items-center gap-1 rounded-lg border px-2 py-1 text-sm ${dragged === k ? 'border-action bg-accent-soft' : 'border-divider'}`}
                       >
-                        <ArrowUp aria-hidden weight="bold" className="size-3" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Move ${k} down`}
-                        onClick={() => move(k, 1)}
-                        className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas"
-                      >
-                        <ArrowDown aria-hidden weight="bold" className="size-3" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${k}`}
-                        disabled={cols.length === 1}
-                        onClick={() => setColumns(cols.filter((c) => c !== k))}
-                        className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas disabled:opacity-40"
-                      >
-                        <X aria-hidden weight="bold" className="size-3" />
-                      </button>
-                    </li>
-                  ))}
+                        <DotsSixVertical
+                          aria-hidden
+                          weight="bold"
+                          className="size-4 shrink-0 text-muted"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-heading">{label}</span>
+                        <button
+                          type="button"
+                          aria-label={`Move ${label} up`}
+                          onClick={() => move(k, -1)}
+                          className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas"
+                        >
+                          <ArrowUp aria-hidden weight="bold" className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Move ${label} down`}
+                          onClick={() => move(k, 1)}
+                          className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas"
+                        >
+                          <ArrowDown aria-hidden weight="bold" className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${label}`}
+                          disabled={cols.length === 1}
+                          onClick={() => setColumns(cols.filter((c) => c !== k))}
+                          className="flex size-7 items-center justify-center rounded text-muted hover:bg-canvas disabled:opacity-40"
+                        >
+                          <X aria-hidden weight="bold" className="size-3" />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             </div>
@@ -461,10 +600,7 @@ export function ReportBuilder() {
               <ChartSelect
                 label="Display"
                 value={chart}
-                facts={{
-                  periods: preview.data?.chart?.labels.length ?? 0,
-                  kpis: preview.data?.kpis.length ?? 0,
-                }}
+                facts={facts}
                 onChange={setChart}
                 testId="builder-display"
               />
@@ -517,7 +653,31 @@ export function ReportBuilder() {
                 The preview could not run: {previewError}
               </p>
             ) : null}
-            <ul className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-3" data-testid="preview-kpis">
+            {['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(category) ? (
+              <div
+                className="mb-3 flex flex-col items-center justify-center gap-2 rounded-xl border border-divider bg-canvas p-6 text-center"
+                data-testid="builder-not-connected"
+              >
+                <p className="font-semibold text-heading">Provider Not Connected</p>
+                <p className="max-w-sm text-xs text-muted">
+                  {category === 'BOOKKEEPING'
+                    ? 'Connect QuickBooks Online or Xero in Integrations.'
+                    : category === 'PAYROLL'
+                      ? 'Connect Gusto or ADP in Integrations.'
+                      : 'Connect Twilio or SendGrid in Integrations.'}{' '}
+                  You can configure fields and filters; live data appears once connected.
+                </p>
+                <Link href="/integrations" className="text-xs font-semibold text-link underline">
+                  Connect in Integrations →
+                </Link>
+              </div>
+            ) : null}
+            <ul
+              hidden={!parts.kpis}
+              style={!parts.kpis ? { display: 'none' } : undefined}
+              className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-3"
+              data-testid="preview-kpis"
+            >
               {(r?.kpis ?? []).map((k) => (
                 <li key={k.key}>
                   <KpiCard
@@ -530,14 +690,25 @@ export function ReportBuilder() {
                 </li>
               ))}
             </ul>
-            {r?.chart ? (
-              <BarChart chart={r.chart} />
-            ) : previewError ? null : (
-              <p className={quiet}>
-                {preview.isPending ? 'Loading…' : 'No rows match these fields and filters.'}
-              </p>
-            )}
-            <div className="mt-4">
+            <div
+              hidden={!parts.chart}
+              style={!parts.chart ? { display: 'none' } : undefined}
+              data-testid="preview-chart"
+            >
+              {r?.chart ? (
+                <BarChart chart={r.chart} kind={drawingOf(chart, facts)} />
+              ) : previewError ? null : (
+                <p className={quiet}>
+                  {preview.isPending ? 'Loading…' : 'No rows match these fields and filters.'}
+                </p>
+              )}
+            </div>
+            <div
+              hidden={!parts.table}
+              style={!parts.table ? { display: 'none' } : undefined}
+              className="mt-4"
+              data-testid="preview-table"
+            >
               <h3 className="mb-2 font-display text-base font-bold text-heading">
                 Report Data (Preview)
               </h3>
@@ -572,51 +743,74 @@ export function ReportBuilder() {
             role="group"
             aria-label="Report actions"
           >
-            <button
-              type="button"
-              className={outlined}
-              disabled={!definition}
-              onClick={() => {
-                // RP-F14: the full report of this unsaved definition, with every control; the
-                // builder's address keeps its work so Back finds it as it was.
-                const d = definition && pack(definition);
-                const here = pack(draft);
-                if (!d || !here) {
-                  notice(
-                    'This report is too large to open from the builder. Save it first.',
-                    'error',
-                  );
-                  return;
-                }
-                const builder = `${pathname}?d=${here}`;
-                router.replace(builder, { scroll: false });
-                guard.allow();
-                router.push(
-                  withOrigin(
-                    `/reports/custom?d=${d}&name=${encodeURIComponent(name.slice(0, 120))}`,
-                    builder,
-                  ),
-                );
-              }}
-            >
-              Run Report
-            </button>
-            <button
-              type="button"
-              className={subtle}
-              disabled={!definition}
-              onClick={() => setDialog('save')}
-            >
-              Save Report
-            </button>
-            <button
-              type="button"
-              className={primary}
-              disabled={!definition}
-              onClick={() => setDialog('schedule')}
-            >
-              <CalendarBlank aria-hidden weight="bold" className="size-4" /> Save &amp; Schedule
-            </button>
+            {editId && savedOne.data ? (
+              <>
+                <button
+                  type="button"
+                  className={primary}
+                  disabled={!definition || !canEdit}
+                  onClick={() => void saveDefinition()}
+                >
+                  Save Changes
+                </button>
+                <button
+                  type="button"
+                  className={subtle}
+                  disabled={!definition}
+                  onClick={() => setDialog('save')}
+                >
+                  Save As
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={outlined}
+                  disabled={!definition}
+                  onClick={() => {
+                    // RP-F14: the full report of this unsaved definition, with every control; the
+                    // builder's address keeps its work so Back finds it as it was.
+                    const d = definition && pack(definition);
+                    const here = pack(draft);
+                    if (!d || !here) {
+                      notice(
+                        'This report is too large to open from the builder. Save it first.',
+                        'error',
+                      );
+                      return;
+                    }
+                    const builder = `${pathname}?d=${here}`;
+                    router.replace(builder, { scroll: false });
+                    guard.allow();
+                    router.push(
+                      withOrigin(
+                        `/reports/custom?d=${d}&name=${encodeURIComponent(name.slice(0, 120))}`,
+                        builder,
+                      ),
+                    );
+                  }}
+                >
+                  Run Report
+                </button>
+                <button
+                  type="button"
+                  className={subtle}
+                  disabled={!definition}
+                  onClick={() => setDialog('save')}
+                >
+                  Save Report
+                </button>
+                <button
+                  type="button"
+                  className={primary}
+                  disabled={!definition}
+                  onClick={() => setDialog('schedule')}
+                >
+                  <CalendarBlank aria-hidden weight="bold" className="size-4" /> Save &amp; Schedule
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

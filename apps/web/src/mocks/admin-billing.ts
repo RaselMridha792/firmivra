@@ -1,4 +1,10 @@
-import { ApiRequestError } from '@firmivra/types';
+import {
+  ApiRequestError,
+  billingRevenuePrevious,
+  type BillingRevenue,
+  type BillingRevenuePeriod,
+  type BillingRevenueQuery,
+} from '@firmivra/types';
 import { mockDelay, mocked, mockedEmpty } from '../lib/mock';
 import { mockBusiness } from './me';
 
@@ -4179,6 +4185,54 @@ export const adminBilling = {
       query.page,
       query.pageSize,
     );
+  },
+  /**
+   * SA-BIL-A1: collected revenue (gross, by payment date) for a period and type; refunds by their
+   * date as their own line. An invoice from a recurring schedule is recurring.
+   */
+  revenue: async (query: BillingRevenueQuery): Promise<BillingRevenue> => {
+    await ready();
+    const s = db();
+    const type = query.type ?? 'ALL';
+    const period = (from: string, to: string): BillingRevenuePeriod => {
+      let oneTimeCents = 0;
+      let recurringCents = 0;
+      let payments = 0;
+      let refundedCents = 0;
+      let refunds = 0;
+      for (const rec of s.payments) {
+        const row = paymentView(s, rec);
+        if (row.status === 'FAILED' || row.status === 'PENDING') continue;
+        const recurring = findInvoice(s, row.invoiceId).recurringScheduleId !== null;
+        if (type !== 'ALL' && (type === 'RECURRING') !== recurring) continue;
+        if (within(row.paidOn, from, to)) {
+          payments += 1;
+          if (recurring) recurringCents += row.amountCents;
+          else oneTimeCents += row.amountCents;
+        }
+        for (const refund of row.refunds) {
+          if (!within(refund.at.slice(0, 10), from, to)) continue;
+          refunds += 1;
+          refundedCents += refund.amountCents;
+        }
+      }
+      return {
+        from,
+        to,
+        collectedCents: oneTimeCents + recurringCents,
+        oneTimeCents,
+        recurringCents,
+        payments,
+        refundedCents,
+        refunds,
+      };
+    };
+    const previous = query.compare ? billingRevenuePrevious(query.from, query.to) : null;
+    return {
+      type,
+      current: period(query.from, query.to),
+      previous: previous ? period(previous.from, previous.to) : null,
+    };
   },
   /** Payments' cards for the same filters as the list. */
   paymentSummary: async (query: PaymentQuery = {}): Promise<PaymentSummary> => {

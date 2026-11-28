@@ -157,6 +157,14 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     // B28: its preview too.
     routes: /\/business\/advisory\/resources\/:key\/(send|preview)$/,
   },
+  // A-X10 (Q28): a library resource's edit, archive and file (another one than Send's, so the
+  // edit's file, still being checked, never holds Send back). A firm's own resource's key is "r-"
+  // and its id: firm Q's is not found at firm P either way.
+  {
+    param: 'key',
+    value: 'brand-basics-guide',
+    routes: /\/business\/advisory\/resources\/:key(\/(archive|file))?$/,
+  },
   // B28: the PDF of a library resource the firm sent a client (kept in code), not a record.
   { param: 'key', value: 'cash-flow-basics', routes: /\/me\/advisory\/resources\/:key\/pdf$/ },
 ];

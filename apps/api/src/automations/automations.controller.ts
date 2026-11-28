@@ -23,6 +23,7 @@ import {
   type AutomationTemplatePage,
   type AutomationVersionDetail,
   ConfirmAutomationEventRequest,
+  ResumeAutomationsRequest,
   type ImportAutomationTemplateRequest,
 } from '@firmivra/types';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
@@ -51,6 +52,7 @@ import {
 } from './automations-input.js';
 import { ConfirmationsService } from './confirmations.service.js';
 import { AutomationsOverviewService } from './overview.service.js';
+import { AutomationEngine } from './engine.service.js';
 import { RulesService } from './rules.service.js';
 import { RunsService } from './runs.service.js';
 import { TemplatesService } from './templates.service.js';
@@ -82,6 +84,7 @@ export class AutomationsController {
     private readonly templates: TemplatesService,
     private readonly runs: RunsService,
     private readonly confirmations: ConfirmationsService,
+    private readonly engine: AutomationEngine,
   ) {}
 
   @Get('overview')
@@ -453,6 +456,30 @@ export class AutomationsController {
   ): Promise<AutomationSettingsView> {
     const w = who(auth, tenant);
     return this.overviewService.saveSettings(w.businessId, w.tenant, w.userId, body);
+  }
+
+  @Post('settings/pause')
+  @HttpCode(200)
+  pauseFirm(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<AutomationSettingsView> {
+    const w = who(auth, tenant);
+    return this.overviewService.pauseFirm(w.businessId, w.tenant, w.userId);
+  }
+
+  @Post('settings/resume')
+  @HttpCode(200)
+  async resumeFirm(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ResumeAutomationsRequest))
+    body: Out<typeof ResumeAutomationsRequest>,
+  ): Promise<AutomationSettingsView> {
+    const w = who(auth, tenant);
+    const settings = await this.overviewService.resumeFirm(w.businessId, w.tenant, w.userId);
+    await this.engine.resumeFirm(w.businessId, body.backlog);
+    return settings;
   }
 
   // ----- Manual Event Confirmation (AU-F31 to F33) -----

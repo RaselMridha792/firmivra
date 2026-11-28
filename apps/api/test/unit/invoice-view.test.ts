@@ -12,13 +12,16 @@ type Payment = InvoiceRow['payments'][number];
 const payment = (p: Partial<Payment> & Pick<Payment, 'status'>): Payment => ({
   id: crypto.randomUUID(),
   amountCents: 10_000,
+  tipCents: 0,
   currency: 'usd',
   failureCode: null,
   paidAt: p.status === 'SUCCEEDED' || p.status === 'REFUNDED' ? new Date() : null,
   refundReservedCents: 0,
   methodType: 'card',
+  last4: null,
   createdAt: new Date(),
   _count: { events: 1 },
+  events: [],
   refunds: [],
   invoiceEvents: [],
   ...p,
@@ -66,6 +69,15 @@ describe('invoice money', () => {
     expect(money(invoice('PAID', row.payments)).balanceDueCents).toBe(0);
     expect(money(invoice('CANCELED', [])).balanceDueCents).toBe(0);
     expect(money(invoice('DRAFT', [])).balanceDueCents).toBe(25_000);
+  });
+
+  it('Q22: a tip never pays the invoice: paid and balance count the invoice part only', () => {
+    const row = invoice('OPEN', [payment({ status: 'SUCCEEDED', tipCents: 1_500 })]);
+    expect(money(row)).toEqual({
+      amountPaidCents: 10_000,
+      refundedCents: 0,
+      balanceDueCents: 15_000,
+    });
   });
 
   it('hides checkouts left open or expired; a pending payment with an event is processing', () => {

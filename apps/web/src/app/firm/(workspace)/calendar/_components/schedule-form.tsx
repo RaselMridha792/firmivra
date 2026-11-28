@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ApiRequestError,
   type AppointmentContact,
   AppointmentRecurrence,
   type AppointmentRecord,
@@ -45,7 +46,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, createElement, useEffect, useRef, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { OriginLink } from '../../../../../components/origin-link';
@@ -945,14 +946,32 @@ function FormBody({
   // required form, until the member picks one; on while there is such a form, until changed.
   const [intakeOn, setIntakeOn] = useState<boolean | null>(null);
   const [intakePick, setIntakePick] = useState('');
+  const selectedType = o.types.find((t) => t.id === form.typeId);
   const serviceForm = form.serviceId
-    ? o.intakeForms.find((f) => f.serviceId === form.serviceId && f.serviceDefault)?.id
+    ? (o.intakeForms.find((f) => f.serviceId === form.serviceId && f.serviceDefault)?.id ??
+      o.intakeForms.find((f) => f.serviceId === form.serviceId)?.id)
     : undefined;
-  const typeForm = o.types.find((t) => t.id === form.typeId)?.requiredIntakeFormId ?? undefined;
-  const intakeFormId = o.intakeForms.some((f) => f.id === intakePick)
-    ? intakePick
-    : (serviceForm ?? typeForm ?? '');
-  const sendIntake = linkClientId !== null && (intakeOn ?? intakeFormId !== '');
+  const typeRequiredForm = selectedType?.requiredIntakeFormId ?? undefined;
+  const typeServiceForm = selectedType?.serviceId
+    ? (o.intakeForms.find((f) => f.serviceId === selectedType.serviceId && f.serviceDefault)?.id ??
+      o.intakeForms.find((f) => f.serviceId === selectedType.serviceId)?.id)
+    : undefined;
+  const matchingNameForm =
+    selectedType || form.serviceId
+      ? o.intakeForms.find((f) => {
+          const serviceName = o.services.find((s) => s.id === form.serviceId)?.name?.toLowerCase();
+          const typeName = selectedType?.name?.toLowerCase();
+          const formName = f.name.toLowerCase();
+          return (
+            (serviceName && formName.includes(serviceName)) ||
+            (typeName && formName.includes(typeName))
+          );
+        })?.id
+      : undefined;
+  const fallbackForm = serviceForm ?? typeRequiredForm ?? typeServiceForm ?? matchingNameForm ?? '';
+  const intakeFormId = o.intakeForms.some((f) => f.id === intakePick) ? intakePick : fallbackForm;
+  const hasClient = linkClientId !== null;
+  const sendIntake = hasClient && (intakeOn ?? Boolean(fallbackForm));
   // SH1: the workspace's Back asks first once something was changed here.
   const [initial] = useState(() => JSON.stringify(start));
   const dirty = JSON.stringify(form) !== initial;
@@ -1063,8 +1082,17 @@ function FormBody({
     if (added) {
       typesBeforeRef.current = null;
       chooseType(added, fresh.types);
+    } else {
+      setForm((f) => {
+        const t = fresh.types.find((x) => x.id === f.typeId);
+        if (t && t.methods.length > 0 && !t.methods.includes(f.method)) {
+          return { ...f, method: t.methods[0]! };
+        }
+        return f;
+      });
     }
   };
+
   const [draftId, setDraftId] = useState<string | null>(savedDraft?.id ?? null);
   const [note, setNote] = useState('');
   const [override, setOverride] = useState('');
@@ -1172,6 +1200,40 @@ function FormBody({
   const endsAt = toInstant(form.date, form.allDay ? '23:59' : form.end, form.timezone);
   const minutes = minutesOf(form.end) - minutesOf(form.start);
   const rooms = (o.rooms ?? []).filter((r) => !form.officeId || r.officeId === form.officeId);
+  // R02: rooms conflict check before save so occupied rooms show unavailable and are not selectable.
+  const roomConflicts = useQuery({
+    queryKey: ['scheduling', 'room-conflicts', form.officeId, startsAt, endsAt, record?.id],
+    queryFn: async () => {
+      if (form.method !== 'IN_PERSON' || !form.officeId || !startsAt || !endsAt) return [];
+      const occupied = new Set<string>();
+      for (const r of rooms) {
+        try {
+          const res = await api.scheduling.checkConflicts({
+            staffUserIds: form.staffUserIds.length ? form.staffUserIds : [o.staff[0]!.userId],
+            startsAt,
+            endsAt,
+            roomId: r.id,
+            ...(record?.id ? { excludeAppointmentId: record.id } : {}),
+          });
+          if (res.conflicts.some((c) => c.kind === 'ROOM')) {
+            occupied.add(r.id);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return [...occupied];
+    },
+    enabled: form.method === 'IN_PERSON' && !!form.officeId && !!startsAt && !!endsAt,
+  });
+
+  const selectedRoomOccupied = Boolean(
+    form.roomId &&
+    roomConflicts.data?.includes(form.roomId) &&
+    form.roomId !== record?.place.room?.id,
+  );
+  const effectiveRoomId = selectedRoomOccupied ? '' : form.roomId;
+
   // Review 2 (A2): the items this place can book; an item that no longer suits it is left out.
   const items = equipmentChoices(o.equipment, record?.equipment ?? [], form.method, form.officeId);
   const equipmentIds = form.equipmentIds.filter((id) => items.some((i) => i.value === id));
@@ -1206,7 +1268,7 @@ function FormBody({
     allDay: form.allDay,
     method: form.method,
     officeId: form.method === 'IN_PERSON' ? form.officeId || null : null,
-    roomId: form.method === 'IN_PERSON' ? form.roomId || null : null,
+    roomId: form.method === 'IN_PERSON' ? effectiveRoomId || null : null,
     equipmentIds,
     details: form.details.trim() || null,
     // Blank: the appointment type's platform (the API refuses OTHER with neither).
@@ -1770,9 +1832,17 @@ function FormBody({
               disabled={form.method !== 'IN_PERSON'}
               options={[
                 { value: '', label: 'No room' },
-                ...rooms.map((x) => ({ value: x.id, label: x.name })),
+                ...rooms.map((x) => {
+                  const isOccupied =
+                    roomConflicts.data?.includes(x.id) && x.id !== record?.place.room?.id;
+                  return {
+                    value: x.id,
+                    label: isOccupied ? `${x.name} (occupied / unavailable)` : x.name,
+                    disabled: isOccupied,
+                  };
+                }),
               ]}
-              value={form.roomId}
+              value={effectiveRoomId}
               onChange={(e) => set('roomId', e.target.value)}
             />
           </div>
@@ -2376,7 +2446,14 @@ function FormBody({
                   ? `${SCHEDULE_ERRORS.SCHEDULING_CONFLICT} Choose another time in the Staff Availability panel, or book anyway with a reason.`
                   : hardClash && clash.messages.length > 0
                     ? `${clash.messages.join('. ')}. Choose another time.`
-                    : errorMessage(failure, SCHEDULE_ERRORS)}
+                    : failure instanceof ApiRequestError && failure.details?.length
+                      ? failure.details
+                          .map(
+                            (d: { message?: string; path?: string }) =>
+                              d.message || `${d.path} is invalid`,
+                          )
+                          .join('. ')
+                      : errorMessage(failure, SCHEDULE_ERRORS)}
             </Callout>
             {conflict ? (
               <Input

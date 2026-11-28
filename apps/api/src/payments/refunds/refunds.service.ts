@@ -21,7 +21,8 @@ type Body = z.output<typeof RefundPaymentRequest>;
  * Refunds (docs/api/invoices.yaml, "Refund"), Owner and Admin. The payment row is locked; Stripe
  * gets the payment intent, the amount, `metadata.refund_key` and an idempotency key made of the
  * firm, the payment and the dialog's key, so a double click or a retry refunds once. The refund is
- * PENDING until `charge.refunded` confirms it. The payment intent's refunds at Stripe are looked
+ * PENDING until `charge.refunded` confirms it (a bank payment: `refund.updated`, Q23; in full
+ * only). The payment intent's refunds at Stripe are looked
  * up by `metadata.refund_key` before any is made (no column keeps the key), so a retry of a
  * refund already made answers the invoice as it is, even after Stripe's 24-hour key window. At
  * most three Stripe calls run under the row lock (CHECKOUT_LIMITS).
@@ -75,11 +76,20 @@ export class RefundsService {
         let made: StripeRefund | null =
           theirs.find((r) => r.refundKey === body.idempotencyKey) ?? null;
         if (!made) {
-          const refundable = payment.amountCents - payment.refundReservedCents;
+          // Q22: the tip is refundable with the payment (the database caps it the same way).
+          const refundable = payment.amountCents + payment.tipCents - payment.refundReservedCents;
           if (payment.status !== 'SUCCEEDED' || body.amountCents > refundable) {
             throw payment.status === 'SUCCEEDED'
               ? conflict('REFUND_TOO_LARGE', INVOICE_ERRORS.REFUND_TOO_LARGE)
               : conflict('NOT_REFUNDABLE', INVOICE_ERRORS.NOT_REFUNDABLE);
+          }
+          // Q23 (IP-041): a bank payment (ACH) is refunded in full only, once (the lead's call:
+          // its refund comes back days later, and refund.updated confirms it).
+          if (
+            payment.methodType === 'us_bank_account' &&
+            (payment.refundReservedCents > 0 || body.amountCents !== refundable)
+          ) {
+            throw conflict('BANK_REFUND_FULL_ONLY', INVOICE_ERRORS.BANK_REFUND_FULL_ONLY);
           }
           made = await stripe
             .createRefund(

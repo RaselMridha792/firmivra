@@ -235,7 +235,10 @@ export class AutomationsOverviewService {
   // ---------- Settings ----------
 
   private async settingsView(ctx: AutoCtx): Promise<AutomationSettingsView> {
-    const names = await memberNames(ctx.tx, ctx.businessId, ctx.settings.failureAlertUserIds);
+    const names = await memberNames(ctx.tx, ctx.businessId, [
+      ...ctx.settings.failureAlertUserIds,
+      ...(ctx.settings.pausedByUserId ? [ctx.settings.pausedByUserId] : []),
+    ]);
     return {
       quietHours: ctx.settings.quietHours,
       defaultDedupeDays: ctx.settings.defaultDedupeDays,
@@ -248,6 +251,11 @@ export class AutomationsOverviewService {
       logRetentionDays: ctx.settings.logRetentionDays,
       timezone: ctx.timezone,
       manualConfirmationEnabled: ctx.settings.manualConfirmationEnabled,
+      missedRunPolicy: ctx.settings.missedRunPolicy,
+      missedRunWindowDays: ctx.settings.missedRunWindowDays,
+      conflictPolicy: ctx.settings.conflictPolicy,
+      pausedAt: ctx.settings.pausedAt?.toISOString() ?? null,
+      pausedBy: ctx.settings.pausedByUserId ? memberRef(names, ctx.settings.pausedByUserId) : null,
       updatedAt: ctx.settings.updatedAt?.toISOString() ?? null,
     };
   }
@@ -260,6 +268,55 @@ export class AutomationsOverviewService {
     return this.run(businessId, tenant, userId, (ctx) => this.settingsView(ctx));
   }
 
+  pauseFirm(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+  ): Promise<AutomationSettingsView> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.admin) throw autoErrors.forbidden();
+      if (!ctx.settings.pausedAt) {
+        const pausedAt = new Date();
+        await ctx.tx.automationSettings.upsert({
+          where: { businessId },
+          create: { businessId, pausedAt, pausedByUserId: userId },
+          update: { pausedAt, pausedByUserId: userId },
+        });
+        await this.audit.logIn(
+          ctx.tx,
+          'automation_settings.paused',
+          { type: 'automation_settings' },
+          { pausedAt: pausedAt.toISOString() },
+        );
+      }
+      return this.settingsView(await this.read.ctx(ctx.tx, businessId, tenant, userId));
+    });
+  }
+
+  resumeFirm(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+  ): Promise<AutomationSettingsView> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.admin) throw autoErrors.forbidden();
+      if (ctx.settings.pausedAt) {
+        await ctx.tx.automationSettings.upsert({
+          where: { businessId },
+          create: { businessId },
+          update: { pausedAt: null, pausedByUserId: null },
+        });
+        await this.audit.logIn(
+          ctx.tx,
+          'automation_settings.resumed',
+          { type: 'automation_settings' },
+          { pausedAt: ctx.settings.pausedAt.toISOString() },
+        );
+      }
+      return this.settingsView(await this.read.ctx(ctx.tx, businessId, tenant, userId));
+    });
+  }
+
   saveSettings(
     businessId: string,
     tenant: TenantContext,
@@ -270,6 +327,13 @@ export class AutomationsOverviewService {
       if (!ctx.perms.manage) throw autoErrors.forbidden();
       // AU-F29: only an Owner or Admin turns Manual Event Confirmation on or off.
       if (body.manualConfirmationEnabled !== undefined && !ctx.perms.admin)
+        throw autoErrors.forbidden();
+      if (
+        (body.missedRunPolicy !== undefined ||
+          body.missedRunWindowDays !== undefined ||
+          body.conflictPolicy !== undefined) &&
+        !ctx.perms.admin
+      )
         throw autoErrors.forbidden();
       const { tx } = ctx;
       if (body.failureAlertUserIds?.length) {
@@ -305,6 +369,11 @@ export class AutomationsOverviewService {
         ...(body.manualConfirmationEnabled !== undefined
           ? { manualConfirmationEnabled: body.manualConfirmationEnabled }
           : {}),
+        ...(body.missedRunPolicy !== undefined ? { missedRunPolicy: body.missedRunPolicy } : {}),
+        ...(body.missedRunWindowDays !== undefined
+          ? { missedRunWindowDays: body.missedRunWindowDays }
+          : {}),
+        ...(body.conflictPolicy !== undefined ? { conflictPolicy: body.conflictPolicy } : {}),
       };
       await tx.automationSettings.upsert({
         where: { businessId },
@@ -325,6 +394,9 @@ export class AutomationsOverviewService {
             'minutesSavedPerAction',
             'logRetentionDays',
             'manualConfirmationEnabled',
+            'missedRunPolicy',
+            'missedRunWindowDays',
+            'conflictPolicy',
           ]),
           ...(body.manualConfirmationEnabled !== undefined &&
           body.manualConfirmationEnabled !== ctx.settings.manualConfirmationEnabled

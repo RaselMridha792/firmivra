@@ -172,6 +172,9 @@ export function TemplateMenu({
             </>
           }
         >
+          <DialogLead area="archive">
+            Deactivating makes it a draft again; what was already sent stays as it was.
+          </DialogLead>
           <p className="text-sm text-text" data-testid="deactivate-note">
             It goes back to draft: New Message, Communications and automations stop offering it
             until an Owner or Admin activates it again. What was already sent stays as it is.

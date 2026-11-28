@@ -4,16 +4,13 @@ import type { MyAppointment } from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
-import { today } from './shared';
+import { dayOf, today } from './shared';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /** 'YYYY-MM-DD' of a UTC-noon date (calendar arithmetic without time zones). */
 const iso = (date: Date) => date.toISOString().slice(0, 10);
 const atNoon = (day: string) => new Date(`${day}T12:00:00Z`);
-
-/** The appointment's date in the client's time zone. */
-const dayOf = (startsAt: string) => new Intl.DateTimeFormat('en-CA').format(new Date(startsAt));
 
 /** Every day shown for a month: whole weeks, Sunday first. */
 const weeksOf = (month: string) => {
@@ -48,18 +45,22 @@ const shift = (month: string, by: number) => {
  */
 export function MonthCalendar({
   appointments,
+  clientTimezone,
   onPickDay,
 }: {
   appointments: MyAppointment[];
+  clientTimezone?: string;
   onPickDay: (day: string) => void;
 }) {
-  const [now] = useState(today);
-  const [month, setMonth] = useState(now.slice(0, 7));
-  const scheduled = new Set(appointments.filter(isUpcoming).map((a) => dayOf(a.startsAt)));
+  const [now] = useState(() => today(clientTimezone));
+  const [month, setMonth] = useState(() => now.slice(0, 7));
+  const scheduled = new Set(
+    appointments.filter(isUpcoming).map((a) => dayOf(new Date(a.startsAt), clientTimezone)),
+  );
   const past = new Set(
     appointments
       .filter((a) => a.status !== 'CANCELLED' && !isUpcoming(a))
-      .map((a) => dayOf(a.startsAt)),
+      .map((a) => dayOf(new Date(a.startsAt), clientTimezone)),
   );
   const title = atNoon(`${month}-01`).toLocaleString('en-US', {
     month: 'long',

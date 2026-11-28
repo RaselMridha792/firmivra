@@ -12,6 +12,7 @@ import {
 } from '@firmivra/types';
 import { heldRoleId, type TeamContext } from './team-context.js';
 import {
+  executiveLocked,
   holds,
   isHr,
   orderKeys,
@@ -82,11 +83,13 @@ export function memberActions(ctx: TeamContext, target: Person): AdminTeamMember
   const a = ctx.actor;
   const ok = reach(a, ctx.chart, target) === 'OK';
   const waiting = target.status === 'PENDING_DEPARTMENT_HEAD_APPROVAL';
+  // SA-TEAM-F01: an executive's role and department move with the platform owner only.
+  const roleOpen = ok && !waiting && !executiveLocked(a, target);
   return {
     // Yourself: your name and phone only (every other flag stays false: you never reach yourself).
     edit: target.id === a.id || (ok && holds(a, ADMIN_TEAM_KEYS.EDIT)),
-    changeRole: ok && !waiting && holds(a, ADMIN_TEAM_KEYS.CHANGE_ROLE),
-    changeDepartment: ok && !waiting && holds(a, ADMIN_TEAM_KEYS.ASSIGN_DEPARTMENT),
+    changeRole: roleOpen && holds(a, ADMIN_TEAM_KEYS.CHANGE_ROLE),
+    changeDepartment: roleOpen && holds(a, ADMIN_TEAM_KEYS.ASSIGN_DEPARTMENT),
     changeStatus:
       ok && holds(a, ADMIN_TEAM_KEYS.DEACTIVATE) && statusTargets(target.status).length > 0,
     customizePermissions: ok && holds(a, ADMIN_TEAM_KEYS.CHANGE_PERMISSIONS),

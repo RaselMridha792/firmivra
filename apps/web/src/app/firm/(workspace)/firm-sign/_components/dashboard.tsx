@@ -98,42 +98,39 @@ interface Tile {
   soon?: true;
 }
 
-/** The mockup's five ways to start. Each opens the step it names. */
+/** The mockup's five ways to start with distinct labels and short explanations (FS-D02). */
 const TILES: Tile[] = [
   {
     title: 'New Signature Request',
-    text: 'Start from scratch',
+    text: 'Start fresh with custom files and recipients',
     icon: Plus,
     href: '/firm-sign/new',
     primary: true,
   },
   {
     title: 'Upload Document',
-    text: 'PDF, Word, and more',
+    text: 'Upload PDF or Word files to send for signature',
     icon: Upload,
-    // A new request opens on its documents step, where files are uploaded.
     href: '/firm-sign/new',
   },
   {
     title: 'Use Template',
-    text: 'Saved templates',
+    text: 'Send a document from your saved firm templates',
     icon: FileText,
     href: '/firm-sign/templates',
   },
   {
     title: 'Upload a Template',
-    text: 'Create and save for future use',
+    text: 'Prepare a document to save as a reusable template',
     icon: CloudUpload,
-    // A template starts as a prepared request, saved with Save as template.
     href: '/firm-sign/new',
   },
-  // Until the client record has its Send for Signature button (Fahad, F06).
+  // Client record entry point (FS-003): keyboard-accessible route to client selection.
   {
     title: 'Send from Client Record',
-    text: 'Quick send',
+    text: 'Select an existing client to prepare documents',
     icon: Users,
     href: '/clients',
-    soon: true,
   },
 ];
 

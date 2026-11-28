@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -38,7 +38,9 @@ import {
 import type { z } from 'zod';
 import { isUniqueViolation } from '../appointments/errors.js';
 import { AuditService } from '../audit/audit.service.js';
+import { PlatformPrisma } from '../database/database.module.js';
 import { AdminPrisma } from '../firm-applications/admin-prisma.js';
+import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../storage/config.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import {
   DOCUMENT_STORAGE,
@@ -106,6 +108,8 @@ export class CommBroadcastsService {
     private readonly audit: AuditService,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
     @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
+    private readonly platform: PlatformPrisma,
+    @Inject(DOCUMENTS_CONFIG) private readonly config: DocumentsConfig,
   ) {}
 
   // ---------- Broadcasts ----------
@@ -769,6 +773,47 @@ export class CommBroadcastsService {
         headers: ticket.headers,
         expiresAt: new Date(Date.now() + PUT_URL_SECONDS * 1000).toISOString(),
       };
+    });
+  }
+
+  /**
+   * After the browser's PUT (SA-COM-R1/R3): the stored bytes must be the ticket's file (size and
+   * SHA-256), else the object is removed and the row stays PENDING for good (409 UPLOAD_MISMATCH). With
+   * SCAN_MODE=local (development, test and the dev site) the file is CLEAN at once; else it waits
+   * for the scan. Only a PENDING file is checked; a checked one answers as it is.
+   */
+  async confirmMedia(id: string): Promise<AdminCommMedia> {
+    const row = await this.admin.transaction((tx) =>
+      tx.commMedia.findUnique({
+        where: { id },
+        select: { ...mediaSelect, s3Key: true, sha256: true },
+      }),
+    );
+    if (!row) throw broadcastFailure('NOT_FOUND');
+    if (row.scanStatus === 'PENDING') {
+      const bytes = await this.storage.read(row.s3Key).catch(() => null);
+      const ok =
+        !!bytes &&
+        bytes.byteLength === row.sizeBytes &&
+        createHash('sha256').update(bytes).digest('hex') === row.sha256;
+      if (!ok) {
+        // The row stays PENDING (files are kept, never deleted) and so is never usable.
+        await this.storage.remove(row.s3Key).catch(() => undefined);
+        throw new ConflictException({
+          code: 'UPLOAD_MISMATCH',
+          message: 'The stored file is not the one that was described. Upload it again.',
+        });
+      }
+      // Locally the file is scanned at once; only platform scope sets a scan result, once.
+      if (this.config.scanMode === 'local')
+        await this.platform.db.commMedia.updateMany({
+          where: { id, scanStatus: 'PENDING' },
+          data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+        });
+    }
+    return this.admin.transaction(async (tx) => {
+      const fresh = await tx.commMedia.findUniqueOrThrow({ where: { id }, select: mediaSelect });
+      return (await this.shapeMedia(tx, [fresh]))[0]!;
     });
   }
 

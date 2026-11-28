@@ -22,6 +22,7 @@ import {
   EyeSlash,
   Flag,
   ListChecks,
+  NotePencil,
   PencilSimple,
   Play,
   Plus,
@@ -432,6 +433,8 @@ export function ActionItemsSection({ advisoryClientId: fixed }: { advisoryClient
   };
   const visibility = (label: string, on: boolean, work: (v: boolean) => Promise<unknown>) =>
     visibilityItem(ask, label, on, work);
+  // A-X11 (B30): the item whose progress notes are open.
+  const [notesFor, setNotesFor] = useState<AdvisoryActionItemRow>();
   const taskCols: Column<AdvisoryActionItemRow>[] = [
     {
       id: 'title',
@@ -604,12 +607,24 @@ export function ActionItemsSection({ advisoryClientId: fixed }: { advisoryClient
                     ),
                   ],
                 },
+                {
+                  items: [
+                    {
+                      label: 'Progress Notes',
+                      icon: NotePencil,
+                      onSelect: () => setNotesFor(a),
+                    },
+                  ],
+                },
               ]}
             />
           )}
           server={serverPaging(tasks.data, SIZE, taskPage, setTaskPage)}
         />
       </section>
+      {notesFor ? (
+        <ProgressNotesDialog item={notesFor} onClose={() => setNotesFor(undefined)} onAdded={say} />
+      ) : null}
       {adding ? (
         <AddActionItemDialog
           {...(clientId ? { advisoryClientId: clientId } : {})}
@@ -1014,6 +1029,122 @@ export function AddActionItemDialog({
           checked={visible}
           onChange={(e) => setVisible(e.target.checked)}
         />
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * A-X11 (Business Advisory Review Two, B30): an action item's progress notes, newest first, each
+ * with the item's status then, who wrote it and when; and a note to add, with the item's new
+ * status when it changes. Notes are kept: never edited or deleted. The firm's only.
+ */
+function ProgressNotesDialog({
+  item,
+  onClose,
+  onAdded,
+}: {
+  item: AdvisoryActionItemRow;
+  onClose: () => void;
+  onAdded: (text: string) => void;
+}) {
+  const qc = useQueryClient();
+  const notes = useApiQuery([...BA_KEY, 'action-notes', item.id], () =>
+    api.advisory.actionNotes(item.id),
+  );
+  const [current, setCurrent] = useState<string>(item.status);
+  const [status, setStatus] = useState<string>(item.status);
+  const [body, setBody] = useState('');
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    setError(undefined);
+    try {
+      await api.advisory.addActionNote(item.id, {
+        body: body.trim(),
+        ...(status !== current ? { status: status as never } : {}),
+      });
+      await qc.invalidateQueries({ queryKey: [...BA_KEY] });
+      onAdded(
+        status !== current
+          ? `Progress note added; ${item.title} is now ${ACTION_STATUS[status]?.toLowerCase() ?? status}.`
+          : `Progress note added to ${item.title}.`,
+      );
+      setCurrent(status);
+      setBody('');
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const items = notes.data?.items ?? [];
+  return (
+    <Modal
+      open
+      title="Progress Notes"
+      subtitle={item.title}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+          <Button disabled={!body.trim() || saving} onClick={() => void save()}>
+            Add Note
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3" data-testid="progress-notes">
+        <ErrorLine text={error} />
+        <Textarea
+          label="Progress note *"
+          rows={3}
+          maxLength={2000}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+        <Select
+          label="Status"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          options={Object.entries(ACTION_STATUS).map(([value, label]) => ({ value, label }))}
+        />
+        <section aria-label="Progress history" className="flex flex-col gap-1">
+          <h3 className="text-sm font-semibold text-heading">History</h3>
+          {items.length ? (
+            <ol className="divide-y divide-divider" data-testid="progress-history">
+              {items.map((n) => (
+                <li key={n.id} className="flex flex-col gap-1 py-2 text-sm">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <ActionStatusPill status={n.status} />
+                    <span className="text-muted">
+                      {n.author?.name ?? 'A former member'},{' '}
+                      {new Date(n.at).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </span>
+                  <p className="whitespace-pre-wrap text-text">{n.body}</p>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-sm text-muted">
+              {notes.isError
+                ? 'The notes are not available right now.'
+                : notes.isPending
+                  ? 'Loading…'
+                  : 'No progress notes yet.'}
+            </p>
+          )}
+        </section>
       </div>
     </Modal>
   );

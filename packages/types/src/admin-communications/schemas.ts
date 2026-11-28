@@ -10,6 +10,7 @@ import {
   CommMessageStatus,
   CommRecipientKind,
   CommTemplateStatus,
+  ScanStatus,
 } from '../db-enums.js';
 
 // Super Admin Communications, the inbox (R0 stage B6, contract note
@@ -128,6 +129,43 @@ export const AdminCommRecipient = z.object({
 });
 export type AdminCommRecipient = z.infer<typeof AdminCommRecipient>;
 
+// ---------- Attachments (SA-COM-R1, R3) ----------
+
+/** The most files one email message or template carries. */
+export const ADMIN_COMM_ATTACHMENTS_MAX = 10;
+/** The most bytes one email's files add up to (each file is at most ADMIN_COMM_MEDIA_MAX_BYTES). */
+export const ADMIN_COMM_ATTACHMENTS_MAX_BYTES = 10 * 1024 * 1024;
+/** What an email attachment may be: documents, spreadsheets, images and plain text. */
+export const ADMIN_COMM_ATTACHMENT_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  'text/plain',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+] as const;
+
+/** A library file attached to an email message or template; only CLEAN files go out. */
+export const AdminCommAttachment = z.object({
+  id: z.uuid(),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int().min(1),
+  scanStatus: ScanStatus,
+});
+export type AdminCommAttachment = z.infer<typeof AdminCommAttachment>;
+
+/** Library files (kind ATTACHMENT, scanned CLEAN) to send as attachments; email only. */
+const AttachmentIds = z
+  .array(z.uuid())
+  .max(ADMIN_COMM_ATTACHMENTS_MAX, `Attach at most ${ADMIN_COMM_ATTACHMENTS_MAX} files`)
+  .refine((ids) => new Set(ids).size === ids.length, 'A file is attached twice');
+
 export const AdminCommMessage = z.object({
   id: AdminCommMessageId,
   conversationId: AdminCommConversationId,
@@ -153,6 +191,8 @@ export const AdminCommMessage = z.object({
   /** Set when the message is part of a broadcast. */
   broadcastId: z.uuid().nullable(),
   recipients: z.array(AdminCommRecipient),
+  /** Email only: the files it carries as attachments (SA-COM-R1). */
+  attachments: z.array(AdminCommAttachment),
   /** Internal notes: the team members mentioned. */
   mentions: z.array(MemberRef),
   createdAt: DateTime,
@@ -180,9 +220,12 @@ const contentRules = (
     body?: string | undefined;
     cc?: unknown[] | undefined;
     bcc?: unknown[] | undefined;
+    attachmentIds?: unknown[] | undefined;
   },
   ctx: z.RefinementCtx,
 ) => {
+  if (b.channel && b.channel !== 'EMAIL' && (b.attachmentIds?.length ?? 0) > 0)
+    ctx.addIssue({ code: 'custom', path: ['attachmentIds'], message: 'Files go on email only' });
   if (b.channel === 'SMS' && b.body && b.body.length > ADMIN_COMM_SMS_MAX)
     ctx.addIssue({
       code: 'custom',
@@ -210,6 +253,7 @@ export const CreateAdminCommMessageRequest = z
     cc: Emails.optional(),
     bcc: Emails.optional(),
     mentionUserIds: z.array(z.uuid()).max(20).optional(),
+    attachmentIds: AttachmentIds.optional(),
     mode: AdminCommSendMode,
     ...Schedule,
     idempotencyKey: z.uuid(),
@@ -239,6 +283,8 @@ export const UpdateAdminCommMessageRequest = z
     templateId: AdminCommTemplateId.nullable().optional(),
     cc: Emails.optional(),
     bcc: Emails.optional(),
+    /** The whole list: files left out are detached. Email only (409 NOT_EDITABLE otherwise). */
+    attachmentIds: AttachmentIds.optional(),
   })
   .refine((b) => Object.keys(b).length > 0, 'Change at least one thing');
 export type UpdateAdminCommMessageRequest = z.input<typeof UpdateAdminCommMessageRequest>;
@@ -392,6 +438,8 @@ export const AdminCommTemplate = z.object({
   body: z.string(),
   /** The merge fields the subject and body use, from `ADMIN_COMM_MERGE_FIELDS`. */
   mergeFields: z.array(z.string()),
+  /** Email only: files saved with the template, attached when it is used (SA-COM-R3). */
+  attachments: z.array(AdminCommAttachment),
   createdBy: MemberRef.nullable(),
   updatedBy: MemberRef.nullable(),
   createdAt: DateTime,
@@ -417,9 +465,12 @@ const templateRules = (
     channel?: string | undefined;
     subject?: string | null | undefined;
     body?: string | undefined;
+    attachmentIds?: unknown[] | undefined;
   },
   ctx: z.RefinementCtx,
 ) => {
+  if (b.channel === 'SMS' && (b.attachmentIds?.length ?? 0) > 0)
+    ctx.addIssue({ code: 'custom', path: ['attachmentIds'], message: 'Files go on email only' });
   if (b.channel === 'EMAIL' && !b.subject)
     ctx.addIssue({
       code: 'custom',
@@ -444,6 +495,7 @@ export const CreateAdminCommTemplateRequest = z
     channel: AdminCommTemplateChannel,
     subject: z.string().trim().max(250).optional(),
     body: z.string().trim().min(1, 'Write the template').max(ADMIN_COMM_BODY_MAX),
+    attachmentIds: AttachmentIds.optional(),
     status: z.enum(['ACTIVE', 'INACTIVE']).optional().default('ACTIVE'),
   })
   .superRefine(templateRules);
@@ -456,6 +508,8 @@ export const UpdateAdminCommTemplateRequest = z
     name: oneLine(120, 'Name the template').optional(),
     subject: z.string().trim().max(250).nullable().optional(),
     body: z.string().trim().min(1, 'Write the template').max(ADMIN_COMM_BODY_MAX).optional(),
+    /** The whole list: files left out are detached. Email templates only. */
+    attachmentIds: AttachmentIds.optional(),
     status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
   })
   .refine((b) => Object.keys(b).length > 0, 'Change at least one thing');
@@ -518,6 +572,10 @@ export const AdminCommErrorCode = z.enum([
   'NOT_A_TEAM_MEMBER',
   /** This idempotency key was used for another message. */
   'IDEMPOTENCY_CONFLICT',
+  /** SA-COM-R1/R3: a file is not an attachment, still being checked, or failed the check. */
+  'ATTACHMENT_NOT_USABLE',
+  /** SA-COM-R1/R3: the files add up to more than ADMIN_COMM_ATTACHMENTS_MAX_BYTES. */
+  'ATTACHMENTS_TOO_LARGE',
 ]);
 export type AdminCommErrorCode = z.infer<typeof AdminCommErrorCode>;
 
@@ -537,4 +595,7 @@ export const ADMIN_COMM_ERRORS: Readonly<Record<AdminCommErrorCode, string>> = {
   SYSTEM_CATEGORY: 'The built-in categories keep their names.',
   NOT_A_TEAM_MEMBER: 'Choose someone on the Firmivra team.',
   IDEMPOTENCY_CONFLICT: 'This send was already used for another message. Reload and try again.',
+  ATTACHMENT_NOT_USABLE:
+    "A file isn't ready to send: it is still being checked, failed the check, or isn't an attachment. Remove it or upload it again.",
+  ATTACHMENTS_TOO_LARGE: 'The files add up to more than 10 MB. Remove a file to send.',
 };

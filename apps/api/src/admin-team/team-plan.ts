@@ -27,6 +27,7 @@ import {
   assignableScopes,
   departmentAllowed,
   holds,
+  isExecutive,
   keyDiff,
   levelNumber,
   overridesFor,
@@ -254,6 +255,8 @@ export function planChange(
     if (!departmentAllowed(actor, role.departmentId)) return { refused: 'DEPARTMENT_NOT_ALLOWED' };
     // Approval is for hires only: an existing member never waits for the department head.
     if (roleGate(actor, role) !== 'direct') return { refused: 'ROLE_CEILING' };
+    // SA-TEAM-F01: moving someone out of an executive role is the platform owner's too.
+    if (isExecutive(held.level) && !actor.owner) return { refused: 'ROLE_CEILING' };
   }
   if (
     scopeGiven &&

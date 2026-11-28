@@ -161,6 +161,19 @@ function buildRows(empty: boolean) {
     const amount = (300 + ((i * 137) % 1800)) * 100;
     const state = i % 7;
     const paid = state === 5 ? Math.round(amount / 2) : state === 6 || state === 4 ? 0 : amount;
+    const overdueDays = Math.max(0, Math.round(i * 1.5) - 10);
+    const agingBucket =
+      paid >= amount
+        ? 'Current'
+        : overdueDays <= 0
+          ? 'Current'
+          : overdueDays <= 30
+            ? '1–30 Days'
+            : overdueDays <= 60
+              ? '31–60 Days'
+              : overdueDays <= 90
+                ? '61–90 Days'
+                : '90+ Days';
     rows.invoices_payments!.push({
       invoiceNumber: `INV-${1001 + i}`,
       clientName: NAMES[i % NAMES.length]!,
@@ -172,6 +185,7 @@ function buildRows(empty: boolean) {
       balanceDue: amount - paid,
       paymentStatus:
         paid === amount ? 'Paid' : paid === 0 ? (state === 6 ? 'Unpaid' : 'Overdue') : 'Partial',
+      agingBucket,
     });
     // IP-F22: the payment of that invoice, Stripe's (card, ACH) or recorded by hand (cash, check).
     if (paid > 0) {
@@ -189,7 +203,10 @@ function buildRows(empty: boolean) {
       });
     }
   }
-  for (let i = 0; i < 48; i += 1) {
+  for (let i = 0; i < 25; i += 1) {
+    const lifecycleStage =
+      i % 9 === 0 ? 'Inactive' : i < 5 ? 'Lead' : i < 10 ? 'Onboarding' : 'Active';
+    const primaryService = SERVICES[i % SERVICES.length]!;
     rows.clients!.push({
       clientName: `${NAMES[i % NAMES.length]} ${i < 12 ? '' : i}`.trim(),
       clientType: i % 3 === 0 ? 'Individual' : 'Business',
@@ -197,6 +214,8 @@ function buildRows(empty: boolean) {
       createdAt: at(i * 7),
       assignedTo: STAFF[i % STAFF.length]!,
       services: 1 + (i % 3),
+      primaryService,
+      lifecycleStage,
     });
   }
   const ST = ['Filed', 'Accepted', 'Pending', 'Rejected'];
@@ -210,24 +229,10 @@ function buildRows(empty: boolean) {
       refund: ((i * 211) % 4000) * 100,
     });
   }
-  for (let i = 0; i < 24; i += 1) {
-    rows.bookkeeping!.push({
-      clientName: NAMES[i % NAMES.length]!,
-      software: ['QuickBooks Online', 'Xero', 'FreshBooks'][i % 3]!,
-      status: ['On Track', 'Needs Attention', 'Overdue'][i % 3]!,
-      updatedAt: at(i * 3),
-      transactions: 120 + i * 9,
-    });
-  }
-  for (let i = 0; i < 18; i += 1) {
-    rows.payroll!.push({
-      clientName: NAMES[i % NAMES.length]!,
-      employees: 3 + (i % 9),
-      payrollTotal: (4000 + i * 530) * 100,
-      status: i % 6 === 0 ? 'Processing' : 'On Track',
-      runDate: at(i * 8),
-    });
-  }
+  // R03: Bookkeeping, Payroll and Communications have no connected live provider yet (zero fake data).
+  rows.bookkeeping = [];
+  rows.payroll = [];
+  rows.communications = [];
   const SRC = ['Website', 'Referral', 'Social Media', 'Event', 'Google Ads'];
   for (let i = 0; i < 60; i += 1) {
     rows.leads!.push({
@@ -236,16 +241,6 @@ function buildRows(empty: boolean) {
       status: ['New', 'Contacted', 'Appointment', 'Converted'][i % 4]!,
       createdAt: at(i * 3),
       value: (500 + (i % 7) * 300) * 100,
-    });
-  }
-  for (let i = 0; i < 16; i += 1) {
-    rows.communications!.push({
-      campaign: `Campaign ${i + 1}`,
-      channel: i % 3 ? 'Email' : 'Text',
-      sent: 200 + i * 17,
-      opened: 90 + i * 8,
-      clicked: 30 + i * 3,
-      sentAt: at(i * 9),
     });
   }
   // SM3: the team as it stands (the API's Staff & Team source).
@@ -359,6 +354,11 @@ function sources(): Record<string, SourceDef> {
         fld('method', 'Payment Method', 'TEXT'),
         fld('processor', 'Processor', 'TEXT'),
         fld('paidOn', 'Paid Date', 'DATE', { groupable: false }),
+        fld('refunds', 'Refunds', 'MONEY'),
+        fld('fees', 'Processing Fees', 'MONEY'),
+        fld('discounts', 'Discounts', 'MONEY'),
+        fld('taxAllocation', 'Tax Allocation', 'MONEY'),
+        fld('recognizedRevenue', 'Recognized Revenue', 'MONEY'),
       ],
       ['invoice', 'client', 'amount', 'method', 'paidOn'],
       'paidOn',
@@ -399,6 +399,14 @@ function sources(): Record<string, SourceDef> {
         fld('paymentStatus', 'Payment Status', 'STATUS', {
           options: opts('Paid', 'Partial', 'Unpaid', 'Overdue'),
         }),
+        fld('agingBucket', 'Aging Bucket', 'STATUS', {
+          options: opts('Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days'),
+        }),
+        fld('refunds', 'Refunds', 'MONEY'),
+        fld('fees', 'Processing Fees', 'MONEY'),
+        fld('discounts', 'Discounts', 'MONEY'),
+        fld('taxAllocation', 'Tax Allocation', 'MONEY'),
+        fld('recognizedRevenue', 'Recognized Revenue', 'MONEY'),
       ],
       [
         'clientName',
@@ -458,6 +466,10 @@ function sources(): Record<string, SourceDef> {
         fld('createdAt', 'Client Since', 'DATE'),
         fld('assignedTo', 'Assigned To', 'STATUS', { options: opts(...STAFF) }),
         fld('services', 'Services', 'NUMBER'),
+        fld('primaryService', 'Primary Service', 'STATUS', { options: opts(...SERVICES) }),
+        fld('lifecycleStage', 'Lifecycle Stage', 'STATUS', {
+          options: opts('Lead', 'Onboarding', 'Active', 'Inactive'),
+        }),
       ],
       ['clientName', 'clientType', 'status', 'createdAt', 'assignedTo'],
       'createdAt',
@@ -763,6 +775,27 @@ const SYSTEM: {
     groupBy: null,
   },
   {
+    key: 'revenue-by-service',
+    name: 'Revenue by Service',
+    description: 'Revenue grouped by service category.',
+    category: 'FINANCIAL',
+    source: 'invoices_payments',
+    groupBy: 'serviceCategory',
+    columns: ['serviceCategory', 'amount', 'amountPaid'],
+    showTotals: true,
+  },
+  {
+    key: 'ar-aging',
+    name: 'AR Aging',
+    description:
+      'Unpaid invoices bucketed by days overdue (Current, 1–30, 31–60, 61–90, 90+ days).',
+    category: 'FINANCIAL',
+    source: 'invoices_payments',
+    groupBy: 'agingBucket',
+    columns: ['agingBucket', 'balanceDue', 'amount'],
+    showTotals: true,
+  },
+  {
     key: 'new-clients-month',
     name: 'New Clients This Month',
     description: 'Clients added in the range.',
@@ -778,6 +811,26 @@ const SYSTEM: {
     source: 'clients',
     groupBy: 'status',
     columns: ['status', 'services'],
+  },
+  {
+    key: 'clients-by-service',
+    name: 'Clients by Service',
+    description: 'Clients grouped by primary service.',
+    category: 'CLIENT',
+    source: 'clients',
+    groupBy: 'primaryService',
+    columns: ['primaryService', 'services'],
+    showTotals: true,
+  },
+  {
+    key: 'client-lifecycle',
+    name: 'Client Lifecycle',
+    description: 'Clients grouped by lifecycle stage (Lead, Onboarding, Active, Inactive).',
+    category: 'CLIENT',
+    source: 'clients',
+    groupBy: 'lifecycleStage',
+    columns: ['lifecycleStage', 'services'],
+    showTotals: true,
   },
   {
     key: 'returns-by-filing-status',
@@ -938,6 +991,25 @@ const shiftRange = (
 const delta = (a: number | null, b: number | null) =>
   a === null || b === null || b === 0 ? null : Math.round(((a - b) / Math.abs(b)) * 1000) / 10;
 
+const SAVED_STORAGE_KEY = 'firmivra-mock:saved-reports';
+const loadSavedReports = (): SavedReportDetail[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = sessionStorage.getItem(SAVED_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as SavedReportDetail[]) : [];
+  } catch {
+    return [];
+  }
+};
+const persistSavedReports = (list: SavedReportDetail[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    // ignore
+  }
+};
+
 export function createReportsMock({ role = 'OWNER', empty = false }: Options = {}): ReportsClient {
   let next = 4000;
   const id = (block: string) => uuid(block, next++);
@@ -958,7 +1030,8 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
     timezone: 'America/New_York',
     updatedAt: null,
   };
-  const savedReports: SavedReportDetail[] = [];
+  if (empty) persistSavedReports([]);
+  const savedReports: SavedReportDetail[] = empty ? [] : loadSavedReports();
   const schedules: ReportScheduleDetail[] = [];
   const recent: RecentReportRow[] = [];
   const runs = new Map<string, ReportRunStatusView>();
@@ -1401,9 +1474,11 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       );
     list = [];
     const total = tableRows.length;
+    const maxPage = Math.max(1, Math.ceil(total / q.pageSize));
+    const effectivePage = !q.preview && total > 0 && q.page > maxPage ? 1 : q.page;
     const pageRows = q.preview
       ? tableRows.slice(0, 10)
-      : tableRows.slice((q.page - 1) * q.pageSize, q.page * q.pageSize);
+      : tableRows.slice((effectivePage - 1) * q.pageSize, effectivePage * q.pageSize);
     // As the API words them (RP-F09): money in dollars, a range as "between A and B".
     const chips = [
       ...(d.filters.conditions as { field: string; op: string; value?: unknown }[]),
@@ -1440,6 +1515,28 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         owner: person,
         at: nowIso(),
       });
+    const notices: string[] = [];
+    if (['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(d.category)) {
+      notices.push(
+        d.category === 'BOOKKEEPING'
+          ? 'Not Connected: Accounting software is not connected yet. Connect QuickBooks Online or Xero in Integrations.'
+          : d.category === 'PAYROLL'
+            ? 'Not Connected: Payroll provider is not connected yet. Connect Gusto or ADP in Integrations.'
+            : 'Not Connected: Messaging provider is not connected yet. Connect Twilio or SendGrid in Integrations.',
+      );
+    }
+    if (d.dataSource === 'clients' && d.groupBy === 'status') {
+      const allClients = rows['clients'] ?? [];
+      if (cur.length < allClients.length) {
+        notices.push(
+          `Date Filtered: Showing ${cur.length} clients created in this date range (of ${allClients.length} total active clients).`,
+        );
+      } else {
+        notices.push(
+          `All Active Clients: Showing all ${allClients.length} active clients across all statuses (matches overview Total Clients).`,
+        );
+      }
+    }
     return {
       title,
       target,
@@ -1447,12 +1544,12 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       definition: d,
       range,
       comparisonRange: cmpRange,
-      notices: [],
+      notices,
       kpis,
       chart,
-      breakdown: breakdownChart(src, cur, q.breakdownBy),
+      breakdown: breakdownChart(src, cur, q.breakdownBy ?? d.groupBy ?? undefined),
       chips,
-      table: { columns, rows: pageRows, totals, total, page: q.page, pageSize: q.pageSize },
+      table: { columns, rows: pageRows, totals, total, page: effectivePage, pageSize: q.pageSize },
       insights: insightsOf(src, cur, kpis, range),
       preview: !!q.preview,
       generatedAt: nowIso(),
@@ -1610,6 +1707,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       etag: `e${next++}`,
     };
     savedReports.unshift(r);
+    persistSavedReports(savedReports);
     return r;
   };
   const findSaved = (sid: string) => {
@@ -1642,10 +1740,18 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         const cmp = cmpMode === 'NONE' ? null : shiftRange(range, cmpMode);
         const card = (key: string, source: string, kpiKey: string, label: string) => {
           const src = srcs[source]!;
-          const cur = apply(src, defOf(key), range);
-          const prev = cmp ? apply(src, defOf(key), cmp) : null;
+          const isTotalClients = kpiKey === 'total-clients' || kpiKey === 'total_clients';
+          const cur = isTotalClients ? (rows['clients'] ?? []) : apply(src, defOf(key), range);
+          const prev = isTotalClients ? null : cmp ? apply(src, defOf(key), cmp) : null;
           const k = kpisOf(src, cur, prev).find((x) => x.key === kpiKey)!;
-          return { ...k, label, reportKey: key };
+          return {
+            ...k,
+            label,
+            reportKey: key,
+            definition: isTotalClients
+              ? 'All non-archived clients (all-time roster).'
+              : k.definition,
+          };
         };
         const kpis = [
           card('client-retention', 'clients', 'total-clients', 'Total Clients'),
@@ -1656,13 +1762,14 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         const categories = (Object.keys(CATEGORY_LABEL) as Category[]).map((category) => {
           const s = SYSTEM.find((x) => x.category === category)!;
           const src = srcs[s.source]!;
-          const cur = apply(src, defOf(s.key), range);
-          const hk = kpisOf(src, cur, null)[0] ?? null;
+          const isDisconnected = ['BOOKKEEPING', 'PAYROLL', 'COMMUNICATIONS'].includes(category);
+          const cur = isDisconnected ? [] : apply(src, defOf(s.key), range);
+          const hk = isDisconnected ? null : (kpisOf(src, cur, null)[0] ?? null);
           return {
             category,
             label: CATEGORY_LABEL[category],
             headline: hk,
-            chart: breakdownChart(src, cur),
+            chart: isDisconnected ? null : breakdownChart(src, cur),
             reportKey: s.key,
             allowed: !(
               role === 'STAFF' &&
@@ -1861,6 +1968,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         if (input.definition) r.definition = viewOf(input.definition as never);
         r.etag = `e${next++}`;
         r.updatedAt = nowIso();
+        persistSavedReports(savedReports);
         return r;
       }),
     duplicateSaved: (sid, body = {}) =>
@@ -1882,6 +1990,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
           etag: `e${next++}`,
         };
         savedReports.unshift(c);
+        persistSavedReports(savedReports);
         return c;
       }),
     archiveSaved: (sid) =>
@@ -1889,6 +1998,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         manage();
         const r = findSaved(sid);
         r.archived = true;
+        persistSavedReports(savedReports);
         return r;
       }),
     restoreSaved: (sid) =>
@@ -1896,6 +2006,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         manage();
         const r = findSaved(sid);
         r.archived = false;
+        persistSavedReports(savedReports);
         return r;
       }),
     favorite: (sid) =>

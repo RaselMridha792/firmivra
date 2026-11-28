@@ -23,6 +23,7 @@ const ACTION_LABEL: Record<PlanAction, string> = {
   SEND_TO_CLIENT: 'Send to Client',
   REQUEST_INFORMATION: 'Request Information',
   RECORD_CLIENT_REQUEST: "Record Client's Request",
+  STAFF_SIGN_OFF: 'Staff Sign-off',
   START_REVISION: 'Start Revision',
   RECORD_APPROVAL: 'Record Client Approval',
   MARK_IMPLEMENTED: 'Mark Implemented',
@@ -96,6 +97,15 @@ export function PlanWorkflow({
     ],
     FINALIZE: [() => api.taxPlanning.finalize(plan.id, { etag: plan.etag }), 'Plan finalized.'],
   };
+  if (w.finalizedVersion !== null)
+    direct.STAFF_SIGN_OFF = [
+      () =>
+        api.taxPlanning.staffApprovePlan(plan.id, {
+          version: w.finalizedVersion!,
+          etag: plan.etag,
+        }),
+      'Staff sign-off recorded.',
+    ];
   const pick = (a: PlanAction) => {
     const d = direct[a];
     if (d) void run(...d);
@@ -185,6 +195,22 @@ export function PlanWorkflow({
               )
             }
           />
+          {w.staffApprovals.length > 0 ? (
+            <div data-testid="plan-staff-approvals">
+              <h3 className="mb-1 font-semibold text-heading">Staff sign-offs</h3>
+              <ul>
+                {w.staffApprovals.map((a) => (
+                  <li key={a.version} className="border-t border-divider py-1 first:border-t-0">
+                    <span className="text-heading">
+                      Version {a.version} signed off by {a.approvedBy?.name ?? 'a staff member'}
+                      {' · '}
+                      {dateTimeText(a.approvedAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {w.approvals.length > 0 ? (
             <div data-testid="plan-approvals">
               <h3 className="mb-1 font-semibold text-heading">Client approvals</h3>

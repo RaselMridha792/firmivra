@@ -74,7 +74,14 @@ function unavailable(action: FirmAccountAction, status: FirmRecord['status']): s
  * only; the API checks every action again) and the confirmation each action asks for: the firm by
  * name and a required reason. Cancel changes nothing. The firm page shows the API's answer.
  */
-export function FirmAccountActions({ firm }: { firm: FirmRecord }) {
+export function FirmAccountActions({
+  firm,
+  trigger = 'Actions',
+}: {
+  firm: FirmRecord;
+  /** The menu button's words (Billing: "Firm Account", next to the invoice's own menu). */
+  trigger?: string;
+}) {
   const client = useQueryClient();
   const reasonId = useId();
   const [action, setAction] = useState<FirmAccountAction | null>(null);
@@ -142,8 +149,8 @@ export function FirmAccountActions({ firm }: { firm: FirmRecord }) {
   return (
     <div className="flex flex-col items-end gap-2">
       <ActionMenu
-        label="Actions"
-        trigger="Actions"
+        label={trigger}
+        trigger={trigger}
         align="right"
         className="[&>button]:min-h-11 [&>button]:rounded-control [&>button]:border-border [&>button]:px-4"
         sections={[

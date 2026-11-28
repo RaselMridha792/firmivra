@@ -280,7 +280,10 @@ export function RecurringInvoices({ create }: { create: boolean }) {
               {row.clientName}
             </button>
           )}
-          <span className="text-muted">Client #{row.clientNumber}</span>
+          {/* SA-BIL-R1: a firm (the customer on the API) has no client number. */}
+          {row.clientNumber > 0 ? (
+            <span className="text-muted">Client #{row.clientNumber}</span>
+          ) : null}
         </div>
       ),
     },

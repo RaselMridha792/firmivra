@@ -87,6 +87,8 @@ interface Form {
   enabled: boolean;
   dedupe: boolean;
   dedupeDays: string;
+  missedPolicy: 'FIRM_DEFAULT' | 'RUN_ONCE' | 'SKIP' | 'REPLAY_WINDOW';
+  missedWindowDays: string;
   logAll: boolean;
   notifyMe: boolean;
   calendar: boolean;
@@ -146,6 +148,8 @@ const blank = (): Form => ({
   enabled: false,
   dedupe: true,
   dedupeDays: '7',
+  missedPolicy: 'FIRM_DEFAULT',
+  missedWindowDays: '7',
   logAll: true,
   notifyMe: true,
   calendar: false,
@@ -205,6 +209,8 @@ const fromDetail = (d: AutomationRuleDetail, catalog?: AutomationCatalog): Form 
           })),
           dedupe: v.settings.preventDuplicatesDays > 0,
           dedupeDays: String(v.settings.preventDuplicatesDays || 7),
+          missedPolicy: v.settings.missedRunPolicy ?? 'FIRM_DEFAULT',
+          missedWindowDays: String(v.settings.missedRunWindowDays ?? 7),
           logAll: v.settings.logAll,
           notifyMe: v.settings.notifyOnFailureUserIds.length > 0,
           calendar: v.settings.addToCalendar,
@@ -335,6 +341,14 @@ function Builder({
       ...(f.dedupe
         ? { preventDuplicatesDays: Number(f.dedupeDays) }
         : { preventDuplicatesDays: 0 }),
+      ...(f.missedPolicy === 'FIRM_DEFAULT'
+        ? { missedRunPolicy: null, missedRunWindowDays: null }
+        : {
+            missedRunPolicy: f.missedPolicy,
+            ...(f.missedPolicy === 'REPLAY_WINDOW'
+              ? { missedRunWindowDays: Number(f.missedWindowDays) }
+              : {}),
+          }),
       logAll: f.logAll,
       notifyOnFailureUserIds: f.notifyMe && members[0] ? [members[0].user.id] : [],
       addToCalendar: f.calendar,
@@ -1056,6 +1070,29 @@ function Builder({
                   className="min-h-9 w-16 rounded-control border border-border bg-surface px-2 text-sm disabled:bg-canvas"
                 />
                 <span className="text-sm text-text">days)</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Select
+                  label="Missed-run policy"
+                  value={f.missedPolicy}
+                  onChange={(e) => set({ missedPolicy: e.target.value as Form['missedPolicy'] })}
+                  options={[
+                    { value: 'FIRM_DEFAULT', label: 'Use firm default' },
+                    { value: 'RUN_ONCE', label: 'Run once on recovery' },
+                    { value: 'SKIP', label: 'Skip missed runs' },
+                    { value: 'REPLAY_WINDOW', label: 'Replay within a window' },
+                  ]}
+                />
+                {f.missedPolicy === 'REPLAY_WINDOW' ? (
+                  <Input
+                    label="Replay window (days)"
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={f.missedWindowDays}
+                    onChange={(e) => set({ missedWindowDays: e.target.value })}
+                  />
+                ) : null}
               </div>
               <Checkbox
                 label="Add to calendar"
