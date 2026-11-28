@@ -512,7 +512,7 @@ describe('GET /admin/firms and /admin/dashboard', () => {
     expect(counts.total).toBe(counts.active! + counts.pendingSetup! + counts.inactive!);
   });
 
-  it('gives the dashboard counts: staff and client logins, and no revenue before billing', async () => {
+  it('gives the dashboard counts: staff and client logins, and this month’s collected revenue', async () => {
     const d = (await get('/admin/dashboard').expect(200)).body as AdminDashboard;
     expect(d.pendingApplications).toBeGreaterThanOrEqual(2);
     expect(d.activeFirms).toBeGreaterThanOrEqual(2);
@@ -520,7 +520,8 @@ describe('GET /admin/firms and /admin/dashboard', () => {
     expect(d.totalUsers).toBeGreaterThanOrEqual(7);
     expect(d.newUsersThisWeek).toBeGreaterThanOrEqual(7);
     expect(d.newUsersThisWeek).toBeLessThanOrEqual(d.totalUsers!);
-    expect(d.monthlyRevenueCents).toBe(0);
+    // SA-DSH-F05: Billing > Revenue's query for this month (admin-billing.e2e checks they match).
+    expect(d.monthlyRevenueCents).toBeGreaterThanOrEqual(0);
   });
 
   it("SA-DSH-F09: Open support tickets counts only what the viewer's Support list shows", async () => {

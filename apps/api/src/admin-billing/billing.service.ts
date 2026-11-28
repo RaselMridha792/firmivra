@@ -19,6 +19,8 @@ import {
   type BillingPaymentPage,
   type BillingPaymentsQuery,
   type BillingPaymentSummary,
+  type BillingRevenue,
+  type BillingRevenueQuery,
   type BillingRecurring,
   type BillingRecurringCounts,
   type BillingRecurringPage,
@@ -38,6 +40,7 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { AdminPrisma } from '../firm-applications/admin-prisma.js';
+import { revenueReport } from './billing-revenue.js';
 import {
   ADJUSTMENT_LINE,
   addDays,
@@ -651,6 +654,11 @@ export class BillingService {
         query.pageSize,
       );
     });
+  }
+
+  /** SA-BIL-A1: the shared revenue query (billing-revenue.ts), in platform scope. */
+  revenue(query: Out<typeof BillingRevenueQuery>): Promise<BillingRevenue> {
+    return this.admin.transaction((tx) => revenueReport(tx, query));
   }
 
   paymentSummary(query: Out<typeof BillingPaymentsQuery>): Promise<BillingPaymentSummary> {
