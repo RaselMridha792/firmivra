@@ -188,6 +188,13 @@ export const NOTIFICATION_EVENTS = {
    * client (with the portal link to pay again) and the firm.
    */
   'payment.failed': { category: 'BILLING', kind: 'invoice', to: 'both' },
+  /**
+   * Q23 (IP-041): a client disputed a Stripe payment of the invoice with their bank, and later the
+   * dispute closed. A bell item for the firm only; the firm answers it in Stripe. Never an amount
+   * or a reason.
+   */
+  'payment.disputed': { category: 'BILLING', kind: 'invoice', to: 'staff' },
+  'payment.dispute-closed': { category: 'BILLING', kind: 'invoice', to: 'staff' },
   // ----- Account and team (locked) -----
   'account.password-changed': { category: 'ACCOUNT', kind: 'user', to: 'both' },
   /**

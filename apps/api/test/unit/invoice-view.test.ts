@@ -21,6 +21,7 @@ const payment = (p: Partial<Payment> & Pick<Payment, 'status'>): Payment => ({
   last4: null,
   createdAt: new Date(),
   _count: { events: 1 },
+  events: [],
   refunds: [],
   invoiceEvents: [],
   ...p,

@@ -52,6 +52,9 @@ const methodText = (p: { methodType: string | null; last4: string | null }) => {
   return p.last4 ? `, ${kind} ••${p.last4}` : `, ${kind}`;
 };
 
+/** Q23 (IP-041): a bank payment (ACH), refunded in full only. */
+const bankPayment = (p: { methodType: string | null }) => p.methodType === 'us_bank_account';
+
 const PAYMENT_STATUS: Record<string, string> = {
   // Q23 (IP-041): the firm's word for a payment Stripe is still settling (a bank debit).
   PENDING: 'Payment pending',
@@ -313,6 +316,13 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                         : ''}
                       {p.refunds.some((r) => r.status === 'PENDING') ? ' · Refund pending' : ''}
                       {p.failureCode ? ` · ${p.failureCode}` : ''}
+                      {/* Q23 (IP-041): the client disputed it with their bank; the invoice stays paid. */}
+                      {p.disputed ? (
+                        <span className="font-semibold text-danger" data-testid="payment-disputed">
+                          {' '}
+                          · Disputed
+                        </span>
+                      ) : null}
                     </span>
                     {p.status === 'SUCCEEDED' || p.status === 'REFUNDED' ? (
                       <ReceiptButton
@@ -433,8 +443,19 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
       {refunding && i ? (
         <ReasonDialog
           title={`Refund ${money(refunding.amountCents, refunding.currency)} payment`}
-          label={`Amount to refund (at most ${money(refunding.refundableCents, refunding.currency)})`}
+          label={
+            bankPayment(refunding)
+              ? 'Amount to refund'
+              : `Amount to refund (at most ${money(refunding.refundableCents, refunding.currency)})`
+          }
           initial={(refunding.refundableCents / 100).toFixed(2)}
+          // Q23 (IP-041): a bank payment is refunded in full only, and takes a few business days.
+          {...(bankPayment(refunding)
+            ? {
+                readOnly: true,
+                hint: 'A bank payment can only be refunded in full. The money reaches the client’s bank in a few business days.',
+              }
+            : {})}
           action="Issue Refund"
           onClose={() => setRefunding(undefined)}
           onSubmit={async (value, key) => {
@@ -470,6 +491,8 @@ function ReasonDialog({
   title,
   label,
   initial,
+  readOnly = false,
+  hint,
   action,
   onClose,
   onSubmit,
@@ -477,6 +500,9 @@ function ReasonDialog({
   title: string;
   label: string;
   initial: string;
+  /** The value cannot be changed (a bank payment's full refund). */
+  readOnly?: boolean;
+  hint?: string;
   action: string;
   onClose: () => void;
   onSubmit: (value: string, idempotencyKey: string) => Promise<void>;
@@ -512,6 +538,8 @@ function ReasonDialog({
           label={label}
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          readOnly={readOnly}
+          {...(hint ? { hint } : {})}
           error={error}
         />
         <Button type="submit" disabled={busy}>
