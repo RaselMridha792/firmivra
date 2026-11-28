@@ -312,7 +312,11 @@ export function GeneralSettings({ appUrl }: { appUrl: string }) {
             These settings apply to the entire Firmivra platform and all firms. Changes may impact
             all users.
           </ImportantNote>
-          <CurrentConfiguration updatedAt={q.data?.updatedAt} updatedBy={q.data?.updatedBy} />
+          <CurrentConfiguration
+            updatedAt={q.data?.updatedAt}
+            updatedBy={q.data?.updatedBy}
+            version={q.data?.version}
+          />
           <QuickLinks />
           <SaveBar
             status={status}

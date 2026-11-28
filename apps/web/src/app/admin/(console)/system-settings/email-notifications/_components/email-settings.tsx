@@ -39,6 +39,7 @@ import {
   SS,
   stamp,
 } from '../../_components/settings-kit';
+import { ReadinessPanel } from '../../_components/readiness-panel';
 
 const NAV = [
   { href: '#general', label: 'General' },
@@ -192,6 +193,8 @@ export function EmailSettings() {
           </a>
         ))}
       </nav>
+
+      <ReadinessPanel />
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-[1fr_1fr_24rem]">
         <SectionCard
