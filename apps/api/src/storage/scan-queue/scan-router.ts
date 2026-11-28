@@ -41,6 +41,9 @@ export const SCAN_PREFIXES = [
   // The scan gap (Nov 19): a communication's files, on its attachments JSON
   // (CommunicationsScanHandler); nothing goes out until they are CLEAN.
   'communications',
+  // A-X10 (Q28): a firm's advisory resource files (AdvisoryResourcesService); offered only once
+  // CLEAN.
+  'advisory-resources',
   // An applicant's response files (SA-APP-F04): tenant/{applicationId}/applications/, recorded
   // in platform scope by ApplyRespondService (an application has no firm yet).
   'applications',

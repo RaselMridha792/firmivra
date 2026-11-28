@@ -19,8 +19,8 @@ import { shouldRetry, useApiQuery } from '../../lib/query';
 import { shortDate } from './format';
 import { StatusBadge } from './status-badge';
 
-/** The status filter's choices: Delivered is shown as Sent, so it is not a choice of its own. */
-const STATUSES = EsignRequestStatus.options.filter((s) => s !== 'DELIVERED');
+/** The status filter's choices: all request statuses. */
+const STATUSES = EsignRequestStatus.options;
 
 const RANGES = [
   { value: '7', label: 'Last 7 Days' },
@@ -204,7 +204,7 @@ export function RequestsTable({
     <div
       className={`flex flex-col ${compact ? 'min-w-0 gap-3 [&_td]:px-2 [&_td]:py-2 [&_th]:px-2 [&_th]:py-2 [&_table]:text-xs' : 'gap-4'}`}
     >
-      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(140px,1fr))]">
         <Input
           label="Search documents"
           type="search"

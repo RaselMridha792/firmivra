@@ -125,9 +125,12 @@ export function SalesActionDialog({
   const general = run.error && !Object.keys(errors).length ? errorMessage(run.error) : null;
   const text = TITLES[action];
   const reps = meta.data?.reps ?? [];
-  const plans = (meta.data?.plans ?? []).filter(
-    (item) => action !== 'TRIAL' || item.id !== 'ENTERPRISE',
-  );
+  // SA-SAL-Y02: the top plan is Contact Sales, never a self-start trial. A trial lists it, named
+  // "…: contact sales" and not choosable, instead of hiding it.
+  const allPlans = meta.data?.plans ?? [];
+  const plans = allPlans.filter((item) => action !== 'TRIAL' || item.id !== 'ENTERPRISE');
+  const contactSales =
+    action === 'TRIAL' ? allPlans.filter((item) => item.id === 'ENTERPRISE') : [];
   const extraLimit = plan ? maxExtraUsers(plan) : 0;
   const failed = (open.isError && !open.data) || (meta.isError && !meta.data);
 
@@ -192,6 +195,11 @@ export function SalesActionDialog({
               options={[
                 { value: '', label: 'Choose a plan' },
                 ...plans.map((item) => ({ value: item.id, label: item.name })),
+                ...contactSales.map((item) => ({
+                  value: item.id,
+                  label: `${item.name}: contact sales`,
+                  disabled: true,
+                })),
               ]}
             />
           ) : null}

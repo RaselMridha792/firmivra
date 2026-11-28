@@ -12,7 +12,7 @@ import { PortalPageHeader } from '../../_components/portal-page-header';
 import { AppointmentStats } from './appointment-stats';
 import { ScheduleModal } from './book-appointment';
 import { MonthCalendar } from './month-calendar';
-import { myAppointmentsKey } from './shared';
+import { myAppointmentsKey, TimezoneSelector, usePortalTimezone } from './shared';
 import { SideCards } from './side-cards';
 import {
   type ActionRequest,
@@ -34,7 +34,10 @@ export function AppointmentsScreen({ book, packageId }: { book?: string; package
   // A booking link's type (Review 2, row 3): booking opens on it once, naming the package whose
   // page it came from (S12).
   const linked = typeIdOf(book);
-  const { business } = usePortal();
+  const portalInfo = usePortal();
+  const { business } = portalInfo;
+  const firmTimezone = portalInfo.timezone || 'America/New_York';
+  const { clientTimezone, setClientTimezone } = usePortalTimezone(slug, firmTimezone);
   const upcoming = useApiQuery([...myAppointmentsKey(slug), 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
@@ -80,10 +83,17 @@ export function AppointmentsScreen({ book, packageId }: { book?: string; package
 
   return (
     <div className="flex w-full flex-col gap-6 [&_.ui-dialog>div>button]:text-firm-text">
-      <PortalPageHeader
-        title={<span data-testid="page-title">Appointments</span>}
-        subtitle={`Schedule, view, and manage your appointments with ${business.name}.`}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <PortalPageHeader
+          title={<span data-testid="page-title">Appointments</span>}
+          subtitle={`Schedule, view, and manage your appointments with ${business.name}.`}
+        />
+        <TimezoneSelector
+          value={clientTimezone}
+          onChange={setClientTimezone}
+          firmTimezone={firmTimezone}
+        />
+      </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:flex">
         <AppointmentStats upcoming={upcoming.data} past={past.data} />
         <Button
@@ -99,6 +109,7 @@ export function AppointmentsScreen({ book, packageId }: { book?: string; package
         <div className="xl:col-span-5">
           <MonthCalendar
             appointments={[...(upcoming.data ?? []), ...(past.data ?? [])]}
+            clientTimezone={clientTimezone}
             onPickDay={(date) => setSchedule({ date })}
           />
         </div>
@@ -112,6 +123,8 @@ export function AppointmentsScreen({ book, packageId }: { book?: string; package
             request={request}
             onRequestDone={() => setRequest(null)}
             onViewAll={() => setHistory(true)}
+            clientTimezone={clientTimezone}
+            firmTimezone={firmTimezone}
           />
         </div>
         <div className="lg:col-span-2 xl:col-span-4">
@@ -130,6 +143,9 @@ export function AppointmentsScreen({ book, packageId }: { book?: string; package
         date={schedule?.date}
         typeId={schedule?.typeId}
         packageId={schedule?.packageId}
+        clientTimezone={clientTimezone}
+        firmTimezone={firmTimezone}
+        onTimezoneChange={setClientTimezone}
         onClose={() => setSchedule(null)}
         onBooked={(text) => {
           setSchedule(null);
@@ -137,7 +153,13 @@ export function AppointmentsScreen({ book, packageId }: { book?: string; package
         }}
       />
       <Modal open={history} title="Appointment History" onClose={() => setHistory(false)}>
-        {history ? <AppointmentHistory past={past} /> : null}
+        {history ? (
+          <AppointmentHistory
+            past={past}
+            clientTimezone={clientTimezone}
+            firmTimezone={firmTimezone}
+          />
+        ) : null}
       </Modal>
     </div>
   );

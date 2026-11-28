@@ -48,8 +48,20 @@ import { InvoiceHistoryCard } from './invoice-history';
 import { InvoicePreviewDialog } from './invoice-preview';
 import { NewMessageDialog } from '../../messages/_components/messages-screen';
 
+/** Q23 (IP-041): how the client paid, once Stripe says: "card ••4242" or "bank ••6789". */
+const methodText = (p: { methodType: string | null; last4: string | null }) => {
+  const kind =
+    p.methodType === 'us_bank_account' ? 'bank (ACH)' : p.methodType === 'card' ? 'card' : null;
+  if (!kind) return '';
+  return p.last4 ? `, ${kind} ••${p.last4}` : `, ${kind}`;
+};
+
+/** Q23 (IP-041): a bank payment (ACH), refunded in full only. */
+const bankPayment = (p: { methodType: string | null }) => p.methodType === 'us_bank_account';
+
 const PAYMENT_STATUS: Record<string, string> = {
-  PENDING: 'Pending',
+  // Q23 (IP-041): the firm's word for a payment Stripe is still settling (a bank debit).
+  PENDING: 'Payment pending',
   SUCCEEDED: 'Paid',
   FAILED: 'Failed',
   REFUNDED: 'Refunded',
@@ -365,13 +377,20 @@ export function InvoiceDetail({
                       </span>
                       {/* Q22: the client's tip, charged with it; it never pays the invoice. */}
                       {p.tipCents > 0 ? ` + ${money(p.tipCents, p.currency)} tip` : ''} · Online
-                      (Stripe) · {PAYMENT_STATUS[p.status] ?? p.status} ·{' '}
+                      (Stripe{methodText(p)}) · {PAYMENT_STATUS[p.status] ?? p.status} ·{' '}
                       {dayText(p.paidAt ?? p.createdAt)}
                       {p.refundedCents > 0
                         ? ` · Refunded ${money(p.refundedCents, p.currency)}`
                         : ''}
                       {p.refunds.some((r) => r.status === 'PENDING') ? ' · Refund pending' : ''}
                       {p.failureCode ? ` · ${p.failureCode}` : ''}
+                      {/* Q23 (IP-041): the client disputed it with their bank; the invoice stays paid. */}
+                      {p.disputed ? (
+                        <span className="font-semibold text-danger" data-testid="payment-disputed">
+                          {' '}
+                          · Disputed
+                        </span>
+                      ) : null}
                     </span>
                     {p.status === 'SUCCEEDED' || p.status === 'REFUNDED' ? (
                       <ReceiptButton
@@ -508,8 +527,19 @@ export function InvoiceDetail({
       {refunding && i ? (
         <ReasonDialog
           title={`Refund ${money(refunding.amountCents, refunding.currency)} payment`}
-          label={`Amount to refund (at most ${money(refunding.refundableCents, refunding.currency)})`}
+          label={
+            bankPayment(refunding)
+              ? 'Amount to refund'
+              : `Amount to refund (at most ${money(refunding.refundableCents, refunding.currency)})`
+          }
           initial={(refunding.refundableCents / 100).toFixed(2)}
+          // Q23 (IP-041): a bank payment is refunded in full only, and takes a few business days.
+          {...(bankPayment(refunding)
+            ? {
+                readOnly: true,
+                hint: 'A bank payment can only be refunded in full. The money reaches the client’s bank in a few business days.',
+              }
+            : {})}
           action="Issue Refund"
           onClose={() => setRefunding(undefined)}
           onSubmit={async (value, key) => {
@@ -545,6 +575,8 @@ function ReasonDialog({
   title,
   label,
   initial,
+  readOnly = false,
+  hint,
   action,
   onClose,
   onSubmit,
@@ -552,6 +584,9 @@ function ReasonDialog({
   title: string;
   label: string;
   initial: string;
+  /** The value cannot be changed (a bank payment's full refund). */
+  readOnly?: boolean;
+  hint?: string;
   action: string;
   onClose: () => void;
   onSubmit: (value: string, idempotencyKey: string) => Promise<void>;
@@ -587,6 +622,8 @@ function ReasonDialog({
           label={label}
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          readOnly={readOnly}
+          {...(hint ? { hint } : {})}
           error={error}
         />
         <Button type="submit" disabled={busy}>

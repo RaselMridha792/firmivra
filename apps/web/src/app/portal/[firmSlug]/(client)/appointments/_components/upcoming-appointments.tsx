@@ -22,6 +22,7 @@ import { useMyWaitlist, WaitlistRow } from './waitlist-row';
 import {
   APPOINTMENT_ERRORS,
   dateTile,
+  dayOf,
   firstDay,
   myAppointmentsKey,
   STALE,
@@ -60,7 +61,11 @@ const statusOf = (item: MyAppointment) =>
 
 /** The appointment Quick Actions' Reschedule or Cancel opens: the soonest one that allows it. */
 export const targetOf = (items: MyAppointment[], kind: Action) =>
-  items.find((item) => item.changeableUntil && (kind === 'cancel' || item.type));
+  items.find((item) =>
+    kind === 'cancel'
+      ? item.status === 'SCHEDULED' && !item.attending
+      : item.changeableUntil && item.type && !item.attending,
+  );
 
 /**
  * The client's scheduled appointments, soonest first, then the two latest past ones. Each
@@ -75,6 +80,8 @@ export function UpcomingAppointments({
   request,
   onRequestDone,
   onViewAll,
+  clientTimezone,
+  firmTimezone,
 }: {
   slug: string;
   upcoming: UseQueryResult<MyAppointment[]>;
@@ -85,6 +92,8 @@ export function UpcomingAppointments({
   /** The row Quick Actions opened closed its panel, finished or failed. */
   onRequestDone: () => void;
   onViewAll: () => void;
+  clientTimezone?: string;
+  firmTimezone?: string;
 }) {
   // Appointments A3: the client's waitlist entries, for each row's earlier-time offer.
   const waitlist = useMyWaitlist(slug);
@@ -127,6 +136,8 @@ export function UpcomingAppointments({
                   ask={item.id === request?.id ? request : null}
                   onFinish={item.id === request?.id ? onRequestDone : undefined}
                   onNotice={onNotice}
+                  clientTimezone={clientTimezone}
+                  firmTimezone={firmTimezone}
                   onStale={(error) => {
                     onNotice({ text: errorMessage(error, APPOINTMENT_ERRORS), failed: true });
                     void upcoming.refetch();
@@ -135,7 +146,11 @@ export function UpcomingAppointments({
               ))}
               {recent.map((item) => (
                 <li key={item.id} data-testid="past-appointment" className="py-4">
-                  <AppointmentRow item={item} />
+                  <AppointmentRow
+                    item={item}
+                    clientTimezone={clientTimezone}
+                    firmTimezone={firmTimezone}
+                  />
                 </li>
               ))}
             </ul>
@@ -147,14 +162,26 @@ export function UpcomingAppointments({
 }
 
 /** Every past appointment, newest first ("View All" and "View Appointment History"). */
-export function AppointmentHistory({ past }: { past: UseQueryResult<MyAppointment[]> }) {
+export function AppointmentHistory({
+  past,
+  clientTimezone,
+  firmTimezone,
+}: {
+  past: UseQueryResult<MyAppointment[]>;
+  clientTimezone?: string;
+  firmTimezone?: string;
+}) {
   return (
     <PageState query={past} empty="You have no past appointments yet.">
       {(items) => (
         <ul className="flex flex-col divide-y divide-border">
           {items.map((item) => (
             <li key={item.id} className="py-4">
-              <AppointmentRow item={item} />
+              <AppointmentRow
+                item={item}
+                clientTimezone={clientTimezone}
+                firmTimezone={firmTimezone}
+              />
             </li>
           ))}
         </ul>
@@ -168,13 +195,17 @@ function AppointmentRow({
   item,
   menu,
   join = false,
+  clientTimezone,
+  firmTimezone,
 }: {
   item: MyAppointment;
   menu?: ReactNode;
   /** Show the video join link (upcoming rows only). */
   join?: boolean;
+  clientTimezone?: string;
+  firmTimezone?: string;
 }) {
-  const tile = dateTile(item.startsAt);
+  const tile = dateTile(item.startsAt, clientTimezone);
   const status = statusOf(item);
   return (
     <div className="flex gap-4">
@@ -195,7 +226,7 @@ function AppointmentRow({
         </div>
         <p className="flex items-center gap-2 text-text">
           <Clock aria-hidden className="size-4 shrink-0 text-heading" />
-          {timeRange(item.startsAt, item.endsAt)}
+          <span>{timeRange(item.startsAt, item.endsAt, clientTimezone, firmTimezone)}</span>
         </p>
         <Place item={item} join={join && status.label !== 'Past'} />
       </div>
@@ -239,6 +270,8 @@ function Upcoming({
   onFinish,
   onNotice,
   onStale,
+  clientTimezone,
+  firmTimezone,
 }: {
   slug: string;
   item: MyAppointment;
@@ -250,6 +283,8 @@ function Upcoming({
   onNotice: (notice: Notice | null) => void;
   /** The cutoff passed or the firm changed it meanwhile: say why and refresh the list. */
   onStale: (error: unknown) => void;
+  clientTimezone?: string;
+  firmTimezone?: string;
 }) {
   const [action, setAction] = useState<Action | null>(ask?.kind ?? null);
   // A new Quick Actions ask (its `n` changes) opens that panel; the row keeps its key and focus.
@@ -278,12 +313,44 @@ function Upcoming({
     onFinish?.();
     onStale(error);
   };
+
+  const appointmentDay = dayOf(new Date(item.startsAt), clientTimezone);
+  const todayDay = today(clientTimezone);
+  const isSameDay = appointmentDay === todayDay;
+
+  // Support/check firm toggle for same-day rescheduling
+  const typeRecord = item.type as Record<string, unknown> | null;
+  const itemRecord = item as unknown as Record<string, unknown>;
+  const sameDayToggle =
+    typeRecord?.['allowSameDayReschedule'] ??
+    typeRecord?.['sameDayReschedule'] ??
+    itemRecord['allowSameDayReschedule'];
+  const isSameDayDisallowed = isSameDay && sameDayToggle === false;
+  const cutoffPassed = !item.changeableUntil;
+  const canReschedule = Boolean(
+    item.type && !item.attending && !cutoffPassed && !isSameDayDisallowed,
+  );
+
   return (
     <li data-testid="my-appointment" ref={rowRef} className="flex flex-col gap-3 py-4">
       <AppointmentRow
         item={item}
         join
-        menu={item.changeableUntil ? <RowMenu item={item} onChoose={open} /> : null}
+        clientTimezone={clientTimezone}
+        firmTimezone={firmTimezone}
+        menu={
+          // Cancel must remain available for upcoming appointments regardless of reschedule cutoff
+          !item.attending && item.status === 'SCHEDULED' ? (
+            <RowMenu
+              item={item}
+              canReschedule={canReschedule}
+              isSameDayDisallowed={isSameDayDisallowed}
+              clientTimezone={clientTimezone}
+              firmTimezone={firmTimezone}
+              onChoose={open}
+            />
+          ) : null
+        }
       />
       {/* Review 2 (B9): the firm's instructions, when it shows them in the portal. */}
       {item.instructions ? (
@@ -304,13 +371,22 @@ function Upcoming({
           onStale={stale}
         />
       ) : null}
-      <WaitlistRow slug={slug} item={item} waitlist={waitlist} onNotice={onNotice} />
-      {!item.changeableUntil ? (
+      <WaitlistRow
+        slug={slug}
+        item={item}
+        waitlist={waitlist}
+        onNotice={onNotice}
+        clientTimezone={clientTimezone}
+        firmTimezone={firmTimezone}
+      />
+      {!canReschedule ? (
         <p className="text-xs text-muted">
           {/* Appointments A1: another client's group appointment, read only. */}
           {item.attending
             ? 'You are attending as a guest. To change this appointment, please contact us.'
-            : 'To change this appointment, please contact us.'}
+            : isSameDayDisallowed
+              ? 'To reschedule a same-day appointment, please contact the firm.'
+              : 'To reschedule this appointment, please contact us.'}
         </p>
       ) : null}
       {action === 'reschedule' && item.type ? (
@@ -318,6 +394,8 @@ function Upcoming({
           slug={slug}
           item={item}
           typeId={item.type.id}
+          clientTimezone={clientTimezone}
+          firmTimezone={firmTimezone}
           onDone={done('Your appointment was moved.')}
           onStale={stale}
         />
@@ -326,6 +404,9 @@ function Upcoming({
         <Cancel
           slug={slug}
           id={item.id}
+          item={item}
+          clientTimezone={clientTimezone}
+          firmTimezone={firmTimezone}
           onDone={done('Your appointment was cancelled.')}
           onStale={stale}
         />
@@ -339,7 +420,21 @@ function Upcoming({
  * with the cutoff below the items. Arrow keys, Home and End move between items; Escape and a
  * choice return focus to the button.
  */
-function RowMenu({ item, onChoose }: { item: MyAppointment; onChoose: (action: Action) => void }) {
+function RowMenu({
+  item,
+  canReschedule,
+  isSameDayDisallowed,
+  clientTimezone,
+  firmTimezone,
+  onChoose,
+}: {
+  item: MyAppointment;
+  canReschedule: boolean;
+  isSameDayDisallowed: boolean;
+  clientTimezone?: string;
+  firmTimezone?: string;
+  onChoose: (action: Action) => void;
+}) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -387,7 +482,7 @@ function RowMenu({ item, onChoose }: { item: MyAppointment; onChoose: (action: A
       <button
         ref={triggerRef}
         type="button"
-        aria-label={`Actions for ${when(item.startsAt)}`}
+        aria-label={`Actions for ${when(item.startsAt, clientTimezone, firmTimezone)}`}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
@@ -402,13 +497,13 @@ function RowMenu({ item, onChoose }: { item: MyAppointment; onChoose: (action: A
             ref={menuRef}
             id={`${id}-menu`}
             role="menu"
-            aria-label={`Actions for ${when(item.startsAt)}`}
+            aria-label={`Actions for ${when(item.startsAt, clientTimezone, firmTimezone)}`}
             aria-describedby={`${id}-note`}
             onKeyDown={move}
             className="flex flex-col"
           >
             {/* Free times are per kind of appointment: one without a kind can only be cancelled. */}
-            {item.type ? (
+            {canReschedule ? (
               <button
                 type="button"
                 role="menuitem"
@@ -430,9 +525,11 @@ function RowMenu({ item, onChoose }: { item: MyAppointment; onChoose: (action: A
             </button>
           </div>
           <p id={`${id}-note`} className="px-3 py-2 text-xs text-muted">
-            {item.changeableUntil && item.type
-              ? `You can change this online until ${when(item.changeableUntil)}.`
-              : `You can cancel this online until ${when(item.changeableUntil ?? item.startsAt)}. To move it, please contact us.`}
+            {canReschedule && item.changeableUntil
+              ? `You can change this online until ${when(item.changeableUntil, clientTimezone, firmTimezone)}.`
+              : isSameDayDisallowed
+                ? 'To reschedule a same-day appointment, please contact the firm.'
+                : 'To reschedule, please contact us.'}
           </p>
         </div>
       ) : null}
@@ -444,19 +541,23 @@ function Reschedule({
   slug,
   item,
   typeId,
+  clientTimezone,
+  firmTimezone,
   onDone,
   onStale,
 }: {
   slug: string;
   item: MyAppointment;
   typeId: string;
+  clientTimezone?: string;
+  firmTimezone?: string;
   onDone: () => void;
   onStale: (error: unknown) => void;
 }) {
-  const [first] = useState(today);
+  const [first] = useState(() => today(clientTimezone));
   // Start at the appointment's own day (the client's calendar date), never before today.
   const [date, setDate] = useState(() => {
-    const day = new Intl.DateTimeFormat('en-CA').format(new Date(item.startsAt));
+    const day = dayOf(new Date(item.startsAt), clientTimezone);
     return day < first ? first : day;
   });
   const [picked, setPicked] = useState<MySlot | null>(null);
@@ -477,6 +578,7 @@ function Reschedule({
         min={firstDay(first)}
         picked={picked}
         round={round}
+        clientTimezone={clientTimezone}
         onDate={(next) => {
           setDate(next);
           setPicked(null);
@@ -503,7 +605,7 @@ function Reschedule({
         {move.isPending
           ? 'Moving…'
           : picked
-            ? `Move to ${when(picked.startsAt)}`
+            ? `Move to ${when(picked.startsAt, clientTimezone, firmTimezone)}`
             : 'Pick a new time'}
       </Button>
       {move.error ? (
@@ -518,11 +620,17 @@ function Reschedule({
 function Cancel({
   slug,
   id,
+  item,
+  clientTimezone,
+  firmTimezone,
   onDone,
   onStale,
 }: {
   slug: string;
   id: string;
+  item?: MyAppointment;
+  clientTimezone?: string;
+  firmTimezone?: string;
   onDone: () => void;
   onStale: (error: unknown) => void;
 }) {
@@ -546,6 +654,11 @@ function Cancel({
       noValidate
       className="flex flex-col items-start gap-3 rounded-card border border-border bg-canvas p-4"
     >
+      {item ? (
+        <p className="text-sm text-text">
+          Cancelling appointment: {when(item.startsAt, clientTimezone, firmTimezone)}.
+        </p>
+      ) : null}
       <div className="w-full">
         <Input
           label="Reason (optional)"

@@ -14,7 +14,6 @@ import {
   LinkSimple,
   ListBullets,
   ListNumbers,
-  Paperclip,
   PaperPlaneTilt,
   TextB,
   TextItalic,
@@ -31,6 +30,7 @@ import firmivraLogoWhite from '../../../../../../../components/app-shell/firmivr
 import {
   ADMIN_COMM_ERRORS,
   ADMIN_COMM_MERGE_FIELDS,
+  type AdminCommAttachment,
   type AdminCommMedia,
   type AdminCommTemplate,
 } from '@firmivra/types';
@@ -38,6 +38,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
+import { CommAttachments } from '../../../_components/comm-attachments';
 
 type Channel = 'EMAIL' | 'SMS';
 type ActivePopup = 'status' | 'subject-merge' | 'body-merge' | 'image' | 'save' | null;
@@ -388,6 +389,10 @@ function TemplateEditor({ template }: { template: AdminCommTemplate | null }) {
     template?.channel ?? (searchParams.get('channel') === 'SMS' ? 'SMS' : 'EMAIL'),
   );
   const [status, setStatus] = useState(template?.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
+  // SA-COM-R3: files saved with an email template, attached wherever it is used.
+  const [attachments, setAttachments] = useState<AdminCommAttachment[]>(
+    template?.attachments ?? [],
+  );
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<FieldError>({});
   const [notice, setNotice] = useState<Notice>();
@@ -466,16 +471,19 @@ function TemplateEditor({ template }: { template: AdminCommTemplate | null }) {
         body,
         status: nextStatus as 'ACTIVE' | 'INACTIVE',
       };
+      const attachmentIds = channel === 'EMAIL' ? attachments.map((a) => a.id) : [];
       if (template)
         await api.adminCommunications.templates.update(template.id, {
           ...fields,
           subject: channel === 'EMAIL' ? form.subject.trim() : null,
+          attachmentIds,
         });
       else
         await api.adminCommunications.templates.create({
           ...fields,
           channel,
           ...(channel === 'EMAIL' ? { subject: form.subject.trim() } : {}),
+          ...(attachmentIds.length ? { attachmentIds } : {}),
         });
       await client.invalidateQueries({ queryKey: ['admin-communications'] });
       router.push('/communications/templates');
@@ -868,12 +876,13 @@ function TemplateEditor({ template }: { template: AdminCommTemplate | null }) {
             <h2 id="attachments-label" className="mb-1 text-sm font-medium text-text">
               Attachments (Optional)
             </h2>
-            <div className="flex min-h-20 items-center gap-3 rounded-control border border-dashed border-control-border bg-subtle px-4 py-3 text-sm text-muted">
-              <Paperclip aria-hidden weight="fill" className="size-5 shrink-0 text-action" />
-              <span>
-                A template is the message text. Files are added to a broadcast when it is sent.
-              </span>
-            </div>
+            <CommAttachments
+              testId="template-attachments"
+              files={channel === 'EMAIL' ? attachments : []}
+              onChange={setAttachments}
+              disabled={channel !== 'EMAIL'}
+              disabledNote="A text message template carries no files."
+            />
           </section>
 
           <footer className="mt-auto flex flex-col-reverse items-stretch justify-between gap-3 border-t border-border pt-4 sm:flex-row sm:items-center">

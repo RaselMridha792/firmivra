@@ -51,7 +51,7 @@ export function agreementSignature(
   block: IntakeAgreementBlock,
   a: AgreementState,
 ): { signature: IntakeSignatureInput } | { error: string } {
-  if (!block.ready)
+  if (!block.ready && block.agreements.length > 0)
     return { error: "This form can't be signed right now. Please contact the firm." };
   const missing = block.agreements.some((g) =>
     g.acknowledgments.some((k) => k.required && !a.ticked.includes(tickKey(g, k.key))),
@@ -224,7 +224,7 @@ export function AgreementPanel({
       </SectionPanel>
     );
   }
-  if (!block.ready) {
+  if (!block.ready && block.agreements.length > 0) {
     return (
       <SectionPanel title={title} className="mt-3">
         <p role="alert" className="text-sm text-danger">

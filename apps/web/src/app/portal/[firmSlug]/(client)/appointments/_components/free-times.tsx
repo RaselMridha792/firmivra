@@ -22,6 +22,7 @@ export function FreeTimes({
   min,
   picked,
   round,
+  clientTimezone,
   onDate,
   onPick,
 }: {
@@ -33,6 +34,7 @@ export function FreeTimes({
   min: string;
   picked: MySlot | null;
   round: number;
+  clientTimezone?: string;
   onDate: (date: string) => void;
   onPick: (slot: MySlot | null) => void;
 }) {
@@ -87,7 +89,7 @@ export function FreeTimes({
                     disabled={isCurrent(slot)}
                     onClick={() => onPick(slot)}
                   >
-                    {slotLabel(slot.startsAt, date)}
+                    {slotLabel(slot.startsAt, date, clientTimezone)}
                     {isCurrent(slot) ? ' (current)' : ''}
                   </Button>
                 ))}

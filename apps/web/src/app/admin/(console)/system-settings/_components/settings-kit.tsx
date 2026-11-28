@@ -207,9 +207,12 @@ export function ImportantNote({ children, href }: { children: ReactNode; href?: 
 export function CurrentConfiguration({
   updatedAt,
   updatedBy,
+  version,
 }: {
   updatedAt?: string | null;
   updatedBy?: string | null;
+  /** SA-SYS-F2: this section's saved version. */
+  version?: number;
 }) {
   const overview = useApiQuery([...SS, 'overview'], () => api.adminSettings.overview());
   const row = (label: string, value: ReactNode) => (
@@ -232,7 +235,8 @@ export function CurrentConfiguration({
             {row('Platform Version', o.system.version)}
             {row('Environment', <Badge tone="success">{o.system.environment}</Badge>)}
             {row('Last Updated', stamp(updatedAt ?? o.system.lastUpdatedAt))}
-            {row('Updated By', updatedBy ?? '—')}
+            {row('Updated By', updatedBy ?? (updatedAt ? 'Firmivra team' : 'Never changed'))}
+            {version ? row('Section Version', `Version ${version}`) : null}
             {row('Total Firms', o.system.totalFirms.toLocaleString('en-US'))}
             {row('Total Users', o.system.totalUsers.toLocaleString('en-US'))}
           </dl>

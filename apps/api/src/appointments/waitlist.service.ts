@@ -744,7 +744,6 @@ export class AppointmentWaitlistService {
           },
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        take: OFFERS_PER_RUN,
         select: entrySelect,
       });
       if (waiting.length === 0) return;
@@ -752,6 +751,7 @@ export class AppointmentWaitlistService {
       const holds = await this.holds(tx, businessId);
       for (const e of waiting) {
         if (Date.now() > deadline) break;
+        if (offers.length >= OFFERS_PER_RUN) break;
         const a = e.appointment;
         let staff;
         try {
@@ -831,6 +831,7 @@ export class AppointmentWaitlistService {
         event: 'appointment.waitlist-offer',
         recordId: appointmentId,
         eventKey: `appointment.waitlist-offer:${entryId}:${start}`,
+        at: now,
       });
       if (result.failed) this.logger.warn(`waitlist offer ${entryId}: notice not written`);
       run.offered += 1;

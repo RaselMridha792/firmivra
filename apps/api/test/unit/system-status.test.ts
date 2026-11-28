@@ -84,12 +84,13 @@ describe('SystemStatusService', () => {
 });
 
 describe('dashboard', () => {
-  it('counts staff and client logins from users, open tickets and renewals, and gives 0 revenue', async () => {
+  it('counts staff and client logins from users, open tickets and renewals, and this month’s revenue', async () => {
     const count = vi.fn().mockResolvedValue(3);
     const userCount = vi.fn().mockResolvedValueOnce(12).mockResolvedValueOnce(2);
     const renewals = vi.fn().mockResolvedValue(1);
-    // SA-DSH-F09: the open tickets come from Support's own rule, in one admin transaction.
-    const transaction = vi.fn().mockResolvedValue(4);
+    // SA-DSH-F09: the open tickets come from Support's own rule, in one admin transaction;
+    // SA-DSH-F05: this month's revenue from Billing > Revenue's query, in another.
+    const transaction = vi.fn().mockResolvedValueOnce(4).mockResolvedValueOnce(25_700);
     const service = new FirmApplicationsService(
       {
         adminUserId: 'admin',
@@ -115,9 +116,9 @@ describe('dashboard', () => {
       newUsersThisWeek: 2,
       openTickets: 4,
       renewalsThisWeek: 1,
-      monthlyRevenueCents: 0,
+      monthlyRevenueCents: 25_700,
     });
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(userCount.mock.calls[0]?.[0]).toEqual({ where: { pool: { not: 'ADMIN' } } });
     expect(userCount.mock.calls[1]?.[0]).toMatchObject({
       where: { pool: { not: 'ADMIN' }, createdAt: { gte: expect.any(Date) } },

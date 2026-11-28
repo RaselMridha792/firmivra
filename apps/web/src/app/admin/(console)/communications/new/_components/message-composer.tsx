@@ -16,7 +16,6 @@ import {
   ListBullets,
   ListNumbers,
   MagnifyingGlass,
-  Paperclip,
   PaperPlaneTilt,
   Phone,
   Plus,
@@ -39,6 +38,7 @@ import {
   ADMIN_COMM_ERRORS,
   ADMIN_COMM_MERGE_FIELDS,
   FIRM_PLANS,
+  type AdminCommAttachment,
   type AdminCommContact,
   type AdminCommContactRef,
   type AdminCommSendMode,
@@ -49,6 +49,7 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useUnsavedGuard } from '../../../../../firm/(workspace)/tasks/_components/unsaved-guard';
 import { InsertImagePopover } from '../../templates/new/_components/create-template-screen';
 import { useApiQuery } from '../../../../../../lib/query';
+import { CommAttachments } from '../../_components/comm-attachments';
 
 type Channel = 'EMAIL' | 'SMS';
 const kindLabels: Record<AdminCommContact['type'], string> = {
@@ -173,7 +174,6 @@ function ToolbarButton({
 export function MessageComposer() {
   const router = useRouter();
   const editorRef = useRef<HTMLDivElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<AdminCommContact[]>([]);
   const [activeKey, setActiveKey] = useState('');
   const [search, setSearch] = useState('');
@@ -196,6 +196,8 @@ export function MessageComposer() {
   // SA-COM-R5: what Cancel, an in-app link or a reload would lose: recipients, copies, subject
   // and body. Leaving with any of it asks "Discard this message?" first.
   const [bodyText, setBodyText] = useState('');
+  // SA-COM-R1: email files, sent as attachments (a template's files come in when it is loaded).
+  const [attachments, setAttachments] = useState<AdminCommAttachment[]>([]);
   // SA-COM-R2: Insert Image, as Templates do (upload or the library; a reference at the cursor).
   const [imageOpen, setImageOpen] = useState(false);
   const guard = useUnsavedGuard({
@@ -204,6 +206,7 @@ export function MessageComposer() {
     bcc,
     subject,
     body: bodyText,
+    attachments: attachments.map((a) => a.id),
   });
 
   useEffect(() => {
@@ -262,6 +265,12 @@ export function MessageComposer() {
     if (chosen.subject) setSubject(chosen.subject);
     if (editorRef.current) editorRef.current.innerText = chosen.body;
     setBodyText(chosen.body);
+    // SA-COM-R3: the template's files join the ones already attached.
+    if (channel === 'EMAIL' && chosen.attachments.length)
+      setAttachments((now) => [
+        ...now,
+        ...chosen.attachments.filter((a) => !now.some((x) => x.id === a.id)),
+      ]);
   };
 
   /** One message per recipient, each in its own thread; Cc and Bcc on email only. */
@@ -287,6 +296,9 @@ export function MessageComposer() {
           ...(loadedTemplate ? { templateId: loadedTemplate } : {}),
           ...(channel === 'EMAIL' && cc.trim() ? { cc: emails(cc) } : {}),
           ...(channel === 'EMAIL' && bcc.trim() ? { bcc: emails(bcc) } : {}),
+          ...(channel === 'EMAIL' && attachments.length
+            ? { attachmentIds: attachments.map((a) => a.id) }
+            : {}),
           mode,
           ...(mode === 'SCHEDULE'
             ? {
@@ -716,30 +728,13 @@ export function MessageComposer() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                    multiple
-                    disabled
-                    className="sr-only"
-                    aria-label="Attach files"
-                  />
-                  <Button
-                    variant="secondary"
-                    disabled
-                    className="border-transparent bg-info-soft text-action hover:bg-folder-hover"
-                  >
-                    <Paperclip aria-hidden weight="bold" className="size-4" /> Attach Files
-                  </Button>
-                  <span className="text-xs text-muted">
-                    A direct message carries text; files go out with broadcasts.
-                  </span>
-                </div>
-                <span className="text-xs text-muted">0 attachments</span>
-              </div>
+              <CommAttachments
+                testId="message-attachments"
+                files={channel === 'EMAIL' ? attachments : []}
+                onChange={setAttachments}
+                disabled={channel !== 'EMAIL'}
+                disabledNote="A text message carries no files. Switch to email to attach them."
+              />
             </div>
           </NumberedSection>
 

@@ -670,6 +670,7 @@ export class ClientSignUpsService {
   ): Promise<ClientSignUpDetail> {
     await this.inFirm(actor.businessId, async (tx) => {
       const account = await this.pendingSignUp(tx, actor.businessId, clientAccountId);
+      if (body.version !== undefined && account.version !== body.version) throw staleVersion();
       const candidate = await this.candidate(tx, account.id, body.candidateClientId);
       const record = await tx.client.findUniqueOrThrow({
         where: { id: candidate.clientId },
