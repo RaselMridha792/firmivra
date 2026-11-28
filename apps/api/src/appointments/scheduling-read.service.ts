@@ -404,6 +404,11 @@ export class SchedulingReadService {
           },
         },
       });
+      const stopped = await textsStoppedOf(
+        tx,
+        businessId,
+        rows.map((c) => c.id),
+      );
       return rows.map((c) => ({
         contact: {
           kind: 'CLIENT',
@@ -415,6 +420,7 @@ export class SchedulingReadService {
           phone: c.phone,
           clientType: c.accountType,
           portal: c.accounts.length > 0,
+          ...withTextsStopped(stopped, c.id),
         } satisfies AppointmentContact,
         primary: c.accounts.find((a) => a.portalRole === 'PRIMARY')?.id ?? null,
       }));
