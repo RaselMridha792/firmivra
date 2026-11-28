@@ -218,6 +218,28 @@ export function createTasksMock(options: { role?: MockFirmRole } = {}): TasksCli
       await mockDelay();
       const taskId = parseInput(TaskId, id);
       const input = parseInput(UpdateTaskRequest, body);
+      // A task made elsewhere (a Compliance deadline's Create Task) is only in the work store; the
+      // API has one tasks table, so the same PATCH changes it (Compliance R07: its due date).
+      const work = mockTaskWorkStore().find((x) => x.id === taskId);
+      if (work && !mockTaskStore().some((x) => x.id === taskId)) {
+        if (input.dueOn !== undefined) work.dueOn = input.dueOn;
+        work.updatedAt = new Date().toISOString();
+        return {
+          id: work.id,
+          client: work.client ?? { id: firstClientId, displayName: '' },
+          engagementId: work.engagementId,
+          title: work.title,
+          details: work.details,
+          kind: work.kind,
+          status: work.status,
+          dueOn: work.dueOn,
+          assignedTo: work.assignedTo,
+          completedAt: work.completedAt,
+          createdBy: work.createdBy,
+          createdAt: work.createdAt,
+          updatedAt: work.updatedAt,
+        };
+      }
       const t = find(taskId);
       const { assignedUserId, status, ...rest } = input;
       const assignedTo =
